@@ -25,6 +25,7 @@ from typing import Any, Mapping, Sequence, Callable
 from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, infer_market_from_ticker, normalize_candidate_identity, run_pipeline
 from market_universe import (
     BASE_MARKET_SCOPES, CORE_MARKET_SCOPES, EXTENDED_NORDIC_MARKET_SCOPES,
+    CORE_MARKET_SCOPE_LABEL, EXTENDED_NORDIC_SCOPE_LABEL, NORDIC_MARKET_SCOPE_LABEL,
     FULL_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, expand_market_scope,
     infer_market_profile, market_profile_contract, profile_market_selections,
 )
@@ -37,6 +38,7 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
+from navigation_state import pin_autonomy_workspace_route_v19220_rc9
 from report_integrity import apply_report_integrity, canonical_report_view, compact_candidate_reference, validate_pdf_semantics
 from report_contracts import (
     build_report_identity as build_report_identity_contract,
@@ -51,6 +53,13 @@ from norwegian_report_language import (
 )
 
 VERSION = APP_VERSION
+
+
+def _rerun_reports_v19220_rc9(st) -> None:
+    """Rerun without allowing stale control-center state to leave Rapporter."""
+    pin_autonomy_workspace_route_v19220_rc9(st, workspace_slug="reports", public_nav="reports")
+    st.rerun()
+
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
 RUNS_DIR = ROOT / "runs"
@@ -445,20 +454,61 @@ def canonical_market_profile_selections(markets: Sequence[str] | None) -> list[s
     """
     raw = [str(x).strip() for x in (markets or []) if str(x).strip()]
     if not raw:
-        return ["Alle kjernemarkeder"]
+        return [CORE_MARKET_SCOPE_LABEL]
 
     expanded = normalize_markets(raw)
     expanded_set = set(expanded)
     if expanded_set == set(BASE_MARKET_SCOPES):
         return [FULL_MARKET_SCOPE_LABEL]
     if expanded_set == set(CORE_MARKET_SCOPES):
-        return ["Alle kjernemarkeder"]
+        return [CORE_MARKET_SCOPE_LABEL]
     if expanded_set == set(EXTENDED_NORDIC_MARKET_SCOPES):
-        return ["Utvidet Norden"]
+        return [EXTENDED_NORDIC_SCOPE_LABEL]
 
     # Return only valid individual markets, in deterministic product order.
     ordered = [market for market in BASE_MARKET_SCOPES if market in expanded_set]
-    return ordered or ["Alle kjernemarkeder"]
+    return ordered or [CORE_MARKET_SCOPE_LABEL]
+
+
+def build_market_coverage_v19220_rc9(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe planned and actual country coverage without marketing aliases."""
+    planned = [str(value) for value in (run.get("markets") or []) if str(value).strip()]
+    scan = run.get("scan_configuration") if isinstance(run.get("scan_configuration"), Mapping) else {}
+    actual_raw = scan.get("actual_by_market") if isinstance(scan.get("actual_by_market"), Mapping) else {}
+    actual_by_market = {str(key): int(value or 0) for key, value in actual_raw.items()}
+    diagnostics = [row for row in (run.get("market_diagnostics") or []) if isinstance(row, Mapping)]
+    diagnostic_by_market = {str(row.get("market") or ""): row for row in diagnostics}
+    completed: list[str] = []
+    partial: list[str] = []
+    failed: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for market in planned:
+        diag = diagnostic_by_market.get(market, {})
+        scanned = int(actual_by_market.get(market, diag.get("scanned", 0)) or 0)
+        status = str(diag.get("status") or ("OK" if scanned > 0 else "NOT_RUN")).upper()
+        errors = int(diag.get("errors", 0) or 0) + int(diag.get("market_data_errors", 0) or 0)
+        if scanned <= 0 or status in {"ERROR", "FAILED", "NOT_RUN", "SKIPPED"}:
+            failed.append(market)
+            coverage = "FAILED"
+        elif errors > 0 or status not in {"OK", "PASS", "COMPLETED"}:
+            partial.append(market)
+            coverage = "PARTIAL"
+        else:
+            completed.append(market)
+            coverage = "COMPLETED"
+        rows.append({"market": market, "planned": True, "scanned": scanned, "status": coverage, "source_status": status})
+    overall = "COMPLETE" if planned and len(completed) == len(planned) else ("PARTIAL" if completed or partial else "FAILED")
+    return {
+        "planned_markets": planned,
+        "planned_country_text": ", ".join(planned),
+        "actual_by_market": actual_by_market,
+        "completed_markets": completed,
+        "partial_markets": partial,
+        "failed_or_skipped_markets": failed,
+        "overall_status": overall,
+        "complete": overall == "COMPLETE",
+        "rows": rows,
+    }
 
 
 def _allocated_market_budget(total: int, market_index: int, market_count: int, *, minimum: int = 1) -> int:
@@ -506,7 +556,7 @@ def job_fingerprint(job: "JobProfile") -> str:
 @dataclass
 class JobProfile:
     name: str
-    markets: list[str] = field(default_factory=lambda: ["Alle kjernemarkeder"])
+    markets: list[str] = field(default_factory=lambda: [CORE_MARKET_SCOPE_LABEL])
     market_profile: str = MARKET_PROFILE_CORE
     schedules: list[str] = field(default_factory=lambda: ["08:00", "22:00"])
     weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
@@ -609,8 +659,8 @@ def load_draft_job() -> JobProfile:
         except Exception:
             pass
     return JobProfile(
-        name="Normalanalyse – Kjernemarkeder",
-        markets=["Alle kjernemarkeder"],
+        name="Normalanalyse – Norge + Sverige + USA",
+        markets=[CORE_MARKET_SCOPE_LABEL],
         schedules=[],
         enabled=False,
         job_id=DRAFT_JOB_ID,
@@ -2150,6 +2200,23 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 3),
         ("TOPPADDING", (0,0), (-1,-1), 1), ("BOTTOMPADDING", (0,0), (-1,-1), 1),
     ]))
+    coverage = run.get("market_coverage") if isinstance(run.get("market_coverage"), Mapping) else build_market_coverage_v19220_rc9(run)
+    actual_text = "; ".join(
+        f"{market}: {count}" for market, count in (coverage.get("actual_by_market") or {}).items()
+    ) or "Ingen registrerte skannetall"
+    coverage_status = {
+        "COMPLETE": "Fullført for alle valgte land",
+        "PARTIAL": "Delvis fullført",
+        "FAILED": "Ikke fullført",
+    }.get(str(coverage.get("overall_status") or "").upper(), "Ukjent")
+    coverage_table = Table([
+        [_p("Planlagte land", "Tiny"), _p(coverage.get("planned_country_text") or markets_text or "-", "Tiny"),
+         _p("Dekningsstatus", "Tiny"), _p(coverage_status, "Tiny")],
+        [_p("Faktisk skannet", "Tiny"), _p(actual_text, "Tiny"),
+         _p("Feilet / hoppet over", "Tiny"), _p(", ".join(coverage.get("failed_or_skipped_markets") or []) or "Ingen", "Tiny")],
+    ], colWidths=[24*mm, 66*mm, 30*mm, 64*mm])
+    coverage_table.setStyle(_table_style(5.7, header=False, padding=1.3))
+
     decision_story = [
         title_table,
         Paragraph(
@@ -2158,6 +2225,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ),
         Paragraph(f"Type: {escape(str(report_metadata.get('report_type') or identity.get('type') or '-'))} · Jobb: {escape(str(run.get('job_name') or '-'))}", styles["Small"]),
         decision_meta,
+        Paragraph("Markedsdekning", styles["Subsection"]),
+        coverage_table,
         Paragraph("Hovedkonklusjon", styles["Subsection"]),
         Paragraph(escape(str(decision_overview.get("conclusion") or "Ingen konklusjon registrert.")), styles["BodyCompact"]),
         executive_table,
@@ -2842,6 +2911,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 ["Markedsdata", _status_label(readiness.get("market_data") or "-"), "Evidens-/datarangering", candidate.get("evidence_ready_rank") or "-"],
                 ["Nyheter", _status_label(readiness.get("news") or "-"), "Innsider", _status_label(readiness.get("insider") or "-")],
                 ["Kildekonflikter", readiness.get("conflicts", 0), "Evidensport", _status_label(readiness.get("evidence_gate_action") or readiness.get("allowed_action") or "-")],
+                ["Analytisk vurdering", _p(candidate.get("analytical_recommendation_label") or "Ikke målt i eldre rapport"), "Handelsstatus", _p(candidate.get("trade_execution_label") or "Ikke målt i eldre rapport")],
                 ["Autonomiutfall", _p(candidate.get("autonomy_outcome_label") or decision_label_text), "Automatisk neste steg", _p(candidate.get("automatic_next_action") or "-")],
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
             readiness_table.setStyle(_table_style(6.4, header=False, padding=2.2))
@@ -3178,7 +3248,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             [_p("Posisjoner"), context.get("position_count", 0), _p("Kontant %"), context.get("cash_pct", 0), _p("Effektive posisjoner"), context.get("effective_positions", 0), _p("Porteføljevurdert"), "JA"],
         ], colWidths=[26*mm, 16*mm]*4)
         decision_table.setStyle(_table_style(6.5, header=False, padding=2))
-        story += [Paragraph("Portefølje- og beslutningslag", styles["Section"]), decision_table,
+        story += [Paragraph("Autonomis primære simulerte portefølje og beslutningslag", styles["Section"]), decision_table,
                   Paragraph(escape(_loc(str(portfolio_layer.get("approval_rule") or "Ingen kjøpskandidat vurderes isolert fra eksisterende portefølje"))), styles["Small"])]
         request = portfolio_layer.get("discovery_request") or {}
         if request:
@@ -3198,29 +3268,65 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             "addition_policy": "Tilleggskjøp ikke tillatt",
         }
         counts = dict(funnel.get("rejection_counts") or {})
+        analytical_counts = dict(funnel.get("analytical_rejection_counts") or {})
+        execution_counts = dict(funnel.get("execution_block_counts") or {})
+        funnel_rows = [row for row in (funnel.get("candidates") or []) if isinstance(row, Mapping)]
+        analytical_keys = {"mission_eligible", "valid_for_decision", "evidence_valid_for_decision", "technical_timing", "score", "data_quality", "risk", "price"}
+        execution_keys = {"portfolio_active", "position_capacity", "addition_policy", "portfolio_layer_buy", "autonomy_outcome_buy"}
+        if not analytical_counts:
+            for row in funnel_rows:
+                gates = row.get("analytical_gates") if isinstance(row.get("analytical_gates"), Mapping) else (row.get("gates") or {})
+                for key, value in gates.items():
+                    if key in analytical_keys and not value:
+                        analytical_counts[key] = analytical_counts.get(key, 0) + 1
+        if not execution_counts:
+            for row in funnel_rows:
+                gates = row.get("execution_gates") if isinstance(row.get("execution_gates"), Mapping) else (row.get("gates") or {})
+                for key, value in gates.items():
+                    if key in execution_keys and not value:
+                        execution_counts[key] = execution_counts.get(key, 0) + 1
+        analytical_buy_count = funnel.get("analytical_buy_recommendations")
+        if analytical_buy_count is None:
+            analytical_buy_count = sum(
+                all(value for key, value in ((row.get("analytical_gates") or row.get("gates") or {}).items()) if key in analytical_keys)
+                for row in funnel_rows
+            )
+        trade_executable_count = funnel.get("trade_executable", funnel.get("eligible", 0))
+        portfolio_blocked_count = funnel.get("portfolio_blocked_buy_recommendations", 0)
+        capacity_blocked_count = funnel.get("capacity_blocked_buy_recommendations", 0)
         funnel_summary = Table([
-            ["Vurdert", funnel.get("evaluated", 0), "Kjøpskvalifisert", funnel.get("eligible", 0),
-             "Avvist", funnel.get("rejected", 0), "Produksjonsterskel", _fmt(funnel.get("production_threshold", 78), 1)],
-        ], colWidths=[24*mm, 18*mm]*4)
-        funnel_summary.setStyle(_table_style(6.5, header=False, padding=2))
-        rejection_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in counts.items()) or "Ingen avvisninger"
-        story += [Paragraph("Beslutningstrakt og kjøpsvurdering", styles["Section"]), funnel_summary,
-                  Paragraph(escape(rejection_text), styles["Small"])]
-        near_rows = [["Ticker", "Score / terskel", "Datakvalitet", "Risiko", "Autonomiutfall", "Resultat / hovedgrunn"]]
+            ["Vurdert", funnel.get("evaluated", 0), "Analytiske kjøpsanbefalinger", analytical_buy_count,
+             "Gjennomførbar nå", trade_executable_count, "Produksjonsterskel", _fmt(funnel.get("production_threshold", 78), 1)],
+            ["Blokkert av Autonomi-portefølje", portfolio_blocked_count,
+             "Blokkert av posisjonsgrense", capacity_blocked_count,
+             "Ikke analytisk anbefalt", max(0, int(funnel.get("evaluated", 0)) - int(analytical_buy_count or 0)),
+             "Portefølje", _p(funnel.get("portfolio_name") or "Autonomis primære simulerte portefølje", "Tiny")],
+        ], colWidths=[30*mm, 15*mm, 35*mm, 15*mm, 28*mm, 15*mm, 24*mm, 22*mm])
+        funnel_summary.setStyle(_table_style(5.7, header=False, padding=1.6))
+        analytical_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in analytical_counts.items()) or "Ingen analytiske avvisninger"
+        execution_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in execution_counts.items()) or "Ingen gjennomføringsblokker"
+        legacy_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in counts.items()) or "Ingen avvisninger"
+        story += [Paragraph("Beslutningstrakt og kjøpsvurdering – analyse separat fra handel", styles["Section"]), funnel_summary,
+                  Paragraph("Analytiske krav: " + escape(analytical_text), styles["Small"]),
+                  Paragraph("Gjennomføring i Autonomis simulerte portefølje: " + escape(execution_text), styles["Small"]),
+                  Paragraph("Produksjonskjeden er uendret. Kompatibilitetsporter: " + escape(legacy_text), styles["Footer"])]
+        near_rows = [["Ticker", "Score / terskel", "Analytisk vurdering", "Handelsstatus", "Hovedgrunn"]]
         for row in list(funnel.get("near_threshold") or [])[:10]:
-            reason_text = "; ".join(_clean_legacy_portfolio_reason(value) for value in (row.get("reasons") or []))
+            reason_values = row.get("analytical_reasons") or row.get("reasons") or []
+            reason_text = "; ".join(_clean_legacy_portfolio_reason(value) for value in reason_values)
             near_rows.append([_p(row.get("ticker")), _p(f"{_fmt(row.get('score'))} / {_fmt(row.get('production_threshold'), 1)}"),
-                              _p(_fmt(row.get("data_quality"))), _p(_fmt(row.get("risk"))), _p(_candidate_outcome_label(row.get("ticker"), row.get("portfolio_action"))),
-                              _p(_short(reason_text, 155))])
+                              _p(row.get("analytical_recommendation_label") or "Ikke analytisk kjøpsanbefalt"),
+                              _p(row.get("trade_execution_label") or _candidate_outcome_label(row.get("ticker"), row.get("portfolio_action"))),
+                              _p(_short(reason_text, 180))])
         if len(near_rows) > 1:
-            near_table = Table(near_rows, repeatRows=1, colWidths=[18*mm, 25*mm, 22*mm, 17*mm, 30*mm, 62*mm])
-            near_table.setStyle(_table_style(6.3, padding=2))
+            near_table = Table(near_rows, repeatRows=1, colWidths=[18*mm, 26*mm, 40*mm, 48*mm, 42*mm])
+            near_table.setStyle(_table_style(5.8, padding=1.7))
             story += [Paragraph("Nærmest kjøpskravene", styles["Subsection"]), near_table]
-        shadow_rows = [["Terskel", "Rolle", "Score bestått", "Alle porter bestått", "Kandidater", "Prod. endret"]]
+        shadow_rows = [["Terskel", "Rolle", "Score bestått", "Analytisk bestått", "Alle produksjonsporter", "Prod. endret"]]
         for row in funnel.get("shadow_thresholds") or []:
             shadow_rows.append([_fmt(row.get("threshold"), 1), model_role_label(row.get("role")), row.get("score_qualified_count", 0),
-                                row.get("eligible_count", 0), _p(", ".join(row.get("eligible_tickers") or []) or "Ingen"), "NEI"])
-        shadow_table = Table(shadow_rows, repeatRows=1, colWidths=[18*mm, 27*mm, 25*mm, 29*mm, 55*mm, 20*mm])
+                                row.get("analytical_eligible_count", 0), row.get("eligible_count", 0), "NEI"])
+        shadow_table = Table(shadow_rows, repeatRows=1, colWidths=[20*mm, 30*mm, 30*mm, 32*mm, 42*mm, 20*mm])
         shadow_table.setStyle(_table_style(6.3, padding=2))
         story += [Paragraph("Skyggemodus – kjøpsterskel", styles["Subsection"]), shadow_table,
                   Paragraph("Tersklene 76, 74 og 72 er utfordrer-simuleringer. De kan ikke utløse kjøp eller endre produksjonsregelen uten eksplisitt godkjenning.", styles["Small"])]
@@ -3903,6 +4009,7 @@ def _run_job_impl(
                    for item in market_runs
                },
            }}
+    run["market_coverage"] = build_market_coverage_v19220_rc9(run)
     run["ranking_explanation"] = build_ranking_explanation(run)
     run["autonomy_candidate_handoff"] = build_autonomy_candidate_handoff(run)
     from autonomi_core.portfolio_decisions.layer import build_portfolio_aware_proposal
@@ -3947,11 +4054,13 @@ def _run_job_impl(
     try:
         from autonomous_portfolio import TRADES_PATH, load_parameters, load_portfolio
         from durable_runtime import read_json as read_durable_json
-        from autonomi_core.portfolio_decisions.decision_funnel import build_decision_funnel
+        from autonomi_core.portfolio_decisions.decision_funnel import apply_funnel_annotations, build_decision_funnel
         trades = read_durable_json("autonomous_portfolio/trades.json", TRADES_PATH, []) or []
         run["decision_funnel"] = build_decision_funnel(
             all_candidates, parameters=load_parameters().normalized(), portfolio=load_portfolio(), trades=trades,
         )
+        apply_funnel_annotations(all_candidates, run["decision_funnel"])
+        apply_funnel_annotations(run.get("candidates") or [], run["decision_funnel"])
     except Exception as exc:
         run["decision_funnel"] = {"version": APP_VERSION, "mode": "DIAGNOSTIC_ONLY", "error": str(exc)}
     # Rebuild the canonical report after Autonomi so production and learning
@@ -4403,12 +4512,12 @@ def _render_manual_report_progress_v1924() -> None:
         elif is_running(status):
             if st.button("Stopp kjøringen kontrollert", key=f"mi_stop_{execution_id}", width="content"):
                 request_cancel(execution_id, requested_by="RAPPORTSENTER")
-                st.rerun()
+                _rerun_reports_v19220_rc9(st)
 
     terminal_token = f"{execution_id}:{state}"
     if state in {"COMPLETED", "FAILED", "CANCELLED"} and st.session_state.get("mi_terminal_refresh_v1924") != terminal_token:
         st.session_state["mi_terminal_refresh_v1924"] = terminal_token
-        st.rerun()
+        _rerun_reports_v19220_rc9(st)
 
 def render_market_intelligence() -> None:
     import pandas as pd
@@ -4489,7 +4598,7 @@ def render_market_intelligence() -> None:
                     force_refresh=False,
                     scheduled_for=str(missed.get("previous_planned_utc") or ""),
                 ).get("execution_id")
-                st.rerun()
+                _rerun_reports_v19220_rc9(st)
 
     with st.container(border=True):
         st.markdown("##### 2. Handlinger")
@@ -4502,22 +4611,22 @@ def render_market_intelligence() -> None:
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 draft, trigger="MANUAL_DRAFT_TEST", force_refresh=False,
             ).get("execution_id")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         if q2.button("🌅 Kjør morgenanalyse", key="mi_quick_morning_v1924", width="content", disabled=manual_job_running or morning_job is None):
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 morning_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             ).get("execution_id")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         if q3.button("🌇 Kjør kveldsanalyse", key="mi_quick_evening_v1924", width="content", disabled=manual_job_running or evening_job is None):
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 evening_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             ).get("execution_id")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         if q4.button("🌙 Kjør nattanalyse", key="mi_quick_night_v1924", width="content", disabled=manual_job_running or night_job is None):
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 night_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             ).get("execution_id")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         unavailable = []
         if morning_job is None:
             unavailable.append("morgenanalyse")
@@ -4567,9 +4676,11 @@ def render_market_intelligence() -> None:
                 help="Klokkeslett tolkes i denne tidssonen. UTC lagres i databasen; sommer-/vintertid håndteres automatisk.",
             )
             st.caption(f"PC/nettleser oppdaget: {detected_timezone} · lokal tid nå: {local_display(_now_iso(), timezone_name)} · lagres som UTC")
-            market_choices = ["Alle kjernemarkeder", "Utvidet Norden", "Brasil", "Alle markeder - full skanning"] + [x for x in BASE_MARKET_SCOPES if x not in {"Brasil"}]
+            market_choices = [CORE_MARKET_SCOPE_LABEL, EXTENDED_NORDIC_SCOPE_LABEL, NORDIC_MARKET_SCOPE_LABEL, FULL_MARKET_SCOPE_LABEL] + [x for x in BASE_MARKET_SCOPES if x not in {"Brasil"}]
             market_defaults = canonical_market_profile_selections(current.markets if current else None)
-            markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=market_defaults, key="mi_markets_v18687", help="Alle kjernemarkeder = Norge, Sverige og USA. Danmark/Finland og Brasil kjøres separat ved behov. Full skanning er et avansert valg.")
+            markets = st.multiselect("Markeder (kan kombineres)", market_choices, default=market_defaults, key="mi_markets_v18687", help="Valgene viser nøyaktig hvilke land som blir skannet. Velg enkeltland eller en eksplisitt landkombinasjon.")
+            selected_market_preview = normalize_markets(markets)
+            st.caption("Denne kjøringen dekker: " + (", ".join(selected_market_preview) if selected_market_preview else "ingen markeder valgt"))
             schedules = st.multiselect("Faste tidspunkter (kan kombineres)", SCHEDULE_OPTIONS, default=current.schedules if current else ["08:00", "22:00"], key="mi_schedules_v18690")
             st.caption("Skanningsvinduer kjører gjentatte ganger innenfor valgte tidsrom.")
             windows = current.scan_windows if current and current.scan_windows else DEFAULT_SCAN_WINDOWS
@@ -4664,14 +4775,14 @@ def render_market_intelligence() -> None:
         if reset_alerts:
             for key, value in {"mi_push_v1924": True, "mi_notification_mode_v1924": mode_labels["ALWAYS"], "mi_pdf_v1924": True, "mi_min_score_v2000": 80, "mi_report_link_v1924": True, "mi_top3_push_v1924": True}.items(): st.session_state[key] = value
             save_global_alert_score(DEFAULT_GLOBAL_ALERT_SCORE)
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         if reset_all:
             defaults = load_draft_job()
-            defaults.name = "Morgenanalyse"; defaults.markets=["Alle kjernemarkeder"]; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
+            defaults.name = "Morgenanalyse"; defaults.markets=[CORE_MARKET_SCOPE_LABEL]; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
             write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
             for key in list(st.session_state):
                 if str(key).startswith("mi_"): del st.session_state[key]
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         st.markdown("##### Etter skanningen")
         o1,o2,o3 = st.columns(3)
         run_auto = o1.checkbox("Kjør teoretisk portefølje", value=current.run_autonomous_portfolio if current else True, key="mi_auto_port_v18690")
@@ -4720,12 +4831,12 @@ def render_market_intelligence() -> None:
             with st.spinner("Kjører test fra automatisk lagret utkast uten å sende Pushover..."):
                 _run_visible_test(False)
             st.success("Testkjøringen er fullført. Pushover ble ikke sendt. Oppsettet er fortsatt bare et utkast.")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         if b2.button("🧪 Test med Pushover", width="stretch", key="mi_test_draft_push_v1914"):
             with st.spinner("Kjører test og sender tydelig merket testvarsel..."):
                 _run_visible_test(True)
             st.success("Testkjøringen er fullført. Eventuelt varsel er merket som TESTVARSEL.")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         if b3.button("Lagre og aktiver tidsplan", width="stretch", key="mi_save_activate_v18692a"):
             same_name = next((x for x in jobs if x.name.strip().casefold() == draft_job.name.strip().casefold()), None)
             target = editing_job or same_name
@@ -4737,9 +4848,9 @@ def render_market_intelligence() -> None:
                               "enabled": bool(enabled)})
             upsert_job(job)
             st.success("Jobben er lagret. Tidsplanen er aktivert dersom «Aktiv jobb» er valgt.")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         if current and b4.button("Slett lagret jobb", width="stretch", key="mi_delete_v18692a"):
-            delete_job(current.job_id); st.success("Jobben er slettet. Det automatisk lagrede utkastet beholdes."); st.rerun()
+            delete_job(current.job_id); st.success("Jobben er slettet. Det automatisk lagrede utkastet beholdes."); _rerun_reports_v19220_rc9(st)
         if jobs:
             st.markdown("##### Lagrede jobbprofiler")
             rows = []
@@ -5057,10 +5168,10 @@ def render_market_intelligence() -> None:
                     c.download_button("Last ned tekst", data=build_text_report(saved_run), file_name=safe_ascii_report_filename(saved_run, "txt"), mime="text/plain", key=f"mi_dl_txt_{row.get('run_id')}", width="stretch")
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
                 if d.button(fav_label, key=f"mi_fav_{row.get('run_id')}", width="stretch"):
-                    set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); st.rerun()
+                    set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); _rerun_reports_v19220_rc9(st)
                 confirm = st.checkbox("Bekreft permanent sletting", key=f"mi_confirm_delete_{row.get('run_id')}")
                 if st.button("🗑 Slett rapport", key=f"mi_delete_report_{row.get('run_id')}", disabled=not confirm, width="stretch"):
-                    delete_archived_report(str(row.get("run_id"))); st.rerun()
+                    delete_archived_report(str(row.get("run_id"))); _rerun_reports_v19220_rc9(st)
 
     with tab_accuracy:
         from historical_learning import render_accuracy_analytics
@@ -5122,7 +5233,7 @@ def render_market_intelligence() -> None:
             from scheduler_background import run_scheduler_cycle
             result = run_scheduler_cycle()
             st.success(f"Planleggersjekk fullført. Kjøringer startet: {result.get('runs', 0)}")
-            st.rerun()
+            _rerun_reports_v19220_rc9(st)
         with st.expander("Planleggerdetaljer", expanded=False):
             st.json({"unattended": unattended, "health": health})
         latest_run = _read(LATEST_PATH, {})

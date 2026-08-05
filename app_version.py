@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc8"
-APP_VERSION_NAME = "Investor Edition Release Candidate 8"
+APP_VERSION = "v19.22.0-rc9"
+APP_VERSION_NAME = "Investor Edition Release Candidate 9"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc7"
+PREVIOUS_APP_VERSION = "v19.22.0-rc8"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc9: Markedsvalg viser eksplisitt hvilke land som kjøres, hovedbanner og særskilt overvåking bruker uavhengige renderklasser, rapporthandlinger låser Rapporter-ruten før rerun, og kjøpskjede-auditen skiller analytisk kjøpsanbefaling fra gjennomføring i Autonomis primære simulerte portefølje. Rapporten viser planlagt/faktisk markedsdekning og separate analyse-/handelsblokker. Ingen endring i final_score, rangering, produksjonsterskel eller handelsregler.",
     "v19.22.0-rc8: Stabilitets-, layout- og rapportkvalitetsversjon. Ekstra banner fjernes helt når det slås av, global visningstidssone og lokal tidsvisning er lagt til uten å endre schedulerens Europe/Oslo-tider, valutavisningen bruker responsiv struktur og to desimaler, rapporten skiller teknisk dokumentasjon, kandidatevidens, uavhengige kilder og beslutningsstyrke, uavhengige kildeantall samordnes, gammel samlet pålitelighetsscore skjules, og driftsdiagnose/visningsreset samt visuelle kontrakttester er lagt til. Ingen endring i final_score, kandidatvalg, produksjonsterskel eller handelsregler.",
     "v19.22.0-rc7: Grunnleggende navigasjons- og renderstabilisering. Kontrollsenter og indre arbeidsflater bruker én kanonisk rute, Autonomi-fanen etableres før rendering og beholdes etter rerun/refresh, aa_tab gjenopprettes bare i riktig arbeidsflate, og ytre/indre URL-skriving kan ikke lenger veksle mellom control_center og autonomy. Ingen endring i final_score, kandidatvalg, valutalogikk, scheduler-tider, innlogging eller handelsregler.",
     "v19.22.0-rc6: Valutavarsler beholder nå aktiv rute etter Hent kurs, Sjekk valutagrense, Pushover-test, helkjedetest og lagring. En eksplisitt engangs-rutelås synkroniserer kontrollsenterets gruppe-, panel- og radiotilstand før Streamlit rendrer på nytt, og Valutavarsler er klassifisert stabilt under Marked og signaler også i autonomisentrert modus. Ingen endring i valutakurslogikk, final_score, kandidatvalg, scheduler-tider eller handelsregler.",

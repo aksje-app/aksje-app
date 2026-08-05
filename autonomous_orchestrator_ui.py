@@ -13,18 +13,19 @@ from market_intelligence import _load_report_archive, load_draft_job, load_jobs,
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
 from services.storage_service import get_storage_service
 from local_time import local_display
-from market_universe import FULL_MARKET_SCOPE_LABEL
+from market_universe import CORE_MARKET_SCOPE_LABEL, EXTENDED_NORDIC_SCOPE_LABEL, NORDIC_MARKET_SCOPE_LABEL, FULL_MARKET_SCOPE_LABEL
 from navigation_state import capture_navigation_checkpoint_v19144, restore_navigation_checkpoint_v19144
 
 
 USE_JOB_MARKETS = "Bruk markedene i jobbprofilen"
 ORCHESTRATOR_MARKET_CHOICES = [
     USE_JOB_MARKETS,
-    "Alle kjernemarkeder",
+    CORE_MARKET_SCOPE_LABEL,
     "Norge",
     "Sverige",
     "USA",
-    "Utvidet Norden",
+    EXTENDED_NORDIC_SCOPE_LABEL,
+    NORDIC_MARKET_SCOPE_LABEL,
     "Danmark",
     "Finland",
     "Brasil",
@@ -204,7 +205,7 @@ def render_autonomous_orchestrator_control_center() -> None:
         key="orchestrator_ui_market_override_v19141",
         help=(
             "Valget gjelder bare denne kjøringen og endrer ikke den lagrede jobbprofilen. "
-            "Alle kjernemarkeder betyr Norge, Sverige og USA."
+            "Hvert markedsvalg viser nøyaktig hvilke land som blir skannet."
         ),
     )
     run_job = resolve_orchestrator_run_job(selected_job, market_choice)

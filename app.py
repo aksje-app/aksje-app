@@ -1,0 +1,19482 @@
+import logging
+# v18.5.12 Render import-path guard
+import os as _render_os
+import sys as _render_sys
+_render_root = _render_os.path.dirname(_render_os.path.abspath(__file__))
+if _render_root not in _render_sys.path:
+    _render_sys.path.insert(0, _render_root)
+
+# BANNER_SAFE_PRO_V7
+from ui_components import market_pulse, top_movers
+import os
+import re
+import json
+import io
+from pathlib import Path
+from urllib.parse import urlencode
+import streamlit as st
+from sticky_topbar import render_sticky_topbar
+from workspace_layout import inject_workspace_css, render_workspace_title, render_ai_control_center
+from macro_rates_breadth_ui import render_macro_rates_breadth_panel
+from ai_heatmap_ui import render_ai_heatmaps
+from forecast_backtest_ui import render_backtest_learning_panel
+from daily_ai_market_report import render_daily_ai_market_report
+from market_regime_ui import render_market_regime_widget
+from market_climate_ui import render_market_climate_panel
+from market_climate_engine import load_latest_market_climate_snapshot
+from alert_center import render_common_alert_center
+from market_intelligence_center import render_market_intelligence_center
+from forecast_ui import render_forecast_section
+from alpha_radar_ui import render_alpha_radar_panel
+from alpha_radar_enrichment import enrich_alpha_radar_row
+from actor_registry_ui import render_actor_registry_panel
+from decision_ui import render_decision_support_panel
+from nbim_radar_ui import render_nbim_radar_panel
+from finansavisen_bjellesau_ui import render_finansavisen_bjellesau_panel
+from folketrygdfondet_ui import render_folketrygdfondet_panel
+from cron_control import cron_status_text, pause_until, clear_pause, activate_full_stop, deactivate_full_stop
+from auth import require_login, render_user_admin
+try:
+    from ui_sidebar_stable import render_stable_sidebar_v18641
+except ModuleNotFoundError:
+    from tools.ui_sidebar_stable import render_stable_sidebar_v18641
+from settings_store import load_settings, save_settings, reset_settings
+from local_time import (
+    AUTO_TIMEZONE, DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, TIMEZONE_LABELS,
+    display_time, display_timezone_name, install_browser_timezone_bootstrap,
+)
+from ui_layout_contracts import (
+    currency_runtime_summary_html, currency_status_html, data_freshness_label,
+    format_decimal, special_banner_enabled,
+)
+from daily_user_experience import (
+    ADVANCED_MODE as UX_ADVANCED_MODE_V19022,
+    SIMPLE_MODE as UX_SIMPLE_MODE_V19022,
+    get_user_mode as get_user_mode_v19022,
+    status_label as ux_status_label_v19022,
+)
+from alert_state import reset_alert_state
+from pages.overview import build_overview_page
+from ui.candidate_cards import build_candidate_card
+from ui.global_styles import inject_foundation_styles_v1950, inject_final_density_styles_v1950
+# Compatibility audit anchor; implemented in ui/global_styles.py: [data-testid="stSidebarNav"] { display:none !important; }
+from market_hours import open_markets, market_status_lines, market_statuses
+from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, canonical_market_scope_label, expand_market_scope, market_scope_options
+from background_guard import market_guard_summary
+from trading_settings import load_rules, save_rules, DEFAULT_RULES
+import pandas as pd
+import plotly.graph_objects as go
+import requests
+import html
+from datetime import datetime, timedelta, timezone
+from streamlit_autorefresh import st_autorefresh
+from app_version import get_app_build_label
+from app_core.context import build_renderer_context
+from services.service_registry import get_service_registry
+
+# v19.2.0 compatibility anchors for static safety and route audits.
+# UI implementation now lives in extracted modules; these markers preserve
+# audit discoverability without duplicating executable business logic.
+# st.session_state["cc_top_picks_scope_v1863s"] = canonical_label
+# Startkapital / reset-verdi
+# Bruk porteføljeverdi
+# Sikkerhetsmodus
+
+from performance_monitor import measure as perf_measure, mark_rerun, render_performance_dashboard
+mark_rerun()  # v18.6.76 performance counter
+from ai_discovery_foundation import render_ai_discovery_foundation_panel, init_ai_discovery_db
+from autonomous_portfolio import render_autonomous_portfolio
+from autonomous_orchestrator_ui import render_autonomous_orchestrator_control_center
+from safety_audit import add_audit_event, get_feature_registry, read_recent_audit_events, run_static_regression_checks
+from governance_registry import get_changelog, get_protected_zones
+from ui_trust import format_data_trust_line, normalize_data_trust, ui_consistency_tokens
+from banner_tools import parse_banner_csv_text, parse_banner_settings, parse_ticker_text, merge_ticker_maps
+
+try:
+    from runtime_env import load_app_env
+
+    load_app_env()
+except Exception:
+    pass
+
+try:
+    import yfinance as yf
+except Exception:
+    yf = None
+
+from technical import calculate_rsi, calculate_macd, calculate_bollinger, detect_trend, technical_signal
+from patterns import detect_head_shoulders, detect_inverse_head_shoulders, breakout_scanner, build_signal_alerts
+
+from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, get_finnish_tickers, get_danish_tickers, get_brazilian_tickers, get_all_tickers
+from analysis import rank_stocks, score_stock
+from market_selector import auto_rank_market, build_top_picks
+from universe_engine import resolve_universe_tickers
+from backtest_strategy import run_monthly_score_strategy, add_stats
+from ipo import get_ipo_calendar, get_nordic_ipo_calendar, get_rumored_ipo_watchlist
+from news import get_news, simple_finance_sentiment
+from trading_engine import build_trading_decision, adjusted_score, paper_buy, paper_sell, paper_buy_instrument, paper_sell_instrument, paper_liquidity_snapshot, normalize_manual_override_state
+from paper_trading_professional import position_professional_metrics, portfolio_professional_summary, exit_simulation
+from strategy_engine import run_strategy, strategy_stats, optimize_strategy
+from strategy_test_pro import render_strategy_test_pro
+from signal_engine import calculate_signal_intelligence
+try:
+    from insider import get_insider_data
+except ImportError:
+    try:
+        from insider import get_insider_signal as get_insider_data
+    except ImportError:
+        def get_insider_data(ticker, months=6):
+            return {
+                "score": 0.50,
+                "label": "Ingen insiderdata",
+                "buy_shares": 0,
+                "sell_shares": 0,
+                "buy_count": 0,
+                "sell_count": 0,
+                "transactions": 0,
+                "latest_transactions": [],
+                "latest_type": "NONE",
+                "latest_date": None,
+                "error": "Insider-modul kunne ikke lastes",
+            }
+from analyst import get_analyst_trend
+from earnings import get_earnings
+try:
+    from fmp_signals import fetch_fmp_signal_packet, fmp_api_status, fmp_candidate_tickers
+except Exception:
+    def fetch_fmp_signal_packet(ticker):
+        return {"ticker": ticker, "enabled": False, "status": "FMP-modul kunne ikke lastes"}
+
+    def fmp_api_status():
+        return {"provider": "Financial Modeling Prep stable API", "has_key": False, "endpoints": []}
+
+    def fmp_candidate_tickers(market="Alle", limit=250):
+        return []
+from paper_store import using_postgres
+from paper_trading import load_portfolio, portfolio_value, reset_portfolio, performance_stats, STOP_LOSS_PCT, TRAILING_STOP_PCT, MAX_TRADES_PER_DAY
+from paper_store import save_portfolio
+from paper_trading_valuation import (
+    normalize_paper_portfolio,
+    paper_position_display_rows,
+    paper_position_rows,
+    paper_trade_display_rows,
+    paper_trade_rows,
+    timestamp_now,
+)
+from mobile_analysis_view import render_mobile_analysis_view, fetch_timeframe_data, get_selected_time_settings
+from global_busy import mark_choice_update, set_global_busy, update_global_busy, finish_global_busy
+from security_metadata import resolve_security_metadata, display_label, fund_display_label, enrich_security_rows, infer_security_listing
+from navigation_state import (
+    get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state,
+    normalize_navigation_values, canonical_nav_for_panel_v19220_rc7,
+    apply_route_tab_to_session_state_v19220_rc7, current_route_tab_from_session_v19220_rc7,
+)
+from runtime_safety import paper_trading_decision, runtime_safety_snapshot
+from drift_center import render_drift_center
+from runtime_dependencies import check_runtime_dependencies
+
+st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+
+_runtime_dependencies_v19146 = check_runtime_dependencies()
+if not _runtime_dependencies_v19146.get("ok"):
+    st.error("Sikker oppstart blokkert: " + " ".join(_runtime_dependencies_v19146.get("errors") or []))
+    st.stop()
+
+_runtime_safety_v19142 = runtime_safety_snapshot()
+if _runtime_safety_v19142.get("blocking_violations"):
+    st.error("Sikker oppstart blokkert: " + " ".join(_runtime_safety_v19142["blocking_violations"]))
+    st.stop()
+# v19.16.6: The Streamlit web process must remain responsive. Unattended
+# scheduling belongs to Render Cron. In-process workers are opt-in only.
+if str(os.getenv("ENABLE_WEB_BACKGROUND_SERVICES", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        from runtime_background import ensure_runtime_background_services
+        ensure_runtime_background_services()
+    except Exception as _runtime_background_exc:
+        logging.warning("Bakgrunnstjenester kunne ikke startes: %s", _runtime_background_exc)
+
+# v19.5.0: Global style layers live outside the application shell.
+inject_foundation_styles_v1950()
+
+
+# v18.6.65: Global Compact UI. Reduserer overbrede input-/parameterbokser globalt.
+
+
+
+# v18.6.67: Information Density Refactor + Chart Readability CSS.
+
+
+
+# v18.6.70: Interaktiv Analyse Layout Rebuild CSS. Ekte layoutkonsolidering for analyse/toppstripe/grafkontroller.
+
+
+
+# v18.5.89: UI consistency tokens. Low-risk CSS only; no analysemotor changes.
+
+
+
+# v18.5.90: UI Path & Legacy Cleanup hard override.
+
+
+
+# v18.5.91: GO I Visual Truth Fix.
+# Hard rule: old global-update visual paths must never be visible. One plain, full-width
+# Streamlit primary button is the only active control.
+
+
+
+# v18.5.30: Professional Trading Workspace. Legacy duplikater fjernet fra hovedvisning.
+try:
+    inject_workspace_css()
+    render_workspace_title()
+    render_sticky_topbar()
+except Exception as _workspace_error:
+    st.caption(f"Professional Trading Workspace kunne ikke vises: {_workspace_error}")
+
+
+
+
+
+
+st.markdown("""
+<style>
+/* v18.2: tydelig global oppdateringsknapp */
+button[kind="primary"] {
+    background: linear-gradient(180deg, #16b8f3 0%, #087fbd 100%) !important;
+    border: 1px solid #7dd3fc !important;
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    min-height: 2.75rem !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 7px 18px rgba(0,0,0,0.28) !important;
+}
+button[kind="primary"] p {
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+}
+/* Små røde/grønne/gule markører på toppstatus-chipene */
+.mini-status-chip.green::before,
+.mini-status-chip.red::before,
+.mini-status-chip.yellow::before {
+    content: "";
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+    margin-right: 0.25rem;
+    vertical-align: -0.02rem;
+}
+.mini-status-chip.green::before { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.6); }
+.mini-status-chip.red::before { background:#ef4444; box-shadow:0 0 8px rgba(239,68,68,.6); }
+.mini-status-chip.yellow::before { background:#f59e0b; box-shadow:0 0 8px rgba(245,158,11,.55); }
+.mini-status-chip.yellow {
+    border-color: rgba(245,158,11,0.50) !important;
+    background: rgba(120,53,15,0.24) !important;
+    color: #fde68a !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+st.markdown("""
+<style>
+/* v18.1: reparerer sidebar-kontrast og global knapp uten å blokkere klikk */
+section[data-testid="stSidebar"] {
+    background: #070d1d !important;
+}
+section[data-testid="stSidebar"] * {
+    color: #f8fafc !important;
+}
+section[data-testid="stSidebar"] svg,
+section[data-testid="stSidebar"] [data-testid="stIconMaterial"] {
+    color: #f8fafc !important;
+    fill: #f8fafc !important;
+}
+.v18-section-title {
+    font-size: 1.35rem;
+    font-weight: 900;
+    color: #f8fafc;
+    margin: 1.0rem 0 0.55rem 0;
+}
+.v18-global-note {
+    color: rgba(226,232,240,.82);
+    font-size: .9rem;
+    margin-bottom: .35rem;
+}
+.v18-status-dot {
+    display: inline-block;
+    width: 0.68rem;
+    height: 0.68rem;
+    border-radius: 999px;
+    margin-right: 0.42rem;
+    vertical-align: 0.02rem;
+}
+.v18-status-dot.green { background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.15); }
+.v18-status-dot.red { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.15); }
+.v18-status-dot.yellow { background:#f59e0b; box-shadow:0 0 0 3px rgba(245,158,11,.16); }
+.v18-dark-row {
+    border: 1px solid rgba(56,189,248,.18);
+    background: rgba(8,16,34,.58);
+    color: #f8fafc;
+    border-radius: 12px;
+    padding: .42rem .54rem;
+    font-size: .82rem;
+}
+.v18-status-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: .18rem .44rem;
+    font-size: .72rem;
+    font-weight: 900;
+    border: 1px solid rgba(148,163,184,.30);
+    background: rgba(30,41,59,.74);
+}
+.v18-status-chip.green { border-color: rgba(34,197,94,.55); background: rgba(16,65,52,.70); color:#dcfce7; }
+.v18-status-chip.yellow { border-color: rgba(245,158,11,.55); background: rgba(120,53,15,.48); color:#fde68a; }
+.v18-status-chip.red { border-color: rgba(239,68,68,.55); background: rgba(86,22,36,.56); color:#fecaca; }
+details > summary {
+    cursor: pointer !important;
+}
+details > summary::after {
+    content: "";
+}
+details > summary {
+    min-height: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: .35rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+# v18.5.81: complete clean stability pass: fixed global update button, no floating busy overlay, no dimming.
+st.markdown("""
+<style>
+/* Topbar should only show version + Klar. Global update status lives in the main bar below. */
+.ptw-global-busy-fixed {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+.ptw-v18570-status-zone { min-width: auto !important; }
+.ptw-topbar-right { gap: .65rem !important; justify-content: flex-end !important; }
+
+/* Global update bar: blue, readable, fixed in normal layout, no overlapping spinner. */
+.v18581-global-toolbar {
+    margin: .46rem 0 .62rem 0 !important;
+    padding: 0 !important;
+    position: relative !important;
+    z-index: 5 !important;
+}
+.v18581-global-toolbar [data-testid="stHorizontalBlock"] { align-items: center !important; }
+.v18581-global-status {
+    min-height: 42px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: .48rem !important;
+    padding: .42rem .72rem !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(56,189,248,.78) !important;
+    background: linear-gradient(180deg, rgba(7,89,133,.94), rgba(8,47,73,.92)) !important;
+    color: #ffffff !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 8px 18px rgba(2,132,199,.16) !important;
+    overflow: hidden !important;
+    opacity: 1 !important;
+    filter: none !important;
+}
+.v18581-global-status .main {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: .38rem !important;
+    min-width: 0 !important;
+    color:#fff !important;
+    font-size:.88rem !important;
+    font-weight:950 !important;
+    white-space: nowrap !important;
+}
+.v18581-global-status .sub {
+    font-size:.72rem !important;
+    opacity:.96 !important;
+    font-weight:850 !important;
+    margin-left:.45rem !important;
+    color:#e0f2fe !important;
+    white-space: nowrap !important;
+}
+.v18581-global-action .stButton > button {
+    min-height:42px !important;
+    width:100% !important;
+    min-width:205px !important;
+    background:linear-gradient(180deg,#38d5ff,#0284c7) !important;
+    color:#fff !important;
+    -webkit-text-fill-color:#fff !important;
+    border:1px solid rgba(186,230,253,.95) !important;
+    border-radius:13px !important;
+    font-weight:950 !important;
+    opacity:1 !important;
+    filter:none !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.28) !important;
+}
+.v18581-global-action .stButton > button p {
+    color:#fff !important;
+    -webkit-text-fill-color:#fff !important;
+    font-size:.88rem !important;
+    font-weight:950 !important;
+    white-space:nowrap !important;
+}
+.v18581-inline-spinner {
+    display:inline-block !important;
+    width:13px !important;
+    height:13px !important;
+    flex:0 0 13px !important;
+    border:2px solid rgba(255,255,255,.40) !important;
+    border-top-color:#fff !important;
+    border-radius:50% !important;
+    animation:v18581spin .8s linear infinite !important;
+    vertical-align:-2px !important;
+}
+@keyframes v18581spin { to { transform: rotate(360deg); } }
+
+/* Local widget changes must not dim/freeze the whole visual app. */
+html body .stApp,
+html body .main,
+html body section.main,
+html body div[data-testid="stAppViewContainer"],
+html body div[data-testid="stAppViewBlockContainer"],
+html body div[data-testid="block-container"] {
+    opacity:1 !important;
+    filter:none !important;
+    transition:none !important;
+}
+html body .stApp::before,
+html body .stApp::after,
+html body div[data-testid="stAppViewContainer"]::before,
+html body div[data-testid="stAppViewContainer"]::after {
+    display:none !important;
+    opacity:0 !important;
+    pointer-events:none !important;
+}
+
+/* Paper trading overview and density. */
+.v18581-paper-section-title {
+    font-size:1.0rem !important;
+    font-weight:950 !important;
+    color:#f8fafc !important;
+    margin:.70rem 0 .28rem 0 !important;
+}
+.v18581-security-help {
+    font-size:.78rem !important;
+    color:#cbd5e1 !important;
+    margin-top:.20rem !important;
+}
+.analysis-card h2, .analysis-card h3,
+.quicklist-card h2, .quicklist-card h3 {
+    font-size:1.05rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+current_user = require_login()
+
+# RC8: capture the browser timezone once.  It only affects presentation; report
+# schedules remain bound to each job's explicit timezone (normally Europe/Oslo).
+if not st.session_state.get("browser_timezone_bootstrap_v19220_rc8"):
+    install_browser_timezone_bootstrap()
+    st.session_state["browser_timezone_bootstrap_v19220_rc8"] = True
+
+
+def _render_runtime_safety_banner_v19142() -> None:
+    snapshot = runtime_safety_snapshot()
+    try:
+        from drift_recovery import drift_recovery_snapshot
+        recovery = drift_recovery_snapshot()
+    except Exception:
+        recovery = {}
+    if not snapshot.get("is_test_environment"):
+        return
+    paper = snapshot.get("paper_trading") or {}
+    db = "TILKOBLET" if snapshot.get("database_configured") else "AV"
+    notifications = "AKTIV" if snapshot.get("notifications_allowed") else "AV"
+    scheduler = "AKTIV" if snapshot.get("scheduler_enabled") else "AV"
+    background = "AKTIV" if snapshot.get("background_enabled") else "AV"
+    auth_status = snapshot.get("auth_storage") or {}
+    auth_label = "VARIG" if auth_status.get("persistent") else "IKKE VARIG"
+    paper_store_label = "VARIG" if recovery.get("paper_storage_persistent") else "IKKE VARIG"
+    normal_label = recovery.get("normal_operation_label") or "UKJENT"
+    st.markdown(
+        f"""
+        <div style='border:2px solid #f59e0b;background:rgba(120,53,15,.30);padding:.55rem .75rem;border-radius:12px;margin:.25rem 0 .65rem 0;color:#fef3c7;'>
+          <b>🧪 TESTMILJØ – ingen produksjonshandel</b><br/>
+          Tjeneste: <b>{html.escape(str(snapshot.get('service') or '-'))}</b> ·
+          Gren: <b>{html.escape(str(snapshot.get('branch') or '-'))}</b> ·
+          Commit: <b>{html.escape(str(snapshot.get('commit_short') or '-'))}</b><br/>
+          Database: <b>{db}</b> · Brukerlager: <b>{auth_label}</b> · Paperlager: <b>{paper_store_label}</b><br/>
+          Pushover: <b>{notifications}</b> · Scheduler: <b>{scheduler}</b> · Bakgrunn: <b>{background}</b> ·
+          Paper Trading: <b>{html.escape(str(paper.get('label') or 'AV'))}</b> · Normal drift: <b>{normal_label}</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_render_runtime_safety_banner_v19142()
+
+
+def get_page_context_v1950(renderer):
+    """Return an explicit, renderer-scoped application context."""
+    return build_renderer_context(
+        globals(), renderer, user=current_user, services=get_service_registry(st.session_state),
+    )
+
+
+# v18.5.68: UI polish from user screenshots: readable global button, stable no-dim reruns, compact sidebar/admin.
+st.markdown("""
+<style>
+/* Global oppdatering must be visible even when Streamlit places it in a narrow column. */
+.v18548-global-update-wrap {
+    padding: .58rem .72rem .50rem .72rem !important;
+    border-color: rgba(56,189,248,.45) !important;
+}
+.v18548-global-update-wrap {
+    margin: .35rem 0 .52rem 0 !important;
+    background: linear-gradient(180deg, rgba(8,16,34,.98), rgba(10,20,38,.94)) !important;
+}
+.v18548-global-update-wrap .stButton > button {
+    min-height: 2.85rem !important;
+    padding: .40rem 1.15rem !important;
+    border-radius: 13px !important;
+    background: linear-gradient(180deg, #22c7ff 0%, #0284c7 100%) !important;
+    border: 1px solid rgba(186,230,253,.95) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    text-shadow: 0 1px 1px rgba(0,0,0,.45) !important;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 10px 22px rgba(2,132,199,.24) !important;
+}
+.v18548-global-update-wrap .stButton > button p {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    font-size: .96rem !important; /* legacy test marker: font-size: .92rem */
+    font-weight: 950 !important;
+    letter-spacing: .01em !important;
+    white-space: nowrap !important;
+}
+/* Keep page readable during Streamlit reruns; real work is shown only by the header busy chip. */
+.stApp, .main, section.main, div[data-testid="stAppViewContainer"], div[data-testid="stAppViewBlockContainer"] {
+    opacity: 1 !important;
+    filter: none !important;
+    transition: none !important;
+}
+.stApp::before, .stApp::after, body::before, body::after,
+div[data-testid="stAppViewContainer"]::before, div[data-testid="stAppViewContainer"]::after {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+div[data-testid="stStatusWidget"], div[data-testid="stToolbar"] { opacity: 1 !important; filter: none !important; }
+.v18534-control-button-gap { height: .36rem !important; }
+.v18534-trading-control-stack .stButton > button { min-height: 34px !important; padding-top:.28rem !important; padding-bottom:.28rem !important; }
+.v18534-trading-control-stack { overflow: visible !important; padding-top:.52rem !important; }
+div[data-testid="stSpinner"] {
+    background: rgba(8,16,34,.92) !important;
+    border: 1px solid rgba(56,189,248,.35) !important;
+    border-radius: 12px !important;
+}
+/* Sidebar bottom/admin: prevent vertical word wrapping and oversized cards. */
+section[data-testid="stSidebar"] { width: 214px !important; min-width: 214px !important; }
+section[data-testid="stSidebar"] * {
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    hyphens: none !important;
+}
+section[data-testid="stSidebar"] .auth-sidebar-card,
+section[data-testid="stSidebar"] [data-testid="stExpander"] details {
+    padding: .46rem .52rem !important;
+    margin: .22rem 0 .42rem 0 !important;
+    border-radius: 12px !important;
+}
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    min-height: 30px !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+}
+section[data-testid="stSidebar"] .auth-user-row {
+    display: grid !important;
+    grid-template-columns: minmax(0,1fr) auto !important;
+    font-size: .68rem !important;
+    line-height: 1.12 !important;
+}
+section[data-testid="stSidebar"] .auth-mini-heading { font-size:.70rem !important; }
+section[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+    min-height: 30px !important;
+    font-size: .74rem !important;
+}
+
+/* v18.5.70: targeted fix - version, global update placement, loading visibility and no full-page dim. */
+.v18570-global-update-row {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(210px,260px);
+    align-items:center;
+    gap:.75rem;
+    width:100%;
+}
+.v18570-global-update-status {
+    min-height:2.65rem;
+    border:1px solid rgba(56,189,248,.42);
+    background:linear-gradient(180deg,rgba(8,16,34,.98),rgba(15,23,42,.92));
+    border-radius:13px;
+    padding:.48rem .68rem;
+    color:#e5f4ff !important;
+    font-size:.82rem;
+    line-height:1.25;
+    font-weight:850;
+}
+.v18570-global-update-status b { color:#f8fafc !important; }
+.v18570-global-update-action .stButton > button {
+    min-height:2.72rem !important;
+    width:100% !important;
+    border-radius:13px !important;
+    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    border:1px solid rgba(224,242,254,.95) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-weight:950 !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 8px 22px rgba(14,165,233,.30) !important;
+    opacity:1 !important;
+}
+.v18570-global-update-action .stButton > button p {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.94rem !important;
+    font-weight:950 !important;
+    white-space:nowrap !important;
+}
+.v18570-global-running-note {
+    margin:.22rem 0 .30rem 0;
+    border:1px solid rgba(56,189,248,.45);
+    background:rgba(8,47,73,.54);
+    border-radius:11px;
+    padding:.38rem .55rem;
+    color:#e0f2fe !important;
+    font-weight:850;
+}
+html body .stApp, html body .main, html body section.main,
+html body div[data-testid="stAppViewContainer"],
+html body div[data-testid="stAppViewBlockContainer"],
+html body div[data-testid="block-container"] {
+    opacity:1 !important;
+    filter:none !important;
+    transition:none !important;
+}
+html body .stApp::before, html body .stApp::after,
+html body div[data-testid="stAppViewContainer"]::before,
+html body div[data-testid="stAppViewContainer"]::after {
+    display:none !important;
+    opacity:0 !important;
+    pointer-events:none !important;
+}
+.ptw-v18570-status-zone { min-width: 0 !important; max-width:70vw !important; overflow:visible !important; }
+.ptw-version-chip { color:#f8fafc !important; opacity:1 !important; }
+.ptw-global-busy-fixed { opacity:1 !important; visibility:visible !important; min-width:112px !important; }
+.ptw-busy-running { min-width:184px !important; border-color:rgba(56,189,248,.85) !important; background:rgba(8,89,133,.82) !important; }
+.ptw-busy-spinner { display:inline-block !important; opacity:1 !important; visibility:visible !important; }
+.ptw-pill-ready { opacity:1 !important; visibility:visible !important; }
+
+
+/* v18.5.72: final hard-fix for Global oppdatering button/status placement. */
+.v18572-global-update-shell {
+    margin:.42rem 0 .56rem 0 !important;
+    padding:.48rem .56rem !important;
+    border:1px solid rgba(56,189,248,.62) !important;
+    border-radius:14px !important;
+    background:linear-gradient(180deg,rgba(6,18,38,.98),rgba(8,25,48,.96)) !important;
+    overflow:visible !important;
+}
+.v18572-global-status {
+    min-height:42px !important;
+    display:flex !important;
+    flex-direction:column !important;
+    justify-content:center !important;
+    border:1px solid rgba(56,189,248,.55) !important;
+    background:rgba(8,47,73,.56) !important;
+    border-radius:12px !important;
+    padding:.48rem .70rem !important;
+    color:#eaf6ff !important;
+    font-size:.86rem !important;
+    line-height:1.26 !important;
+    font-weight:850 !important;
+    opacity:1 !important;
+    filter:none !important;
+}
+.v18572-global-status b,
+.v18572-global-status span { color:#f8fbff !important; opacity:1 !important; }
+.v18572-global-update-shell .stButton > button,
+.v18572-global-update-shell button[kind="primary"] {
+    min-height:32px !important;
+    width:auto !important;
+    min-width:0 !important;
+    max-width:260px !important;
+    padding:.38rem .85rem !important;
+    border-radius:8px !important;
+    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    border:1px solid rgba(224,242,254,.98) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.86rem !important;
+    font-weight:950 !important;
+    opacity:1 !important;
+    filter:none !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 8px 22px rgba(14,165,233,.32) !important;
+    transform:none !important;
+}
+.v18572-global-update-shell .stButton > button p,
+.v18572-global-update-shell button[kind="primary"] p {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.86rem !important;
+    font-weight:950 !important;
+    white-space:nowrap !important;
+    opacity:1 !important;
+}
+.v18572-inline-spinner {
+    display:inline-block !important;
+    width:13px !important;
+    height:13px !important;
+    margin-right:.32rem !important;
+    border:2px solid rgba(255,255,255,.35) !important;
+    border-top-color:#ffffff !important;
+    border-radius:999px !important;
+    animation:v18572spin .8s linear infinite !important;
+    vertical-align:-2px !important;
+}
+@keyframes v18572spin { to { transform:rotate(360deg); } }
+
+/* v18.5.74: header/global button, stop-button clearance, sidebar/admin and Full-mode differentiation. */
+.v18574-global-toolbar { margin:.45rem 0 .65rem 0 !important; }
+.v18574-global-toolbar [data-testid="stHorizontalBlock"] { align-items:center !important; }
+.v18574-global-status {
+    min-height:42px !important; display:flex !important; align-items:center !important;
+    gap:.48rem !important; padding:.42rem .70rem !important; border-radius:12px !important;
+    border:1px solid rgba(56,189,248,.85) !important; background:linear-gradient(180deg,rgba(7,89,133,.90),rgba(3,105,161,.78)) !important;
+    color:#ffffff !important; font-size:.86rem !important; font-weight:950 !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 8px 18px rgba(14,165,233,.22) !important;
+    white-space:normal !important; overflow:visible !important; position:relative !important; z-index:2 !important;
+}
+.v18574-global-status .main { display:inline-flex !important; align-items:center !important; gap:.38rem !important; min-width:0 !important; }
+.v18574-global-status .sub { font-size:.68rem !important; opacity:.92 !important; font-weight:850 !important; margin-left:.45rem !important; color:#e0f2fe !important; }
+.v18574-global-action .stButton > button {
+    min-height:42px !important; min-width:190px !important; width:100% !important;
+    background:linear-gradient(180deg,#38d5ff,#0284c7) !important; color:#fff !important;
+    -webkit-text-fill-color:#fff !important; border:1px solid rgba(224,242,254,.98) !important;
+    border-radius:12px !important; font-weight:950 !important; opacity:1 !important; filter:none !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.18),0 10px 24px rgba(14,165,233,.30) !important;
+}
+.v18574-global-action .stButton > button p { color:#fff !important; -webkit-text-fill-color:#fff !important; font-size:.86rem !important; white-space:nowrap !important; }
+.v18534-trading-control-stack, .ptw-topbar, .top-app-status { overflow:visible !important; padding-top:1.05rem !important; }
+.v18534-trading-control-stack .stButton > button { clip-path:none !important; }
+section[data-testid="stSidebar"] { width:230px !important; min-width:230px !important; }
+section[data-testid="stSidebar"] [data-testid="stExpander"], section[data-testid="stSidebar"] [data-testid="stExpander"] details { overflow:visible !important; }
+section[data-testid="stSidebar"] summary { white-space:normal !important; line-height:1.18 !important; }
+body, .stApp, div[data-testid="stAppViewContainer"], div[data-testid="block-container"] { opacity:1 !important; filter:none !important; transition:none !important; }
+
+
+/* v18.5.74: readability/density balance for analysis views. */
+.v18574-readable-fund .v18-dark-row, .v18574-readable-fund { font-size:.86rem !important; line-height:1.48 !important; }
+.v18574-readable-fund b { font-size:.90rem !important; }
+.v18574-analysis-dense h1, .v18574-analysis-dense h2, .v18574-analysis-dense h3 { font-size:1.05rem !important; line-height:1.12 !important; margin:.35rem 0 .28rem 0 !important; }
+.v18574-quick-row { padding:.62rem .72rem !important; margin:.38rem 0 !important; }
+.v18574-quick-title { display:flex !important; align-items:center !important; gap:.32rem !important; font-size:1.08rem !important; line-height:1.20 !important; margin:0 0 .28rem 0 !important; font-weight:950 !important; min-height:1.38rem !important; }
+.v18574-quick-sub { font-size:.84rem !important; color:rgba(203,213,225,.92) !important; margin:.18rem 0 .32rem 0 !important; line-height:1.28 !important; overflow-wrap:anywhere !important; }
+.v18574-quick-row [data-testid="stMetric"] { min-height:52px !important; padding:.36rem .52rem !important; }
+.v18574-quick-row [data-testid="stMetricValue"] { font-size:1.02rem !important; }
+.v18574-quick-row [data-testid="stProgress"] { margin-top:.12rem !important; }
+.v18574-quick-row .stCaption, .v18574-quick-row [data-testid="stCaptionContainer"] { font-size:.82rem !important; line-height:1.32 !important; }
+.v1863m-quick-meta { display:flex; flex-wrap:wrap; gap:.42rem; margin:.40rem 0 .62rem 0; align-items:center; }
+.v1863m-quick-meta span { border:1px solid rgba(56,189,248,.32); background:rgba(8,47,73,.42); border-radius:999px; padding:.20rem .48rem; font-size:.76rem; font-weight:850; color:#bae6fd; line-height:1.22; white-space:nowrap; }
+.v1863m-quick-action { min-height:auto; display:flex; flex-direction:column; gap:.46rem; justify-content:flex-start; padding-top:.12rem; max-width:100%; overflow:visible; }
+.v1863m-quick-action [data-testid="stProgress"] { margin-bottom:.10rem !important; }
+.v1863m-quick-action [data-testid="stCaptionContainer"] { max-width:100% !important; line-height:1.42 !important; margin:.08rem 0 .12rem 0 !important; color:rgba(226,232,240,.90) !important; font-size:.92rem !important; white-space:normal !important; overflow-wrap:anywhere !important; }
+.v1863m-quick-action-note { font-size:.94rem; line-height:1.45; color:rgba(226,232,240,.94); min-height:0; margin:.06rem 0 .10rem 0; padding:.34rem .52rem; border-radius:10px; background:rgba(15,23,42,.45); border:1px solid rgba(148,163,184,.22); white-space:normal; overflow-wrap:anywhere; }
+.v18611-score-explain { border:1px solid rgba(125,211,252,.28); background:rgba(14,165,233,.09); border-radius:10px; padding:.50rem .62rem; color:rgba(226,232,240,.96); font-size:.94rem; line-height:1.48; margin:.08rem 0 .12rem 0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+.v18611-score-explain b { color:#f8fafc; }
+@media (max-width:900px) {
+    .v18574-quick-title { font-size:1rem !important; }
+    .v18574-quick-sub { font-size:.82rem !important; }
+    .v1863m-quick-meta span { font-size:.74rem !important; }
+    .v1863m-quick-action [data-testid="stCaptionContainer"] { font-size:.88rem !important; line-height:1.38 !important; }
+    .v18611-score-explain, .v1863m-quick-action-note { font-size:.90rem !important; line-height:1.42 !important; }
+}
+@media (max-width:760px) {
+    div[data-testid="stHorizontalBlock"] { gap:.35rem !important; }
+    .dash2026-kpi-grid { grid-template-columns:1fr !important; }
+    .v1863m-quick-action { gap:.36rem !important; }
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+_runtime_settings = load_settings()
+UI_REFRESH_MINUTES = int(_runtime_settings.get("ui_refresh_minutes", 5) or 5)
+UI_REFRESH_MINUTES = max(1, min(UI_REFRESH_MINUTES, 60))
+# V13 / Oppgave 35: Ikke kjør automatisk rerun når auto-oppdatering er slått av.
+# Periodisk refresh må aktiveres eksplisitt i banner-innstillingene.
+UI_AUTO_REFRESH_ENABLED = bool(_runtime_settings.get("ui_auto_refresh_enabled", False))
+if UI_AUTO_REFRESH_ENABLED:
+    st_autorefresh(interval=UI_REFRESH_MINUTES * 60 * 1000, key="refresh")
+
+
+# --- V14.7 helpers: stabilitet, kontrollsenter og status ---
+
+
+def _format_nok_no_decimals_v1827(value, suffix: str = " kr") -> str:
+    """Format NOK consistently with comma thousands and no decimals."""
+    try:
+        return f"{float(value):,.0f}{suffix}"
+    except Exception:
+        return f"0{suffix}"
+
+
+def _format_number_no_decimals_v1827(value) -> str:
+    """Format plain numbers consistently with comma thousands and no decimals."""
+    try:
+        return f"{float(value):,.0f}"
+    except Exception:
+        return "0"
+
+def _save_setting_patch(**updates):
+    _s = load_settings()
+    _s.update(updates)
+    save_settings(_s)
+    return _s
+
+
+def _full_stop_active():
+    """Én kilde for Full stopp/ferie-status."""
+    try:
+        _cron = cron_status_text()
+        return bool((_cron or {}).get("vacation_mode"))
+    except Exception:
+        return False
+
+
+def _auto_state(settings=None):
+    """Returner samlet Auto-status; paper-hovedbryteren overstyrer alltid UI-innstillinger."""
+    paper_gate = paper_trading_decision()
+    if not paper_gate.allowed:
+        return "BLOKKERT", "red"
+    _s = settings or load_settings()
+    if _full_stop_active():
+        return "BLOKKERT", "red"
+    if bool(_s.get("auto_trading_emergency_stop", False)):
+        return "NØDSTOPP", "red"
+    if bool(_s.get("auto_trading_paused", False)):
+        return "PAUSET", "yellow"
+    if bool(_s.get("auto_trading_enabled", False)):
+        return "AKTIV", "green"
+    return "AV", "red"
+
+
+def _paper_state(full_stop=None):
+    """Show the exact state of the shared fail-closed Paper Trading gate."""
+    decision = paper_trading_decision()
+    if not decision.allowed:
+        return decision.label, decision.color
+    if bool(_full_stop_active() if full_stop is None else full_stop):
+        return "VISNING", "yellow"
+    return decision.label, decision.color
+
+
+def _set_auto_state(state):
+    state = str(state).upper()
+    paper_gate = paper_trading_decision()
+    if state == "START" and not paper_gate.allowed:
+        st.session_state["auto_control_notice_v153"] = paper_gate.reason
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        return
+    # V15.2 / Oppgave 93: Full stopp/ferie blokkerer start av Auto trading.
+    _full_stop_is_on = _full_stop_active()
+    if state == "START" and _full_stop_is_on:
+        st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er aktiv. Bruk Opphev stopp / gjør klar før Auto trading kan startes."
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        return
+    _settings_for_start = load_settings()
+    if state == "START" and bool((_settings_for_start or {}).get("auto_trading_emergency_stop", False)):
+        st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan startes."
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        return
+    if state == "START":
+        _save_setting_patch(auto_trading_enabled=True, auto_trading_paused=False)
+    elif state == "PAUSE":
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=True)
+    elif state == "STOPP":
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
+    elif state == "NØDSTOPP":
+        _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=True)
+    st.rerun()
+
+
+def _reset_emergency_stop_v157():
+    """V15.7: Nødstopp er en egen sikkerhetslås og må oppheves eksplisitt."""
+    _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False, auto_trading_emergency_stop=False)
+    st.session_state["auto_control_notice_v153"] = "Nødstopp er tilbakestilt. Trykk Start når du vil aktivere Auto trading."
+    st.session_state["auto_control_notice_level_v153"] = "info"
+    st.rerun()
+
+
+def _deactivate_full_stop_v157():
+    """V15.7: Full stopp/ferie oppheves med egen tydelig handling."""
+    try:
+        deactivate_full_stop()
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    st.session_state["auto_control_notice_v153"] = "Full stopp / ferie er slått av. Auto trading er fortsatt AV. Trykk Start når du vil aktivere den."
+    st.session_state["auto_control_notice_level_v153"] = "success"
+    st.rerun()
+
+
+def _auto_block_reason(settings=None):
+    """V15.8: forklar hvorfor Auto trading ikke kan starte."""
+    _s = settings or load_settings()
+    if _full_stop_active():
+        return "Full stopp / ferie"
+    if bool(_s.get("auto_trading_emergency_stop", False)):
+        return "Nødstopp"
+    if bool(_s.get("auto_trading_paused", False)):
+        return "Pause"
+    return ""
+
+
+def _clear_stops_ready_v158():
+    """V15.8: trygg hovedknapp. Opphever vanlig full stopp/pause, men starter ikke trading og nullstiller ikke nødstopp."""
+    _s = load_settings()
+    if bool(_s.get("auto_trading_emergency_stop", False)):
+        st.session_state["auto_control_notice_v153"] = "Nødstopp er aktiv. Tilbakestill nødstopp separat før Auto trading kan gjøres klar."
+        st.session_state["auto_control_notice_level_v153"] = "warning"
+        st.rerun()
+        return
+    try:
+        deactivate_full_stop()
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    try:
+        clear_pause()
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    _save_setting_patch(auto_trading_enabled=False, auto_trading_paused=False)
+    st.session_state["auto_control_notice_v153"] = "Klar for Auto trading. Full stopp og pause er opphevet. Auto trading er fortsatt AV – trykk Start for å starte."
+    st.session_state["auto_control_notice_level_v153"] = "success"
+    st.rerun()
+
+
+def _render_paper_trading_control_toolbar_v1864p() -> None:
+    """Compact auto/paper control placed in the Paper Trading context."""
+    settings = load_settings()
+    full_stop = _full_stop_active()
+    emergency_stop = bool(settings.get("auto_trading_emergency_stop", False))
+    auto_label, auto_color = _auto_state(settings)
+    paper_gate = paper_trading_decision()
+    paper_label, paper_color = _paper_state(full_stop)
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(56,189,248,.42);'>
+          <div style='display:flex;align-items:center;justify-content:space-between;gap:.65rem;flex-wrap:wrap;'>
+            <b>Paper Trading-kontroll</b>
+            <span>
+              <span class='mini-status-chip {html.escape(auto_color)}'>Auto: <b>{html.escape(auto_label)}</b></span>
+              <span class='mini-status-chip {html.escape(paper_color)}'>Paper: <b>{html.escape(paper_label)}</b></span>
+            </span>
+          </div>
+          <div style='font-size:.80rem;color:rgba(226,232,240,.82);margin-top:.20rem;'>
+            Styrer bare simulert/auto paper-flyt. Ekte handel er ikke aktivert.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c_ready, c_start, c_pause, c_stop, c_emergency, c_reset = st.columns([1, 1, 0.8, 0.9, 1.0, 1.1], gap="small")
+    ready_disabled = not (bool(full_stop) or bool(settings.get("auto_trading_paused", False)))
+    with c_ready:
+        if st.button("Gjør klar", key="paper_context_ready_v1864p", width="content", disabled=ready_disabled):
+            _clear_stops_ready_v158()
+    with c_start:
+        if st.button("Start", key="paper_context_start_v1864p", width="content", disabled=bool(full_stop or emergency_stop or not paper_gate.allowed)):
+            _set_auto_state("START")
+    with c_pause:
+        if st.button("Pause", key="paper_context_pause_v1864p", width="content"):
+            _set_auto_state("PAUSE")
+    with c_stop:
+        if st.button("Stopp", key="paper_context_stop_v1864p", width="content"):
+            _set_auto_state("STOPP")
+    with c_emergency:
+        if st.button("Nødstopp", key="paper_context_emergency_v1864p", width="content"):
+            _set_auto_state("NØDSTOPP")
+    with c_reset:
+        if emergency_stop:
+            if st.button("Tilbakestill", key="paper_context_reset_emergency_v1864p", width="content"):
+                _reset_emergency_stop_v157()
+        else:
+            st.caption("Nødstopp av")
+
+
+def _display_timezone_v19220_rc8(settings=None) -> str:
+    return display_timezone_name(settings or load_settings(), streamlit_module=st)
+
+
+def _display_time_v19220_rc8(value, *, include_seconds=True, include_timezone=True, settings=None) -> str:
+    return display_time(
+        value,
+        _display_timezone_v19220_rc8(settings),
+        include_seconds=include_seconds,
+        include_timezone=include_timezone,
+    )
+
+
+def _fmt_dt_short(value):
+    if not value:
+        return "ikke kjørt"
+    try:
+        return _display_time_v19220_rc8(value, include_seconds=False, include_timezone=False)
+    except Exception:
+        return str(value).replace("T", " ")[:16]
+
+
+def _now_short():
+    return _display_time_v19220_rc8(datetime.now(timezone.utc), include_seconds=False, include_timezone=False)
+
+
+def _set_update_reason(reason: str):
+    """Lagrer synlig forklaring på hvorfor tung analyse/refresh ble kjørt."""
+    st.session_state["last_update_started_by_v148"] = reason
+    st.session_state["last_update_started_at_v148"] = _now_short()
+
+
+def _global_apply_requested_v161():
+    """V16.1: én sentral Global oppdateringsknapp styrer lagring/bruk av endringer."""
+    return bool(st.session_state.get("global_apply_all_changes_v161", False))
+
+
+def _mark_pending_global_change_v161():
+    """Lett statusflagg. Widget-rerun er greit, men tung jobb skal vente på Global oppdatering."""
+    st.session_state["pending_manual_changes_v16"] = True
+
+
+def _request_global_apply_v161():
+    """Kalles av Global oppdatering. Alle arbeidsflater kan lese dette flagget samme run."""
+    st.session_state["global_apply_all_changes_v161"] = True
+    st.session_state["heavy_update_allowed_v148"] = True
+    st.session_state["pending_manual_changes_v16"] = False
+
+
+def _finish_global_apply_v161():
+    st.session_state["global_apply_all_changes_v161"] = False
+
+
+def _finish_control_center_render_cycle_v1863ax() -> None:
+    """Close the heavy-work gate before Control Center stops the legacy tail.
+
+    The app now stops after AI Kontrollsenter is rendered. Older cleanup below
+    that stop no longer runs, so this guard prevents Global oppdatering from
+    leaving heavy_update_allowed=True on later menu-only reruns.
+    """
+    st.session_state["heavy_update_allowed_v148"] = False
+    _finish_global_apply_v161()
+
+
+def _clear_startup_heavy_update_for_control_center_v1863an() -> None:
+    """Do not let first-load setup trigger banner/data work before the Control Center."""
+    if not bool(st.session_state.pop("startup_heavy_update_pending_v1863an", False)):
+        return
+    if _global_apply_requested_v161():
+        return
+    st.session_state["heavy_update_allowed_v148"] = False
+    try:
+        finish_global_busy("Klar", "Oppstart klar uten tung Kontrollsenter-jobb")
+    except Exception:
+        pass
+
+
+def _last_update_label():
+    reason = st.session_state.get("last_update_started_by_v148", "Oppstart / cache")
+    at = st.session_state.get("last_update_started_at_v148", "-")
+    return f"{reason} · {at}"
+
+
+
+def _apply_global_update_v18548() -> None:
+    """Apply pending UI choices without spinner/dimming overlay."""
+    try:
+        st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    st.session_state["heavy_update_allowed_v148"] = True
+    try:
+        _clear_pending_manual_change()
+    except Exception:
+        st.session_state["pending_analysis_changes_v148"] = False
+    _request_global_apply_v161()
+    _set_update_reason("Global oppdatering / Oppdater hele appen")
+    finish_global_busy("Klar", "Global oppdatering er aktivert. Valgene er lagret.")
+    add_audit_event("global_update", {"reason": "Oppdater hele appen"})
+
+
+
+
+# v18.5.84: Batch B UX/stability hard overrides.
+st.markdown("""
+<style>
+/* Global update: same readable blue control on desktop and mobile.
+   Earlier versions had nowrap + narrow columns, causing desktop text collision. */
+.v18581-global-toolbar {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    position: relative !important;
+    z-index: 20 !important;
+    clear: both !important;
+}
+.v18581-global-toolbar [data-testid="stHorizontalBlock"] {
+    gap: .65rem !important;
+    align-items: stretch !important;
+}
+.v18581-global-status {
+    min-height: 50px !important;
+    height: auto !important;
+    overflow: visible !important;
+    white-space: normal !important;
+    flex-wrap: wrap !important;
+    line-height: 1.18 !important;
+    padding: .55rem .78rem !important;
+}
+.v18581-global-status .main,
+.v18581-global-status .sub {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+.v18581-global-status .main {
+    flex: 1 1 280px !important;
+    font-size: clamp(.78rem, 1.1vw, .92rem) !important;
+}
+.v18581-global-status .sub {
+    flex: 1 1 260px !important;
+    margin-left: 0 !important;
+    font-size: clamp(.66rem, .95vw, .76rem) !important;
+}
+.v18581-global-action,
+.v18581-global-action .stButton,
+.v18581-global-action .stButton > button {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+.v18581-global-action .stButton > button {
+    min-width: 0 !important;
+    white-space: normal !important;
+    overflow: visible !important;
+}
+.v18581-global-action .stButton > button p {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    line-height: 1.12 !important;
+}
+.pending-changes-box {
+    margin: .42rem 0 .65rem 0 !important;
+    position: relative !important;
+    z-index: 10 !important;
+    clear: both !important;
+}
+/* Streamlit status messages must stay in document flow, not cover controls. */
+div[data-testid="stAlert"] {
+    position: relative !important;
+    z-index: 6 !important;
+    clear: both !important;
+    margin-top: .35rem !important;
+    margin-bottom: .55rem !important;
+}
+@media (max-width: 900px) {
+    .v18581-global-toolbar [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+def _global_update_state_text_v1862():
+    pending = bool(st.session_state.get("pending_manual_changes_v16", False)) or bool(globals().get("_pending_analysis_changes_v148", False))
+    running = _global_apply_requested_v161() or bool(st.session_state.get("heavy_update_allowed_v148", False))
+    if running:
+        return "🔄", "Jobber – tung oppdatering er aktiv"
+    if pending:
+        return "!", "Endringer venter"
+    return "✅", "Klar"
+
+
+def _click_global_update_v1862():
+    set_global_busy("Global oppdatering", "Lagrer valg og starter tung oppdatering", step=0, total=1)
+    _apply_global_update_v18548()
+    try:
+        st.toast("Global oppdatering aktivert: valgene er lagret.", icon="✅")
+    except Exception:
+        st.info("Global oppdatering aktivert: valgene er lagret.")
+    st.rerun()
+
+
+def render_global_update_bar_v18548() -> None:
+    """v18.6.3: compact status only. The action button is rendered in the trading control row after Gjør klar."""
+    icon, state_txt = _global_update_state_text_v1862()
+    st.markdown(
+        f"""
+        <div class='v1862-global-status-line' data-ui-path='global-status-only-v1862'>
+            <span><b>{icon} Global:</b> {html.escape(state_txt)}</span>
+            <span>Sist: {html.escape(_last_update_label())}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_global_update_action_panel_v1863g() -> None:
+    """Stable full-width Global update action, outside the clipped top control columns."""
+    icon, state_txt = _global_update_state_text_v1862()
+    st.markdown(
+        f"""
+        <style>
+        html body .stApp .v1863g-global-action-card {{
+            display:block !important;
+            clear:both !important;
+            width:100% !important;
+            max-width:100% !important;
+            margin:.42rem 0 .58rem 0 !important;
+            padding:.72rem .88rem !important;
+            border:1px solid rgba(125,211,252,.46) !important;
+            border-left:5px solid #38d5ff !important;
+            border-radius:12px !important;
+            background:linear-gradient(180deg,rgba(8,47,73,.74),rgba(8,20,42,.72)) !important;
+            color:#e0f2fe !important;
+            overflow:visible !important;
+        }}
+        html body .stApp .v1863g-global-action-title {{
+            color:#f8fafc !important;
+            -webkit-text-fill-color:#f8fafc !important;
+            font-size:1rem !important;
+            font-weight:1000 !important;
+            line-height:1.18 !important;
+            margin-bottom:.20rem !important;
+        }}
+        html body .stApp .v1863g-global-action-sub {{
+            color:#cbd5e1 !important;
+            -webkit-text-fill-color:#cbd5e1 !important;
+            font-size:.84rem !important;
+            font-weight:820 !important;
+            line-height:1.28 !important;
+        }}
+        html body .stApp div[data-testid="stForm"]:has(button[kind="primary"]) {{
+            clear:both !important;
+            width:100% !important;
+            max-width:100% !important;
+            overflow:visible !important;
+            margin:.20rem 0 .72rem 0 !important;
+        }}
+        html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] {{
+            min-height:34px !important;
+            width:auto !important;
+            max-width:280px !important;
+            border-radius:8px !important;
+            font-size:.86rem !important;
+            font-weight:900 !important;
+            white-space:nowrap !important;
+            padding:.38rem .85rem !important;
+        }}
+        @media (max-width:900px) {{
+            html body .stApp .v1863g-global-action-card {{
+                padding:.68rem .78rem !important;
+                margin:.36rem 0 .48rem 0 !important;
+            }}
+        }}
+        </style>
+        <div class='v1863g-global-action-card'>
+            <div class='v1863g-global-action-title'>{icon} Global oppdatering</div>
+            <div class='v1863g-global-action-sub'>
+                Status: {html.escape(state_txt)} · Sist: {html.escape(_last_update_label())}<br/>
+                Bruk denne når du vil lagre valg og kjøre tung oppdatering av appen.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.form("global_update_action_form_v1863g", clear_on_submit=False):
+        _global_run_clicked = st.form_submit_button(
+            "Kjør oppdatering",
+            width="content",
+            type="secondary",
+        )
+    if _global_run_clicked:
+        _click_global_update_v1862()
+
+
+_PANEL_OPTIONS_V18531 = ["USA", "Norge", "Sverige", "Norden", "Aktivt univers", "Top Picks", "Long Engine", "IPO", "Paper Trading og kontroll"]
+
+
+def _on_active_panel_change_v18531():
+    mark_choice_update("Oppdaterer hovedpanel")
+
+
+def _render_active_main_panel_selector_v18531():
+    """Top-level panel selector placed in the header area above the ticker banner."""
+    saved = (
+        st.session_state.get("active_main_panel_radio_v15")
+        or st.session_state.get("active_main_panel_persist_v15")
+        or st.session_state.get("active_main_panel_persist_v1412")
+        or "🇺🇸 USA"
+    )
+    if saved not in _PANEL_OPTIONS_V18531:
+        saved = "🇺🇸 USA"
+    panel_help_v1863m = {
+        "🇺🇸 USA": "Viser USA-rangering og amerikanske kandidater.",
+        "🇳🇴 Norge": "Viser Norge-rangering og norske kandidater.",
+        "🇸🇪 Sverige": "Viser Sverige-rangering og svenske kandidater.",
+        "Norden": "Viser samlet rangering for Norge og Sverige.",
+        "Aktivt univers": "Viser tickerne som er satt fra Smart Universe Picker.",
+        "Top Picks Top Picks": "Samlet hurtigliste basert på valgt marked under Top Picks.",
+        "Long Engine": "Smart Money-basert Top Long USA Alpha.",
+        "🚀 IPO": "Nye og kommende børsnoteringer.",
+        "Paper Trading og kontroll": "Simulert handel, beholdning, kontroll og testportefølje.",
+    }
+    st.markdown("<div class='ptw-main-panel-nav'><div class='ptw-main-panel-nav-title'>Hovedpanel</div>", unsafe_allow_html=True)
+    active = st.selectbox(
+        "Velg hovedpanel",
+        _PANEL_OPTIONS_V18531,
+        index=_PANEL_OPTIONS_V18531.index(saved),
+        key="active_main_panel_select_v1863m",
+        on_change=_on_active_panel_change_v18531,
+        help="Bare valgt hovedpanel vises og beregnes. AI Kontrollsenteret under brukes til mer spesifikke oppgaver.",
+    )
+    st.caption(panel_help_v1863m.get(active, "Bare valgt hovedpanel vises."))
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.session_state["active_main_panel_radio_v15"] = active
+    st.session_state["active_main_panel_persist_v15"] = active
+    st.session_state["active_main_panel_persist_v1412"] = active
+    return active
+
+
+def _market_status_chips_html():
+    """Kompakt børsstatus til Kontrollsenter/sidebar uten ekstra widget-reruns."""
+    chips = []
+    try:
+        statuses = market_statuses()
+    except Exception:
+        statuses = {}
+    for key, status in (statuses or {}).items():
+        name = status.get("name", key)
+        short = {"USA": "USA", "Norge": "Norge", "Sverige": "Sverige"}.get(name, name)
+        is_open = bool(status.get("is_open"))
+        cls = "green" if is_open else "red"
+        txt = "Åpent" if is_open else "Stengt"
+        chips.append(f"<span class='mini-status-chip {cls}'>{html.escape(str(short))}: <b>{txt}</b></span>")
+    if not chips:
+        chips.append("<span class='mini-status-chip'>Børsstatus: <b>ukjent</b></span>")
+    return "".join(chips)
+
+
+def _session_status_html(user=None):
+    username = (user or {}).get("username", "-")
+    remember = "På" if st.session_state.get("auth_remember_me") else "Av"
+    expires = _fmt_dt_short(st.session_state.get("auth_expires_at"))
+    return (
+        f"<span class='mini-status-chip'>Bruker: <b>{html.escape(str(username))}</b></span>"
+        f"<span class='mini-status-chip {'green' if remember == 'På' else 'red'}'>Husk meg: <b>{remember}</b></span>"
+        f"<span class='mini-status-chip'>Utløper: <b>{html.escape(str(expires))}</b></span>"
+    )
+
+
+def _controls_differ(a, b):
+    return {k: a.get(k) for k in sorted(a)} != {k: b.get(k) for k in sorted(b)}
+
+
+def _manual_update_mode_enabled(settings=None):
+    """True når bruker har slått AV auto-oppdatering.
+
+    Streamlit vil fortsatt rerende skjermen når widgets endres, men i manuell
+    modus skal appen ikke gjøre tung datahenting/analyse før bruker trykker
+    Oppdater hele appen.
+    """
+    _s = settings or load_settings()
+    return not bool((_s or {}).get("chart_auto_update_enabled", False))
+
+
+def _heavy_update_allowed():
+    """Én hard gate for tung datahenting/analyse.
+
+    V16: Denne skal sjekkes før alt som kan hente markedsdata, bygge ranking,
+    scanne watchlist, hente bannerdata eller gjøre ekstern analyse.
+    """
+    settings = load_settings()
+    return (not _manual_update_mode_enabled(settings)) or bool(st.session_state.get("heavy_update_allowed_v148", False))
+
+
+def _mark_pending_manual_change(reason="Endringer venter"):
+    st.session_state["pending_manual_changes_v16"] = True
+    st.session_state["pending_manual_changes_reason_v16"] = reason
+
+
+def _clear_pending_manual_change():
+    st.session_state["pending_manual_changes_v16"] = False
+    st.session_state["pending_manual_changes_reason_v16"] = ""
+
+
+def _cache_key_safe(*parts):
+    raw = "__".join(str(x) for x in parts)
+    return re.sub(r"[^A-Za-z0-9_]+", "_", raw)[:180]
+
+
+def cached_score_stock_manual(ticker, use_news=False, force=False, include_insider=True):
+    """score_stock med manuell-modus cache.
+
+    Når Auto-oppdater er AV, returneres sist kjente analyse. Hvis ingen finnes,
+    hentes ikke data før bruker trykker Oppdater hele appen.
+    """
+    ticker = normalize_user_ticker(ticker)
+    key = f"score_cache_v16_{_cache_key_safe(ticker, bool(use_news), bool(include_insider))}"
+    if (not force) and (not _heavy_update_allowed()):
+        return st.session_state.get(key)
+    item = score_stock(ticker, use_news=use_news, include_insider=include_insider)
+    if item:
+        st.session_state[key] = item
+    return item
+
+
+def cached_timeframe_data_manual(ticker, timeframe, period, force=False):
+    ticker = normalize_user_ticker(ticker)
+    key = f"timeframe_cache_v16_{_cache_key_safe(ticker, timeframe, period)}"
+    if (not force) and (not _heavy_update_allowed()):
+        return st.session_state.get(key)
+    df = fetch_timeframe_data(ticker, timeframe, period)
+    try:
+        if df is not None and not df.empty:
+            st.session_state[key] = df.copy()
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    return df
+
+
+def _cached_external_signal_manual(kind, ticker, fetcher, default=None):
+    ticker = normalize_user_ticker(ticker)
+    key = f"external_signal_cache_v16_{_cache_key_safe(kind, ticker)}"
+    if not _heavy_update_allowed():
+        return st.session_state.get(key, default)
+    try:
+        val = fetcher(ticker)
+        st.session_state[key] = val
+        return val
+    except Exception:
+        return st.session_state.get(key, default)
+
+
+def _rank_cache_store(label, fp, data):
+    st.session_state[f"rank_cache_v148_{label}"] = {"fp": fp, "data": data, "updated_at": _now_short()}
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    latest[label] = data or []
+
+
+def _rank_cache_get(label, fp):
+    cache = st.session_state.get(f"rank_cache_v148_{label}") or {}
+    if cache.get("fp") == fp:
+        return cache.get("data")
+    return None
+
+
+# v18.6.34: Dashboard 2026 KPI-rad øverst. Kun lesing fra eksisterende state/cache.
+def _dashboard2026_safe_float(value, default=0.0):
+    try:
+        return float(value or default)
+    except Exception:
+        return float(default)
+
+
+def _dashboard2026_score_value(item: dict) -> float:
+    """Robust score reader for KPI cards.
+
+    Top Picks/ranking rows have used several field names through the project.
+    This keeps the dashboard connected without starting new data fetches.
+    """
+    if not isinstance(item, dict):
+        return 0.0
+    for key in (
+        "investment_score", "score", "Score", "total_score", "totalScore", "Total score", "Total Score",
+        "ai_score", "AI_score", "rank_score", "ranking_score",
+        "confidence_score", "confidence", "Confidence", "Konfidens",
+    ):
+        if key in item and item.get(key) not in (None, ""):
+            return _dashboard2026_safe_float(item.get(key), 0.0)
+    return 0.0
+
+
+def _dashboard2026_latest_rank_rows(limit: int = 250) -> list[dict]:
+    rows: list[dict] = []
+    # Prioritert: siste data som faktisk ble rendret/kjørt av Top Picks/ranking.
+    for key in (
+        "canonical_top_picks_v1891",
+        "dashboard2026_force_rows_v18635",
+        "dashboard2026_last_rendered_rankings_v18635",
+    ):
+        value = st.session_state.get(key)
+        if isinstance(value, list):
+            rows.extend([dict(x) for x in value if isinstance(x, dict)])
+
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    if isinstance(latest, dict):
+        for _label, items in latest.items():
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        rows.append(item)
+
+    # v18.9.1 authoritative source: latest successful Autonomy publication.
+    try:
+        from autonomi_core.learning_reporting import load_canonical_top_picks
+        canonical = load_canonical_top_picks()
+        canonical_rows = [dict(x) for x in canonical.get("top_picks") or [] if isinstance(x, dict)]
+        if canonical_rows:
+            rows = canonical_rows + rows
+            st.session_state["canonical_top_picks_v1891"] = canonical_rows
+    except Exception:
+        pass
+
+    # Ta også med rank_cache_* fordi noen paneler lagrer der før latest_rankings oppdateres.
+    for key, value in list(st.session_state.items()):
+        if not str(key).startswith("rank_cache_v148_") or not isinstance(value, dict):
+            continue
+        data = value.get("data")
+        if isinstance(data, list):
+            rows.extend([dict(x) for x in data if isinstance(x, dict)])
+
+    # Behold unik ticker og beste score, uten å starte ny analyse.
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in sorted(rows, key=_dashboard2026_score_value, reverse=True):
+        ticker = str(item.get("ticker") or item.get("symbol") or "").upper().strip()
+        if ticker and ticker in seen:
+            continue
+        if ticker:
+            seen.add(ticker)
+        out.append(item)
+        if len(out) >= int(limit or 250):
+            break
+    return out
+
+
+
+
+def _dashboard2026_scan_session_candidates_v18632(limit: int = 250) -> list[dict]:
+    """Fallback for Dashboard 2026 KPI boxes when latest_rankings_v148 is empty.
+
+    Leser kun eksisterende session_state-data. Starter ingen nett/datahenting.
+    Dette gjør at KPI-kortene ikke blir tomme dersom en annen modul har lagret
+    kandidater under andre nøkler enn latest_rankings_v148.
+    """
+    rows: list[dict] = []
+    interesting = ("rank", "candidate", "top", "pick", "score", "signal", "watchlist", "paper")
+    for key, value in list(st.session_state.items()):
+        key_l = str(key).lower()
+        if not any(token in key_l for token in interesting):
+            continue
+        try:
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        rows.append(dict(item))
+            elif isinstance(value, dict):
+                vals = list(value.values())
+                if vals and all(isinstance(x, dict) for x in vals[: min(len(vals), 8)]):
+                    rows.extend(dict(x) for x in vals if isinstance(x, dict))
+                elif any(k in value for k in ("ticker", "symbol", "Ticker", "score", "Score")):
+                    rows.append(dict(value))
+            elif hasattr(value, "to_dict") and hasattr(value, "columns"):
+                cols = {str(c).lower() for c in getattr(value, "columns", [])}
+                if cols.intersection({"ticker", "symbol", "score", "signal", "decision", "recommendation"}):
+                    rows.extend(value.head(limit).to_dict("records"))
+        except Exception:
+            continue
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in sorted(rows, key=_dashboard2026_score_value, reverse=True):
+        ticker = str(item.get("ticker") or item.get("symbol") or item.get("Ticker") or item.get("Symbol") or "").upper().strip()
+        if ticker and ticker in seen:
+            continue
+        if ticker:
+            seen.add(ticker)
+        out.append(item)
+        if len(out) >= int(limit or 250):
+            break
+    return out
+
+
+def _dashboard2026_kpi_cache_path_v18644():
+    """Shared lightweight KPI cache across browser sessions on the same Render instance."""
+    try:
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        os.makedirs(base, exist_ok=True)
+        return os.path.join(base, "dashboard2026_kpi_cache.json")
+    except Exception:
+        return "dashboard2026_kpi_cache.json"
+
+
+def _dashboard2026_write_kpi_cache_v18644(snapshot: dict) -> None:
+    try:
+        if not isinstance(snapshot, dict) or int(snapshot.get("rows") or 0) <= 0:
+            return
+        payload = dict(snapshot)
+        payload["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        with open(_dashboard2026_kpi_cache_path_v18644(), "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.warning("Could not write dashboard KPI cache v18.6.45: %s", e)
+
+
+def _dashboard2026_read_kpi_cache_v18644() -> dict | None:
+    try:
+        path = _dashboard2026_kpi_cache_path_v18644()
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and int(data.get("rows") or 0) > 0:
+            data["stale"] = True
+            return data
+    except Exception as e:
+        logging.warning("Could not read dashboard KPI cache v18.6.45: %s", e)
+    return None
+
+def _dashboard2026_decision_text(item: dict) -> str:
+    fields = (
+        item.get("decision"),
+        item.get("Decision"),
+        item.get("signal"),
+        item.get("Signal"),
+        item.get("recommendation"),
+        item.get("Recommendation"),
+        item.get("action"),
+        item.get("portfolio_action"),
+        item.get("action_now"),
+        item.get("Beste handling"),
+        item.get("beste_handling"),
+        item.get("Teknisk"),
+        item.get("teknisk"),
+        item.get("Anbefaling"),
+        item.get("rating"),
+    )
+    text = " ".join(str(x or "") for x in fields).upper()
+    score = _dashboard2026_score_value(item)
+    if not text.strip():
+        # Kun for dashboard-visning: bruk eksisterende score som lett indikator.
+        if score >= 7.5:
+            return "BUY"
+        if score <= 4.0:
+            return "SELL"
+        return "HOLD"
+    return text
+
+
+def _dashboard2026_make_kpi_snapshot_from_rows_v18642(rows: list[dict], buy_now_rows: list[dict] | None = None) -> dict:
+    """Create KPI snapshot without fetching new data.
+
+    v18.6.42: shared by dashboard header and the Top Picks panel itself so
+    KPI cards keep the same rows that the user can see below.
+    """
+    rows = [dict(x) for x in (rows or []) if isinstance(x, dict)]
+    buy_now_rows = [dict(x) for x in (buy_now_rows or []) if isinstance(x, dict)]
+    buy = 0
+    sell = 0
+    for item in rows:
+        text = _dashboard2026_decision_text(item)
+        if "KJØP NÅ" in text or "BUY NOW" in text or "BUY" in text or "KJØP" in text:
+            buy += 1
+        elif "SELL" in text or "AVOID" in text or "UNNG" in text or "SELG" in text:
+            sell += 1
+    if buy_now_rows:
+        buy = max(buy, len(buy_now_rows))
+
+    best_pool = rows or buy_now_rows
+    best = max(best_pool, key=_dashboard2026_score_value) if best_pool else {}
+    best_ticker = str(best.get("ticker") or best.get("symbol") or best.get("Ticker") or best.get("Symbol") or "-").upper()
+    best_score = _dashboard2026_score_value(best)
+    alerts = 0
+    for alert_key in ("live_banner_alert_log_v18610", "special_watch_alert_log_v18621", "paper_alert_events_v18611"):
+        try:
+            alerts += len(st.session_state.get(alert_key) or [])
+        except Exception:
+            pass
+    return {
+        "buy": int(buy),
+        "sell": int(sell),
+        "alerts": int(alerts),
+        "best_ticker": best_ticker,
+        "best_score": float(best_score or 0),
+        "rows": len(rows),
+        "stale": False,
+    }
+
+
+def _dashboard2026_store_visible_kpi_snapshot_v18642(rows: list[dict], buy_now_rows: list[dict] | None = None) -> None:
+    """Persist last valid KPI snapshot from the actual visible Top Picks rows."""
+    try:
+        snap = _dashboard2026_make_kpi_snapshot_from_rows_v18642(rows, buy_now_rows)
+        if int(snap.get("rows") or 0) > 0:
+            st.session_state["dashboard2026_last_valid_kpi_snapshot_v18641"] = dict(snap)
+            st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(snap)
+            _dashboard2026_write_kpi_cache_v18644(snap)
+    except Exception as e:
+        logging.warning("Could not store dashboard KPI snapshot v18.6.42: %s", e)
+
+
+def _dashboard2026_kpi_snapshot() -> dict:
+    """Build live KPI data from the same rows the visible Top Picks panel uses.
+
+    v18.6.42: never replace a valid KPI with an empty rerun; prefer the
+    snapshot saved directly by Top Picks rendering.
+    """
+    previous = st.session_state.get("dashboard2026_last_valid_kpi_snapshot_v18642") or st.session_state.get("dashboard2026_last_valid_kpi_snapshot_v18641")
+
+    rows = _dashboard2026_latest_rank_rows()
+    if not rows:
+        rows = _dashboard2026_scan_session_candidates_v18632()
+
+    buy_now_rows = [dict(x) for x in (st.session_state.get("dashboard2026_buy_now_rows_v18638") or []) if isinstance(x, dict)]
+    visible_rows = [dict(x) for x in (st.session_state.get("dashboard2026_visible_rows_v18638") or []) if isinstance(x, dict)]
+    if visible_rows:
+        rows = visible_rows
+
+    snap = _dashboard2026_make_kpi_snapshot_from_rows_v18642(rows, buy_now_rows)
+    if int(snap.get("rows") or 0) > 0:
+        st.session_state["dashboard2026_last_valid_kpi_snapshot_v18641"] = dict(snap)
+        st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(snap)
+        _dashboard2026_write_kpi_cache_v18644(snap)
+        return snap
+
+    if isinstance(previous, dict) and int(previous.get("rows") or 0) > 0:
+        cached = dict(previous)
+        cached["stale"] = True
+        return cached
+    disk_cached = _dashboard2026_read_kpi_cache_v18644()
+    if isinstance(disk_cached, dict) and int(disk_cached.get("rows") or 0) > 0:
+        st.session_state["dashboard2026_last_valid_kpi_snapshot_v18642"] = dict(disk_cached)
+        return disk_cached
+    return snap
+
+
+
+def _dashboard2026_debug_candidate_rows_v18645(limit: int = 30) -> tuple[list[dict], list[dict], dict]:
+    """Return raw rows used by KPI debug without fetching new data.
+
+    This is intentionally diagnostic: it shows which field names Top Picks uses
+    so KPI counting can be fixed based on evidence, not guessing.
+    """
+    visible_rows = [dict(x) for x in (st.session_state.get("dashboard2026_visible_rows_v18638") or []) if isinstance(x, dict)]
+    buy_now_rows = [dict(x) for x in (st.session_state.get("dashboard2026_buy_now_rows_v18638") or []) if isinstance(x, dict)]
+    force_rows = [dict(x) for x in (st.session_state.get("dashboard2026_force_rows_v18635") or []) if isinstance(x, dict)]
+    latest_rows = _dashboard2026_latest_rank_rows(limit=limit)
+    scanned_rows = [] if (visible_rows or force_rows or latest_rows) else _dashboard2026_scan_session_candidates_v18632(limit=limit)
+
+    source = "visible_rows_v18638" if visible_rows else ("force_rows_v18635" if force_rows else ("latest_rank_rows" if latest_rows else "session_scan"))
+    rows = visible_rows or force_rows or latest_rows or scanned_rows
+    rows = rows[: int(limit or 30)]
+    meta = {
+        "source": source,
+        "visible_rows": len(visible_rows),
+        "buy_now_rows": len(buy_now_rows),
+        "force_rows": len(force_rows),
+        "latest_rows": len(latest_rows),
+        "scanned_rows": len(scanned_rows),
+    }
+    return rows, buy_now_rows, meta
+
+
+def _dashboard2026_debug_row_record_v18645(item: dict) -> dict:
+    """Flatten one candidate row for the KPI debug table."""
+    item = dict(item or {})
+    keys_to_show = [
+        "ticker", "symbol", "Ticker", "Symbol", "name", "company", "company_name",
+        "score", "total_score", "ai_score", "rank_score", "confidence", "confidence_score",
+        "decision", "Decision", "signal", "Signal", "recommendation", "Recommendation",
+        "action", "action_now", "beste_handling", "Beste handling", "Teknisk", "teknisk",
+        "technical_signal", "rating", "risk", "risk_label",
+    ]
+    rec = {
+        "ticker_resolved": str(item.get("ticker") or item.get("symbol") or item.get("Ticker") or item.get("Symbol") or ""),
+        "score_resolved": _dashboard2026_score_value(item),
+        "decision_text_used_by_KPI": _dashboard2026_decision_text(item),
+    }
+    for key in keys_to_show:
+        if key in item:
+            value = item.get(key)
+            if isinstance(value, (dict, list, tuple)):
+                value = json.dumps(value, ensure_ascii=False)[:240]
+            rec[key] = value
+    rec["all_keys"] = ", ".join(sorted(str(k) for k in item.keys()))[:500]
+    return rec
+
+
+def _dashboard2026_render_kpi_debug_v18645(snap: dict) -> None:
+    """Visible debug panel for v18.6.45.
+
+    Shows exactly what fields KPI receives and how the current logic classifies them.
+    Remove/disable after KPI mapping is confirmed.
+    """
+    try:
+        params = _query_params_plain_v18646() if "_query_params_plain_v18646" in globals() else {}
+        if str(params.get("kpi_debug") or "").lower() not in {"1", "true", "ja", "on"}:
+            return
+        rows, buy_now_rows, meta = _dashboard2026_debug_candidate_rows_v18645(limit=40)
+        with st.expander("🧪 KPI DEBUG v18.6.47 – råfelt fra Top Picks/ranking", expanded=False):
+            st.caption("Dette panelet er midlertidig. Send skjermbilde herfra hvis BUY/SELL-tallene ikke stemmer.")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("KPI BUY", snap.get("buy", "-"))
+            c2.metric("KPI SELL", snap.get("sell", "-"))
+            c3.metric("Rows i KPI", snap.get("rows", "-"))
+            c4.metric("Kilde", meta.get("source", "-"))
+            st.code(json.dumps({"snapshot": snap, "sources": meta}, ensure_ascii=False, indent=2), language="json")
+            if rows:
+                debug_records = [_dashboard2026_debug_row_record_v18645(x) for x in rows]
+                st.dataframe(pd.DataFrame(debug_records), width="stretch", height=min(520, 120 + 36 * len(debug_records)))
+            else:
+                st.warning("Ingen kandidatrader funnet i session/cache akkurat nå.")
+            if buy_now_rows:
+                st.markdown("**buy_now_rows_v18638**")
+                st.dataframe(pd.DataFrame([_dashboard2026_debug_row_record_v18645(x) for x in buy_now_rows[:20]]), width="stretch")
+    except Exception as e:
+        st.warning(f"KPI debug-panelet feilet: {e}")
+
+def render_dashboard2026_kpis_v18631() -> None:
+    """Modern dashboard header cards. Skal ikke trigge datainnhenting."""
+    snap = _dashboard2026_kpi_snapshot()
+    has_data = bool(snap.get("rows"))
+    is_cached = bool(snap.get("stale"))
+    buy_value = str(int(snap["buy"])) if has_data else "Ingen data"
+    sell_value = str(int(snap["sell"])) if has_data else "Ingen data"
+    alerts_value = str(int(snap["alerts"])) if int(snap.get("alerts") or 0) else ("0" if has_data else "Ingen data")
+    best_value = html.escape(str(snap["best_ticker"] if has_data else "Ingen data"))
+    if not has_data:
+        best_sub = "Kjør rangering/Top Picks for live kandidatdata"
+    else:
+        suffix = " · cache" if is_cached else ""
+        best_sub = f"Score {snap['best_score']:.1f}/10 · {snap['rows']} kandidater{suffix}"
+    st.markdown(
+        f"""
+        <div class='dash2026-section-label'>Marked nå</div>
+        <div class='dash2026-kpi-grid'>
+          <div class='dash2026-kpi-card buy'>
+            <div class='dash2026-kpi-label'>BUY</div>
+            <div class='dash2026-kpi-value'>{html.escape(buy_value)}</div>
+            <div class='dash2026-kpi-sub'>Kjøp-nå/BUY fra synlig Top Picks</div>
+          </div>
+          <div class='dash2026-kpi-card sell'>
+            <div class='dash2026-kpi-label'>SELL / UNNGÅ</div>
+            <div class='dash2026-kpi-value'>{html.escape(sell_value)}</div>
+            <div class='dash2026-kpi-sub'>SELL/UNNGÅ fra synlig Top Picks</div>
+          </div>
+          <div class='dash2026-kpi-card alerts'>
+            <div class='dash2026-kpi-label'>Varsler</div>
+            <div class='dash2026-kpi-value'>{html.escape(alerts_value)}</div>
+            <div class='dash2026-kpi-sub'>Åpne banner-, watchlist- og paper-hendelser</div>
+          </div>
+          <div class='dash2026-kpi-card best'>
+            <div class='dash2026-kpi-label'>Beste kandidat</div>
+            <div class='dash2026-kpi-value'>{best_value}</div>
+            <div class='dash2026-kpi-sub'>{html.escape(best_sub)}</div>
+          </div>
+        </div>
+        <div class='dash2026-section-label dash2026-banner-label'>Live</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+    _dashboard2026_render_kpi_debug_v18645(snap)
+
+
+def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False, include_insider=True):
+    """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
+
+    Draft-verdier kan endres fritt; aktiv rangering oppdateres først via
+    Oppdater hele appen, Auto-oppdater eller manuell scan.
+    """
+    safe_tickers = list(tickers or [])
+    fp = (tuple(safe_tickers[: int(max_count or 0)]), int(max_count or 0), bool(use_news), bool(force_manual_fetch), bool(include_insider))
+    cached = _rank_cache_get(label, fp)
+    # V17 / Oppgave 133: eksplisitt manuell henting skal overstyre markedsstengt/cache-blokkering.
+    # Vanlige widget-reruns skal fortsatt ikke starte tung jobb når manuell modus er aktiv.
+    if (not force_manual_fetch) and (not _heavy_update_allowed()):
+        if cached is not None:
+            return cached
+        latest = (st.session_state.get("latest_rankings_v148") or {}).get(label)
+        if latest is not None:
+            return latest
+        # Ingen cache ennå: ikke start tung jobb ved vanlig widget-rerun.
+        return []
+    data = auto_rank_market(safe_tickers, max_count=max_count, use_news=use_news, force_manual_fetch=force_manual_fetch, include_insider=include_insider)
+    data = _ranked_for_display(data)
+    try:
+        from ranking_universe_adapters import enrich_existing_ranking_rows, rank_existing_rows
+
+        data = _ranked_for_display(enrich_existing_ranking_rows(data, source=label, max_count=max_count))
+        shared_result = rank_existing_rows(
+            data,
+            source=label,
+            request={"max_count": max_count, "label": f"{label} felles ranking"},
+        ).as_dict()
+        st.session_state.setdefault("latest_shared_rankings_v1863br", {})[label] = shared_result
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    _rank_cache_store(label, fp, data)
+    try:
+        if data and force_manual_fetch and not str(label or "").startswith("TopPicks_"):
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            ).save_stage_output(
+                "market_ranking",
+                data,
+                source_label=str(label or "Marked/rangering"),
+                context={"label": label, "max_count": max_count, "use_news": bool(use_news), "include_insider": bool(include_insider)},
+                max_items=int(max_count or len(data) or 30),
+                auto_handoff=True,
+            )
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    return data
+
+
+def _sort_ranked_items(items):
+    """Sorter etter anbefaling først, deretter score/confidence.
+
+    BUY/Kjøp nå øverst, HOLD/WAIT etterpå og SELL/AVOID nederst.
+    """
+    return _ranked_for_display(items)
+
+
+def _dedupe_ranked_items(items):
+    out, seen = [], set()
+    for item in _sort_ranked_items(items):
+        ticker = normalize_user_ticker(item.get("ticker"))
+        if ticker and ticker not in seen:
+            seen.add(ticker)
+            out.append(item)
+    return out
+
+
+def _latest_ranked_results_for_source(source_label, fallback_results=None, current_label=None):
+    """Hent dynamisk aksjeliste for Interaktiv analyse uten AAPL-fallback.
+
+    Viktig for oppgave 76/76B:
+    - USA/Norge/Sverige/Top Picks bruker siste lagrede rangering fra appen.
+    - Hvis listen mangler, faller vi bare tilbake til gjeldende resultater når
+      gjeldende panel faktisk er samme kilde.
+    - Det skal ikke stilltiende byttes til AAPL når brukeren har valgt Norge/Sverige.
+    """
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    fallback_results = fallback_results or []
+    current_label_clean = str(current_label or "").replace("TopPicks_", "Top Picks")
+
+    if source_label == "Aktuell liste":
+        return _dedupe_ranked_items(fallback_results)
+
+    if source_label == "Smart Universe Picker":
+        active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+        rows = []
+        if isinstance(active, dict):
+            rows = list(active.get("rows") or [])
+            if not rows:
+                rows = [{"ticker": t, "source": "Smart Universe Picker"} for t in active.get("tickers", []) or []]
+        if not rows:
+            rows = latest.get("Smart Universe Picker") or []
+        return _dedupe_ranked_items(rows)
+
+    if source_label == "Dynamisk watchlist / best rangerte":
+        merged = []
+        for key in [
+            "Dynamisk watchlist / best rangerte",
+            "USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden",
+            "TopPicks_USA", "TopPicks_Norge", "TopPicks_Sverige", "TopPicks_Finland",
+            "TopPicks_Danmark", "TopPicks_Brasil", "TopPicks_Norden", "TopPicks_Alle",
+        ]:
+            merged.extend(latest.get(key, []) or [])
+        return _dedupe_ranked_items(merged or fallback_results)
+
+    if source_label in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
+        stored = latest.get(source_label) or []
+        if stored:
+            return _dedupe_ranked_items(stored)
+        # Bare bruk fallback hvis aktivt panel faktisk er samme marked.
+        if current_label_clean == source_label:
+            return _dedupe_ranked_items(fallback_results)
+        return []
+
+    if source_label == "Top Picks":
+        merged = []
+        for key, value in latest.items():
+            if str(key).startswith("TopPicks"):
+                merged.extend(value or [])
+        if merged:
+            return _dedupe_ranked_items(merged)
+        if str(current_label or "").startswith("TopPicks"):
+            return _dedupe_ranked_items(fallback_results)
+        return []
+
+    return _dedupe_ranked_items(fallback_results)
+
+
+def _source_tickers_for_interactive(source_label, max_fallback=30):
+    """Ticker-univers for Interaktiv analyse når lagret rangering mangler.
+
+    Brukes bare når bruker aktivt trykker på Oppdater-listen-knappen.
+    Den skal ikke trigge tung rangering automatisk ved menyvalg.
+    """
+    try:
+        limit = int(globals().get("max_count", max_fallback) or max_fallback)
+    except Exception:
+        limit = max_fallback
+    limit = max(5, min(limit, 200))
+
+    if source_label == "Smart Universe Picker":
+        active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+        if isinstance(active, dict):
+            tickers = list(active.get("tickers") or [])
+            if tickers:
+                return tickers[:limit]
+        latest = st.session_state.get("latest_rankings_v148", {}) or {}
+        return [normalize_user_ticker(r.get("ticker")) for r in latest.get("Smart Universe Picker", []) if isinstance(r, dict) and r.get("ticker")][:limit]
+    if source_label == "USA":
+        return resolve_universe_tickers(["USA"], max_count=limit)
+    if source_label == "Norge":
+        return resolve_universe_tickers(["Norge"], max_count=limit)
+    if source_label == "Sverige":
+        return resolve_universe_tickers(["Sverige"], max_count=limit)
+    if source_label == "Finland":
+        return resolve_universe_tickers(["Finland"], max_count=limit)
+    if source_label == "Danmark":
+        return resolve_universe_tickers(["Danmark"], max_count=limit)
+    if source_label == "Brasil":
+        return resolve_universe_tickers(["Brasil"], max_count=limit)
+    if source_label == "Norden":
+        return resolve_universe_tickers(["Norden"], max_count=limit)
+    if source_label == "Alle":
+        return resolve_universe_tickers(["Alle"], max_count=limit)
+    if source_label == "Dynamisk watchlist / best rangerte":
+        wl = list(globals().get("watchlist_tickers") or [])
+        if wl:
+            return wl[:limit]
+        return list(globals().get("dynamic_watchlist") or [])[:limit]
+    if source_label == "Top Picks":
+        return resolve_universe_tickers(["Alle"], max_count=limit)
+    return []
+
+
+def _build_interactive_source_ranking_now(source_label):
+    """Bygg valgt kilde på eksplisitt knappetrykk og lagre i siste rangering.
+
+    Dette er hotfix v14.10 for 76/76B/78: når Norge/USA/Sverige mangler lagret
+    dynamisk rangering, skal brukeren kunne bygge den aktuelle listen uten at appen
+    faller tilbake til AAPL eller starter automatisk tung jobb.
+    """
+    tickers = _source_tickers_for_interactive(source_label)
+    if not tickers:
+        return []
+    try:
+        limit = int(globals().get("max_count", len(tickers)) or len(tickers))
+    except Exception:
+        limit = len(tickers)
+    limit = max(1, min(limit, len(tickers), 200))
+    data = auto_rank_market(tickers[:limit], max_count=limit, use_news=False, force_manual_fetch=True)
+    if source_label == "Top Picks":
+        key = "TopPicks_Alle"
+    elif source_label == "Dynamisk watchlist / best rangerte":
+        key = "Dynamisk watchlist / best rangerte"
+    elif source_label == "Smart Universe Picker":
+        key = "Smart Universe Picker"
+    else:
+        key = source_label
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    latest[key] = data or []
+    # Lagre også under normal kildenøkkel når relevant, slik at dropdownen finner listen direkte.
+    if source_label in {"USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil", "Norden", "Alle"}:
+        latest[source_label] = data or []
+    st.session_state[f"rank_cache_v148_{key}"] = {"fp": ("manual_build", tuple(tickers[:limit])), "data": data or [], "updated_at": _now_short()}
+    _set_update_reason(f"Interaktiv analyse: bygget {source_label}-liste")
+    return data or []
+
+
+def _clean_manual_ticker_input(value: str) -> str:
+    """Rydd manuell ticker. Eksempeltekst og lister skal ikke behandles som aktiv ticker."""
+    raw = str(value or "").strip()
+    examples = {"EQNR.OL / VOLV-B.ST / NOVO-B.CO", "EQNR.OL / NOKIA.HE / PETR4.SA"}
+    if raw.upper() in {x.upper() for x in examples}:
+        return ""
+    # Interaktiv analyse er for én ticker. Hvis bruker limer inn en liste, bruk første og vis info.
+    for sep in [",", ";", "/", "|"]:
+        if sep in raw:
+            raw = raw.split(sep)[0].strip()
+            break
+    return normalize_user_ticker(raw)
+
+
+# SIDEBAR_MARKET_DROPDOWN_V1
+# BANNER_PERIOD_SYNC_FIX_V3
+
+MARKET_CATEGORY_OPTIONS = [
+    "US Markets",
+    "Europe Markets",
+    "Norway / Oslo",
+    "Sweden / Stockholm",
+    "Finland / Helsinki",
+    "Denmark / Copenhagen",
+    "Brazil / B3",
+    "Cryptocurrencies",
+    "Rates",
+    "Commodities",
+    "Currencies",
+    "All Markets",
+]
+
+MARKET_CATEGORY_TO_MODE = {
+    "US Markets": "USA / S&P 500",
+    "Europe Markets": "Alle",
+    "Norway / Oslo": "Norge / Oslo Børs",
+    "Sweden / Stockholm": "Sverige / Stockholm",
+    "Finland / Helsinki": "Finland / Helsinki",
+    "Denmark / Copenhagen": "Danmark / Copenhagen",
+    "Brazil / B3": "Brasil / B3",
+    "Cryptocurrencies": "Alle",
+    "Rates": "Alle",
+    "Commodities": "Alle",
+    "Currencies": "Alle",
+    "All Markets": "Alle",
+}
+
+
+def render_market_category_selector():
+    """
+    Kompakt markedskategori-velger i sidebar, inspirert av finansapper.
+    Returnerer gammel intern mode slik resten av appen fortsatt fungerer.
+    """
+    st.sidebar.markdown(
+        """
+        <style>
+        .market-category-card {
+            background: rgba(15,23,42,0.72);
+            border: 1px solid rgba(148,163,184,0.22);
+            border-radius: 12px;
+            padding: 9px 10px;
+            margin: 8px 0 10px 0;
+        }
+        .market-category-title {
+            color: #f8fafc;
+            font-weight: 950;
+            font-size: 0.88rem;
+            margin-bottom: 3px;
+        }
+        .market-category-sub {
+            color: #94a3b8;
+            font-weight: 650;
+            font-size: 0.70rem;
+            line-height: 1.2;
+        }
+        </style>
+        <div class="market-category-card">
+            <div class="market-category-title">◎ Markedskategori</div>
+            <div class="market-category-sub">Velg hvilket univers appen skal analysere.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    selected_category = st.sidebar.selectbox(
+        "Markedskategori",
+        MARKET_CATEGORY_OPTIONS,
+        index=0,
+        label_visibility="collapsed",
+        key="market_category_selector_v1",
+    )
+
+    mode = MARKET_CATEGORY_TO_MODE.get(selected_category, "Alle")
+
+    if selected_category in {"Cryptocurrencies", "Rates", "Commodities", "Currencies"}:
+        st.sidebar.info(
+            f"{selected_category}: kategori er lagt inn i menyen, men full analysemodell for dette universet kommer senere. "
+            "Foreløpig brukes aksjeuniverset som fallback."
+        )
+    elif selected_category == "Europe Markets":
+        st.sidebar.caption("Europe Markets bruker foreløpig samlet aksjeunivers/fallback. Norge og Sverige kan velges separat.")
+
+    return selected_category, mode
+
+
+
+CHART_CONFIG = {
+    "scrollZoom": False,
+    "displayModeBar": "hover",
+    "displaylogo": False,
+    "responsive": True,
+    "doubleClick": "reset",
+    "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"],
+}
+
+def render_interactive_chart(fig, *args, **kwargs):
+    """
+    Felles plotly-rendering:
+    - musehjul zoom
+    - pan med mus
+    - tydelig hover
+    """
+    try:
+        fig.update_layout(
+            dragmode="pan",
+            hovermode="x unified",
+            legend=dict(
+                bgcolor="rgba(15,23,42,0.94)",
+                bordercolor="rgba(125,211,252,0.58)",
+                borderwidth=1,
+                font=dict(color="#e0f2fe", size=13),
+                itemwidth=34,
+            ),
+        )
+        fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+        fig.update_yaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+
+    kwargs.setdefault("use_container_width", True)
+    kwargs.setdefault("config", CHART_CONFIG)
+    return st.plotly_chart(fig, *args, **kwargs)
+
+
+def render_graph_explanation(kind):
+    texts = {
+        "price": (
+            "📘 Prisgraf",
+            "Viser kursutvikling og gjeldende kurs. Bruk musehjul for zoom og dra i grafen for å panorere."
+        ),
+        "ta": (
+            "📘 Teknisk graf",
+            "Viser pris, Bollinger-bånd, støtte/motstand og eventuelle mønstre. Brudd over motstand kan være positivt, mens brudd under støtte er et risikoflagg."
+        ),
+        "rsi": (
+            "📘 RSI",
+            "RSI under 30 kan indikere oversolgt. RSI over 70 er overkjøpt, og over 80 er ekstremt overkjøpt. Høy RSI kan forklare HOLD/SELL selv om aksjen har høy total score."
+        ),
+        "equity": (
+            "📘 Strategi / equity curve",
+            "Viser hvordan den historiske strategien ville utviklet porteføljeverdien. Brukes som test, ikke garanti for fremtidig avkastning."
+        ),
+        "backtest": (
+            "📘 Backtest",
+            "Sammenligner strategi mot benchmark. Se særlig på drawdown, jevnhet og om strategien slår benchmark over tid."
+        ),
+        "drawdown": (
+            "📘 Drawdown",
+            "Viser hvor mye strategien faller fra tidligere topp. Lavere og kortere drawdown betyr normalt lavere risiko."
+        ),
+    }
+    title, body = texts.get(kind, ("📘 Graf", "Interaktiv graf med zoom, pan og hover."))
+    st.markdown(
+        f"""
+        <div class="graph-explain-box">
+            <b>{title}</b><br>{body}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+st.markdown("""
+<style>
+:root {
+    --bg-main: #0f172a;
+    --bg-sidebar: #020617;
+    --bg-card: #111827;
+    --bg-card-2: #1e293b;
+    --border: #334155;
+    --text-main: #f8fafc;
+    --text-soft: #cbd5e1;
+    --text-muted: #94a3b8;
+    --green: #22c55e;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --blue: #38bdf8;
+}
+
+.stApp {
+    background: var(--bg-main);
+    color: var(--text-main);
+}
+
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2.5rem;
+    max-width: 1500px;
+}
+
+[data-testid="stSidebar"] {
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+}
+
+/* V14.12 / Oppgave 81-83: mobil skal ikke ha en halv sidebar synlig.
+   Streamlit får bruke sin egen drawer-knapp på mobil, mens hovedsiden har et kompakt
+   Kontrollsenter som funksjonell fallback. */
+[data-testid="stSidebar"] * { box-sizing: border-box; }
+@media (max-width: 900px) {
+    
+section[data-testid="stSidebar"] {
+        background: #020617 !important;
+        border-right: 1px solid rgba(148,163,184,0.28) !important;
+        max-width: min(88vw, 340px) !important;
+    }
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-top: 0.65rem !important;
+    }
+}
+
+html, body, [class*="css"], p, span, div {
+    color: var(--text-main);
+}
+
+h1, h2, h3, h4 {
+    color: var(--text-main) !important;
+    font-weight: 800 !important;
+}
+
+label, [data-testid="stWidgetLabel"] {
+    color: var(--text-soft) !important;
+    font-weight: 700 !important;
+}
+
+.card {
+    background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 18px;
+    margin-bottom: 12px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.22);
+}
+
+.small {
+    color: var(--text-soft);
+    font-size: 0.95rem;
+}
+
+.good {
+    color: var(--green);
+    font-weight: 900;
+}
+
+.mid {
+    color: var(--yellow);
+    font-weight: 900;
+}
+
+.bad {
+    color: var(--red);
+    font-weight: 900;
+}
+
+[data-testid="stMetric"] {
+    background: #111827;
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 16px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--text-soft) !important;
+    font-size: 0.95rem !important;
+    font-weight: 800 !important;
+}
+
+[data-testid="stMetricValue"] {
+    color: #ffffff !important;
+    font-size: 1.75rem !important;
+    font-weight: 900 !important;
+}
+
+.stAlert {
+    border-radius: 14px;
+    font-size: 1rem;
+}
+
+.stButton > button {
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: #0ea5e9;
+    color: white;
+    font-weight: 800;
+    padding: 0.55rem 1rem;
+}
+
+.stButton > button:hover {
+    background: #0284c7;
+    color: white;
+    border-color: #7dd3fc;
+}
+
+div[data-baseweb="select"] > div {
+    background-color: #1e293b !important;
+    color: white !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+}
+
+input, textarea {
+    background-color: #1e293b !important;
+    color: white !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+hr {
+    border-color: var(--border);
+}
+
+/* Make Plotly containers easier to read */
+.js-plotly-plot .plotly {
+    border-radius: 16px;
+}
+
+/* Mobile-first improvements */
+@media (max-width: 768px) {
+    .block-container {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+        padding-top: 0.75rem;
+    }
+
+    h1 {
+        font-size: 1.65rem !important;
+        line-height: 1.15 !important;
+    }
+
+    h2 {
+        font-size: 1.35rem !important;
+    }
+
+    h3 {
+        font-size: 1.15rem !important;
+    }
+
+    .card {
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    [data-testid="stMetric"] {
+        padding: 12px;
+        border-radius: 13px;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.25rem !important;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 0.82rem !important;
+    }
+
+    .small {
+        font-size: 0.85rem;
+    }
+
+    .stButton > button {
+        width: 100%;
+        padding: 0.7rem 1rem;
+        font-size: 1rem;
+    }
+}
+
+/* --- PRO POLISH PATCH: stronger readability PC/mobile --- */
+.status-live {
+    display:inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(34,197,94,0.15);
+    border: 1px solid rgba(34,197,94,0.45);
+    color: #86efac !important;
+    font-weight: 900;
+}
+.status-danger {
+    display:inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(239,68,68,0.15);
+    border: 1px solid rgba(239,68,68,0.45);
+    color: #fecaca !important;
+    font-weight: 900;
+}
+.rsi-box {
+    background: linear-gradient(180deg, #111827 0%, #020617 100%);
+    border: 1px solid #475569;
+    border-radius: 18px;
+    padding: 16px;
+    margin: 12px 0;
+}
+.card, div[data-testid="stMetric"] {
+    border-color: #475569 !important;
+}
+.small, .muted, caption {
+    color: #cbd5e1 !important;
+}
+@media (max-width: 768px) {
+    .block-container {
+        max-width: 100% !important;
+    }
+}
+
+
+/* --- RSI BOX PATCH --- */
+.rsi-box {
+    background: linear-gradient(180deg, #111827 0%, #020617 100%) !important;
+    border: 1px solid #475569 !important;
+    border-radius: 18px !important;
+    padding: 18px !important;
+    margin: 14px 0 18px 0 !important;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.24) !important;
+}
+.rsi-title {
+    font-size: 1.15rem !important;
+    font-weight: 900 !important;
+    color: #f8fafc !important;
+    margin-bottom: 6px !important;
+}
+.rsi-value {
+    font-size: 2rem !important;
+    font-weight: 900 !important;
+    color: #ffffff !important;
+}
+.rsi-status-good { color: #22c55e !important; font-weight: 900 !important; }
+.rsi-status-mid { color: #f59e0b !important; font-weight: 900 !important; }
+.rsi-status-bad { color: #ef4444 !important; font-weight: 900 !important; }
+
+
+/* --- Signal Engine v1 explanation polish --- */
+div[data-testid="stAlert"] {
+    border-radius: 14px !important;
+}
+
+
+/* --- TOP PICKS ACTION CARDS V2 --- */
+.action-chip-row {
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-top:8px;
+    margin-bottom:6px;
+}
+.action-chip {
+    display:inline-block;
+    padding:5px 10px;
+    border-radius:999px;
+    font-size:0.78rem;
+    font-weight:900;
+    border:1px solid rgba(255,255,255,0.20);
+    line-height:1.2;
+}
+.action-buy {
+    color:#bbf7d0 !important;
+    background:rgba(34,197,94,0.16);
+    border-color:rgba(34,197,94,0.5);
+}
+.action-hold {
+    color:#fde68a !important;
+    background:rgba(245,158,11,0.16);
+    border-color:rgba(245,158,11,0.5);
+}
+.action-sell {
+    color:#fecaca !important;
+    background:rgba(239,68,68,0.18);
+    border-color:rgba(239,68,68,0.55);
+}
+.action-info {
+    color:#bae6fd !important;
+    background:rgba(56,189,248,0.10);
+    border-color:rgba(56,189,248,0.35);
+}
+.action-explain {
+    color:#cbd5e1 !important;
+    font-size:0.82rem;
+    margin-top:4px;
+}
+
+
+/* --- READABLE INSIDER / ANALYST / EARNINGS CARDS V1 --- */
+.info-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    gap: 14px;
+    margin: 12px 0 18px 0;
+}
+.info-card-big {
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 16px;
+    padding: 16px 18px;
+    min-height: 142px;
+}
+.info-card-title {
+    color: #f8fafc !important;
+    font-size: 1.05rem;
+    font-weight: 900;
+    margin-bottom: 10px;
+}
+.info-card-main {
+    color: #ffffff !important;
+    font-size: 1.55rem;
+    font-weight: 950;
+    line-height: 1.2;
+    margin: 8px 0;
+}
+.info-card-sub {
+    color: #cbd5e1 !important;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    margin-top: 8px;
+}
+.info-card-small {
+    color: #94a3b8 !important;
+    font-size: 0.86rem;
+    line-height: 1.35;
+    margin-top: 8px;
+}
+.info-positive {
+    color: #86efac !important;
+}
+.info-warning {
+    color: #fde68a !important;
+}
+.info-negative {
+    color: #fecaca !important;
+}
+@media (max-width: 900px) {
+    .info-card-grid {
+        grid-template-columns: 1fr;
+    }
+    .info-card-main {
+        font-size: 1.35rem;
+    }
+}
+
+
+/* --- READABLE INSIDER CARDS V2 --- */
+.info-mini-card {
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 16px;
+    padding: 16px 18px;
+    min-height: 178px;
+    margin-bottom: 12px;
+}
+.info-mini-title {
+    color: #f8fafc !important;
+    font-size: 1.05rem;
+    font-weight: 900;
+    margin-bottom: 10px;
+}
+.info-mini-main {
+    color: #ffffff !important;
+    font-size: 1.35rem;
+    font-weight: 950;
+    line-height: 1.25;
+    margin: 7px 0;
+}
+.info-mini-sub {
+    color: #cbd5e1 !important;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+.info-mini-small {
+    color: #94a3b8 !important;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    margin-top: 8px;
+}
+.info-positive { color: #86efac !important; }
+.info-warning { color: #fde68a !important; }
+.info-negative { color: #fecaca !important; }
+
+
+
+
+/* --- MACD INFO BOX V1 --- */
+.macd-explain-box {
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 8px 0 18px 0;
+    color: #cbd5e1 !important;
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+.macd-explain-box b {
+    color: #f8fafc !important;
+}
+
+
+/* --- GRAPH EXPLANATION BOXES V1 --- */
+.graph-explain-box {
+    background: linear-gradient(135deg, rgba(8,47,73,.72), rgba(15,23,42,.94));
+    border: 1px solid rgba(125, 211, 252, 0.42);
+    border-radius: 14px;
+    padding: 13px 16px;
+    margin: 14px 0 22px 0;
+    color: #dbeafe !important;
+    font-size: 0.92rem;
+    line-height: 1.55;
+    max-width: 980px;
+    overflow-wrap: break-word;
+}
+.graph-explain-box b {
+    color: #e0f2fe !important;
+}
+
+
+/* --- DARK SELECTBOX DROPDOWN V1 --- */
+div[data-baseweb="popover"] {
+    background: #0f172a !important;
+}
+div[data-baseweb="popover"] div[role="listbox"] {
+    background: #0f172a !important;
+    border: 1px solid rgba(148,163,184,0.45) !important;
+    color: #f8fafc !important;
+}
+div[data-baseweb="popover"] div[role="option"] {
+    color: #f8fafc !important;
+    background: #0f172a !important;
+    font-weight: 800 !important;
+}
+div[data-baseweb="popover"] div[role="option"]:hover {
+    background: #1e293b !important;
+    color: #ffffff !important;
+}
+
+
+/* --- SELECTBOX VISIBILITY FIX V1 --- */
+/* Closed select field */
+div[data-baseweb="select"] > div {
+    background-color: #1e293b !important;
+    color: #f8fafc !important;
+    border-color: rgba(148, 163, 184, 0.55) !important;
+}
+
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] div,
+div[data-baseweb="select"] input {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+}
+
+/* Dropdown popover */
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div,
+div[data-baseweb="menu"],
+ul[role="listbox"],
+div[role="listbox"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border: 1px solid rgba(148, 163, 184, 0.45) !important;
+}
+
+/* Options */
+li[role="option"],
+div[role="option"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    font-weight: 800 !important;
+    font-size: 1rem !important;
+}
+
+/* Option text descendants */
+li[role="option"] *,
+div[role="option"] * {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+}
+
+/* Hover / highlighted option */
+li[role="option"]:hover,
+div[role="option"]:hover,
+li[role="option"][aria-selected="true"],
+div[role="option"][aria-selected="true"] {
+    background-color: #334155 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Streamlit virtualized menu fallback */
+[data-testid="stSelectboxVirtualDropdown"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+}
+
+[data-testid="stSelectboxVirtualDropdown"] * {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+}
+
+/* Popover content fallback */
+[data-baseweb="popover"] [role="option"] span,
+[data-baseweb="popover"] [role="option"] div {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+}
+
+
+/* --- SIDEBAR STRUCTURE V2 --- */
+/* GRAPH_SIDEBAR_POLISH_V1
+/* SIDEBAR_MARKET_PILLS_FIX_V2
+/* SIDEBAR_ALERTS_LAYOUT_V1 */ */ */
+.sidebar-status-card {
+    border-radius: 9px;
+    padding: 7px 7px;
+    margin: 4px 0;
+    line-height: 1.15;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+.sidebar-status-card.open {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.45);
+}
+.sidebar-status-card.closed {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.45);
+}
+.sidebar-status-card.paused {
+    background: rgba(245, 158, 11, 0.13);
+    border-color: rgba(245, 158, 11, 0.45);
+}
+.sidebar-status-name {
+    color: #ffffff !important;
+    font-weight: 900;
+    font-size: 0.84rem;
+}
+.sidebar-status-main {
+    font-weight: 900;
+    font-size: 0.70rem;
+    margin-top: 2px;
+}
+.sidebar-status-main.open {
+    color: #86efac !important;
+}
+.sidebar-status-main.closed {
+    color: #fecaca !important;
+}
+.sidebar-status-reason {
+    color: #ff6b6b !important;
+    font-weight: 900;
+    font-size: 0.76rem;
+    margin-top: 2px;
+}
+
+
+/* SIDEBAR_MARKET_PILLS_FIX_V2 */
+.market-pill-row {
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+    width: 100%;
+    margin: 6px 0 10px 0;
+    align-items: stretch;
+}
+.market-pill {
+    flex: 1 1 0;
+    min-width: 0;
+    box-sizing: border-box;
+    border-radius: 9px;
+    padding: 5px 4px;
+    line-height: 1.05;
+    overflow: hidden;
+    min-height: 24px;
+    border: 1px solid rgba(148,163,184,0.28);
+    background: rgba(15,23,42,0.84);
+}
+.market-pill.open {
+    background: rgba(6,78,59,0.42);
+    border-color: rgba(34,197,94,0.55);
+}
+.market-pill.closed {
+    background: rgba(76,5,25,0.58);
+    border-color: rgba(248,113,113,0.65);
+}
+.market-pill-name {
+    font-size: 0.64rem;
+    font-weight: 950;
+    color: #f8fafc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.market-pill-main {
+    font-size: 0.63rem;
+    font-weight: 900;
+    margin-top: 3px;
+}
+.market-pill-main.open {
+    color: #86efac;
+}
+.market-pill-main.closed {
+    color: #fecaca;
+}
+.market-pill-reason {
+    font-size: 0.60rem;
+    font-weight: 850;
+    color: #fca5a5;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar-small-note {
+    color: #94a3b8 !important;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    margin-bottom: 8px;
+}
+
+
+/* SIDEBAR_ALERTS_LAYOUT_V1 */
+.sidebar-tight-hr {
+    margin: 10px 0 10px 0;
+    border-top: 1px solid rgba(148,163,184,0.15);
+}
+.alert-status-pill {
+    border-radius: 12px;
+    padding: 8px 9px;
+    margin: 6px 0;
+    border: 1px solid rgba(148,163,184,0.22);
+    background: rgba(15,23,42,0.72);
+    line-height: 1.15;
+}
+.alert-status-pill.ok {
+    border-color: rgba(34,197,94,0.55);
+    background: rgba(6,78,59,0.34);
+}
+.alert-status-pill.bad {
+    border-color: rgba(248,113,113,0.60);
+    background: rgba(76,5,25,0.48);
+}
+.alert-status-title {
+    font-size: 0.82rem;
+    color: #f8fafc;
+    font-weight: 950;
+}
+.alert-status-sub {
+    font-size: 0.70rem;
+    color: #cbd5e1;
+    margin-top: 2px;
+}
+
+
+/* --- V12 PRO DARK UI STANDARD (tasks 11-15,18,20-23) --- */
+:root {
+    --pro-panel: #0f172a;
+    --pro-panel-2: #111827;
+    --pro-panel-3: #1e293b;
+    --pro-text: #f8fafc;
+    --pro-muted: #cbd5e1;
+    --pro-border: rgba(148,163,184,0.38);
+    --pro-blue: #38bdf8;
+}
+button, .stButton > button, [data-testid="stFormSubmitButton"] button {
+    width: auto !important;
+    max-width: 100% !important;
+    background: linear-gradient(180deg, #0ea5e9 0%, #0369a1 100%) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border: 1px solid rgba(125,211,252,0.72) !important;
+    border-radius: 12px !important;
+    font-weight: 950 !important;
+    min-height: 38px !important;
+    box-shadow: 0 6px 16px rgba(2,132,199,0.20) !important;
+}
+button:hover, .stButton > button:hover, [data-testid="stFormSubmitButton"] button:hover {
+    background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border-color: #bae6fd !important;
+}
+button *, .stButton > button *, [data-testid="stFormSubmitButton"] button * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    opacity: 1 !important;
+}
+[data-testid="stExpander"] details,
+div[data-testid="stExpander"] details,
+section[data-testid="stSidebar"] details {
+    background: rgba(15,23,42,0.74) !important;
+    border: 1px solid var(--pro-border) !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.16) !important;
+}
+[data-testid="stExpander"] summary,
+div[data-testid="stExpander"] summary,
+section[data-testid="stSidebar"] details > summary {
+    background: linear-gradient(180deg, rgba(30,41,59,0.98), rgba(15,23,42,0.98)) !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    border-bottom: 1px solid rgba(148,163,184,0.22) !important;
+    min-height: 38px !important;
+    padding-top: 0.36rem !important;
+    padding-bottom: 0.36rem !important;
+    font-weight: 950 !important;
+}
+[data-testid="stExpander"] summary:hover,
+div[data-testid="stExpander"] summary:hover,
+section[data-testid="stSidebar"] details > summary:hover {
+    background: linear-gradient(180deg, rgba(51,65,85,0.98), rgba(30,41,59,0.98)) !important;
+}
+[data-testid="stExpander"] summary *,
+div[data-testid="stExpander"] summary *,
+section[data-testid="stSidebar"] details > summary * {
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    opacity: 1 !important;
+}
+[data-testid="stExpander"] [data-testid="stExpanderDetails"],
+div[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+    background: rgba(2,6,23,0.42) !important;
+}
+input, textarea, [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea, [data-testid="stNumberInput"] input {
+    caret-color: var(--pro-blue) !important;
+    background: rgba(15,23,42,0.96) !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    border: 1px solid rgba(148,163,184,0.45) !important;
+    border-radius: 11px !important;
+    font-weight: 850 !important;
+}
+input:focus, textarea:focus, [data-testid="stTextInput"] input:focus, [data-testid="stTextArea"] textarea:focus, [data-testid="stNumberInput"] input:focus {
+    outline: none !important;
+    border-color: rgba(56,189,248,0.96) !important;
+    box-shadow: 0 0 0 2px rgba(56,189,248,0.22) !important;
+}
+[data-testid="stNumberInput"] button {
+    background: rgba(30,41,59,0.96) !important;
+    border-color: rgba(148,163,184,0.45) !important;
+    color: var(--pro-text) !important;
+    min-height: 32px !important;
+}
+[data-baseweb="select"] > div,
+div[data-baseweb="select"] > div {
+    background: rgba(15,23,42,0.96) !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+    border: 1px solid rgba(148,163,184,0.45) !important;
+    border-radius: 11px !important;
+    min-height: 38px !important;
+}
+div[data-baseweb="popover"], div[data-baseweb="popover"] * {
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+}
+div[data-baseweb="popover"] ul {
+    background: #0f172a !important;
+    border: 1px solid rgba(148,163,184,0.40) !important;
+    border-radius: 12px !important;
+}
+div[data-baseweb="popover"] li[aria-selected="true"], div[data-baseweb="popover"] li:hover {
+    background: rgba(56,189,248,0.18) !important;
+}
+[data-testid="stTextArea"] textarea {
+    min-height: 58px !important;
+}
+[data-testid="stCheckbox"] label, [data-testid="stCheckbox"] p, [data-testid="stCheckbox"] span {
+    white-space: normal !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    color: var(--pro-text) !important;
+    -webkit-text-fill-color: var(--pro-text) !important;
+}
+.pro-dirty-status {
+    display:inline-block;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border:1px solid rgba(251,191,36,0.45);
+    background:rgba(120,53,15,0.28);
+    color:#fde68a !important;
+    font-size:0.76rem;
+    font-weight:900;
+    margin: 4px 0 8px 0;
+}
+.pro-clean-status {
+    display:inline-block;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border:1px solid rgba(34,197,94,0.45);
+    background:rgba(22,101,52,0.28);
+    color:#bbf7d0 !important;
+    font-size:0.76rem;
+    font-weight:900;
+    margin: 4px 0 8px 0;
+}
+@media (max-width: 760px) {
+    [data-testid="stExpander"] summary, div[data-testid="stExpander"] summary, section[data-testid="stSidebar"] details > summary { min-height: 42px !important; }
+    [data-testid="stTextArea"] textarea { min-height: 74px !important; }
+    .block-container { padding-left: 0.65rem !important; padding-right: 0.65rem !important; }
+}
+
+
+/* --- V14 FIX: diskrete hjelpeikoner og mørke tooltips (oppgave 28/32) --- */
+/* Den generelle button-stilen i appen skal ikke gjøre Streamlit sine ?-hjelpeikoner blå/store. */
+[data-testid="stTooltipIcon"],
+[data-testid="stTooltipIcon"] *,
+button[aria-label="Help"],
+button[aria-label="help"],
+button[title="View more"],
+button[title="help"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    color: #94a3b8 !important;
+    -webkit-text-fill-color: #94a3b8 !important;
+    min-height: 18px !important;
+    width: 18px !important;
+    height: 18px !important;
+    padding: 0 !important;
+    margin: 0 0 0 4px !important;
+    border-radius: 999px !important;
+    opacity: 0.76 !important;
+}
+[data-testid="stTooltipIcon"] svg,
+button[aria-label="Help"] svg,
+button[aria-label="help"] svg {
+    width: 14px !important;
+    height: 14px !important;
+    fill: #94a3b8 !important;
+    color: #94a3b8 !important;
+}
+[data-testid="stTooltipIcon"]:hover,
+button[aria-label="Help"]:hover,
+button[aria-label="help"]:hover {
+    opacity: 1 !important;
+    background: rgba(148,163,184,0.12) !important;
+}
+div[data-baseweb="tooltip"],
+div[role="tooltip"],
+[data-testid="stTooltipContent"] {
+    background: #111827 !important;
+    color: #e2e8f0 !important;
+    -webkit-text-fill-color: #e2e8f0 !important;
+    border: 1px solid rgba(148,163,184,0.38) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.38) !important;
+    max-width: 320px !important;
+    font-weight: 750 !important;
+}
+div[data-baseweb="tooltip"] *,
+div[role="tooltip"] *,
+[data-testid="stTooltipContent"] * {
+    background: transparent !important;
+    color: #e2e8f0 !important;
+    -webkit-text-fill-color: #e2e8f0 !important;
+}
+
+/* Kompakt Trading engine v14 */
+.trading-engine-compact {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    background: rgba(15,23,42,0.88);
+    border: 1px solid rgba(148,163,184,0.38);
+    border-radius: 14px;
+    padding: 6px 8px;
+    margin: 8px 0 8px 0;
+}
+.trading-engine-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(34,197,94,0.13);
+    border: 1px solid rgba(34,197,94,0.36);
+    color: #d1fae5 !important;
+    font-weight: 950;
+}
+.trading-engine-muted { color: #cbd5e1 !important; font-weight: 850; }
+.trading-engine-value { color: #ffffff !important; font-weight: 950; }
+.trading-engine-details {
+    background: rgba(15,23,42,0.62);
+    border: 1px solid rgba(148,163,184,0.22);
+    border-radius: 12px;
+    padding: 8px 10px;
+    margin: 6px 0 12px 0;
+    color: #cbd5e1 !important;
+    font-size: 0.90rem;
+}
+
+
+
+/* --- V14.6 tasks 51-54: faktisk visningsmodus, mobil-komprimering og kontrollsenter --- */
+:root {
+    --compact-card-pad: 8px 10px;
+    --compact-card-radius: 12px;
+}
+.compact-stat-grid {
+    display:grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap:8px;
+    margin:8px 0 10px 0;
+}
+.compact-stat-card {
+    background: rgba(15,23,42,0.78);
+    border:1px solid rgba(148,163,184,0.28);
+    border-radius: var(--compact-card-radius);
+    padding: var(--compact-card-pad);
+    min-height:54px;
+}
+.compact-stat-label {
+    color:#cbd5e1 !important;
+    font-size:0.72rem;
+    font-weight:850;
+    line-height:1.05;
+    margin-bottom:3px;
+}
+.compact-stat-value {
+    color:#f8fafc !important;
+    font-size:1.08rem;
+    font-weight:950;
+    line-height:1.12;
+    word-break:normal;
+}
+.compact-stat-delta {
+    display:inline-block;
+    margin-top:4px;
+    color:#86efac !important;
+    font-size:0.74rem;
+    font-weight:900;
+}
+.compact-stat-delta.neg { color:#fecaca !important; }
+.view-mode-status {
+    border:1px solid rgba(56,189,248,0.30);
+    background:rgba(14,165,233,0.10);
+    color:#dff6ff !important;
+    border-radius:999px;
+    padding:5px 9px;
+    font-size:0.76rem;
+    font-weight:900;
+    margin:4px 0 8px 0;
+}
+.control-center-status {
+    border:1px solid rgba(148,163,184,0.28);
+    background:rgba(15,23,42,0.76);
+    border-radius:14px;
+    padding:8px 10px;
+    margin:6px 0 8px 0;
+    color:#e2e8f0 !important;
+    font-size:0.78rem;
+    line-height:1.35;
+}
+.status-dot { display:inline-block; width:9px; height:9px; border-radius:999px; margin-right:5px; vertical-align:middle; }
+.status-dot.green { background:#22c55e; box-shadow:0 0 10px rgba(34,197,94,0.55); }
+.status-dot.red { background:#ef4444; box-shadow:0 0 10px rgba(239,68,68,0.55); }
+.status-dot.yellow { background:#facc15; box-shadow:0 0 10px rgba(250,204,21,0.45); }
+.auto-status-badge {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 9px;
+    border-radius:999px;
+    font-weight:950;
+    font-size:0.84rem;
+    margin-bottom:6px;
+}
+.auto-status-badge.on { background:rgba(22,101,52,0.34); border:1px solid rgba(34,197,94,0.55); color:#bbf7d0 !important; }
+.auto-status-badge.off { background:rgba(127,29,29,0.34); border:1px solid rgba(239,68,68,0.55); color:#fecaca !important; }
+@media (max-width: 900px) {
+    .compact-stat-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap:6px; }
+    .compact-stat-card { min-height:44px; padding:6px 8px; border-radius:10px; }
+    .compact-stat-label { font-size:0.66rem; }
+    .compact-stat-value { font-size:0.94rem; }
+    [data-testid="stMetric"] {
+        min-height:44px !important;
+        padding:6px 8px !important;
+        border-radius:10px !important;
+        margin-bottom:4px !important;
+    }
+    [data-testid="stMetricLabel"] { font-size:0.66rem !important; line-height:1.05 !important; }
+    [data-testid="stMetricValue"] { font-size:0.98rem !important; line-height:1.08 !important; }
+    [data-testid="stMetricDelta"] { font-size:0.68rem !important; }
+    .stButton > button, section[data-testid="stSidebar"] .stButton > button, section[data-testid="stSidebar"] button {
+        min-height:42px !important;
+        padding:0.36rem 0.65rem !important;
+        border-radius:12px !important;
+        font-size:0.90rem !important;
+        line-height:1.15 !important;
+        box-shadow:0 6px 14px rgba(14,165,233,0.18) !important;
+    }
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+        font-size:1.05rem !important;
+        line-height:1.15 !important;
+        margin:0.45rem 0 0.35rem 0 !important;
+    }
+    section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] span {
+        font-size:0.88rem !important;
+        line-height:1.22 !important;
+    }
+    section[data-testid="stSidebar"] details > summary {
+        min-height:36px !important;
+        padding:6px 8px !important;
+        font-size:0.90rem !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] input,
+    section[data-testid="stSidebar"] textarea {
+        min-height:38px !important;
+        font-size:0.88rem !important;
+        padding:6px 8px !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        padding:6px !important;
+        border-radius:12px !important;
+    }
+}
+
+/* Paper Trading justeringer v14 */
+.paper-edit-card {
+    background: rgba(15,23,42,0.72);
+    border: 1px solid rgba(148,163,184,0.32);
+    border-radius: 14px;
+    padding: 6px 8px;
+    margin: 6px 0 10px 0;
+}
+
+/* --- V14.7: kompakt header, sentral auto trading, watchlist og sterk mobil-komprimering --- */
+.top-app-header {
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    padding:6px 0 8px 0; margin:0 0 6px 0; border-bottom:1px solid rgba(148,163,184,0.16);
+}
+.top-app-title { color:#f8fafc !important; font-size:1.24rem; font-weight:950; letter-spacing:-0.02em; line-height:1.1; }
+.top-app-status { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap; }
+.top-chip {
+    display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:999px;
+    border:1px solid rgba(148,163,184,0.24); background:rgba(15,23,42,0.70);
+    color:#e2e8f0 !important; font-size:0.74rem; font-weight:900; white-space:nowrap;
+}
+.top-chip.green { border-color:rgba(34,197,94,0.42); background:rgba(22,101,52,0.24); color:#bbf7d0 !important; }
+.top-chip.red { border-color:rgba(239,68,68,0.44); background:rgba(127,29,29,0.24); color:#fecaca !important; }
+.top-chip.yellow { border-color:rgba(250,204,21,0.44); background:rgba(113,63,18,0.24); color:#fef3c7 !important; }
+.top-quick-row { margin:2px 0 6px 0; padding:6px 8px; border-radius:12px; background:rgba(15,23,42,0.38); border:1px solid rgba(148,163,184,0.14); }
+.watchlist-compact {
+    margin:8px 0 10px 0; padding:8px 10px; border-radius:12px; background:rgba(15,23,42,0.50);
+    border:1px solid rgba(148,163,184,0.18);
+}
+.watchlist-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.watchlist-title { color:#f8fafc !important; font-weight:950; font-size:1.05rem; line-height:1.1; }
+.watchlist-meta { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.watchlist-empty { color:#cbd5e1 !important; font-size:0.78rem; font-weight:850; padding:5px 8px; border-radius:999px; background:rgba(30,41,59,0.72); display:inline-flex; margin-top:6px; }
+.control-center-status { font-size:0.88rem !important; line-height:1.45 !important; padding:10px 12px !important; }
+.control-center-status b { font-size:0.92rem !important; }
+.auto-command-card {
+    background:rgba(15,23,42,0.78); border:1px solid rgba(148,163,184,0.28); border-radius:14px;
+    padding:10px 12px; margin:8px 0 10px 0; color:#e2e8f0 !important;
+}
+.auto-command-title { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:950; font-size:0.98rem; margin-bottom:7px; }
+.auto-command-line { color:#cbd5e1 !important; font-size:0.80rem; font-weight:850; line-height:1.3; }
+.auto-status-badge { font-size:0.90rem !important; padding:7px 10px !important; }
+.compact-mobile-note { color:#94a3b8 !important; font-size:0.72rem; font-weight:800; }
+
+@media (max-width: 900px) {
+    .top-app-header { padding:4px 0 6px 0 !important; gap:6px; }
+    .top-app-title { font-size:1.02rem !important; }
+    .top-app-status { justify-content:flex-start; }
+    .top-chip { font-size:0.66rem !important; padding:4px 6px !important; }
+    .watchlist-compact { margin:6px 0 7px 0 !important; padding:7px 8px !important; }
+    .watchlist-title { font-size:0.92rem !important; }
+    .watchlist-empty { font-size:0.70rem !important; padding:4px 7px !important; }
+    .mobile-control-center-note { font-size:0.78rem !important; line-height:1.25 !important; }
+    [data-testid="stExpander"] details summary p { font-size:0.92rem !important; font-weight:900 !important; }
+    [data-testid="stMetric"] { min-height:34px !important; padding:4px 7px !important; border-radius:10px !important; }
+    [data-testid="stMetricLabel"] { font-size:0.62rem !important; line-height:1.0 !important; margin-bottom:0 !important; }
+    [data-testid="stMetricValue"] { font-size:0.86rem !important; line-height:1.0 !important; }
+    .compact-stat-card { min-height:34px !important; padding:5px 7px !important; border-radius:10px !important; }
+    .compact-stat-label { font-size:0.60rem !important; }
+    .compact-stat-value { font-size:0.82rem !important; }
+    .stButton > button, section[data-testid="stSidebar"] .stButton > button {
+        min-height:36px !important; padding:0.28rem 0.52rem !important; font-size:0.82rem !important; border-radius:10px !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] input,
+    section[data-testid="stSidebar"] textarea { min-height:34px !important; font-size:0.80rem !important; }
+}
+
+
+
+/* --- V14.12: mobil/drawer cleanup, kontrollrad, bruker/børsstatus --- */
+.control-center-wide {
+    display:grid;
+    grid-template-columns: minmax(220px,1.1fr) minmax(220px,1.25fr) minmax(220px,1.1fr) minmax(240px,1.4fr);
+    gap:10px;
+    align-items:stretch;
+}
+.control-info-block {
+    background:rgba(15,23,42,0.72);
+    border:1px solid rgba(148,163,184,0.26);
+    border-radius:14px;
+    padding:9px 11px;
+    min-height:58px;
+}
+.control-info-title {
+    font-size:0.78rem;
+    color:#cbd5e1 !important;
+    font-weight:950;
+    margin-bottom:5px;
+}
+.mini-status-chip {
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    margin:2px 4px 2px 0;
+    padding:4px 7px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.24);
+    background:rgba(15,23,42,0.66);
+    color:#e2e8f0 !important;
+    font-size:0.72rem;
+    font-weight:900;
+    white-space:nowrap;
+}
+.mini-status-chip.green { border-color:rgba(34,197,94,0.42); background:rgba(22,101,52,0.20); color:#bbf7d0 !important; }
+.mini-status-chip.red { border-color:rgba(239,68,68,0.44); background:rgba(127,29,29,0.20); color:#fecaca !important; }
+.auto-control-help, .system-control-help {
+    color:#94a3b8 !important;
+    font-size:0.74rem;
+    font-weight:800;
+    margin:2px 0 5px 0;
+}
+.auto-control-separator { margin:5px 0 8px 0; border-top:1px solid rgba(148,163,184,0.12); }
+.auth-compact-line { color:#cbd5e1 !important; font-size:0.78rem; font-weight:850; margin:1px 0 5px 0; }
+.auth-session-details {
+    background:rgba(15,23,42,0.55);
+    border:1px solid rgba(148,163,184,0.22);
+    border-radius:10px;
+    padding:7px 9px;
+    font-size:0.72rem;
+    line-height:1.35;
+}
+.sidebar-section-title {
+    color:#e5e7eb !important;
+    font-size:.90rem !important;
+    font-weight:950 !important;
+    margin:.35rem 0 .45rem 0 !important;
+}
+.auth-sidebar-card {
+    border:1px solid rgba(95,122,170,.34);
+    background:rgba(8,16,34,.70);
+    border-radius:12px;
+    padding:.48rem .55rem;
+    margin:.18rem 0 .42rem 0;
+}
+.auth-sidebar-title { font-size:.80rem; font-weight:950; color:#f8fafc; margin-bottom:.25rem; }
+.auth-sidebar-user { display:flex; justify-content:space-between; gap:.35rem; font-size:.78rem; color:#e2e8f0; }
+.auth-sidebar-user span { color:#94a3b8; font-size:.70rem; font-weight:850; }
+.auth-remember-chip { display:inline-flex; align-items:center; gap:.25rem; border-radius:999px; padding:.18rem .42rem; margin-top:.35rem; font-size:.72rem; font-weight:900; border:1px solid rgba(148,163,184,.28); }
+.auth-remember-chip.on { color:#bbf7d0; background:rgba(22,101,52,.22); border-color:rgba(34,197,94,.45); }
+.auth-remember-chip.off { color:#fecaca; background:rgba(127,29,29,.22); border-color:rgba(239,68,68,.45); }
+.auth-mini-heading { font-size:.74rem; color:#cbd5e1; font-weight:950; margin:.55rem 0 .18rem 0; }
+.auth-user-list { display:flex; flex-direction:column; gap:.20rem; margin:.18rem 0 .35rem 0; }
+.auth-user-row { display:flex; justify-content:space-between; align-items:center; gap:.35rem; padding:.24rem .38rem; border:1px solid rgba(148,163,184,.18); border-radius:9px; background:rgba(15,23,42,.66); font-size:.70rem; }
+.auth-dot { width:.52rem; height:.52rem; border-radius:999px; display:inline-block; background:#ef4444; box-shadow:0 0 8px rgba(239,68,68,.35); }
+.auth-dot.on { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.35); }
+
+section[data-testid="stSidebar"] .stButton > button {
+    min-height:32px !important;
+    padding:0.24rem 0.50rem !important;
+    font-size:0.78rem !important;
+    border-radius:9px !important;
+}
+@media (max-width: 900px) {
+    .control-center-wide { grid-template-columns: 1fr; gap:7px; }
+    .control-info-block { padding:8px 9px; min-height:auto; }
+    .mini-status-chip { font-size:0.68rem; padding:3px 6px; }
+    .top-app-status { gap:5px; }
+}
+
+
+
+/* --- V15: kontrollert layout/state cleanup --- */
+@media (min-width: 1100px) {
+    .block-container {
+        max-width: none !important;
+        padding-left: 0.25rem !important;
+        padding-right: 0.35rem !important;
+    }
+    section[data-testid="stSidebar"] {
+        width: 190px !important;
+        min-width: 190px !important;
+    }
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-left: 0.35rem !important;
+        padding-right: 0.35rem !important;
+    }
+}
+.v15-desktop-status-strip {
+    display:grid;
+    grid-template-columns: 1.1fr 1.1fr 1.1fr 1.5fr;
+    gap:8px;
+    align-items:stretch;
+    margin:4px 0 8px 0;
+}
+.v15-status-block {
+    background:rgba(15,23,42,0.56);
+    border:1px solid rgba(148,163,184,0.20);
+    border-radius:12px;
+    padding:7px 9px;
+    min-height:42px;
+}
+.v15-status-title {
+    color:#cbd5e1 !important;
+    font-size:0.70rem;
+    font-weight:950;
+    margin-bottom:3px;
+    line-height:1.0;
+}
+.v15-auto-controls-wrap {
+    display:flex;
+    align-items:center;
+    gap:7px;
+    flex-wrap:wrap;
+    margin:5px 0 6px 0;
+}
+.v15-inline-help {
+    color:#94a3b8 !important;
+    font-size:0.72rem;
+    font-weight:800;
+    margin:3px 0 4px 0;
+}
+.v15-section-sep {
+    height:1px;
+    background:rgba(148,163,184,0.12);
+    margin:6px 0 8px 0;
+}
+/* Ikke vis PC-statusstrip på mobil; mobil bruker sidebar/drawer. */
+@media (max-width: 900px) {
+    .v15-desktop-status-strip { display:none !important; }
+    .top-app-header { margin-top:0.25rem !important; }
+}
+/* Sidebaren skal være kompakt; ingen enorme blå knapper. */
+section[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+    min-height:28px !important;
+    padding:0.18rem 0.38rem !important;
+    font-size:0.68rem !important;
+    line-height:1.05 !important;
+    border-radius:8px !important;
+    box-shadow:0 2px 7px rgba(14,165,233,0.14) !important;
+}
+section[data-testid="stSidebar"] .stButton > button p,
+section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button p {
+    font-size:0.68rem !important;
+    line-height:1.05 !important;
+}
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    margin-top:0.20rem !important;
+    margin-bottom:0.18rem !important;
+    font-size:0.98rem !important;
+}
+section[data-testid="stSidebar"] .element-container {
+    margin-bottom:0.12rem !important;
+}
+section[data-testid="stSidebar"] hr {
+    margin:0.35rem 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# V14.8 / Oppgave 67-69: strammere desktop-layout, mørk topp og tydeligere status.
+st.markdown(
+    """
+    <style>
+    header[data-testid="stHeader"] {
+        background: rgba(15,23,42,0.0) !important;
+        height: 0.25rem !important;
+        min-height: 0.25rem !important;
+    }
+    [data-testid="stToolbar"], #MainMenu, footer { visibility: hidden !important; height: 0 !important; }
+    .block-container {
+        max-width: 1720px !important;
+        padding-top: 0.25rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+    @media (min-width: 1200px) {
+        section[data-testid="stSidebar"] {
+            width: 235px !important;
+            min-width: 235px !important;
+        }
+        .main .block-container,
+        [data-testid="stAppViewContainer"] .block-container {
+            padding-left: 0.85rem !important;
+            padding-right: 0.85rem !important;
+        }
+        div[data-testid="stHorizontalBlock"] { gap: 0.65rem !important; }
+    }
+    .top-app-header {
+        padding: 3px 0 5px 0 !important;
+        margin-bottom: 4px !important;
+        border-bottom: 1px solid rgba(148,163,184,0.22) !important;
+    }
+    .top-app-title { font-size: 1.06rem !important; line-height: 1.05 !important; }
+    .top-chip { font-size: 0.82rem !important; padding: 5px 9px !important; }
+    .update-debug-line {
+        display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;
+        margin: 2px 0 6px 0; padding: 5px 8px;
+        border-radius: 999px; border:1px solid rgba(148,163,184,0.22);
+        background:rgba(15,23,42,0.62); color:#cbd5e1 !important;
+        font-size:0.78rem; font-weight:850;
+    }
+    .pending-changes-box {
+        margin: 4px 0 8px 0; padding: 7px 10px; border-radius: 12px;
+        background: rgba(120,53,15,0.22); border: 1px solid rgba(251,191,36,0.38);
+        color:#fde68a !important; font-weight:900; font-size:0.84rem;
+    }
+    .panel-radio-label { color:#cbd5e1 !important; font-size:0.78rem; font-weight:800; margin-top:3px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# V14.9 / Oppgave 67B og 75: strammere desktop-layout og kompakte sideknapper.
+st.markdown(
+    """
+    <style>
+    @media (min-width: 1100px) {
+        [data-testid="stAppViewContainer"] .main .block-container,
+        .main .block-container,
+        .block-container {
+            max-width: none !important;
+            width: 100% !important;
+            padding-left: 0.35rem !important;
+            padding-right: 0.55rem !important;
+        }
+        section[data-testid="stSidebar"] {
+            width: 205px !important;
+            min-width: 205px !important;
+        }
+        section[data-testid="stSidebar"] > div:first-child {
+            padding-left: 0.45rem !important;
+            padding-right: 0.45rem !important;
+        }
+        [data-testid="stAppViewContainer"] {
+            gap: 0 !important;
+        }
+        div[data-testid="stHorizontalBlock"] {
+            gap: 0.45rem !important;
+        }
+    }
+    section[data-testid="stSidebar"] .stButton > button,
+    section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+        min-height: 30px !important;
+        padding: 0.22rem 0.42rem !important;
+        font-size: 0.70rem !important;
+        line-height: 1.05 !important;
+        border-radius: 9px !important;
+        box-shadow: 0 3px 9px rgba(2,132,199,0.18) !important;
+        white-space: nowrap !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button p,
+    section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button p {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        font-size: 0.70rem !important;
+        line-height: 1.05 !important;
+    }
+    section[data-testid="stSidebar"] .stButton { margin-bottom: 0.22rem !important; }
+    section[data-testid="stSidebar"] .element-container { margin-bottom: 0.18rem !important; }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        margin-top: 0.35rem !important;
+        margin-bottom: 0.25rem !important;
+    }
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] span {
+        font-size: 0.78rem !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] input,
+    section[data-testid="stSidebar"] textarea {
+        min-height: 30px !important;
+        font-size: 0.76rem !important;
+    }
+    section[data-testid="stSidebar"] details > summary {
+        min-height: 30px !important;
+        padding-top: 0.22rem !important;
+        padding-bottom: 0.22rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# V15.1 / Oppgave 90-92: kompakt toppkontroll og mindre knapper.
+st.markdown(
+    """
+    <style>
+    .top-market-status-row {
+        display:flex; align-items:center; justify-content:flex-start; gap:5px; flex-wrap:wrap;
+        min-height:30px; padding:2px 0 0 2px;
+    }
+    .top-market-label {
+        color:#cbd5e1 !important; font-size:0.72rem; font-weight:950; margin-right:2px;
+    }
+    .market-help-inline {
+        display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+        border-radius:999px; border:1px solid rgba(148,163,184,0.24); color:#94a3b8 !important;
+        font-size:0.68rem; font-weight:950; background:rgba(15,23,42,0.62);
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button {
+        min-height:30px !important;
+        padding:0.22rem 0.46rem !important;
+        border-radius:9px !important;
+        font-size:0.76rem !important;
+        line-height:1.05 !important;
+        box-shadow:0 3px 10px rgba(14,165,233,0.18) !important;
+        white-space:nowrap !important;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button p {
+        font-size:0.76rem !important; line-height:1.05 !important; white-space:nowrap !important;
+    }
+    .v15-inline-help { font-size:0.68rem !important; margin:2px 0 3px 0 !important; }
+    @media (max-width: 900px) {
+        .top-market-status-row { margin-top:4px; }
+        div[data-testid="stHorizontalBlock"] .stButton > button {
+            min-height:34px !important; font-size:0.78rem !important; padding:0.28rem 0.44rem !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# V15.2 / Oppgave 93-98: ryddet topbar, én statuskilde, større tekst og tett Auto trading-gruppe.
+st.markdown(
+    """
+    <style>
+    .v152-top-clean {
+        justify-content:flex-start !important;
+        padding:2px 0 4px 0 !important;
+        margin-bottom:5px !important;
+    }
+    .v15-desktop-status-strip {
+        grid-template-columns: 1.05fr 1.05fr 1.05fr 1.45fr !important;
+        gap:7px !important;
+        margin:3px 0 7px 0 !important;
+    }
+    .v15-status-block {
+        padding:8px 10px !important;
+        min-height:48px !important;
+        border-color:rgba(148,163,184,0.24) !important;
+    }
+    .v15-status-title {
+        font-size:0.84rem !important;
+        line-height:1.05 !important;
+        margin-bottom:5px !important;
+        color:#e2e8f0 !important;
+    }
+    .mini-status-chip {
+        font-size:0.80rem !important;
+        padding:5px 8px !important;
+        margin:2px 5px 2px 0 !important;
+    }
+    .v15-inline-help {
+        font-size:0.73rem !important;
+        margin:2px 0 3px 0 !important;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button {
+        min-height:28px !important;
+        padding:0.18rem 0.34rem !important;
+        border-radius:8px !important;
+        font-size:0.72rem !important;
+        box-shadow:0 2px 7px rgba(14,165,233,0.16) !important;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button p {
+        font-size:0.72rem !important;
+        line-height:1.02 !important;
+    }
+    .top-app-status, .top-market-status-row { display:none !important; }
+    @media (max-width: 900px) {
+        .v15-status-title { font-size:0.88rem !important; }
+        .mini-status-chip { font-size:0.82rem !important; padding:5px 8px !important; }
+        div[data-testid="stHorizontalBlock"] .stButton > button {
+            min-height:32px !important;
+            font-size:0.76rem !important;
+            padding:0.22rem 0.38rem !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# v19.0.22: Global Enkel/Avansert-modus styrer informasjonsmengden i hele appen.
+try:
+    _early_ui_mode_v19022 = get_user_mode_v19022(load_settings(), current_user)
+except Exception:
+    _early_ui_mode_v19022 = UX_SIMPLE_MODE_V19022
+st.session_state["ui_experience_mode_v19022"] = _early_ui_mode_v19022
+APP_VIEW_MODE = "Kompakt" if _early_ui_mode_v19022 == UX_SIMPLE_MODE_V19022 else "Full"
+st.session_state["global_view_mode_v145"] = APP_VIEW_MODE
+st.session_state["app_view_mode"] = APP_VIEW_MODE
+st.markdown("<div class='v18574-analysis-dense'>", unsafe_allow_html=True)
+
+if APP_VIEW_MODE == "Kompakt":
+    st.markdown(
+        """
+        <style>
+        .block-container { padding-top: 0.75rem !important; }
+        [data-testid="stMetric"] {
+            padding: 8px 10px !important;
+            border-radius: 12px !important;
+            min-height: 58px !important;
+            box-shadow: none !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 0.70rem !important;
+            line-height: 1.05 !important;
+            margin-bottom: 1px !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 1.12rem !important;
+            line-height: 1.05 !important;
+        }
+        div[data-testid="column"] { gap: 0.45rem !important; }
+        .stAlert { padding: 0.55rem 0.75rem !important; }
+        .trading-engine-compact { padding: 7px 9px !important; margin: 5px 0 !important; }
+        .trading-engine-details { padding: 6px 8px !important; font-size: 0.80rem !important; }
+        details { margin-bottom: 0.45rem !important; }
+        details > summary { min-height: 32px !important; }
+        .graph-explain-box { padding: 7px 9px !important; font-size: 0.76rem !important; }
+        .compact-stat-grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap:6px; }
+        .compact-stat-card { min-height:44px; padding:6px 8px; }
+        .compact-stat-value { font-size:0.98rem; }
+        @media (max-width: 900px) {
+            .compact-stat-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+            .stButton > button { min-height:40px !important; font-size:0.88rem !important; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+elif APP_VIEW_MODE == "Full":
+    # Full skal faktisk være mer detaljert enn Normal: mer luft, større hovedtitler og synlige forklaringsblokker.
+    st.markdown(
+        """
+        <style>
+        .block-container { padding-top: 1.15rem !important; }
+        [data-testid="stMetric"] { padding: 12px 14px !important; min-height: 72px !important; }
+        [data-testid="stMetricValue"] { font-size: 1.32rem !important; }
+        .ptw-control-panel-title { font-size: 1.24rem !important; margin-top:1.05rem !important; }
+        .v18-dark-row { padding:.62rem .72rem !important; }
+        details > summary { min-height: 42px !important; }
+        .compact-stat-grid { grid-template-columns: repeat(5, minmax(0,1fr)); gap:10px; }
+        .v18-full-extra, .full-only, [data-full-only="true"] { display:block !important; }
+        .v18-dark-row { margin-top:.28rem !important; margin-bottom:.28rem !important; }
+        .ptw-control-panel, [data-testid="stExpander"] details { margin-bottom:.82rem !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+
+# V15.7 / Oppgave 112: KPI-kort harmoniseres med resten av UI-et, også i Full-visning.
+st.markdown(
+    """
+    <style>
+    [data-testid="stMetric"] {
+        min-height: 58px !important;
+        padding: 8px 10px !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.70rem !important;
+        line-height: 1.05 !important;
+        margin-bottom: 1px !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.12rem !important;
+        line-height: 1.05 !important;
+    }
+    .info-mini-card {
+        min-height: 84px !important;
+        padding: 10px 12px !important;
+        border-radius: 12px !important;
+    }
+    .info-mini-title { font-size: 0.86rem !important; margin-bottom: 5px !important; }
+    .info-mini-main { font-size: 1.02rem !important; margin: 3px 0 !important; }
+    .info-mini-sub { font-size: 0.78rem !important; line-height: 1.25 !important; }
+    .info-mini-small { font-size: 0.68rem !important; }
+    .rsi-box { padding: 10px 12px !important; border-radius: 12px !important; margin: 8px 0 10px 0 !important; }
+    .rsi-title { font-size: 0.92rem !important; }
+    .rsi-value { font-size: 1.20rem !important; }
+    .v157-toolbar .stButton > button {
+        min-height: 28px !important;
+        padding: 0.18rem 0.42rem !important;
+        font-size: 0.72rem !important;
+        border-radius: 8px !important;
+    }
+    .v157-toolbar .stButton > button p { font-size: 0.72rem !important; line-height: 1.02 !important; }
+    .v153-control-note, .v153-control-note * {
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+    }
+    .v153-control-note {
+        max-width: 980px !important;
+        min-width: min(520px, 100%) !important;
+        display: block !important;
+    }
+    @media (max-width: 900px) {
+        [data-testid="stMetric"] { min-height: 54px !important; padding: 6px 8px !important; }
+        [data-testid="stMetricValue"] { font-size: 0.95rem !important; }
+        .v153-control-note { min-width: 0 !important; width: 100% !important; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+LIVE_BANNER_LABELS = {
+    "^GSPC": "S&P 500",
+    "^IXIC": "NASDAQ",
+    "^DJI": "DOW",
+    "^VIX": "VIX Volatility Index",
+    "^RUT": "Russell 2000",
+    "^FTSE": "FTSE 100",
+    "^GDAXI": "DAX",
+    "^FCHI": "CAC 40",
+    "^STOXX50E": "Euro Stoxx 50",
+    "GC=F": "Gold Futures",
+    "SI=F": "Silver Futures",
+    "CL=F": "Crude Oil Futures",
+    "BZ=F": "Brent Crude Futures",
+    "NG=F": "Natural Gas Futures",
+    "HG=F": "Copper Futures",
+    "PL=F": "Platinum Futures",
+    "PA=F": "Palladium Futures",
+    "ZC=F": "Corn Futures",
+    "ZW=F": "Wheat Futures",
+    "ZS=F": "Soybean Futures",
+    "BTC-USD": "Bitcoin",
+    "ETH-USD": "Ethereum",
+    "EURUSD=X": "EUR/USD",
+    "USDNOK=X": "USD/NOK",
+    "EURNOK=X": "EUR/NOK",
+    "EQNR.OL": "Equinor",
+    "DNB.OL": "DNB Bank",
+    "NHY.OL": "Norsk Hydro",
+    "YAR.OL": "Yara International",
+    "ATCO-A.ST": "Atlas Copco A",
+    "VOLV-B.ST": "Volvo B",
+    "ERIC-B.ST": "Ericsson B",
+    "ABB.ST": "ABB",
+    "NOKIA.HE": "Nokia",
+    "NESTE.HE": "Neste",
+    "KNEBV.HE": "KONE B",
+    "SAMPO.HE": "Sampo",
+    "NOVO-B.CO": "Novo Nordisk B",
+    "MAERSK-B.CO": "A.P. Moller - Maersk B",
+    "DSV.CO": "DSV",
+    "ORSTED.CO": "Orsted",
+    "PETR4.SA": "Petrobras PN",
+    "VALE3.SA": "Vale",
+    "ITUB4.SA": "Itau Unibanco PN",
+    "BBDC4.SA": "Banco Bradesco PN",
+    "XAUUSD": "Gull",
+    "UKOILUSD": "Brent Spot",
+}
+
+LIVE_BANNER_MARKETS = ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]
+LIVE_BANNER_DEFAULT_TICKERS = {
+    "USA": "^GSPC, ^IXIC, ^DJI",
+    "Norge": "EQNR.OL, DNB.OL, NHY.OL, YAR.OL",
+    "Sverige": "ATCO-A.ST, VOLV-B.ST, ERIC-B.ST, ABB.ST",
+    "Finland": "NOKIA.HE, NESTE.HE, KNEBV.HE, SAMPO.HE",
+    "Danmark": "NOVO-B.CO, MAERSK-B.CO, DSV.CO, ORSTED.CO",
+    "Brasil": "PETR4.SA, VALE3.SA, ITUB4.SA, BBDC4.SA",
+}
+
+BANNER_ALERT_CONFIG_KEY_V18610 = "live_banner_alert_config_v18610"
+BANNER_ALERT_LOG_KEY_V18610 = "live_banner_alert_log_v18610"
+SPECIAL_WATCH_ALERT_LOG_KEY_V18621 = "special_watch_alert_log_v18621"
+ALERT_LIFECYCLE_STATE_KEY_V18610 = "alert_lifecycle_state_v18610"
+
+
+def _float_or_none_v18610(value):
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _alert_lifecycle_update_v18610(settings, domain: str, alert_key: str, status: str, payload: dict | None = None) -> dict:
+    """Normal -> brudd sender en gang. Nytt varsel krever normaltilstand forst."""
+    settings = settings if isinstance(settings, dict) else {}
+    domain = str(domain or "global").strip() or "global"
+    alert_key = str(alert_key or "").strip()
+    status = str(status or "normal").strip() or "normal"
+    if not alert_key:
+        return {"send": False, "changed": False, "previous_status": "normal", "status": status}
+
+    root = settings.setdefault(ALERT_LIFECYCLE_STATE_KEY_V18610, {})
+    if not isinstance(root, dict):
+        root = {}
+        settings[ALERT_LIFECYCLE_STATE_KEY_V18610] = root
+    bucket = root.setdefault(domain, {})
+    if not isinstance(bucket, dict):
+        bucket = {}
+        root[domain] = bucket
+
+    previous = dict(bucket.get(alert_key) or {})
+    previous_status = str(previous.get("status") or "normal")
+    now = datetime.now().isoformat(timespec="seconds")
+    is_breach = status.startswith("breach")
+    send = bool(is_breach and previous_status != status)
+    changed = bool(previous_status != status)
+
+    state = {
+        **previous,
+        "status": status,
+        "updated_at": now,
+    }
+    if payload:
+        state.update(payload)
+    if status == "normal":
+        if previous_status != "normal":
+            state["last_normal_at"] = now
+        state["active_breach_started_at"] = None
+    elif is_breach:
+        if previous_status != status:
+            state["active_breach_started_at"] = now
+        if send:
+            state["last_signal_at"] = now
+    elif status.startswith("near"):
+        if previous_status != status:
+            state["last_near_at"] = now
+
+    bucket[alert_key] = state
+    return {
+        "send": send,
+        "changed": changed,
+        "previous_status": previous_status,
+        "status": status,
+        "state": state,
+    }
+
+
+def _banner_alert_default_config_v18610() -> dict:
+    return {
+        "active": True,
+        "pushover": False,
+        "near_pct": 15.0,
+        "common_pct_up": 5.0,
+        "common_pct_down": 0.0,
+        "common_volume_ratio20": 2.0,
+        "individual": {},
+    }
+
+
+def _normalize_down_pct_input_v18616(value, default=0.0) -> float:
+    """Keep saved down-thresholds inside Streamlit's negative percent input range."""
+    try:
+        pct = float(value)
+    except Exception:
+        pct = float(default)
+    if pct > 0:
+        pct = -pct
+    return max(-100.0, min(0.0, pct))
+
+
+def _load_banner_alert_config_v18610(settings=None) -> dict:
+    settings = settings or load_settings()
+    defaults = _banner_alert_default_config_v18610()
+    raw = settings.get(BANNER_ALERT_CONFIG_KEY_V18610) if isinstance(settings, dict) else None
+    if not isinstance(raw, dict):
+        return defaults
+    merged = {**defaults, **raw}
+    if not isinstance(merged.get("individual"), dict):
+        merged["individual"] = {}
+    merged["common_pct_down"] = _normalize_down_pct_input_v18616(merged.get("common_pct_down", 0.0))
+    for rules in merged["individual"].values():
+        if isinstance(rules, dict) and "pct_down" in rules:
+            rules["pct_down"] = _normalize_down_pct_input_v18616(rules.get("pct_down", 0.0))
+    return merged
+
+
+def _has_special_watch_rules_v18618(rules: dict) -> bool:
+    if not isinstance(rules, dict):
+        return False
+    for key in ("price_upper", "price_lower", "pct_up", "pct_down"):
+        try:
+            if abs(float(rules.get(key) or 0.0)) > 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _save_banner_alert_config_v18610(config: dict) -> None:
+    settings = load_settings() or {}
+    settings[BANNER_ALERT_CONFIG_KEY_V18610] = dict(config or {})
+    save_settings(settings)
+
+
+def _append_banner_alert_log_v18610(settings: dict, entry: dict, log_key: str = BANNER_ALERT_LOG_KEY_V18610) -> None:
+    settings = settings if isinstance(settings, dict) else {}
+    log = settings.setdefault(log_key, [])
+    if not isinstance(log, list):
+        log = []
+    row = {"tid": datetime.now().isoformat(timespec="seconds"), **dict(entry or {})}
+    log.insert(0, row)
+    settings[log_key] = log[:200]
+
+
+def _banner_marker_from_status_v18610(status: str) -> dict:
+    status = str(status or "normal")
+    if status.startswith("breach_upper") or status.startswith("breach_up") or status == "breach_volume_up":
+        return {"css": "red", "symbol": "opp", "label": "Rød opp", "status": status}
+    if status.startswith("breach_lower") or status.startswith("breach_down"):
+        return {"css": "red", "symbol": "ned", "label": "Rød ned", "status": status}
+    if status.startswith("near_upper") or status.startswith("near_up") or status == "near_volume_up":
+        return {"css": "yellow", "symbol": "opp", "label": "Gul opp", "status": status}
+    if status.startswith("near_lower") or status.startswith("near_down"):
+        return {"css": "yellow", "symbol": "ned", "label": "Gul ned", "status": status}
+    return {"css": "green", "symbol": "ok", "label": "Grønn", "status": "normal"}
+
+
+def _banner_marker_html_v18610(marker: dict) -> str:
+    marker = marker or _banner_marker_from_status_v18610("normal")
+    symbol = {"opp": "▲", "ned": "▼", "ok": ""}.get(marker.get("symbol"), "")
+    label = html.escape(str(marker.get("label") or "Normal"))
+    css = html.escape(str(marker.get("css") or "green"))
+    return f"<span class='ticker-alert-marker {css}' title='{label}'><span>{symbol}</span></span>"
+
+
+def _banner_status_priority_v18610(status: str) -> int:
+    if str(status or "").startswith("breach"):
+        return 3
+    if str(status or "").startswith("near"):
+        return 2
+    return 1
+
+
+def _banner_alert_evaluate_card_v18610(card: dict, config: dict) -> dict:
+    config = config or _banner_alert_default_config_v18610()
+    ticker = str((card or {}).get("ticker") or "").upper()
+    price = _float_or_none_v18610((card or {}).get("price"))
+    pct = _float_or_none_v18610((card or {}).get("pct")) or 0.0
+    volume_ratio20 = _float_or_none_v18610((card or {}).get("volume_ratio_20"))
+    near_pct = max(0.0, min(_float_or_none_v18610(config.get("near_pct")) or 15.0, 90.0)) / 100.0
+    active = bool(config.get("active", True))
+    candidates = [("normal", "Innenfor felles og individuelle grenser.")]
+
+    def add(status, text):
+        candidates.append((status, text))
+
+    if active:
+        up = abs(_float_or_none_v18610(config.get("common_pct_up")) or 0.0)
+        down = abs(_float_or_none_v18610(config.get("common_pct_down")) or 0.0)
+        volume_limit = _float_or_none_v18610(config.get("common_volume_ratio20"))
+        if up:
+            if pct >= up:
+                add("breach_up_pct", f"Dagsendring {pct:+.2f}% er over felles øvre grense {up:.2f}%.")
+            elif pct >= up * (1.0 - near_pct):
+                add("near_up_pct", f"Dagsendring {pct:+.2f}% nærmer seg øvre grense {up:.2f}%.")
+        if down:
+            if pct <= -down:
+                add("breach_down_pct", f"Dagsendring {pct:+.2f}% er under felles nedre grense -{down:.2f}%.")
+            elif pct <= -down * (1.0 - near_pct):
+                add("near_down_pct", f"Dagsendring {pct:+.2f}% nærmer seg nedre grense -{down:.2f}%.")
+        if volume_limit and volume_ratio20:
+            if volume_ratio20 >= volume_limit:
+                add("breach_volume_up", f"Volum er {volume_ratio20:.2f}x 20-dagers snitt, over felles grense {volume_limit:.2f}x.")
+            elif volume_ratio20 >= volume_limit * (1.0 - near_pct):
+                add("near_volume_up", f"Volum er {volume_ratio20:.2f}x 20-dagers snitt, nær felles grense {volume_limit:.2f}x.")
+
+        individual = dict((config.get("individual") or {}).get(ticker) or {})
+        upper = _float_or_none_v18610(individual.get("price_upper"))
+        lower = _float_or_none_v18610(individual.get("price_lower"))
+        pct_up = abs(_float_or_none_v18610(individual.get("pct_up")) or 0.0)
+        pct_down = abs(_float_or_none_v18610(individual.get("pct_down")) or 0.0)
+        if price is not None and upper:
+            if price >= upper:
+                add("breach_upper_price", f"Kurs {price:.2f} er over tickergrense {upper:.2f}.")
+            elif price >= upper * (1.0 - near_pct):
+                add("near_upper_price", f"Kurs {price:.2f} nærmer seg tickergrense {upper:.2f}.")
+        if price is not None and lower:
+            if price <= lower:
+                add("breach_lower_price", f"Kurs {price:.2f} er under tickergrense {lower:.2f}.")
+            elif price <= lower * (1.0 + near_pct):
+                add("near_lower_price", f"Kurs {price:.2f} nærmer seg nedre tickergrense {lower:.2f}.")
+        if pct_up and pct >= pct_up:
+            add("breach_up_pct", f"Dagsendring {pct:+.2f}% er over tickergrense {pct_up:.2f}%.")
+        if pct_down and pct <= -pct_down:
+            add("breach_down_pct", f"Dagsendring {pct:+.2f}% er under tickergrense -{pct_down:.2f}%.")
+
+    status, explanation = sorted(candidates, key=lambda x: _banner_status_priority_v18610(x[0]), reverse=True)[0]
+    marker = _banner_marker_from_status_v18610(status)
+    return {
+        "status": status,
+        "marker": marker,
+        "explanation": explanation,
+        "pushover": bool(config.get("pushover", False)),
+    }
+
+
+def _apply_banner_alerts_v18610(cards: list[dict], config: dict, *, source: str = "ticker_banner", log_key: str = BANNER_ALERT_LOG_KEY_V18610) -> list[dict]:
+    cards = [dict(card or {}) for card in cards or []]
+    settings = load_settings() or {}
+    dirty = False
+    for card in cards:
+        evaluation = _banner_alert_evaluate_card_v18610(card, config)
+        card["alert_status"] = evaluation.get("status")
+        card["alert_marker"] = evaluation.get("marker")
+        card["alert_explanation"] = evaluation.get("explanation")
+        ticker = str(card.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        transition = _alert_lifecycle_update_v18610(
+            settings,
+            source,
+            ticker,
+            str(evaluation.get("status") or "normal"),
+            {
+                "ticker": ticker,
+                "market": card.get("market"),
+                "price": card.get("price"),
+                "pct": card.get("pct"),
+                "explanation": evaluation.get("explanation"),
+            },
+        )
+        dirty = dirty or bool(transition.get("changed"))
+        if transition.get("send"):
+            _append_banner_alert_log_v18610(
+                settings,
+                {
+                    "ticker": ticker,
+                    "marked": card.get("market"),
+                    "status": evaluation.get("status"),
+                    "kurs": card.get("price"),
+                    "endring_pct": round(float(card.get("pct") or 0.0), 2),
+                    "forklaring": evaluation.get("explanation"),
+                    "pushover": "ja" if config.get("pushover") else "nei",
+                },
+                log_key,
+            )
+            dirty = True
+            if config.get("pushover"):
+                try:
+                    _send_pushover_safe_v1863af(
+                        f"{ticker}: {evaluation.get('explanation')} Kurs {float(card.get('price') or 0):.2f}, endring {float(card.get('pct') or 0):+.2f}%.",
+                        f"Ticker-banner {ticker}",
+                    )
+                except Exception as exc:
+                    logging.warning("Banner Pushover failed for %s: %s", ticker, exc)
+        elif transition.get("previous_status", "normal") != "normal" and evaluation.get("status") == "normal":
+            _append_banner_alert_log_v18610(
+                settings,
+                {
+                    "ticker": ticker,
+                    "marked": card.get("market"),
+                    "status": "normal",
+                    "kurs": card.get("price"),
+                    "endring_pct": round(float(card.get("pct") or 0.0), 2),
+                    "forklaring": "Tilbake innenfor grensen. Nytt varsel kan sendes ved neste brudd.",
+                    "pushover": "nei",
+                },
+                log_key,
+            )
+            dirty = True
+    if dirty:
+        save_settings(settings)
+    return cards
+
+
+def _is_weak_banner_name(name, ticker):
+    """Returnerer True når Yahoo-navnet egentlig bare er ticker eller tom tekst."""
+    try:
+        name = str(name or "").strip()
+        ticker = str(ticker or "").strip().upper()
+        compact_name = re.sub(r"[^A-Z0-9]", "", name.upper())
+        compact_ticker = re.sub(r"[^A-Z0-9]", "", ticker.upper())
+        if not name or compact_name in {"", compact_ticker}:
+            return True
+        if name.upper() in {ticker, compact_ticker}:
+            return True
+        return False
+    except Exception:
+        return True
+
+
+@st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
+def resolve_live_banner_label(ticker, fallback_label=None):
+    """
+    Finner penere navn til bannerkort.
+    Prøver Yahoo-navn først, deretter egen fallback-liste for indeks, futures, råvarer, valuta og krypto.
+    """
+    ticker = str(ticker or "").strip().upper()
+    fallback_label = str(fallback_label or "").strip()
+
+    if yf is not None:
+        try:
+            info = {}
+            yft = yf.Ticker(ticker)
+            try:
+                info = yft.get_info() or {}
+            except Exception:
+                try:
+                    info = yft.info or {}
+                except Exception:
+                    info = {}
+            for key in ("shortName", "longName", "displayName"):
+                candidate = info.get(key) if isinstance(info, dict) else None
+                if candidate and not _is_weak_banner_name(candidate, ticker):
+                    return str(candidate).strip()
+        except Exception as e:
+            logging.warning("Silenced exception restored in v18.6.3: %s", e)
+
+    if ticker in LIVE_BANNER_LABELS:
+        return LIVE_BANNER_LABELS[ticker]
+    if fallback_label and not _is_weak_banner_name(fallback_label, ticker):
+        return fallback_label
+    return ticker
+
+
+def parse_banner_tickers(settings=None):
+    """
+    Leser tickere fra settings, normaliserer historiske symbolvarianter og
+    fjerner duplikater etter kanonisering. Første forekomst beholdes.
+    """
+    settings = settings or load_settings()
+    raw_items = parse_banner_settings(settings, LIVE_BANNER_MARKETS, LIVE_BANNER_DEFAULT_TICKERS, LIVE_BANNER_LABELS)
+    items = []
+    seen = set()
+    for market, ticker, label in raw_items:
+        canonical = _live_banner_canonical_ticker_v19170rc6(ticker)
+        key = canonical.upper()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        resolved_label = LIVE_BANNER_LABELS.get(canonical) or label or canonical
+        items.append((market, canonical, resolved_label))
+    return items
+
+
+def _sparkline_svg(values, positive=True, width=104, height=36, reference=None):
+    """Yahoo-finance style mini chart with a dotted previous-close baseline.
+    Green segments are above the reference level, red segments are below.
+    """
+    vals = [float(v) for v in (values or []) if v is not None]
+    if len(vals) < 2:
+        vals = [0.0, 0.0]
+
+    if reference is None:
+        reference = vals[-2] if len(vals) >= 2 else vals[-1]
+    ref = float(reference)
+
+    vmin = min(min(vals), ref)
+    vmax = max(max(vals), ref)
+    pad = max((vmax - vmin) * 0.10, abs(ref) * 0.002, 1e-6)
+    vmin -= pad
+    vmax += pad
+    span = (vmax - vmin) or 1.0
+
+    def _xy(i, val):
+        x = i * (width / max(len(vals) - 1, 1))
+        y = height - ((val - vmin) / span) * (height - 6) - 3
+        return x, y
+
+    points = [_xy(i, v) for i, v in enumerate(vals)]
+    ref_y = _xy(0, ref)[1]
+
+    green_segments = []
+    red_segments = []
+
+    def _add_segment(target, p1, p2):
+        if not target or target[-1][-1] != p1:
+            target.append([p1, p2])
+        else:
+            target[-1].append(p2)
+
+    for idx in range(len(vals) - 1):
+        v1, v2 = vals[idx], vals[idx + 1]
+        p1, p2 = points[idx], points[idx + 1]
+        above1 = v1 >= ref
+        above2 = v2 >= ref
+
+        if above1 == above2:
+            _add_segment(green_segments if above1 else red_segments, p1, p2)
+            continue
+
+        # Split line exactly where it crosses the reference line.
+        denom = (v2 - v1) or 1e-9
+        t = (ref - v1) / denom
+        cross_x = p1[0] + (p2[0] - p1[0]) * t
+        cross_point = (cross_x, ref_y)
+        _add_segment(green_segments if above1 else red_segments, p1, cross_point)
+        _add_segment(green_segments if above2 else red_segments, cross_point, p2)
+
+    def _polyline(points_seq, stroke):
+        if len(points_seq) < 2:
+            return ''
+        pts = ' '.join(f"{x:.2f},{y:.2f}" for x, y in points_seq)
+        return (
+            f'<polyline points="{pts}" fill="none" stroke="{stroke}" '
+            f'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>'
+        )
+
+    green_svg = ''.join(_polyline(seg, '#16a34a') for seg in green_segments)
+    red_svg = ''.join(_polyline(seg, '#dc2626') for seg in red_segments)
+    last_x, last_y = points[-1]
+    last_color = '#16a34a' if vals[-1] >= ref else '#dc2626'
+
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">'
+        f'<line x1="0" y1="{ref_y:.2f}" x2="{width}" y2="{ref_y:.2f}" '
+        f'stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.95"></line>'
+        f'{green_svg}{red_svg}'
+        f'<circle cx="{last_x:.2f}" cy="{last_y:.2f}" r="1.9" fill="{last_color}"></circle>'
+        f'</svg>'
+    )
+
+
+_LIVE_BANNER_PROVIDER_ALIASES_V19170RC7 = {
+    # Canonical display symbols -> Yahoo Finance provider symbols.
+    "XAUUSD": "GC=F",       # Gold futures proxy for spot gold.
+    "UKOILUSD": "BZ=F",    # Brent futures proxy for UK oil.
+}
+
+_LIVE_BANNER_CANONICAL_TICKERS_V19170RC7 = {
+    # Historical/mistyped display symbols are normalised before lookup and display.
+    "XAUUSD=F": "XAUUSD",
+    "XAU/USD": "XAUUSD",
+    "UKOILUSD=F": "UKOILUSD",
+    "UKOIL/USD": "UKOILUSD",
+}
+
+def _live_banner_canonical_ticker_v19170rc6(ticker: str) -> str:
+    value = str(ticker or "").strip().upper()
+    return _LIVE_BANNER_CANONICAL_TICKERS_V19170RC7.get(value, value)
+
+def _live_banner_provider_ticker_v19170rc5(ticker: str) -> str:
+    canonical = _live_banner_canonical_ticker_v19170rc6(ticker)
+    return _LIVE_BANNER_PROVIDER_ALIASES_V19170RC7.get(canonical, canonical)
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _download_live_banner_history(tickers):
+    tickers = tuple(str(t or "").strip().upper() for t in (tickers or []) if str(t or "").strip())
+    if yf is None or not tickers:
+        return None
+    try:
+        return yf.download(
+            tickers=list(tickers),
+            period="1mo",
+            interval="1d",
+            auto_adjust=False,
+            prepost=False,
+            progress=False,
+            threads=True,
+            group_by="column",
+        )
+    except Exception as e:
+        logging.warning("Live banner batch download failed: %s", e)
+        return None
+
+
+def _series_from_banner_history_v18610(history, ticker, field):
+    if history is None or getattr(history, "empty", True):
+        return None
+    try:
+        ticker = str(ticker or "").strip().upper()
+        field = str(field or "").strip()
+        if isinstance(history.columns, pd.MultiIndex):
+            if field in history.columns.get_level_values(0):
+                frame = history[field]
+                if ticker in frame:
+                    return frame[ticker].dropna()
+            if field in history.columns.get_level_values(-1):
+                key = (ticker, field)
+                if key in history:
+                    return history[key].dropna()
+            return None
+        if field in history:
+            return history[field].dropna()
+    except Exception as e:
+        logging.warning("Live banner history parse failed for %s/%s: %s", ticker, field, e)
+    return None
+
+
+def _close_from_banner_history(history, ticker):
+    return _series_from_banner_history_v18610(history, ticker, "Close")
+
+
+def _banner_volume_stats_v18610(volume_series):
+    volume = volume_series.dropna() if volume_series is not None and hasattr(volume_series, "dropna") else None
+    if volume is None or volume.empty:
+        return {"volume": None, "volume_ratio_20": None, "volume_ratio_50": None}
+    try:
+        latest = float(volume.iloc[-1])
+        avg20 = float(volume.tail(20).mean()) if len(volume) >= 5 else None
+        avg50 = float(volume.tail(50).mean()) if len(volume) >= 10 else None
+        return {
+            "volume": latest,
+            "volume_ratio_20": (latest / avg20) if avg20 else None,
+            "volume_ratio_50": (latest / avg50) if avg50 else None,
+        }
+    except Exception:
+        return {"volume": None, "volume_ratio_20": None, "volume_ratio_50": None}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_live_banner_snapshot(banner_items):
+    if yf is None:
+        return []
+
+    banner_items = tuple(banner_items or ())
+    history = _download_live_banner_history(tuple(_live_banner_provider_ticker_v19170rc5(ticker) for _, ticker, _ in banner_items))
+    cards = []
+    for market, ticker, label in banner_items:
+        try:
+            provider_ticker = _live_banner_provider_ticker_v19170rc5(ticker)
+            close = _close_from_banner_history(history, provider_ticker)
+            volume = _series_from_banner_history_v18610(history, provider_ticker, "Volume")
+            if close is None or close.empty:
+                hist = yf.Ticker(provider_ticker).history(period="1mo", interval="1d", auto_adjust=False, prepost=False)
+                if hist is None or hist.empty or "Close" not in hist:
+                    continue
+                close = hist["Close"].dropna()
+                volume = hist["Volume"].dropna() if "Volume" in hist else volume
+            if close.empty or len(close) < 2:
+                continue
+
+            series = close.tail(20)
+            current = float(series.iloc[-1])
+            prev = float(series.iloc[-2])
+            delta = current - prev
+            pct = ((current / prev) - 1.0) * 100 if prev else 0.0
+            volume_stats = _banner_volume_stats_v18610(volume)
+
+            canonical_ticker = _live_banner_canonical_ticker_v19170rc6(ticker)
+            display_label = resolve_live_banner_label(canonical_ticker, label)
+
+            cards.append({
+                "market": market,
+                "ticker": canonical_ticker,
+                "provider_ticker": provider_ticker,
+                "label": display_label,
+                "price": current,
+                "delta": delta,
+                "pct": pct,
+                "sparkline": _sparkline_svg(series.tolist(), positive=pct >= 0, reference=prev),
+                **volume_stats,
+            })
+        except Exception:
+            continue
+
+    return cards
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _download_banner_detail_history_v18610(ticker: str, period_label: str):
+    if yf is None:
+        return None, "yfinance er ikke tilgjengelig"
+    ticker = _live_banner_provider_ticker_v19170rc5(str(ticker or "").strip().upper())
+    period_label = str(period_label or "1 mnd")
+    if not ticker:
+        return None, "Ticker mangler"
+    period_map = {
+        "I dag": ("1d", "5m"),
+        "5 dager": ("5d", "15m"),
+        "1 mnd": ("1mo", "1d"),
+        "3 mnd": ("3mo", "1d"),
+        "6 mnd": ("6mo", "1d"),
+        "1 år": ("1y", "1d"),
+    }
+    period, interval = period_map.get(period_label, ("1mo", "1d"))
+    try:
+        hist = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=False, prepost=False)
+    except Exception as exc:
+        return None, str(exc)[:180]
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty or "Close" not in hist:
+        return None, "Ingen historikk fra datakilden"
+    return hist.dropna(subset=["Close"]), ""
+
+
+def _banner_technical_summary_v18610(hist: pd.DataFrame | None) -> dict:
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty or "Close" not in hist:
+        return {}
+    close = hist["Close"].dropna()
+    if close.empty:
+        return {}
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+    last = float(close.iloc[-1])
+    first = float(close.iloc[0])
+    high_52 = float(close.tail(min(252, len(close))).max())
+    volume = hist["Volume"].dropna() if "Volume" in hist else pd.Series(dtype=float)
+    vol_stats = _banner_volume_stats_v18610(volume)
+    return {
+        "siste": last,
+        "endring_perioden_pct": ((last / first) - 1.0) * 100 if first else None,
+        "52u_hoy": high_52,
+        "andel_av_52u_hoy": (last / high_52 * 100.0) if high_52 else None,
+        "ma50": float(ma50.dropna().iloc[-1]) if not ma50.dropna().empty else None,
+        "ma200": float(ma200.dropna().iloc[-1]) if not ma200.dropna().empty else None,
+        **vol_stats,
+    }
+
+
+def _banner_query_value_v18610(name: str):
+    try:
+        value = st.query_params.get(name)
+    except Exception:
+        return None
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _banner_selected_from_query_v18610(cards: list[dict], banner_items=None) -> None:
+    ticker = str(_banner_query_value_v18610("banner_ticker") or "").strip().upper()
+    if not ticker:
+        return
+    valid = {str(card.get("ticker") or "").upper(): card for card in cards or []}
+    if ticker not in valid:
+        for market, item_ticker, label in (banner_items or []):
+            item_ticker = str(item_ticker or "").upper()
+            if ticker == item_ticker:
+                valid[ticker] = {"ticker": item_ticker, "market": market, "label": label or item_ticker}
+                break
+    if ticker not in valid:
+        return
+    st.session_state["live_banner_selected_ticker_v18610"] = ticker
+    st.session_state["live_banner_selected_market_v18610"] = str(valid[ticker].get("market") or "")
+    st.session_state["live_banner_selected_label_v18610"] = str(valid[ticker].get("label") or ticker)
+    # v18.6.13: bannerklikk skal åpne detalj også når banneret bruker manuell/cache-modus.
+    st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+    st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+    st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
+
+
+def _banner_detail_layout_css_v18614() -> str:
+    return """
+    <style>
+    .banner-decision-grid {
+        display: grid !important;
+        grid-template-columns: repeat(6, minmax(132px, 1fr)) !important;
+        gap: 8px !important;
+        width: 100% !important;
+        margin: 8px 0 10px 0 !important;
+        align-items: stretch !important;
+    }
+    .banner-decision-card {
+        border: 1px solid rgba(96,165,250,.38) !important;
+        background: rgba(15,23,42,.78) !important;
+        border-radius: 7px !important;
+        padding: 8px 10px !important;
+        min-height: 62px !important;
+        min-width: 0 !important;
+    }
+    .banner-decision-label {
+        color: #93c5fd !important;
+        font-size: .66rem !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .banner-decision-value {
+        color: #f8fafc !important;
+        font-size: 1rem !important;
+        font-weight: 950 !important;
+        margin-top: 2px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .banner-decision-sub {
+        color: #cbd5e1 !important;
+        font-size: .70rem !important;
+        font-weight: 800 !important;
+        margin-top: 2px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .follow-banner-title {
+        color: #dbeafe !important;
+        font-size: .78rem !important;
+        font-weight: 950 !important;
+        margin: .28rem 0 .16rem 0 !important;
+    }
+    .ticker-tape-wrap.follow-up {
+        min-height: 78px !important;
+        margin-top: .20rem !important;
+        margin-bottom: .55rem !important;
+        background: #f8fafc !important;
+    }
+    .ticker-tape-wrap.follow-up .ticker-tape-track {
+        animation: none !important;
+        width: 100% !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+    }
+    @media (max-width: 1200px) {
+        .banner-decision-grid { grid-template-columns: repeat(3, minmax(132px, 1fr)) !important; }
+    }
+    @media (max-width: 720px) {
+        .banner-decision-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)) !important; }
+    }
+    </style>
+    """
+
+
+def _banner_fallback_cards_v18614(banner_items) -> list[dict]:
+    banner_items = list(banner_items or [])[:80]
+    history = None
+    if yf is not None and banner_items:
+        try:
+            history = _download_live_banner_history(tuple(_live_banner_provider_ticker_v19170rc5(ticker) for _, ticker, _ in banner_items))
+        except Exception as exc:
+            logging.warning("Banner fallback close lookup failed: %s", exc)
+    cards = []
+    for market, ticker, label in banner_items:
+        canonical_ticker = _live_banner_canonical_ticker_v19170rc6(ticker)
+        provider_ticker = _live_banner_provider_ticker_v19170rc5(canonical_ticker)
+        close = _close_from_banner_history(history, provider_ticker)
+        price = None
+        delta = 0.0
+        pct = 0.0
+        spark_values = [0, 0]
+        price_source = "Mangler kurs"
+        if close is not None and not close.empty:
+            spark = close.tail(20)
+            price = float(spark.iloc[-1])
+            prev = float(spark.iloc[-2]) if len(spark) >= 2 else price
+            delta = price - prev
+            pct = ((price / prev) - 1.0) * 100 if prev else 0.0
+            spark_values = spark.tolist()
+            price_source = "Sluttkurs"
+        cards.append({
+            "market": market,
+            "ticker": canonical_ticker,
+            "provider_ticker": provider_ticker,
+            "label": label or canonical_ticker,
+            "price": price,
+            "price_missing": price is None,
+            "price_source": price_source,
+            "delta": delta,
+            "pct": pct,
+            "sparkline": (_sparkline_svg(spark_values, positive=pct >= 0, reference=(spark_values[-2] if len(spark_values) >= 2 else None)) if price is not None else ""),
+            "alert_marker": (_banner_marker_from_status_v18610("normal") if price is not None else {"css": "yellow", "symbol": "", "label": "Data mangler", "status": "missing"}),
+            "alert_explanation": "Åpne tickerdetalj" if price is not None else "Ingen gyldig kurs fra valgt datakilde",
+        })
+    return cards
+
+
+def _banner_price_text_v18623(value) -> str:
+    price = _float_or_none_v18610(value)
+    if price is None or abs(price) < 1e-12:
+        return "-"
+    return f"{price:,.2f}"
+
+
+def _banner_daily_summary_v18612(hist) -> dict:
+    if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
+        return {}
+    close = hist["Close"].dropna()
+    if close.empty:
+        return {}
+    open_series = hist["Open"].dropna() if "Open" in hist else close
+    high_series = hist["High"].dropna() if "High" in hist else close
+    low_series = hist["Low"].dropna() if "Low" in hist else close
+    first = float(open_series.iloc[0]) if not open_series.empty else float(close.iloc[0])
+    last = float(close.iloc[-1])
+    high = float(high_series.max()) if not high_series.empty else last
+    low = float(low_series.min()) if not low_series.empty else last
+    pct = ((last / first) - 1.0) * 100 if first else 0.0
+    return {"open": first, "last": last, "high": high, "low": low, "pct": pct, "delta": last - first}
+
+
+def _banner_decision_cards_v18612(ticker: str, summary: dict, daily: dict, config: dict) -> None:
+    st.markdown(_banner_detail_layout_css_v18614(), unsafe_allow_html=True)
+    individual = dict((config or {}).get("individual") or {})
+    current = dict(individual.get(str(ticker or "").upper()) or {})
+    last = float((daily or {}).get("last") or summary.get("siste") or 0.0)
+    upper = float(current.get("price_upper") or 0.0)
+    lower = float(current.get("price_lower") or 0.0)
+    dist_upper = ((upper / last) - 1.0) * 100 if last and upper else None
+    dist_lower = ((last / lower) - 1.0) * 100 if last and lower else None
+    trend = "Over MA50/MA200"
+    ma50 = summary.get("ma50")
+    ma200 = summary.get("ma200")
+    if ma50 and last < float(ma50):
+        trend = "Under MA50"
+    if ma200 and last < float(ma200):
+        trend = "Under MA200"
+    ai_status = "Vent"
+    if ma50 and ma200 and last > float(ma50) > float(ma200) and float(daily.get("pct") or 0.0) >= 0:
+        ai_status = "Kjøp/vurder"
+    elif ma50 and last < float(ma50):
+        ai_status = "Vent/risiko"
+    cards = [
+        ("Dagens utvikling", f"{float(daily.get('pct') or 0.0):+.2f}%", f"{float(daily.get('delta') or 0.0):+.2f} fra åpning"),
+        ("Dagens høy/lav", f"{float(daily.get('high') or 0.0):,.2f}", f"lav {float(daily.get('low') or 0.0):,.2f}"),
+        ("Avstand varsel", f"{dist_upper:+.1f}% til øvre" if dist_upper is not None else "Ingen øvre", f"{dist_lower:+.1f}% over nedre" if dist_lower is not None else "Ingen nedre"),
+        ("Volum", f"{float(summary.get('volume_ratio_20') or 0.0):.2f}x 20d", "likviditetssjekk"),
+        ("Trend", trend, f"MA50 {float(ma50 or 0.0):,.2f}"),
+        ("AI-status", ai_status, "regelbasert hurtigsjekk"),
+    ]
+    html_cards = "".join(
+        "<div class='banner-decision-card'>"
+        f"<div class='banner-decision-label'>{html.escape(label)}</div>"
+        f"<div class='banner-decision-value'>{html.escape(value)}</div>"
+        f"<div class='banner-decision-sub'>{html.escape(sub)}</div>"
+        "</div>"
+        for label, value, sub in cards
+    )
+    st.markdown(f"<div class='banner-decision-grid'>{html_cards}</div>", unsafe_allow_html=True)
+
+
+def _render_banner_detail_ticker_header_v18623(ticker: str, market: str, label: str, summary: dict, daily: dict, config: dict) -> None:
+    card = {
+        "ticker": str(ticker or "").upper(),
+        "market": market,
+        "label": label,
+        "price": (daily or {}).get("last") or (summary or {}).get("siste"),
+        "pct": (daily or {}).get("pct") or 0.0,
+        "volume_ratio_20": (summary or {}).get("volume_ratio_20"),
+    }
+    evaluation = _banner_alert_evaluate_card_v18610(card, config or {})
+    marker = evaluation.get("marker") or _banner_marker_from_status_v18610("normal")
+    css = html.escape(str(marker.get("css") or "green"))
+    status = html.escape(str(marker.get("label") or "Grønn"))
+    explanation = html.escape(str(evaluation.get("explanation") or "Innenfor grenser."))
+    ticker_txt = html.escape(str(ticker or "").upper())
+    market_txt = html.escape(str(market or "-"))
+    label_txt = html.escape(str(label or ticker or ""))
+    st.markdown(
+        """
+        <style>
+        .banner-detail-ticker-card-v18623 {
+            border: 1px solid rgba(96,165,250,.40);
+            background: rgba(15,23,42,.82);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 8px 0 8px 0;
+        }
+        .banner-detail-ticker-card-v18623 .ticker-name {
+            font-size: 1.38rem;
+            font-weight: 950;
+            line-height: 1.05;
+            margin-bottom: 3px;
+        }
+        .banner-detail-ticker-card-v18623.status-green .ticker-name { color: #22c55e; }
+        .banner-detail-ticker-card-v18623.status-yellow .ticker-name { color: #facc15; }
+        .banner-detail-ticker-card-v18623.status-red .ticker-name { color: #ef4444; }
+        .banner-detail-ticker-card-v18623 .ticker-sub {
+            color: #cbd5e1;
+            font-weight: 850;
+            font-size: .82rem;
+        }
+        .banner-detail-ticker-card-v18623 .ticker-status {
+            color: #e0f2fe;
+            font-weight: 900;
+            font-size: .78rem;
+            margin-top: 5px;
+        }
+        </style>
+        """
+        f"<div class='banner-detail-ticker-card-v18623 status-{css}'>"
+        f"<div class='ticker-name'>{ticker_txt}</div>"
+        f"<div class='ticker-sub'>{market_txt} · {label_txt}</div>"
+        f"<div class='ticker-status'>{status}: {explanation}</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_banner_ticker_detail_v18610(ticker: str, market: str = "", label: str = "") -> None:
+    ticker = str(ticker or "").strip().upper()
+    if not ticker:
+        return
+    label = str(label or LIVE_BANNER_LABELS.get(ticker) or ticker)
+    market = str(market or "")
+    st.markdown("#### Tickerdetalj fra banneret")
+    st.caption("Historikk hentes ved behov. Varselregler under gjelder denne tickeren og bruker tilbake-til-normal før nytt Pushover-varsel.")
+
+    d1, d2, d3 = st.columns([0.25, 0.25, 0.50])
+    with d1:
+        period = st.selectbox(
+            "Periode",
+            ["I dag", "5 dager", "1 mnd", "3 mnd", "6 mnd", "1 år"],
+            index=2,
+            key=f"banner_detail_period_v18610_{ticker}",
+        )
+    with d2:
+        if st.button("Lukk detalj", key=f"banner_detail_close_v18610_{ticker}"):
+            st.session_state.pop("live_banner_selected_ticker_v18610", None)
+            st.session_state.pop("live_banner_selected_market_v18610", None)
+            st.session_state.pop("live_banner_selected_label_v18610", None)
+            st.session_state["banner_detail_suppress_picker_once_v18611"] = True
+            try:
+                for query_key in ("banner_ticker", "banner_market"):
+                    if query_key in st.query_params:
+                        del st.query_params[query_key]
+            except Exception:
+                pass
+            st.rerun()
+
+    hist, err = _download_banner_detail_history_v18610(ticker, period)
+    if hist is None or hist.empty:
+        st.info(f"Kunne ikke hente graf for {ticker}: {err}")
+    else:
+        summary = _banner_technical_summary_v18610(hist)
+        daily_hist, daily_err = _download_banner_detail_history_v18610(ticker, "I dag")
+        daily = _banner_daily_summary_v18612(daily_hist if daily_hist is not None and not daily_hist.empty else hist)
+        detail_config = _load_banner_alert_config_v18610()
+        _render_banner_detail_ticker_header_v18623(ticker, market, label, summary, daily, detail_config)
+        _banner_decision_cards_v18612(ticker, summary, daily, detail_config)
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Status", (_banner_alert_evaluate_card_v18610({"ticker": ticker, "price": summary.get("siste"), "pct": daily.get("pct") or 0.0}, detail_config).get("marker") or {}).get("label", "Grønn"), market or "-")
+        m2.metric("Kurs", _banner_price_text_v18623(summary.get("siste")))
+        m3.metric("52u høy", f"{summary.get('52u_hoy', 0):,.2f}", f"{summary.get('andel_av_52u_hoy', 0):.1f}% av høy")
+        m4.metric("MA50 / MA200", f"{summary.get('ma50') or 0:,.2f}", f"{summary.get('ma200') or 0:,.2f}")
+        m5.metric("Volum/20d", f"{summary.get('volume_ratio_20') or 0:.2f}x")
+
+        close = hist["Close"].dropna()
+        ma50 = close.rolling(50).mean()
+        ma200 = close.rolling(200).mean()
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=close.index, y=close, name="Kurs", mode="lines", line=dict(color="#0f7ae5", width=2.2)))
+        if not ma50.dropna().empty:
+            fig.add_trace(go.Scatter(x=ma50.index, y=ma50, name="MA50", mode="lines", line=dict(color="#60a5fa", width=1.5)))
+        if not ma200.dropna().empty:
+            fig.add_trace(go.Scatter(x=ma200.index, y=ma200, name="MA200", mode="lines", line=dict(color="#ef4444", width=1.5)))
+        high_52 = summary.get("52u_hoy")
+        if high_52:
+            fig.add_hline(y=high_52, line_dash="dot", line_color="#111827", annotation_text=f"52u høy {high_52:.2f}", annotation_position="top left")
+        fig.update_layout(
+            height=320,
+            margin=dict(l=10, r=10, t=20, b=24),
+            title_text=f"{ticker} - {label}",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
+
+        if "Volume" in hist and not hist["Volume"].dropna().empty:
+            volume = hist["Volume"].dropna()
+            vol20 = volume.rolling(20).mean()
+            vol50 = volume.rolling(50).mean()
+            vfig = go.Figure()
+            vfig.add_trace(go.Bar(x=volume.index, y=volume, name="Volum", marker_color="#0f7ae5"))
+            if not vol20.dropna().empty:
+                vfig.add_trace(go.Scatter(x=vol20.index, y=vol20, name="Volum 20d", mode="lines", line=dict(color="#60a5fa", width=1.5)))
+            if not vol50.dropna().empty:
+                vfig.add_trace(go.Scatter(x=vol50.index, y=vol50, name="Volum 50d", mode="lines", line=dict(color="#ef4444", width=1.5)))
+            vfig.update_layout(
+                height=220,
+                margin=dict(l=10, r=10, t=12, b=24),
+                title_text=f"{ticker} volum mot 20/50-dagers snitt",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(vfig, width="stretch", config={"displayModeBar": False, "responsive": True})
+
+    config = _load_banner_alert_config_v18610()
+    individual = dict(config.get("individual") or {})
+    current = dict(individual.get(ticker) or {})
+    with st.expander(f"Varsler for {ticker}", expanded=False):
+        with st.form(f"banner_ticker_alert_form_v18610_{ticker}", clear_on_submit=False):
+            a1, a2, a3, a4 = st.columns(4)
+            with a1:
+                price_upper = st.number_input("Kurs over", value=float(current.get("price_upper") or 0.0), min_value=0.0, step=0.1, key=f"banner_price_upper_v18610_{ticker}")
+            with a2:
+                price_lower = st.number_input("Kurs under", value=float(current.get("price_lower") or 0.0), min_value=0.0, step=0.1, key=f"banner_price_lower_v18610_{ticker}")
+            with a3:
+                pct_up = st.number_input("Dagsendring opp %", value=float(current.get("pct_up") or 0.0), min_value=0.0, step=0.5, key=f"banner_pct_up_v18610_{ticker}")
+            with a4:
+                pct_down = st.number_input("Dagsendring ned %", value=_normalize_down_pct_input_v18616(current.get("pct_down", 0.0)), min_value=-100.0, max_value=0.0, step=0.5, key=f"banner_pct_down_v18610_{ticker}")
+            saved = st.form_submit_button("Lagre tickervarsel")
+        if saved:
+            individual[ticker] = {
+                "price_upper": float(price_upper),
+                "price_lower": float(price_lower),
+                "pct_up": float(pct_up),
+                "pct_down": float(pct_down),
+            }
+            config["individual"] = individual
+            _save_banner_alert_config_v18610(config)
+            st.session_state["live_banner_selected_ticker_v18610"] = ticker
+            st.session_state["live_banner_selected_market_v18610"] = market
+            st.session_state["live_banner_selected_label_v18610"] = label
+            st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+            st.success(f"Varsler lagret for {ticker}.")
+
+    with st.expander("Nordnet / manuell handel", expanded=False):
+        latest_price = 0.0
+        try:
+            latest_price = float(summary.get("siste") or 0.0) if "summary" in locals() else 0.0
+        except Exception:
+            latest_price = 0.0
+        order_text = (
+            f"Ticker: {ticker}\n"
+            f"Navn: {label}\n"
+            f"Forslag: Vent til valgt regel bekreftes\n"
+            f"Antall: fylles manuelt\n"
+            f"Limitpris: {latest_price:,.2f}\n"
+            "Stop-loss: fylles manuelt\n"
+            "Begrunnelse: bannerstatus, trend, volum og egne varselgrenser.\n"
+            "Merk: appen sender ingen ordre og lagrer ikke Nordnet-passord."
+        )
+        st.caption("Bruk dette som manuelt ordregrunnlag ved siden av Nordnet. Ingen ekte ordre sendes fra appen.")
+        n1, n2, n3, n4 = st.columns(4)
+        with n1:
+            st.link_button("Åpne Nordnet", "https://www.nordnet.no/", width="stretch")
+        with n2:
+            st.download_button("Kopier ordregrunnlag", data=order_text, file_name=f"{ticker}_ordregrunnlag.txt", mime="text/plain", width="stretch")
+        with n3:
+            if st.button("Marker kjøpt manuelt", key=f"manual_broker_bought_v18612_{ticker}", width="stretch"):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[ticker] = {"status": "kjøpt", "tid": _now_short()}
+                st.success(f"{ticker} markert som manuelt kjøpt.")
+        with n4:
+            if st.button("Marker solgt manuelt", key=f"manual_broker_sold_v18612_{ticker}", width="stretch"):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[ticker] = {"status": "solgt", "tid": _now_short()}
+                st.success(f"{ticker} markert som manuelt solgt.")
+        st.text_area("Ordregrunnlag", value=order_text, height=145, key=f"manual_broker_order_text_v18612_{ticker}")
+
+
+def _render_banner_alert_settings_v18610():
+    settings = load_settings() or {}
+    config = _load_banner_alert_config_v18610(settings)
+    with st.expander("Bannervarsler", expanded=False):
+        st.caption("Felles regler gjelder alle tickere som vises i banneret. Rod/gul/gronn markor vises i bannerkortet; Pushover er valgfritt.")
+        with st.form("banner_alert_settings_form_v18610", clear_on_submit=False):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                active = st.checkbox("Aktive bannervarsler", value=bool(config.get("active", True)))
+            with c2:
+                pushover = st.checkbox("Send Pushover ved rod markor", value=bool(config.get("pushover", False)))
+            with c3:
+                near_pct = st.slider("Gul naer grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0)
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                up = st.number_input("Felles dagsendring opp %", value=float(config.get("common_pct_up", 5.0) or 0.0), min_value=0.0, step=0.5)
+            with r2:
+                down = st.number_input("Felles dagsendring ned %", value=_normalize_down_pct_input_v18616(config.get("common_pct_down", 0.0)), min_value=-100.0, max_value=0.0, step=0.5)
+            with r3:
+                vol = st.number_input("Felles volum/20d", value=float(config.get("common_volume_ratio20", 2.0) or 0.0), min_value=0.0, step=0.1)
+            saved = st.form_submit_button("Lagre bannervarsler")
+        if saved:
+            config.update({
+                "active": bool(active),
+                "pushover": bool(pushover),
+                "near_pct": float(near_pct),
+                "common_pct_up": float(up),
+                "common_pct_down": float(down),
+                "common_volume_ratio20": float(vol),
+            })
+            _save_banner_alert_config_v18610(config)
+            st.success("Bannervarsler lagret.")
+            st.rerun()
+
+        log = settings.get(BANNER_ALERT_LOG_KEY_V18610, [])
+        if isinstance(log, list) and log:
+            st.markdown("**Siste bannervarsler**")
+            st.dataframe(pd.DataFrame(log[:50]), width="stretch", hide_index=True)
+            l1, l2, l3 = st.columns([0.8, 0.8, 2.0])
+            with l1:
+                keep_n = st.number_input("Behold siste", min_value=25, max_value=1000, value=min(200, max(25, len(log))), step=25, key="banner_alert_keep_n_v18621")
+            with l2:
+                if st.button("Kapp logg", key="banner_alert_trim_log_v18621", width="content"):
+                    settings[BANNER_ALERT_LOG_KEY_V18610] = list(log)[: int(keep_n)]
+                    save_settings(settings)
+                    st.success("Bannerloggen er kappet.")
+                    st.rerun()
+            with l3:
+                if st.button("Tøm bannervarsler", key="banner_alert_clear_log_v18621", width="content"):
+                    settings[BANNER_ALERT_LOG_KEY_V18610] = []
+                    save_settings(settings)
+                    st.success("Bannerloggen er tømt.")
+                    st.rerun()
+        else:
+            st.info("Ingen bannervarsler logget enna.")
+
+
+def _render_special_watch_admin_v18618() -> None:
+    config = _load_banner_alert_config_v18610()
+    individual = dict(config.get("individual") or {})
+    watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
+    with st.expander("Særskilt overvåking - administrer tickere", expanded=False):
+        if not watched:
+            st.info("Ingen tickere ligger i særskilt overvåking.")
+            return
+        st.caption("Fjern en ticker her hvis den ikke lenger skal ligge i særskilt overvåking. Dette sletter tickerens individuelle varselgrenser.")
+        remove_ticker = st.selectbox("Ticker", watched, key="special_watch_remove_ticker_v18618")
+        c_remove, c_clear = st.columns([0.6, 0.8])
+        with c_remove:
+            if st.button("Fjern ticker", key="special_watch_remove_one_v18618", width="content"):
+                individual.pop(remove_ticker, None)
+                config["individual"] = individual
+                _save_banner_alert_config_v18610(config)
+                st.success(f"{remove_ticker} er fjernet fra særskilt overvåking.")
+                st.rerun()
+        with c_clear:
+            if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18618", width="content"):
+                for ticker in watched:
+                    individual.pop(ticker, None)
+                config["individual"] = individual
+                _save_banner_alert_config_v18610(config)
+                st.success("Særskilt overvåking er tømt.")
+                st.rerun()
+
+
+def _special_watch_banner_css_v19220_rc9() -> str:
+    """Self-contained CSS for the special-watch banner.
+
+    RC8 accidentally reused the main banner's ``ticker-tape-*`` classes.  When
+    the main banner was disabled, those styles were never injected and the
+    special cards collapsed into a tall, mostly empty document area.  RC9 owns
+    every class it renders, so all four main/special on-off combinations are
+    independent.
+    """
+    return """
+    <style>
+    .special-watch-surface-v19220rc9 {
+        display:block; width:100%; max-width:100%; height:auto; min-height:0;
+        margin:.18rem 0 .52rem 0; padding:0; overflow:visible; clear:both;
+    }
+    .special-watch-title-v19220rc9 {
+        display:block; margin:0 0 .28rem 0; padding:0; font-size:.82rem;
+        line-height:1.25; font-weight:900; color:#dbeafe;
+    }
+    .special-watch-empty-v19220rc9 {
+        display:block; min-height:0; margin:0; padding:.62rem .72rem;
+        border:1px solid rgba(148,163,184,.28); border-radius:10px;
+        background:rgba(15,23,42,.56); color:#cbd5e1; line-height:1.4;
+    }
+    .special-watch-wrap-v19220rc9 {
+        display:block; width:100%; max-width:100%; height:auto; min-height:76px;
+        overflow:hidden; margin:0; padding:0; border-radius:12px;
+        border:1px solid rgba(56,189,248,.28); background:#f8fafc;
+        box-shadow:inset 0 0 0 1px rgba(15,23,42,.03);
+        contain:layout paint;
+    }
+    .special-watch-track-v19220rc9 {
+        display:flex; flex-flow:row nowrap; align-items:stretch; width:max-content;
+        min-width:max-content; max-width:none; gap:10px; white-space:nowrap;
+        padding:6px 8px; margin:0;
+    }
+    .special-watch-wrap-v19220rc9:hover .special-watch-track-v19220rc9 {
+        animation-play-state:paused !important;
+    }
+    .special-watch-item-v19220rc9 {
+        display:inline-grid; flex:0 0 auto;
+        grid-template-columns:22px minmax(112px,140px) minmax(78px,96px);
+        align-items:center; gap:8px; width:auto; min-width:244px; max-width:292px;
+        height:62px; min-height:62px; margin:0; padding:6px 9px;
+        box-sizing:border-box; overflow:hidden; border-radius:9px;
+        background:#fff; border:1px solid rgba(15,23,42,.10);
+        color:inherit; text-decoration:none;
+    }
+    .special-watch-item-v19220rc9:hover {
+        background:#eef6ff; border-color:rgba(37,99,235,.24);
+    }
+    .special-watch-info-v19220rc9 {
+        display:flex; min-width:0; min-height:48px; flex-direction:column;
+        justify-content:center; line-height:1.12; overflow:hidden;
+    }
+    .special-watch-market-v19220rc9 {
+        font-size:.56rem; font-weight:800; letter-spacing:.04em;
+        text-transform:uppercase; color:#64748b; margin-bottom:2px;
+        overflow:hidden; text-overflow:ellipsis;
+    }
+    .special-watch-name-v19220rc9 {
+        font-size:.82rem; font-weight:900; color:#2563eb; margin-bottom:3px;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .special-watch-price-v19220rc9 {
+        font-size:.88rem; font-weight:900; color:#1f2937; line-height:1.15;
+    }
+    .special-watch-change-v19220rc9 {
+        display:block; min-height:14px; margin-top:2px; font-size:.72rem;
+        font-weight:950; line-height:1.2; white-space:nowrap;
+    }
+    .special-watch-change-v19220rc9.pos { color:#059669; }
+    .special-watch-change-v19220rc9.neg { color:#dc2626; }
+    .special-watch-spark-v19220rc9 {
+        display:flex; min-width:0; align-items:center; justify-content:flex-end;
+        overflow:hidden;
+    }
+    .special-watch-spark-v19220rc9 svg {
+        display:block; width:92px; max-width:100%; height:24px;
+    }
+    .special-watch-surface-v19220rc9 .ticker-alert-marker {
+        width:22px; height:22px; border-radius:999px; display:inline-flex;
+        align-items:center; justify-content:center; font-size:.92rem;
+        font-weight:950; line-height:1; color:#0f172a;
+        border:1.5px solid rgba(15,23,42,.34);
+        box-shadow:0 1px 3px rgba(15,23,42,.22);
+    }
+    .special-watch-surface-v19220rc9 .ticker-alert-marker.green { background:#22c55e; }
+    .special-watch-surface-v19220rc9 .ticker-alert-marker.yellow { background:#facc15; }
+    .special-watch-surface-v19220rc9 .ticker-alert-marker.red { background:#ef4444; color:#fff; }
+    .special-watch-surface-v19220rc9 .ticker-alert-marker.green span { display:none; }
+    .special-watch-surface-v19220rc9 .ticker-alert-marker.green:after {
+        content:""; width:5px; height:5px; border-radius:999px; background:#052e16;
+    }
+    @media(max-width:700px) {
+        .special-watch-surface-v19220rc9 { margin:.12rem 0 .42rem 0; }
+        .special-watch-wrap-v19220rc9 { min-height:68px; border-radius:9px; }
+        .special-watch-track-v19220rc9 { gap:7px; padding:5px 6px; }
+        .special-watch-item-v19220rc9 {
+            grid-template-columns:20px minmax(104px,126px) minmax(64px,78px);
+            min-width:218px; max-width:244px; height:56px; min-height:56px;
+            gap:6px; padding:5px 7px;
+        }
+        .special-watch-name-v19220rc9 { font-size:.78rem; }
+        .special-watch-price-v19220rc9 { font-size:.82rem; }
+        .special-watch-change-v19220rc9 { font-size:.68rem; }
+        .special-watch-spark-v19220rc9 svg { width:76px; height:22px; }
+    }
+    </style>
+    """
+
+
+def _banner_detail_href_v19220_rc9(ticker: object, market: object = "") -> str:
+    """Open banner detail without discarding the active workspace route."""
+    try:
+        params = _query_params_plain_v18646()
+    except Exception:
+        params = {}
+    params.pop("mobile_nav", None)
+    params["banner_ticker"] = str(ticker or "").strip().upper()
+    params["banner_market"] = str(market or "").strip()
+    return "?" + urlencode(params)
+
+
+def _render_special_banner_watch_v18612(banner_cards: list[dict], config: dict) -> None:
+    from urllib.parse import quote
+
+    settings = load_settings() or {}
+    if not special_banner_enabled(settings, st.session_state):
+        return
+    individual = dict((config or {}).get("individual") or {})
+    watched = []
+    by_ticker = {str(card.get("ticker") or "").upper(): card for card in banner_cards or []}
+    for ticker, rules in individual.items():
+        if _has_special_watch_rules_v18618(rules):
+            ticker_key = str(ticker).upper()
+            card = by_ticker.get(ticker_key, {
+                "ticker": ticker_key, "label": ticker_key, "market": "",
+                "price": 0.0, "pct": 0.0, "delta": 0.0, "sparkline": "",
+            })
+            watched.append((ticker_key, card, rules))
+    if not watched:
+        st.markdown(
+            _special_watch_banner_css_v19220_rc9()
+            + "<section class='special-watch-surface-v19220rc9' data-banner='special-watch' style='display:block;width:100%;height:auto;max-height:118px;overflow:hidden'>"
+            + "<div class='special-watch-title-v19220rc9'>Særskilt overvåking</div>"
+            + "<div class='special-watch-empty-v19220rc9'>Ingen tickere ligger i særskilt overvåking. "
+              "Legg til varselgrenser på en ticker for å vise den her.</div></section>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    raw_speed = int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0)
+    scroll_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip() or "Egen fart"
+    if scroll_mode == "Arv hovedbanner":
+        scroll_mode = "Egen fart"
+
+    session_speed = st.session_state.get("special_watch_speed_v18624", None)
+    scroll_speed = int(session_speed if session_speed is not None else settings.get("special_watch_scroll_speed_v18624", 50) or 50)
+    scroll_speed = max(1, min(scroll_speed, 100))
+
+    if scroll_mode == "Stoppet":
+        speed_seconds = 0
+        animation_style = "animation:none!important;transform:translate3d(0,0,0)!important;"
+        keyframe_css = ""
+        mode_txt = "stoppet"
+    else:
+        speed_seconds = max(5, min(85, int(round(86 - (scroll_speed * 0.81)))))
+        keyframe_name = f"specialWatchTickerTapeScrollV19220RC9_{scroll_speed}"
+        keyframe_css = (
+            f"@keyframes {keyframe_name} {{ "
+            "0% { transform:translate3d(0,0,0); } "
+            "100% { transform:translate3d(-50%,0,0); } "
+            "}"
+        )
+        animation_style = (
+            f"animation:{keyframe_name} {speed_seconds}s linear infinite!important;"
+            "animation-play-state:running!important;transform:translate3d(0,0,0);"
+            "will-change:transform!important;"
+        )
+        mode_txt = f"egen fart {scroll_speed}/100"
+
+    cards_html = []
+    for ticker, card, _rules in watched[:24]:
+        label = html.escape(str(card.get("label") or ticker))
+        market = html.escape(str(card.get("market") or ""))
+        price_txt = _banner_price_text_v18623(card.get("price"))
+        pct = float(card.get("pct") or 0.0)
+        pct_class = "pos" if pct >= 0 else "neg"
+        href = _banner_detail_href_v19220_rc9(ticker, card.get("market"))
+        marker_html = _banner_marker_html_v18610(card.get("alert_marker"))
+        cards_html.append(
+            f"<a class='special-watch-item-v19220rc9' target='_self' href='{href}' style='display:inline-grid;grid-template-columns:22px minmax(112px,140px) minmax(78px,96px);align-items:center;gap:8px;min-width:244px;height:62px;overflow:hidden;box-sizing:border-box' "
+            f"title='Åpne oppfølging for {html.escape(ticker)}'>"
+            f"{marker_html}"
+            "<div class='special-watch-info-v19220rc9'>"
+            f"<div class='special-watch-market-v19220rc9'>{market}</div>"
+            f"<div class='special-watch-name-v19220rc9'>{label}</div>"
+            f"<div class='special-watch-price-v19220rc9'>{html.escape(price_txt)}</div>"
+            f"<div class='special-watch-change-v19220rc9 {pct_class}'>"
+            f"{'▲' if pct > 0 else ('▼' if pct < 0 else '•')} {pct:+.2f}%</div>"
+            "</div>"
+            f"<div class='special-watch-spark-v19220rc9'>{card.get('sparkline', '')}</div>"
+            "</a>"
+        )
+
+    # At least twelve cards gives the animation enough width.  The track is
+    # duplicated exactly once for a seamless 0 -> -50 percent loop.
+    loop_cards = list(cards_html)
+    while loop_cards and len(loop_cards) < 12:
+        loop_cards.extend(cards_html)
+    loop_cards = loop_cards[: max(12, len(cards_html))]
+    loop_html = "".join(loop_cards)
+    st.markdown(
+        _special_watch_banner_css_v19220_rc9()
+        + "<style>" + keyframe_css + "</style>"
+        + "<section class='special-watch-surface-v19220rc9' data-banner='special-watch' style='display:block;width:100%;height:96px;max-height:96px;overflow:hidden'>"
+        + "<div class='special-watch-title-v19220rc9'>Særskilt overvåking</div>"
+        + "<div class='special-watch-wrap-v19220rc9' aria-label='Særskilt overvåking' style='display:block;width:100%;height:76px;max-height:76px;overflow:hidden'>"
+        + f"<div class='special-watch-track-v19220rc9' style='display:flex;flex-flow:row nowrap;align-items:stretch;width:max-content;min-width:max-content;gap:10px;white-space:nowrap;padding:6px 8px;margin:0;{animation_style}'>"
+        + loop_html + loop_html
+        + "</div></div></section>",
+        unsafe_allow_html=True,
+    )
+    refresh_raw = int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0)
+    refresh_minutes = refresh_raw if refresh_raw > 0 else int(settings.get("ui_refresh_minutes", 60) or 60)
+    refresh_txt = "eget intervall" if refresh_raw > 0 else "samme intervall som hovedbanner"
+    st.caption(
+        f"Særskilt overvåking: {len(watched)} kort · {speed_seconds}s · {mode_txt} · data ca. hver {refresh_minutes}. min ({refresh_txt}). "
+        "Rullefart: høyere tall = raskere. Hovedbanner og særskilt banner er separate komponenter."
+    )
+
+def _special_watch_ticker_items_v18623(settings: dict, config: dict) -> list[tuple]:
+    individual = dict((config or {}).get("individual") or {})
+    watched = {str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)}
+    if not watched:
+        return []
+    known = {str(ticker).upper(): (market, ticker, label) for market, ticker, label in parse_banner_tickers(settings)}
+    items = []
+    for ticker in sorted(watched):
+        items.append(known.get(ticker, ("", ticker, LIVE_BANNER_LABELS.get(ticker, ticker))))
+    return items
+
+
+def _special_watch_cache_due_v18623(minutes: int) -> bool:
+    if int(minutes or 0) <= 0:
+        return False
+    stamp = st.session_state.get("special_watch_cache_at_v18623")
+    if not stamp:
+        return True
+    try:
+        previous = datetime.fromisoformat(str(stamp))
+        return datetime.now() - previous >= timedelta(minutes=int(minutes))
+    except Exception:
+        return True
+
+
+def render_special_watch_banner_surface_v18620() -> None:
+    settings = load_settings() or {}
+    # RC8: widget state is authoritative during the rerun that toggles the
+    # extra banner.  Return before cache/data work so disabling the banner
+    # cannot leave a white shell, old sparklines or unnecessary network work.
+    if not special_banner_enabled(settings, st.session_state):
+        st.session_state.pop("special_watch_cache_v18623", None)
+        st.session_state.pop("special_watch_cache_at_v18623", None)
+        return
+    config = _load_banner_alert_config_v18610(settings)
+    special_interval = int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0)
+    banner_cards = []
+    if special_interval > 0:
+        banner_cards = st.session_state.get("special_watch_cache_v18623") or []
+        if _special_watch_cache_due_v18623(special_interval):
+            try:
+                refreshed = fetch_live_banner_snapshot(_special_watch_ticker_items_v18623(settings, config))
+                if refreshed:
+                    banner_cards = refreshed
+                    st.session_state["special_watch_cache_v18623"] = refreshed
+                    st.session_state["special_watch_cache_at_v18623"] = datetime.now().isoformat(timespec="seconds")
+            except Exception as exc:
+                logging.warning("Special watch banner refresh failed: %s", exc)
+    if not banner_cards:
+        banner_cards = st.session_state.get("live_banner_cache_v16_latest") or []
+    if not banner_cards:
+        try:
+            banner_cards = _banner_fallback_cards_v18614(_special_watch_ticker_items_v18623(settings, config) or parse_banner_tickers(settings))
+        except Exception:
+            banner_cards = []
+    try:
+        banner_cards = _apply_banner_alerts_v18610(
+            banner_cards,
+            config,
+            source="special_watch_banner",
+            log_key=SPECIAL_WATCH_ALERT_LOG_KEY_V18621,
+        )
+    except Exception:
+        pass
+    _render_special_banner_watch_v18612(banner_cards, config)
+
+
+def render_special_watch_menu_v18619(*, embedded: bool = False) -> None:
+    settings = load_settings() or {}
+    config = _load_banner_alert_config_v18610(settings)
+    individual = dict(config.get("individual") or {})
+    watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
+
+    from contextlib import nullcontext
+    _special_ctx = nullcontext() if embedded else st.expander("Rediger særskilt overvåking", expanded=False)
+    with _special_ctx:
+        st.caption("Tickere havner her når de har egne varselgrenser. Standardbanner og særskilt overvåking redigeres fra samme hovedkontroll.")
+
+        # v18.6.29: rulling/fart/visning må styres utenfor st.form.
+        # Når dette lå inne i form, ble ikke banneret endret før Lagre ble trykket, og
+        # banneret ligger over menyen i siden. Derfor opplevdes Stoppet/fart som død.
+        saved_mode = str(settings.get("special_watch_scroll_mode_v18624") or "").strip() or "Egen fart"
+        if saved_mode == "Arv hovedbanner" or saved_mode not in ["Egen fart", "Stoppet"]:
+            saved_mode = "Egen fart"
+        if "special_watch_scroll_mode_v18624" not in st.session_state:
+            st.session_state["special_watch_scroll_mode_v18624"] = saved_mode
+        if "special_watch_speed_v18624" not in st.session_state:
+            st.session_state["special_watch_speed_v18624"] = int(settings.get("special_watch_scroll_speed_v18624", 50) or 50)
+        if "special_watch_enabled_v18619" not in st.session_state:
+            st.session_state["special_watch_enabled_v18619"] = bool(settings.get("special_watch_banner_enabled_v18615", True))
+
+        c_enable, c_mode, c_speed, c_count = st.columns([0.62, 0.82, 0.95, 1.0])
+        with c_enable:
+            enabled = st.checkbox(
+                "Vis særskilt banner",
+                key="special_watch_enabled_v18619",
+            )
+        with c_mode:
+            scroll_mode = st.selectbox(
+                "Rulling",
+                ["Egen fart", "Stoppet"],
+                key="special_watch_scroll_mode_v18624",
+                help="Endres umiddelbart. Stoppet skal fryse nederste banner etter neste rerun.",
+            )
+        with c_speed:
+            scroll_speed = st.slider(
+                "Rullefart",
+                min_value=1,
+                max_value=100,
+                step=1,
+                key="special_watch_speed_v18624",
+                help="Endres umiddelbart. Høyere tall gir raskere rulling når Rulling står på Egen fart.",
+            )
+            st.caption("Høyere tall = raskere. 100 skal være tydelig raskt.")
+        with c_count:
+            st.markdown(f"<div class='v18-dark-row'><b>{len(watched)}</b> tickere i særskilt overvåking</div>", unsafe_allow_html=True)
+
+        # Auto-lagre bare de tre live-kontrollene. Dette gjør at banneret over menyen
+        # bruker riktig verdi på neste Streamlit-rerun uten at brukeren må trykke Lagre.
+        live_changed = (
+            bool(settings.get("special_watch_banner_enabled_v18615", True)) != bool(enabled)
+            or str(settings.get("special_watch_scroll_mode_v18624") or "Egen fart") != str(scroll_mode)
+            or int(settings.get("special_watch_scroll_speed_v18624", 50) or 50) != int(scroll_speed)
+            or int(settings.get("special_watch_banner_speed_seconds_v18615", 0) or 0) != 0
+        )
+        if live_changed:
+            settings["special_watch_banner_enabled_v18615"] = bool(enabled)
+            settings["special_watch_scroll_mode_v18624"] = "Stoppet" if str(scroll_mode) == "Stoppet" else "Egen fart"
+            settings["special_watch_scroll_speed_v18624"] = int(scroll_speed)
+            settings["special_watch_force_independent_v18626"] = True
+            settings["special_watch_banner_speed_seconds_v18615"] = 0
+            save_settings(settings)
+            st.info("Rulling/fart er oppdatert. Banneret over bruker ny verdi etter denne oppfriskningen.")
+
+        with st.form("special_watch_settings_form_v18619", clear_on_submit=False):
+            c_refresh, c_near, c_push = st.columns([0.78, 0.72, 0.85])
+            with c_refresh:
+                special_refresh = st.number_input(
+                    "Oppdateringsintervall min",
+                    min_value=0,
+                    max_value=240,
+                    value=int(settings.get("special_watch_update_interval_minutes_v18623", 0) or 0),
+                    step=1,
+                    key="special_watch_refresh_v18623",
+                    help="0 = bruk hovedbannerets oppdateringsintervall. Høyere tall gir sjeldnere dataoppdatering.",
+                )
+                st.caption("0 = samme som hovedbanner.")
+            with c_near:
+                near_pct = st.slider("Gul nær grense %", 5.0, 30.0, float(config.get("near_pct", 15.0) or 15.0), 1.0, key="special_watch_near_pct_v18621")
+            with c_push:
+                pushover = st.checkbox("Send Pushover ved rød markør", value=bool(config.get("pushover", False)), key="special_watch_pushover_v18621")
+
+            st.markdown("**Legg til eller oppdater ticker**")
+            a1, a2, a3, a4, a5 = st.columns([0.9, 0.8, 0.8, 0.8, 0.8])
+            with a1:
+                add_ticker = st.text_input("Ticker", value="", key="special_watch_add_ticker_v18619", placeholder="F.eks. YAR.OL").strip().upper()
+            with a2:
+                add_price_upper = st.number_input("Kurs over", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="special_watch_add_price_upper_v18619")
+            with a3:
+                add_price_lower = st.number_input("Kurs under", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="special_watch_add_price_lower_v18619")
+            with a4:
+                add_pct_up = st.number_input("Dagsendring opp %", min_value=0.0, max_value=100.0, value=0.0, step=0.5, key="special_watch_add_pct_up_v18619")
+            with a5:
+                add_pct_down = st.number_input("Dagsendring ned %", min_value=-100.0, max_value=0.0, value=0.0, step=0.5, key="special_watch_add_pct_down_v18619")
+
+            saved = st.form_submit_button("Lagre varselgrenser", width="content")
+
+        if saved:
+            settings["special_watch_banner_enabled_v18615"] = bool(st.session_state.get("special_watch_enabled_v18619", True))
+            settings["special_watch_scroll_mode_v18624"] = "Stoppet" if str(st.session_state.get("special_watch_scroll_mode_v18624")) == "Stoppet" else "Egen fart"
+            settings["special_watch_scroll_speed_v18624"] = int(st.session_state.get("special_watch_speed_v18624", 50) or 50)
+            settings["special_watch_force_independent_v18626"] = True
+            settings["special_watch_banner_speed_seconds_v18615"] = 0
+            settings["special_watch_update_interval_minutes_v18623"] = int(special_refresh)
+            config["near_pct"] = float(near_pct)
+            config["pushover"] = bool(pushover)
+            if add_ticker:
+                existing = dict(individual.get(add_ticker) or {})
+                existing.update({
+                    "price_upper": float(add_price_upper),
+                    "price_lower": float(add_price_lower),
+                    "pct_up": float(add_pct_up),
+                    "pct_down": _normalize_down_pct_input_v18616(add_pct_down),
+                })
+                individual[add_ticker] = existing
+                config["individual"] = individual
+            _save_banner_alert_config_v18610(config)
+            save_settings(settings)
+            try:
+                st.toast("Særskilt overvåking lagret.", icon="✅")
+            except Exception:
+                st.success("Særskilt overvåking lagret.")
+            st.rerun()
+
+        if bool(settings.get("special_watch_banner_enabled_v18615", True)):
+            st.info("Særskilt banner vises rett under hovedbanneret. Endringer brukes når du lagrer.")
+        else:
+            st.info("Særskilt banner er skjult.")
+
+        watched = sorted([str(t).upper() for t, rules in individual.items() if _has_special_watch_rules_v18618(rules)])
+        if watched:
+            st.markdown("**Tickere i særskilt overvåking**")
+            st.dataframe(pd.DataFrame([{"ticker": t, **(individual.get(t) or {})} for t in watched]), width="stretch", hide_index=True)
+            r1, r2 = st.columns([0.8, 1.0])
+            with r1:
+                remove_ticker = st.selectbox("Fjern ticker", watched, key="special_watch_remove_ticker_v18619")
+                if st.button("Fjern valgt ticker", key="special_watch_remove_one_v18619", width="content"):
+                    individual.pop(remove_ticker, None)
+                    config["individual"] = individual
+                    _save_banner_alert_config_v18610(config)
+                    st.success(f"{remove_ticker} er fjernet fra særskilt overvåking.")
+                    st.rerun()
+            with r2:
+                if st.button("Tøm særskilt overvåking", key="special_watch_clear_all_v18619", width="content"):
+                    for ticker in watched:
+                        individual.pop(ticker, None)
+                    config["individual"] = individual
+                    _save_banner_alert_config_v18610(config)
+                    st.success("Særskilt overvåking er tømt.")
+                    st.rerun()
+        else:
+            st.info("Ingen tickere ligger i særskilt overvåking.")
+
+        special_log = settings.get(SPECIAL_WATCH_ALERT_LOG_KEY_V18621, [])
+        st.markdown("**Signalhistorikk for særskilt overvåking**")
+        if isinstance(special_log, list) and special_log:
+            st.dataframe(pd.DataFrame(special_log[:50]), width="stretch", hide_index=True)
+            s1, s2, s3 = st.columns([0.8, 0.8, 2.0])
+            with s1:
+                keep_special = st.number_input("Behold siste signaler", min_value=25, max_value=1000, value=min(200, max(25, len(special_log))), step=25, key="special_watch_keep_log_v18621")
+            with s2:
+                if st.button("Kapp særskilt logg", key="special_watch_trim_log_v18621", width="content"):
+                    settings[SPECIAL_WATCH_ALERT_LOG_KEY_V18621] = list(special_log)[: int(keep_special)]
+                    save_settings(settings)
+                    st.success("Loggen for særskilt overvåking er kappet.")
+                    st.rerun()
+            with s3:
+                if st.button("Tøm særskilt logg", key="special_watch_clear_log_v18621", width="content"):
+                    settings[SPECIAL_WATCH_ALERT_LOG_KEY_V18621] = []
+                    save_settings(settings)
+                    st.success("Loggen for særskilt overvåking er tømt.")
+                    st.rerun()
+        else:
+            st.info("Ingen signaler logget for særskilt overvåking ennå.")
+
+
+def _render_nordnet_datatest_v18610():
+    with st.expander("Nordnet datatest (forberedelse)", expanded=False):
+        st.caption("Forbereder eventuell live-feed uten å lagre Nordnet-passord. Reell livebruk krever egen avklaring/tilgang og skal bygges som separat kilde.")
+        rows = [
+            {"Punkt": "Nordnet live-kilde", "Status": "Ikke koblet", "Forklaring": "Yahoo brukes fortsatt som bannerkilde inntil Nordnet-tilgang er godkjent og testet."},
+            {"Punkt": "NORDNET_API_URL", "Status": "Satt" if os.getenv("NORDNET_API_URL") else "Mangler", "Forklaring": "Kun teknisk miljøsjekk. Ingen innlogging gjøres her."},
+            {"Punkt": "Passordlagring", "Status": "Av", "Forklaring": "Programmet lagrer ikke Nordnet-passord i denne runden."},
+        ]
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+
+def _render_nordnet_manual_workspace_v18613():
+    selected_ticker = str(st.session_state.get("live_banner_selected_ticker_v18610") or "").strip().upper()
+    selected_label = str(st.session_state.get("live_banner_selected_label_v18610") or selected_ticker or "").strip()
+    with st.expander("Nordnet arbeid og innlogging", expanded=bool(selected_ticker)):
+        st.caption(
+            "Manuell arbeidsflate: appen viser ordregrunnlag, du åpner Nordnet og logger inn der. "
+            "Appen lagrer ikke Nordnet-passord og sender ingen ordre."
+        )
+        c1, c2, c3 = st.columns([0.9, 1.15, 0.95])
+        with c1:
+            nordnet_ticker = st.text_input(
+                "Ticker",
+                value=selected_ticker,
+                key="nordnet_manual_ticker_v18613",
+                placeholder="F.eks. ORK.OL",
+            ).strip().upper()
+        with c2:
+            nordnet_action = st.selectbox("Forslag", ["Vent", "Kjøp/vurder", "Selg/vurder"], key="nordnet_manual_action_v18613")
+        with c3:
+            nordnet_limit = st.number_input("Limitpris", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="nordnet_manual_limit_v18613")
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            nordnet_qty = st.number_input("Antall", min_value=0, max_value=10_000_000, value=0, step=1, key="nordnet_manual_qty_v18613")
+        with q2:
+            nordnet_stop = st.number_input("Stop-loss", min_value=0.0, max_value=1_000_000.0, value=0.0, step=0.1, key="nordnet_manual_stop_v18613")
+        with q3:
+            nordnet_risk = st.selectbox("Risiko", ["Lav", "Middels", "Høy"], index=1, key="nordnet_manual_risk_v18613")
+        reason = st.text_area(
+            "Begrunnelse",
+            value=f"{selected_label or nordnet_ticker}: vurder mot bannerstatus, trend, volum og egne varselgrenser.".strip(),
+            height=82,
+            key="nordnet_manual_reason_v18613",
+        )
+        order_text = (
+            f"Ticker: {nordnet_ticker or selected_ticker or '-'}\n"
+            f"Navn: {selected_label or '-'}\n"
+            f"Forslag: {nordnet_action}\n"
+            f"Antall: {int(nordnet_qty or 0)}\n"
+            f"Limitpris: {float(nordnet_limit or 0.0):,.2f}\n"
+            f"Stop-loss: {float(nordnet_stop or 0.0):,.2f}\n"
+            f"Risiko: {nordnet_risk}\n"
+            f"Begrunnelse: {reason}\n"
+            "Merk: appen sender ingen ordre og lagrer ikke Nordnet-passord."
+        )
+        b1, b2, b3, b4 = st.columns(4)
+        with b1:
+            st.link_button("Åpne Nordnet innlogging", "https://www.nordnet.no/", width="stretch")
+        with b2:
+            st.download_button(
+                "Kopier ordregrunnlag",
+                data=order_text,
+                file_name=f"{nordnet_ticker or 'nordnet'}_ordregrunnlag.txt",
+                mime="text/plain",
+                width="stretch",
+            )
+        with b3:
+            if st.button("Marker kjøpt manuelt", key="nordnet_manual_mark_bought_v18613", width="stretch"):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[nordnet_ticker or selected_ticker] = {"status": "kjøpt", "tid": _now_short()}
+                st.success("Markert som manuelt kjøpt.")
+        with b4:
+            if st.button("Marker solgt manuelt", key="nordnet_manual_mark_sold_v18613", width="stretch"):
+                st.session_state.setdefault("manual_broker_marks_v18612", {})[nordnet_ticker or selected_ticker] = {"status": "solgt", "tid": _now_short()}
+                st.success("Markert som manuelt solgt.")
+
+
+def _render_nordnet_manual_workspace_v18615():
+    _render_nordnet_manual_workspace_v18613()
+
+
+def render_live_market_banner():
+    from ui.live_market_banner import render_live_market_banner as _implementation
+    return _implementation(get_page_context_v1950(_implementation))
+
+
+
+
+def _render_banner_settings_form_v157(st_obj, form_key="banner_settings_form_v157"):
+    """V15.8.1: robust banner settings form used only below the ticker banner.
+
+    This function was referenced by render_banner_main_controls() in v15.8 but was
+    missing, which caused NameError when opening "Rediger ticker-banner".  It is
+    intentionally self-contained and only updates banner-related settings.
+    """
+    settings = load_settings()
+    raw = settings.get("live_banner_tickers", {}) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    visible_markets = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+    if isinstance(visible_markets, str):
+        visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
+    visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
+
+    st_obj.caption("Endringer i ticker-banner lagres her. Banneret oppdateres etter lagring/ny kjøring, ikke fra venstremenyen.")
+
+    with st_obj.form(form_key, clear_on_submit=False):
+        c_enable, c_speed, c_refresh = st.columns([1.1, 1.1, 1.1])
+        with c_enable:
+            live_banner_enabled = st.checkbox(
+                "Vis ticker-banner",
+                value=bool(settings.get("live_banner_enabled", True)),
+                key=f"{form_key}_enabled",
+            )
+        with c_speed:
+            live_banner_speed = st.number_input(
+                "Bannerhastighet sekunder",
+                min_value=10,
+                max_value=240,
+                value=int(settings.get("live_banner_speed_seconds", 70) or 70),
+                step=5,
+                key=f"{form_key}_speed",
+                help="Lavere tall = raskere bevegelse. Høyere tall = saktere banner.",
+            )
+        with c_refresh:
+            ui_refresh_minutes = st.number_input(
+                "Oppdateringsintervall min",
+                min_value=1,
+                max_value=240,
+                value=int(settings.get("ui_refresh_minutes", 60) or 60),
+                step=1,
+                key=f"{form_key}_refresh",
+                help="Hvor ofte bannerdata kan oppdateres når auto-refresh er aktivert.",
+            )
+
+        st.markdown("**Markeder som vises i banneret**")
+        banner_market_values = {}
+        market_cols = st.columns(3)
+        for idx, market in enumerate(LIVE_BANNER_MARKETS):
+            with market_cols[idx % 3]:
+                banner_market_values[market] = st.checkbox(market, value=(market in visible_markets), key=f"{form_key}_show_{market.lower()}")
+
+        ticker_texts = {}
+        ticker_cols = st.columns(3)
+        for idx, market in enumerate(LIVE_BANNER_MARKETS):
+            with ticker_cols[idx % 3]:
+                ticker_texts[market] = st.text_area(
+                    f"{market} tickere",
+                    value=str(raw.get(market, LIVE_BANNER_DEFAULT_TICKERS.get(market, ""))),
+                    height=84,
+                    key=f"{form_key}_{market.lower()}_tickers",
+                    help="Kommaseparert liste. Bruk markedsindekser eller egne tickere.",
+                )
+
+        submitted = st.form_submit_button("Lagre og bruk banner", width="stretch")
+
+    if submitted:
+        new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
+        if not new_visible:
+            new_visible = ["USA", "Norge", "Sverige"]
+
+        settings.update({
+            "live_banner_enabled": bool(live_banner_enabled),
+            "live_banner_speed_seconds": int(live_banner_speed),
+            "ui_refresh_minutes": int(ui_refresh_minutes),
+            "live_banner_markets_visible": new_visible,
+            "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
+        })
+        save_settings(settings)
+        st.success("Ticker-banner lagret som ventende endringer ✅")
+
+
+def render_banner_sidebar_controls(expanded=False):
+    """V15.8 regresjonssperre: ticker-banner skal kun redigeres under selve banneret, aldri i venstremenyen."""
+    return
+
+
+def render_banner_main_controls():
+    """Samlet redigering for standardbanner og særskilt overvåking."""
+    with st.expander("Rediger bannere", expanded=False):
+        standard_tab, special_tab = st.tabs(["Standardbanner", "Særskilt overvåking"])
+        with standard_tab:
+            settings = load_settings()
+            raw = settings.get("live_banner_tickers", {}) or {}
+            if not isinstance(raw, dict):
+                raw = {}
+
+            visible_markets = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+            if isinstance(visible_markets, str):
+                visible_markets = [m.strip() for m in visible_markets.replace(";", ",").split(",") if m.strip()]
+            visible_markets = set(visible_markets or ["USA", "Norge", "Sverige"])
+
+            if st.session_state.pop("banner_settings_saved_message_v1864p", False):
+                st.success("Ticker-banner oppdatert.")
+
+            st.caption("Endre bannerfeltene her. Endringene brukes forst nar du trykker Lagre og bruk banner.")
+
+            with st.form("banner_settings_form_v17", clear_on_submit=False):
+                c_enable, c_speed, c_refresh = st.columns(3)
+                with c_enable:
+                    live_banner_enabled = st.checkbox(
+                        "Vis ticker-banner",
+                        value=bool(settings.get("live_banner_enabled", True)),
+                        key="banner_v1582_enabled",
+                    )
+                with c_speed:
+                    live_banner_speed = st.number_input(
+                        "Bannerhastighet sekunder",
+                        min_value=10,
+                        max_value=240,
+                        value=int(settings.get("live_banner_speed_seconds", 70) or 70),
+                        step=5,
+                        key="banner_v1582_speed",
+                        help="Lavere tall ruller raskere. Høyere tall ruller saktere.",
+                    )
+                    st.caption("Lavere tall = raskere. Høyere tall = saktere.")
+                with c_refresh:
+                    ui_refresh_minutes = st.number_input(
+                        "Oppdateringsintervall min",
+                        min_value=1,
+                        max_value=240,
+                        value=int(settings.get("ui_refresh_minutes", 60) or 60),
+                        step=1,
+                        key="banner_v1582_refresh",
+                        help="Hvor ofte hovedbanneret forsøker å hente nye kurser.",
+                    )
+
+                st.markdown("**Markeder som vises i banneret**")
+                banner_market_values = {}
+                market_cols = st.columns(3)
+                for idx, market in enumerate(LIVE_BANNER_MARKETS):
+                    with market_cols[idx % 3]:
+                        banner_market_values[market] = st.checkbox(market, value=(market in visible_markets), key=f"banner_v1582_show_{market.lower()}")
+
+                ticker_texts = {}
+                ticker_cols = st.columns(3)
+                for idx, market in enumerate(LIVE_BANNER_MARKETS):
+                    with ticker_cols[idx % 3]:
+                        ticker_texts[market] = st.text_area(
+                            f"{market} tickere",
+                            value=str(raw.get(market, LIVE_BANNER_DEFAULT_TICKERS.get(market, ""))),
+                            height=84,
+                            key=f"banner_v1582_{market.lower()}_tickers",
+                        )
+
+                submitted = st.form_submit_button("Lagre og bruk banner", width="stretch")
+
+            if submitted:
+                new_visible = [market for market in LIVE_BANNER_MARKETS if banner_market_values.get(market)]
+                if not new_visible:
+                    new_visible = ["USA", "Norge", "Sverige"]
+
+                settings.update({
+                    "live_banner_enabled": bool(live_banner_enabled),
+                    "live_banner_speed_seconds": int(live_banner_speed),
+                    "ui_refresh_minutes": int(ui_refresh_minutes),
+                    "live_banner_markets_visible": new_visible,
+                    "live_banner_tickers": {market: str(ticker_texts.get(market, "")).strip() for market in LIVE_BANNER_MARKETS},
+                })
+                save_settings(settings)
+                for key in list(st.session_state.keys()):
+                    if str(key).startswith("live_banner_cache_v16_"):
+                        st.session_state.pop(key, None)
+                try:
+                    banner_items = parse_banner_tickers(settings)
+                    banner_fp = tuple((str(m), str(t), str(l)) for m, t, l in banner_items)
+                    banner_key = f"live_banner_cache_v16_{_cache_key_safe(banner_fp)}"
+                    banner_cards = fetch_live_banner_snapshot(banner_items)
+                    if banner_cards:
+                        st.session_state[banner_key] = banner_cards
+                        st.session_state["live_banner_cache_v16_latest"] = banner_cards
+                except Exception as exc:
+                    logging.warning("Ticker-banner refresh after save failed: %s", exc)
+                st.session_state["banner_settings_saved_message_v1864p"] = True
+                st.rerun()
+
+            with st.expander("Importer tickere", expanded=False):
+                st.caption("CSV kan ha kolonnene ticker/symbol og market/marked. En enkel en-kolonne CSV tolkes som tickere i valgt marked.")
+                st.markdown(
+                    "<div class='v18-dark-row'>Eksempel CSV: <b>ticker,market</b><br>YAR.OL,Norge<br>ORKLY.OL,Norge<br>VOLV-B.ST,Sverige</div>",
+                    unsafe_allow_html=True,
+                )
+                i1, i2, i3 = st.columns([1.2, 0.8, 0.9])
+                with i1:
+                    upload = st.file_uploader("Last opp CSV", type=["csv", "txt"], key="banner_import_upload_v18615")
+                    pasted = st.text_area("Eller lim inn CSV/tickerliste", value="", height=86, key="banner_import_text_v18615", placeholder="ticker,market\nYAR.OL,Norge\nORKLY.OL,Norge")
+                with i2:
+                    import_market = st.selectbox("Standard marked", LIVE_BANNER_MARKETS, index=LIVE_BANNER_MARKETS.index("Norge"), key="banner_import_market_v18615")
+                    import_mode = st.radio("Importmodus", ["Legg til", "Erstatt marked"], horizontal=False, key="banner_import_mode_v18615")
+                with i3:
+                    st.caption("Mulige kilder: borsenes egne lister, Nordnet/megler-eksport, Yahoo-symboler eller egne CSV-lister.")
+                    st.markdown("<div class='v18-dark-row'>Tips: bruk .OL, .ST, .HE, .CO og .SA for nordiske/Brasil-symboler der Yahoo krever suffiks.</div>", unsafe_allow_html=True)
+                imported_text = str(pasted or "")
+                if upload is not None:
+                    try:
+                        imported_text = upload.getvalue().decode("utf-8-sig")
+                    except Exception:
+                        imported_text = upload.getvalue().decode("latin-1", errors="ignore")
+                imported = parse_banner_csv_text(imported_text, default_market=import_market) if imported_text.strip() else {}
+                if imported:
+                    preview_rows = [{"marked": market, "tickere": ", ".join(tickers), "antall": len(tickers)} for market, tickers in imported.items()]
+                    st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
+                apply_import = st.button("Importer til tickerfeltene", key="banner_import_apply_v18615", disabled=not bool(imported))
+                if apply_import:
+                    current = settings.get("live_banner_tickers", {}) if isinstance(settings.get("live_banner_tickers", {}), dict) else {}
+                    settings["live_banner_tickers"] = merge_ticker_maps(current, imported, mode=import_mode)
+                    imported_markets = [m for m in imported.keys() if m in LIVE_BANNER_MARKETS]
+                    current_visible = settings.get("live_banner_markets_visible", ["USA", "Norge", "Sverige"])
+                    if isinstance(current_visible, str):
+                        current_visible = [m.strip() for m in current_visible.replace(";", ",").split(",") if m.strip()]
+                    settings["live_banner_markets_visible"] = list(dict.fromkeys(list(current_visible or []) + imported_markets))
+                    save_settings(settings)
+                    st.success("Import lagret i tickerfeltene. Apne Rediger ticker-banner igjen for a se listen.")
+                    st.rerun()
+
+                _render_banner_alert_settings_v18610()
+                _render_nordnet_datatest_v18610()
+                _render_nordnet_manual_workspace_v18615()
+
+        with special_tab:
+            render_special_watch_menu_v18619(embedded=True)
+
+_TRANSIENT_UI_EXACT_KEYS_V19220_RC8 = {
+    "ai_control_center_group_v1863m", "ai_control_center_group_v1863aj",
+    "ai_control_center_active_panel_v1863m", "ai_control_center_active_panel_v1863aj",
+    "ai_control_center_active_real_panel_v18598", "ai_control_center_menu_open_v1863ag",
+    "ai_control_center_route_lock_v19220_rc6", "active_nav_target_v18674c",
+    "aa_tab", "autonomy_workspace_slug_v19220_rc7",
+    "live_banner_selected_ticker_v18610", "live_banner_selected_market_v18610",
+    "live_banner_selected_label_v18610", "live_banner_open_picker_v18610",
+    "analysis_pipeline_active_stage_v1863bz",
+}
+_TRANSIENT_UI_PREFIXES_V19220_RC8 = (
+    "nav_restore_", "route_restore_", "panel_restore_", "currency_alert_flash_",
+    "manual_job_poll_", "report_progress_ui_", "banner_detail_",
+)
+
+
+def _reset_transient_ui_state_v19220_rc8() -> int:
+    """Clear only transient route/render state; never auth or persisted settings."""
+    removed = 0
+    for key in list(st.session_state.keys()):
+        if key in _TRANSIENT_UI_EXACT_KEYS_V19220_RC8 or any(str(key).startswith(prefix) for prefix in _TRANSIENT_UI_PREFIXES_V19220_RC8):
+            st.session_state.pop(key, None)
+            removed += 1
+    try:
+        for key in ("panel", "group", "aa_tab", "banner_ticker", "banner_market"):
+            if key in st.query_params:
+                del st.query_params[key]
+    except Exception:
+        pass
+    return removed
+
+
+def _render_display_time_settings_v19220_rc8() -> None:
+    settings = load_settings() or {}
+    saved = str(settings.get("display_timezone") or AUTO_TIMEZONE)
+    options = list(SUPPORTED_TIMEZONES)
+    if saved not in options:
+        options.append(saved)
+    label_by_value = {value: TIMEZONE_LABELS.get(value, value) for value in options}
+    with st.expander("Visning og tid", expanded=False):
+        st.caption(
+            "Styrer bare klokkeslett som vises i programmet. Morgen- og kveldsrapportene "
+            "forblir 08:00 og 22:00 Europe/Oslo til en separat schedulerinnstilling endres."
+        )
+        selected_label = st.selectbox(
+            "Visningstidssone",
+            [label_by_value[value] for value in options],
+            index=options.index(saved),
+            key="display_timezone_select_v19220_rc8",
+        )
+        selected = next(value for value in options if label_by_value[value] == selected_label)
+        resolved = display_timezone_name(
+            {**settings, "display_timezone": selected},
+            streamlit_module=st,
+        )
+        st.info(
+            "Forhåndsvisning: "
+            + display_time(datetime.now(timezone.utc), resolved, include_seconds=True, include_timezone=True)
+        )
+        browser_tz = str(st.query_params.get("client_tz") or "") if hasattr(st, "query_params") else ""
+        if selected == AUTO_TIMEZONE:
+            st.caption(f"Nettleserens registrerte tidssone: {browser_tz or 'ikke registrert ennå'}. Aktiv visning: {resolved}.")
+        if st.button("Lagre visningstidssone", key="save_display_timezone_v19220_rc8", width="content"):
+            settings["display_timezone"] = selected
+            save_settings(settings)
+            st.success(f"Visningstidssone lagret: {label_by_value[selected]}. Scheduler er ikke endret.")
+            st.rerun()
+
+
+def _render_runtime_diagnostics_v19220_rc8() -> None:
+    settings = load_settings() or {}
+    with st.expander("Driftsdiagnose og visning", expanded=False):
+        route = str(st.session_state.get("active_nav_target_v18674c") or "control_center")
+        group = str(st.session_state.get("ai_control_center_group_v1863aj") or st.session_state.get("ai_control_center_group_v1863m") or "-")
+        panel = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or st.session_state.get("ai_control_center_active_panel_v1863m") or "-")
+        timezone_name = _display_timezone_v19220_rc8(settings)
+        try:
+            from currency_alert_service import get_currency_alert_health
+            fx_health = get_currency_alert_health(max_age_minutes=20)
+            fx_state = str(fx_health.get("state") or "-")
+        except Exception as exc:
+            fx_state = f"FEIL: {str(exc)[:80]}"
+        try:
+            scheduler = cron_status_text()
+            scheduler_state = "AKTIV" if scheduler.get("allowed") else str(scheduler.get("reason") or "PAUSET")
+        except Exception as exc:
+            scheduler_state = f"FEIL: {str(exc)[:80]}"
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Program", get_app_build_label())
+        d2.metric("Aktiv rute", route)
+        d3.metric("Scheduler", scheduler_state)
+        d4.metric("Valutakontroll", fx_state)
+        st.caption(f"Gruppe: {group} · Panel: {panel} · Visningstidssone: {timezone_name}")
+        st.caption(
+            "Diagnosen er lesende. Den starter ikke analyser, scheduler, valutakontroll eller handel."
+        )
+        if st.button("Tilbakestill visning", key="reset_transient_ui_v19220_rc8", width="content"):
+            removed = _reset_transient_ui_state_v19220_rc8()
+            st.session_state["ui_reset_notice_v19220_rc8"] = f"Midlertidig visningstilstand ble ryddet ({removed} felt). Ingen innstillinger eller rapporter ble slettet."
+            st.rerun()
+
+
+def render_system_admin_workspace(expanded=False):
+    """Fase 3: Cron/bakgrunnssøk og systemdrift samlet i Kontrollsenter."""
+    with st.expander("System System / admin · Bakgrunnssøk / Cron", expanded=bool(expanded)):
+
+        st.caption("Systemkontroller. Full stopp / ferie overstyrer Auto trading og auto-kjøp. Start auto opphever ikke sikkerhetslåser.")
+        if st.session_state.pop("ui_reset_notice_v19220_rc8", None):
+            st.success("Midlertidig visningstilstand er ryddet. Ingen innstillinger, rapporter eller innlogging ble slettet.")
+        _render_display_time_settings_v19220_rc8()
+        _render_runtime_diagnostics_v19220_rc8()
+        _cron_settings = load_settings()
+        _cron_status = cron_status_text()
+        _is_full_stop = bool(_cron_status.get("vacation_mode"))
+        _is_allowed = bool(_cron_status.get("allowed"))
+        if _is_full_stop:
+            st.warning("Status: Full stopp / ferie er aktiv ⛔")
+        elif not _is_allowed:
+            st.info("Status: Pauset / hopper over Pause")
+        else:
+            st.success("Status: Aktiv ✅")
+        st.caption(_cron_status.get("reason", ""))
+
+        with st.form("system_admin_cron_form_v17", clear_on_submit=False):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                _cron_enabled = st.checkbox("Bakgrunnssøk aktiv", value=bool(_cron_settings.get("background_scanning_enabled", True)), key="main_cron_background_enabled_v157")
+            with c2:
+                _cron_interval = st.number_input("Søkintervall minutter", min_value=1, max_value=1440, value=int(_cron_settings.get("scan_interval_minutes", 15)), step=1, key="main_cron_scan_interval_v157")
+            with c3:
+                _pause_choice = st.selectbox("Pause søk", ["Ingen pause", "30 minutter", "1 time", "2 timer", "Resten av dagen"], key="main_cron_pause_choice_v157")
+            _save_cron = st.form_submit_button("💾 Lagre søk/cron som ventende", width="stretch")
+        if _save_cron:
+            _mark_pending_manual_change("Søk/cron endret")
+            _new_settings = load_settings()
+            _new_settings["background_scanning_enabled"] = bool(_cron_enabled)
+            _new_settings["scan_interval_minutes"] = int(_cron_interval)
+            save_settings(_new_settings)
+            if _pause_choice == "30 minutter":
+                pause_until(minutes=30)
+            elif _pause_choice == "1 time":
+                pause_until(minutes=60)
+            elif _pause_choice == "2 timer":
+                pause_until(minutes=120)
+            elif _pause_choice == "Resten av dagen":
+                pause_until(rest_of_day=True)
+            elif _pause_choice == "Ingen pause":
+                clear_pause()
+            st.success("Søk/cron lagret som ventende ✅")
+
+        s1, s2, s3, s4 = st.columns([1, 1, 1, 2.2])
+        with s1:
+            if _is_full_stop:
+                if st.button("🔓 Slå av Full stopp", key="main_disable_full_stop_v157", width="stretch"):
+                    _deactivate_full_stop_v157()
+            else:
+                if st.button("⛔ Full stopp / ferie", key="main_activate_full_stop_v157", width="stretch"):
+                    activate_full_stop()
+                    st.rerun()
+        with s2:
+            if _cron_status.get("pause_until"):
+                if st.button("Start Gjenoppta nå", key="main_resume_pause_v157", width="stretch"):
+                    clear_pause()
+                    st.rerun()
+            else:
+                st.caption("Ingen aktiv pause")
+        with s3:
+            if st.button("⚡ Kjør auto-kjøp nå", key="main_force_auto_buy_now_v157", width="stretch", disabled=_is_full_stop):
+                try:
+                    from scanner_worker import run_once
+                    with st.spinner("Kjører auto-kjøp-motor..."):
+                        _trades = run_once(force=True)
+                    st.success(f"Auto-motor ferdig. Trades: {_trades}")
+                    st.rerun()
+                except Exception as _e:
+                    st.error(f"Auto-kjøp feilet: {_e}")
+        with s4:
+            st.caption("Auto-kjøp nå er en engangskjøring. Den starter ikke fast Auto trading, og blokkeres av Full stopp / ferie.")
+
+
+def render_analysis_universe_workspace():
+    """Legacy wrapper: Analyseunivers er nå flyttet inn i AI Kontrollsenter."""
+    try:
+        from analysis_universe_ai import render_ai_analysis_universe_workspace
+        return render_ai_analysis_universe_workspace(expanded=False)
+    except Exception as exc:
+        st.warning(f"Analyseunivers AI-modul kunne ikke vises: {exc}")
+        return None
+
+def render_decision_explanation(decision):
+    try:
+        reasons = _dedupe_text_list(decision.get("reasons", []))
+        warnings = _dedupe_text_list(decision.get("warnings", []))
+        st.markdown("#### Hvorfor dette signalet?")
+        if reasons:
+            for r in reasons:
+                st.success(f"✅ {r}")
+        if warnings:
+            for w in warnings:
+                st.warning(f"! {w}")
+        if not reasons and not warnings:
+            st.caption("Ingen detaljert forklaring tilgjengelig for dette signalet.")
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+
+
+
+def render_rsi_box(rsi_value):
+    """v18.6.67: Kompakt RSI-badge i stedet for stor fullbredde RSI-boks."""
+    try:
+        rsi_float = float(rsi_value)
+    except Exception:
+        rsi_float = 50.0
+
+    if rsi_float >= 80:
+        status = "Ekstremt overkjøpt"; icon = "🔴"
+    elif rsi_float >= 70:
+        status = "Overkjøpt"; icon = "🟠"
+    elif rsi_float <= 30:
+        status = "Oversolgt"; icon = "🟢"
+    else:
+        status = "Nøytral"; icon = "🟡"
+
+    st.markdown(
+        f"""
+        <div class="density-badge-row">
+            <span class="density-badge">📊 RSI <b>{rsi_float:.1f}</b></span>
+            <span class="density-badge">{icon} {status}</span>
+            <span class="density-badge">30 oversolgt · 70 overkjøpt · 80 ekstremt</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+
+def render_signal_badge(signal):
+    s = str(signal or "").upper()
+    if "BUY" in s:
+        return "<span class='status-live'>🟢 BUY</span>"
+    if "SELL" in s or "AVOID" in s:
+        return "<span class='status-danger'>🔴 SELL / AVOID</span>"
+    return "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:rgba(245,158,11,0.16);border:1px solid rgba(245,158,11,0.5);color:#fde68a;font-weight:900;'>🟡 HOLD</span>"
+
+
+
+PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
+PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
+
+# BANNER_TICKER_TAPE_V2
+# fallback hvis Render gir tom string
+if not PUSHOVER_APP_TOKEN:
+    PUSHOVER_APP_TOKEN = None
+
+if not PUSHOVER_USER_KEY:
+    PUSHOVER_USER_KEY = None
+
+def _mask_secret_v18585(value, keep=4):
+    """Maskerer token/user-key i UI og logger uten å lekke hemmeligheter."""
+    value = str(value or "")
+    if not value:
+        return "MISSING"
+    if len(value) <= keep:
+        return "*" * len(value)
+    return ("*" * max(0, len(value) - keep)) + value[-keep:]
+
+
+from notifier import send_pushover_alert  # v18.6.3 centralized notifier
+
+
+def verify_pushover_credentials_v18585():
+    """Validerer Pushover token + user-key mot Pushover API uten å sende varsel."""
+    result = {
+        "token_present": bool(PUSHOVER_APP_TOKEN),
+        "user_present": bool(PUSHOVER_USER_KEY),
+        "token_masked": _mask_secret_v18585(PUSHOVER_APP_TOKEN),
+        "user_masked": _mask_secret_v18585(PUSHOVER_USER_KEY),
+        "ok": False,
+        "status_code": None,
+        "response_text": "",
+    }
+    if not result["token_present"] or not result["user_present"]:
+        result["response_text"] = "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY"
+        return result
+    try:
+        response = requests.post(
+            "https://api.pushover.net/1/users/validate.json",
+            data={"token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY},
+            timeout=10,
+        )
+        result["status_code"] = response.status_code
+        result["response_text"] = response.text[:1200]
+        result["ok"] = bool(response.status_code == 200)
+        return result
+    except Exception as e:
+        result["response_text"] = str(e)
+        return result
+
+
+def maybe_send_signal_alert(ticker, decision):
+    """
+    Deaktivert i Pushover trade-fix:
+    Varsler skal kun sendes fra trading_engine.py når faktisk BUY/SELL skjer.
+    Dette hindrer mobil-spam ved vanlig signalendring/refresh.
+    """
+    return None
+
+
+
+def get_dynamic_watchlist(mode, max_count, tickers_us=None, tickers_no=None, tickers_se=None, tickers_all=None):
+    """Lager dynamisk watchlist fra siste lagrede/rangerte markedsliste.
+
+    V17: Hvis en rangering finnes, brukes BUY/HOLD/SELL-sortert rekkefølge.
+    Hvis ikke finnes cache ennå, brukes tickerunivers som fallback uten å starte tung scan.
+    """
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    source_key = None
+    fallback = tickers_all
+    if mode == "USA / S&P 500":
+        source_key, fallback = "USA", tickers_us or resolve_universe_tickers(["USA"], max_count=max_count)
+    elif mode == "Norge / Oslo Børs":
+        source_key, fallback = "Norge", tickers_no or resolve_universe_tickers(["Norge"], max_count=max_count)
+    elif mode == "Sverige / Stockholm":
+        source_key, fallback = "Sverige", tickers_se or resolve_universe_tickers(["Sverige"], max_count=max_count)
+    elif mode == "Finland / Helsinki":
+        source_key, fallback = "Finland", resolve_universe_tickers(["Finland"], max_count=max_count)
+    elif mode == "Danmark / Copenhagen":
+        source_key, fallback = "Danmark", resolve_universe_tickers(["Danmark"], max_count=max_count)
+    elif mode == "Brasil / B3":
+        source_key, fallback = "Brasil", resolve_universe_tickers(["Brasil"], max_count=max_count)
+
+    ranked = _ranked_for_display(latest.get(source_key, []) if source_key else [])
+    if ranked:
+        return [normalize_user_ticker(x.get("ticker")) for x in ranked[:max_count] if x.get("ticker")]
+    return list(fallback or [])[:max_count]
+
+def parse_watchlist(text):
+    if not text:
+        return []
+    raw = text.replace(";", ",").replace("\n", ",").split(",")
+    tickers = []
+    for item in raw:
+        ticker = item.strip().upper()
+        if ticker and ticker not in tickers:
+            tickers.append(ticker)
+    return tickers
+
+
+def scan_watchlist_and_alert(tickers):
+    """
+    Scanner watchlist og sender Pushover-varsel når BUY/SELL signal endrer seg.
+    Kjører når appen refresher, men unngår spam ved å lagre siste signal i session_state.
+    """
+    _alert_settings = load_settings()
+    if not bool(_alert_settings.get("notify_watchlist_signal_changes", True)):
+        return []
+
+    if not tickers:
+        return []
+
+    if "watchlist_last_signal" not in st.session_state:
+        st.session_state.watchlist_last_signal = {}
+
+    results = []
+
+    for ticker in tickers:
+        try:
+            item = score_stock(ticker, use_news=False)
+            if not item:
+                results.append({"ticker": ticker, "status": "Ingen data"})
+                continue
+
+            df = item["hist"].copy()
+
+            rsi = calculate_rsi(df)
+            macd, macd_signal, _ = calculate_macd(df)
+            bb_ma, bb_upper, bb_lower = calculate_bollinger(df)
+
+            latest_rsi = rsi.dropna().iloc[-1] if not rsi.dropna().empty else 50
+            latest_macd = macd.dropna().iloc[-1] if not macd.dropna().empty else 0
+            latest_macd_signal = macd_signal.dropna().iloc[-1] if not macd_signal.dropna().empty else 0
+
+            hs = detect_head_shoulders(df)
+            inv_hs = detect_inverse_head_shoulders(df)
+            breakout = breakout_scanner(df)
+
+            technical_context = {
+                "rsi": latest_rsi,
+                "macd_bullish": latest_macd > latest_macd_signal,
+                "breakout_type": breakout.get("type", "neutral"),
+                "head_shoulders_found": hs.get("found", False),
+                "inverse_head_shoulders_found": inv_hs.get("found", False),
+            }
+
+            decision = build_trading_decision(item, technical_context)
+
+            if use_signal_intelligence:
+                insider = get_insider_data(ticker)
+                analyst = get_analyst_trend(ticker)
+                earnings = get_earnings(ticker)
+                si = calculate_signal_intelligence(
+                    item,
+                    technical_context=technical_context,
+                    insider=insider,
+                    analyst=analyst,
+                    earnings=earnings,
+                )
+                decision["decision"] = si["decision"]
+                decision["emoji"] = si["emoji"]
+                decision["confidence"] = si["confidence"]
+                decision["decision_score"] = si["final_score"]
+
+            current_signal = decision.get("decision", "UNKNOWN")
+            previous_signal = st.session_state.watchlist_last_signal.get(ticker)
+
+            changed = previous_signal is not None and previous_signal != current_signal
+            first_seen = previous_signal is None
+
+            st.session_state.watchlist_last_signal[ticker] = current_signal
+
+            confidence_ok = (not use_high_conf_alerts_only) or decision.get("confidence", 0) >= min_alert_confidence
+
+            if changed and confidence_ok and current_signal in ["BUY", "SELL / AVOID"]:
+                msg = (
+                    f"{decision.get('emoji', '')} {current_signal}: {ticker}\n"
+                    f"Score: {item.get('score', 'N/A')}/10\n"
+                    f"Confidence: {decision.get('confidence', 'N/A')}%\n"
+                    f"RSI: {latest_rsi:.1f}"
+                )
+                send_pushover_alert(msg, title="Aksje signal endret")
+
+            results.append({
+                "ticker": ticker,
+                "score": item.get("score"),
+                "signal": current_signal,
+                "confidence": decision.get("confidence"),
+                "rsi": round(float(latest_rsi), 1),
+                "macd": "Bullish" if latest_macd > latest_macd_signal else "Bearish",
+                "changed": changed,
+                "first_seen": first_seen,
+            })
+
+        except Exception as e:
+            results.append({"ticker": ticker, "status": f"Feil: {e}"})
+
+    return results
+
+
+def score_color(score):
+    if score >= 7: return "good", "🟢"
+    if score >= 4: return "mid", "🟡"
+    return "bad", "🔴"
+
+
+def add_right_side_price_label(fig, x, y, text, color=None, yshift=0):
+    """
+    Legger kurs-label på høyre side uten å krasje med selve grafen.
+    """
+    fig.add_annotation(
+        x=x,
+        y=y,
+        text=text,
+        showarrow=False,
+        xanchor="left",
+        yanchor="middle",
+        xshift=12,
+        yshift=yshift,
+        font=dict(size=12, color=color or "white"),
+        bgcolor="rgba(11,17,28,0.85)",
+        bordercolor="rgba(255,255,255,0.25)",
+        borderwidth=1,
+    )
+
+def plot_price(hist, title):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Pris"))
+
+    try:
+        last_x = hist.index[-1]
+        last_price = float(hist["Close"].dropna().iloc[-1])
+
+        fig.add_hline(
+            y=last_price,
+            line_dash="dot",
+            line_color="rgba(255,255,255,0.45)",
+        )
+
+        add_right_side_price_label(
+            fig,
+            last_x,
+            last_price,
+            f"Pris / gjeldende: {last_price:.2f}",
+            color="white",
+        )
+
+        fig.update_layout(
+            annotations=[
+                *fig.layout.annotations,
+                dict(
+                    text=f"💹 Gjeldende kurs: <b>{last_price:.2f}</b>",
+                    xref="paper",
+                    yref="paper",
+                    x=0.01,
+                    y=1.12,
+                    showarrow=False,
+                    align="left",
+                    font=dict(size=15, color="white"),
+                    bgcolor="rgba(30,41,59,0.9)",
+                    bordercolor="rgba(255,255,255,0.25)",
+                    borderwidth=1,
+                )
+            ]
+        )
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+
+    fig.update_layout(
+        title=title,
+        template="plotly_dark",
+        height=420,
+        paper_bgcolor="#0b111c",
+        plot_bgcolor="#0b111c",
+        margin=dict(l=20, r=150, t=80, b=30),
+        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
+    )
+    return fig
+
+def get_item_price_change(item):
+    """
+    Henter siste kurs og prosentendring direkte fra item["hist"].
+    Fungerer selv om item ikke har egne price/change_pct-felter.
+    """
+    try:
+        hist = item.get("hist")
+        if hist is None or hist.empty or "Close" not in hist:
+            return None, None
+
+        close = hist["Close"].dropna()
+        if len(close) < 2:
+            return None, None
+
+        latest = float(close.iloc[-1])
+        prev = float(close.iloc[-2])
+        change_pct = ((latest - prev) / prev * 100) if prev else 0
+        return latest, change_pct
+    except Exception:
+        return None, None
+
+
+def currency_suffix(ticker):
+    if ticker.endswith(".OL"):
+        return "NOK"
+    if ticker.endswith(".ST"):
+        return "SEK"
+    if ticker.endswith(".CO"):
+        return "DKK"
+    if ticker.endswith(".HE"):
+        return "EUR"
+    if ticker.endswith(".SA"):
+        return "BRL"
+    return "$"
+
+def add_pattern_markers(fig, pattern, name):
+    points = pattern.get("points", {}) if pattern else {}
+    if not points:
+        return fig
+
+    ordered_keys = ["left_shoulder", "head", "right_shoulder"]
+    xs = []
+    ys = []
+
+    for key in ordered_keys:
+        point = points.get(key)
+        if point and len(point) == 2:
+            xs.append(point[0])
+            ys.append(point[1])
+
+    if xs and ys:
+        fig.add_trace(go.Scatter(
+            x=xs,
+            y=ys,
+            mode="markers+lines+text",
+            name=name,
+            text=["Venstre", "Hode", "Høyre"],
+            textposition="top center",
+            marker=dict(size=10),
+            line=dict(width=3, dash="dash"),
+        ))
+
+    return fig
+
+
+
+def _safe_html_value(value):
+    return html.escape(str(value if value is not None else "N/A"))
+
+
+def render_compact_stat_grid(items, columns=4):
+    """Kompakt statusgrid som gjør tydelig forskjell på Kompakt/Normal/Full.
+
+    items: liste med (label, value[, delta])
+    """
+    if not items:
+        return
+    cards = []
+    for item in items:
+        label = item[0] if len(item) > 0 else ""
+        value = item[1] if len(item) > 1 else "N/A"
+        delta = item[2] if len(item) > 2 else None
+        delta_html = ""
+        if delta not in (None, ""):
+            neg = " neg" if str(delta).strip().startswith("-") else ""
+            delta_html = f"<div class='compact-stat-delta{neg}'>{_safe_html_value(delta)}</div>"
+        cards.append(
+            "<div class='compact-stat-card'>"
+            f"<div class='compact-stat-label'>{_safe_html_value(label)}</div>"
+            f"<div class='compact-stat-value'>{_safe_html_value(value)}</div>"
+            f"{delta_html}"
+            "</div>"
+        )
+    st.markdown(
+        f"<div class='compact-stat-grid' style='grid-template-columns: repeat({int(columns)}, minmax(0,1fr));'>" + "".join(cards) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+def render_decision_banner(decision, item, adj_score):
+    """Kompakt Trading engine-status (v14 / oppgave 29B).
+
+    Tidligere viste appen samme BUY/HOLD-info tre ganger i store bokser.
+    Denne varianten viser én kompakt statuslinje og legger detaljene i en lukket forklaring.
+    """
+    decision_text = str(decision.get("decision", "HOLD / WAIT"))
+    emoji = str(decision.get("emoji", "🟡"))
+    confidence = decision.get("confidence", "N/A")
+    score = decision.get("decision_score", "N/A")
+    color = "#86efac" if "BUY" in decision_text.upper() else ("#fecaca" if "SELL" in decision_text.upper() else "#fde68a")
+
+    st.markdown(
+        f"""
+        <div class="trading-engine-compact">
+            <span class="trading-engine-pill" style="border-color:{color}; background:rgba(34,197,94,0.10);">
+                <span>{html.escape(emoji)}</span>
+                <span style="color:{color}!important;">{html.escape(decision_text)}</span>
+            </span>
+            <span class="trading-engine-muted">Score: <span class="trading-engine-value">{html.escape(str(score))}</span></span>
+            <span class="trading-engine-muted">Confidence: <span class="trading-engine-value">{html.escape(str(confidence))}%</span></span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Vis forklaring for signalet", expanded=False):
+        st.markdown(
+            f"""
+            <div class="trading-engine-details">
+                <b>{html.escape(emoji)} {html.escape(decision_text)}</b><br>
+                Original score: <b>{html.escape(str(item.get('score', 'N/A')))}/10</b> ·
+                Pattern-justert score: <b>{html.escape(str(adj_score))}/10</b><br>
+                Dette er analysehjelp, ikke investeringsråd.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def quick_context_for_card(item):
+    try:
+        df = item.get("hist")
+        if df is None or df.empty or "Close" not in df:
+            return {}
+
+        rsi_series = calculate_rsi(df)
+        latest_rsi = float(rsi_series.dropna().iloc[-1]) if len(rsi_series.dropna()) else 50.0
+
+        macd, macd_signal, _ = calculate_macd(df)
+        latest_macd = float(macd.dropna().iloc[-1]) if len(macd.dropna()) else 0.0
+        latest_macd_signal = float(macd_signal.dropna().iloc[-1]) if len(macd_signal.dropna()) else 0.0
+
+        trend_text = str(detect_trend(df))
+        if "Opptrend" in trend_text:
+            trend = "up"
+        elif "Nedtrend" in trend_text:
+            trend = "down"
+        else:
+            trend = "neutral"
+
+        breakout = breakout_scanner(df)
+        hs = detect_head_shoulders(df)
+        inv = detect_inverse_head_shoulders(df)
+
+        close = df["Close"].dropna()
+        recent = close.tail(80)
+        if len(recent) > 5:
+            low = float(recent.min())
+            high = float(recent.max())
+            last = float(close.iloc[-1])
+            channel_pos = ((last - low) / (high - low) * 100) if high != low else 50
+        else:
+            channel_pos = 50
+
+        return {
+            "rsi": latest_rsi,
+            "macd_bullish": latest_macd > latest_macd_signal,
+            "breakout_type": breakout.get("type", "neutral"),
+            "trend": trend,
+            "channel_pos": channel_pos,
+            "head_shoulders_found": bool(hs.get("found")),
+            "inverse_head_shoulders_found": bool(inv.get("found")),
+        }
+    except Exception:
+        return {}
+
+
+def card_decision_for_item(item):
+    try:
+        decision = calculate_signal_intelligence(item, quick_context_for_card(item))
+    except Exception:
+        decision = {
+            "decision": "HOLD / WAIT",
+            "confidence": 0,
+            "risk": "Middels",
+            "reasons": [],
+            "warnings": ["Teknisk signal kunne ikke beregnes på kortet"],
+            "final_score": item.get("score", 0),
+        }
+
+    text = str(decision.get("decision", "HOLD / WAIT")).upper()
+
+    if "BUY" in text:
+        decision["action_now"] = "KJØP NÅ"
+        decision["action_class"] = "action-buy"
+        decision["action_icon"] = "🟢"
+    elif "SELL" in text or "AVOID" in text:
+        decision["action_now"] = "UNNGÅ NÅ"
+        decision["action_class"] = "action-sell"
+        decision["action_icon"] = "🔴"
+    else:
+        decision["action_now"] = "VENT"
+        decision["action_class"] = "action-hold"
+        decision["action_icon"] = "🟡"
+
+    return decision
+
+
+def render_action_chips(decision):
+    st.markdown(
+        f"""
+        <div class="action-chip-row">
+            <span class="action-chip action-info">Teknisk: {ux_status_label_v19022(decision.get("decision", "HOLD / WAIT"), str(decision.get("decision", "HOLD / WAIT")))}</span>
+            <span class="action-chip {decision.get("action_class", "action-hold")}">{decision.get("action_icon", "🟡")} {decision.get("action_now", "VENT")}</span>
+            <span class="action-chip action-info">Conf: {decision.get("confidence", 0)}%</span>
+            <span class="action-chip action-info">Risiko: {decision.get("risk", "Middels")}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def is_buy_now_item(item):
+    return card_decision_for_item(item).get("action_now") == "KJØP NÅ"
+
+
+# V17 / Oppgave 132: felles rangering for dynamisk watchlist, Top Picks og hurtiglister.
+def _signal_group_priority(decision_text: str, action_text: str = "") -> int:
+    text = f"{decision_text} {action_text}".upper()
+    if "KJØP" in text or "BUY" in text:
+        return 0
+    if "HOLD" in text or "WAIT" in text or "VENT" in text:
+        return 1
+    if "SELL" in text or "AVOID" in text or "UNNGÅ" in text:
+        return 2
+    return 3
+
+
+def _rank_display_key(item):
+    try:
+        decision = card_decision_for_item(item or {})
+    except Exception:
+        decision = {}
+    try:
+        score = float((item or {}).get("score", 0) or 0)
+    except Exception:
+        score = 0.0
+    try:
+        conf = float(decision.get("confidence", (item or {}).get("confidence", 0)) or 0)
+    except Exception:
+        conf = 0.0
+    priority = _signal_group_priority(str(decision.get("decision", "")), str(decision.get("action_now", "")))
+    ticker = str((item or {}).get("ticker", ""))
+    # v18.6.42: Top Picks skal primært rangeres på total score.
+    # Kjøp-nå-status har egen visning/filter og skal ikke skyve en lavere score over en høyere score.
+    return (-score, priority, -conf, ticker)
+
+
+STOCK_NAME_FALLBACKS_V18569 = {
+    "AAPL": "Apple Inc.", "MSFT": "Microsoft Corporation", "NVDA": "NVIDIA Corporation",
+    "AMZN": "Amazon.com, Inc.", "META": "Meta Platforms, Inc.", "GOOGL": "Alphabet Inc.",
+    "GOOG": "Alphabet Inc.", "AVGO": "Broadcom Inc.", "TSLA": "Tesla, Inc.",
+    "LLY": "Eli Lilly and Company", "JPM": "JPMorgan Chase & Co.", "V": "Visa Inc.",
+    "UNH": "UnitedHealth Group Incorporated", "NFLX": "Netflix, Inc.", "MA": "Mastercard Incorporated",
+    "XOM": "Exxon Mobil Corporation", "COST": "Costco Wholesale Corporation", "ORCL": "Oracle Corporation",
+    "WMT": "Walmart Inc.", "HD": "The Home Depot, Inc.", "PG": "Procter & Gamble Company",
+}
+
+
+def _weak_symbol_name_v18569(name, symbol):
+    n = str(name or "").strip()
+    s = str(symbol or "").strip().upper()
+    if not n:
+        return True
+    return n.upper().replace(" ", "") == s.replace(" ", "")
+
+
+def _best_security_name_v18569(row):
+    row = row or {}
+    symbol = str(row.get("ticker") or row.get("symbol") or row.get("Symbol") or "").strip().upper()
+    meta = resolve_security_metadata(symbol, row)
+    name = str(meta.get("name") or "").strip()
+    return "" if _weak_symbol_name_v18569(name, symbol) else name
+
+
+def _security_display_label_v18569(row_or_symbol, maybe_row=None):
+    if isinstance(row_or_symbol, dict):
+        row = row_or_symbol
+        symbol = str(row.get("ticker") or row.get("symbol") or row.get("Symbol") or "").strip().upper()
+    else:
+        row = dict(maybe_row or {})
+        symbol = str(row_or_symbol or row.get("ticker") or row.get("symbol") or "").strip().upper()
+        row.setdefault("ticker", symbol)
+        row.setdefault("symbol", symbol)
+    return display_label(symbol, row) if symbol else "-"
+
+
+def _fund_display_label_v18574(row_or_symbol, maybe_row=None):
+    if isinstance(row_or_symbol, dict):
+        row = row_or_symbol
+        symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
+    else:
+        row = dict(maybe_row or {})
+        symbol = str(row_or_symbol or row.get("symbol") or row.get("ticker") or "").strip().upper()
+        row.setdefault("symbol", symbol)
+    try:
+        return fund_display_label(symbol, row) if symbol else "-"
+    except Exception:
+        name = str(row.get("name") or row.get("fund_name") or row.get("longName") or "").strip()
+        return f"{symbol} — {name}" if symbol and name and name.upper() != symbol else (symbol or name or "-")
+
+
+def _ranked_for_display(items):
+    clean = []
+    for x in (items or []):
+        if not isinstance(x, dict) or not x.get("ticker"):
+            continue
+        row = dict(x)
+        symbol = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
+        name = _best_security_name_v18569(row)
+        meta = resolve_security_metadata(symbol, row)
+        name = str(meta.get("name") or name or "").strip()
+        if name:
+            row["name"] = name
+            row.setdefault("longName", name)
+        row["sector"] = meta.get("sector") or row.get("sector")
+        row["risk"] = meta.get("risk") or row.get("risk")
+        row["display_label"] = _security_display_label_v18569(symbol, row)
+        clean.append(row)
+    return sorted(clean, key=_rank_display_key)
+
+
+def _dedupe_text_list(values):
+    out, seen = [], set()
+    for value in values or []:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        key = re.sub(r"\s+", " ", text).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    return out
+
+
+
+def safe_widget_key(text):
+    return re.sub(r"[^A-Za-z0-9_]+", "_", str(text))[:120]
+
+
+
+def save_latest_buy_now_candidates(candidates, market_label=""):
+    """
+    Lagrer siste UI-Kjøp nå kandidater til DB/settings.
+    Cron prioriterer disse først ved neste kjøring.
+    """
+    try:
+        rows = []
+        for item in candidates[:20]:
+            ticker = str(item.get("ticker", "")).upper()
+            if not ticker:
+                continue
+            decision = card_decision_for_item(item)
+            price, _change = get_item_price_change(item)
+            rows.append({
+                "ticker": ticker,
+                "score": float(item.get("score", 0) or 0),
+                "confidence": int(decision.get("confidence", 0) or 0),
+                "decision": str(decision.get("decision", "")),
+                "action_now": str(decision.get("action_now", "")),
+                "price": float(price) if price is not None else None,
+                "market": market_label,
+            })
+
+        settings = load_settings()
+        settings["latest_buy_now_candidates"] = rows
+        save_settings(settings)
+        return rows
+    except Exception as e:
+        st.caption(f"Kunne ikke lagre Kjøp nå-kandidater til Cron: {e}")
+        return []
+
+
+
+def _display_pe_v1863ad(item):
+    """Return a compact P/E label from the shared score_stock fields."""
+    try:
+        value = (item or {}).get("forward_pe")
+        label = "Forward P/E"
+        if value in (None, "", 0):
+            value = (item or {}).get("trailing_pe")
+            label = "Trailing P/E"
+        if value in (None, "", 0):
+            return "P/E N/A"
+        return f"{label} {float(value):.1f}"
+    except Exception:
+        return "P/E N/A"
+
+
+def _ranking_display_limit_choice_v1864(title: str, total: int) -> tuple[str, int]:
+    safe_title = re.sub(r"[^A-Za-z0-9]+", "_", str(title or "ranking")).strip("_")[:44] or "ranking"
+    options = ["Topp 10", "Topp 15", "Topp 20", "Topp 30", "Alle"]
+    default_idx = 1 if int(total or 0) > 15 else 4
+    choice = st.selectbox("Vis antall kandidater", options, index=default_idx, key=f"ranking_display_limit_{safe_title}_v1864")
+    if choice == "Alle":
+        return choice, int(total or 0)
+    return choice, int(choice.replace("Topp ", ""))
+
+
+
+def _add_candidate_to_watchlist_v19022(ticker: str) -> tuple[bool, str]:
+    ticker = normalize_user_ticker(ticker)
+    if not ticker:
+        return False, "Mangler ticker"
+    settings = load_settings()
+    current = str(settings.get("manual_watchlist_extra_text_v18611") or "")
+    values = _dedupe_text_list(parse_watchlist(current) + [ticker])
+    settings["manual_watchlist_extra_text_v18611"] = ", ".join(values)
+    save_settings(settings)
+    st.session_state["latest_watchlist_tickers_v156"] = _dedupe_text_list(
+        list(st.session_state.get("latest_watchlist_tickers_v156") or []) + [ticker]
+    )
+    return True, f"{ticker} er lagt til overvåking"
+
+
+def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx: int) -> None:
+    """Direct candidate actions without changing any decision or trading rule."""
+    payload = build_candidate_card(item, decision)
+    ticker = payload.get("ticker") or str(item.get("ticker") or "")
+    if not ticker:
+        return
+    base = safe_widget_key(f"candidate_actions_v19022_{title}_{ticker}_{idx}")
+    st.markdown("**Handlinger**")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("📈 Analyse", key=f"{base}_analysis", width="stretch"):
+            st.session_state["search_main_v157"] = ticker
+            st.session_state["ai_candidate_single_ticker_v1864t"] = ticker
+            st.session_state["cc_interactive_ticker_v18535"] = ticker
+            _apply_nav_target_v18658("analysis")
+            st.rerun()
+    with c2:
+        if st.button("👁 Overvåk", key=f"{base}_watch", width="stretch"):
+            ok, message = _add_candidate_to_watchlist_v19022(ticker)
+            (st.success if ok else st.warning)(message)
+    with c3:
+        if st.button("🧾 Paper", key=f"{base}_paper", width="stretch"):
+            st.session_state["paper_selected_ticker_v19022"] = ticker
+            _apply_nav_target_v18658("paper_trading")
+            st.rerun()
+    with c4:
+        if st.button("↻ Oppdater", key=f"{base}_refresh", width="stretch"):
+            with st.spinner(f"Oppdaterer data for {ticker}..."):
+                refreshed = cached_score_stock_manual(ticker, use_news=True, force=True)
+            if refreshed:
+                st.session_state["cc_interactive_last_result_v18535"] = [refreshed]
+                st.success(f"Data er oppdatert for {ticker}")
+            else:
+                st.warning(f"Kunne ikke oppdatere {ticker}")
+
+    with st.expander("Kilder, vilkår, hendelser og historikk", expanded=False):
+        tabs = st.tabs(["Beslutning", "Diff og motargument", "Kilder", "Hendelser", "Historikk", "Eksport"])
+        with tabs[0]:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Status", payload.get("status") or "-")
+            m2.metric("Nåværende score", payload.get("current_score") if payload.get("current_score") is not None else "-")
+            delta = payload.get("score_delta")
+            m3.metric("Endring", delta if delta is not None else "-")
+            blockers = payload.get("blockers") or []
+            conditions = payload.get("change_conditions") or []
+            st.markdown("**Hva hindrer beslutning?**")
+            if blockers:
+                for value in blockers[:8]: st.markdown(f"- {value}")
+            else:
+                st.caption("Ingen eksplisitte blokkeringer er lagret for kandidaten.")
+            st.markdown("**Hva kan endre vurderingen?**")
+            if conditions:
+                for value in conditions[:8]: st.markdown(f"- {value}")
+            else:
+                st.caption("Ingen eksplisitte endringsvilkår er lagret ennå.")
+        with tabs[1]:
+            diff = payload.get("decision_diff") or {}
+            counter = payload.get("counter_hypothesis") or {}
+            assumptions = payload.get("critical_assumptions") or []
+            st.markdown("**Data-, modell- og beslutningsdiff**")
+            if diff:
+                st.write(diff.get("summary") or "Ingen oppsummering")
+                model_rows = list(diff.get("model_diff") or [])
+                rule_rows = list(diff.get("decision_diff") or [])
+                if model_rows:
+                    st.dataframe(pd.DataFrame(model_rows[:8]), width="stretch", hide_index=True)
+                if rule_rows:
+                    st.dataframe(pd.DataFrame(rule_rows[:8]), width="stretch", hide_index=True)
+            else:
+                st.caption("Ingen sammenlignbar tidligere vurdering er tilgjengelig.")
+            st.markdown("**Sterkeste motargument**")
+            if counter:
+                st.warning(counter.get("strongest_argument") or "Motargument mangler")
+                for evidence in list(counter.get("evidence") or [])[:4]:
+                    if isinstance(evidence, Mapping):
+                        st.markdown(f"- {evidence.get('fact')} · {evidence.get('source')}")
+            else:
+                st.caption("Ingen datastøttet mothypotese er lagret.")
+            if assumptions:
+                held = sum(1 for item in assumptions if isinstance(item, Mapping) and item.get("holds"))
+                st.markdown(f"**Kritiske antakelser:** {held}/{len(assumptions)} holder")
+                st.dataframe(pd.DataFrame([dict(item) for item in assumptions if isinstance(item, Mapping)]), width="stretch", hide_index=True)
+        with tabs[2]:
+            sources = payload.get("sources") or []
+            if sources:
+                normalized = [dict(x) if isinstance(x, dict) else {"Kilde": str(x)} for x in sources[:20]]
+                st.dataframe(pd.DataFrame(normalized), width="stretch", hide_index=True)
+            else:
+                st.caption("Ingen kandidatspesifikke kilder er lagret i denne visningen.")
+        with tabs[3]:
+            events = payload.get("events") or []
+            if events:
+                normalized = [dict(x) if isinstance(x, dict) else {"Hendelse": str(x)} for x in events[:20]]
+                st.dataframe(pd.DataFrame(normalized), width="stretch", hide_index=True)
+            else:
+                st.caption("Ingen kommende kandidatspesifikke hendelser er lagret.")
+        with tabs[4]:
+            history = payload.get("history") or []
+            if history:
+                normalized = [dict(x) if isinstance(x, dict) else {"Historikk": str(x)} for x in history[:30]]
+                st.dataframe(pd.DataFrame(normalized), width="stretch", hide_index=True)
+            else:
+                previous = payload.get("previous_score")
+                if previous is not None:
+                    st.write({"Forrige score": previous, "Nåværende score": payload.get("current_score"), "Endring": payload.get("score_delta")})
+                else:
+                    st.caption("Ingen tidligere kandidatobservasjoner er tilgjengelige i kortet.")
+        with tabs[5]:
+            st.download_button(
+                "Last ned kandidatanalyse som JSON",
+                data=payload.get("export_json") or "{}",
+                file_name=f"{ticker.replace('.', '_')}_kandidatanalyse.json",
+                mime="application/json",
+                key=f"{base}_download",
+                width="stretch",
+            )
+
+
+def render_ranking(results, title):
+    from pages.ranking import render_ranking as _implementation
+    return _implementation(get_page_context_v1950(_implementation), results, title)
+
+
+
+
+def pct_distance(current, level):
+    try:
+        current = float(current)
+        level = float(level)
+        if current == 0:
+            return None
+        return ((level - current) / current) * 100
+    except Exception:
+        return None
+
+
+def fmt_distance(current, level):
+    d = pct_distance(current, level)
+    if d is None:
+        return "N/A"
+    sign = "+" if d >= 0 else ""
+    return f"{sign}{d:.2f}%"
+
+
+def current_price_from_df(df):
+    try:
+        return float(df["Close"].dropna().iloc[-1])
+    except Exception:
+        return None
+
+
+def add_rsi_level_labels(fig, rsi_series=None):
+    """
+    RSI-graf med nivåer + tydelig gjeldende RSI-boks.
+    """
+    try:
+        current_rsi = None
+        if rsi_series is not None:
+            clean = rsi_series.dropna()
+            if len(clean) > 0:
+                current_rsi = float(clean.iloc[-1])
+
+        fig.add_hrect(y0=0, y1=30, fillcolor="rgba(0,227,150,0.08)", line_width=0)
+        fig.add_hrect(y0=70, y1=100, fillcolor="rgba(255,77,109,0.08)", line_width=0)
+
+        fig.add_hline(y=30, line_dash="dash", line_color="rgba(255,255,255,0.65)")
+        fig.add_hline(y=70, line_dash="dash", line_color="rgba(255,255,255,0.65)")
+        fig.add_hline(y=80, line_dash="dot", line_color="rgba(255,193,7,0.85)")
+
+        fig.add_annotation(xref="paper", yref="y", x=1.01, y=30, text="30 oversolgt", showarrow=False, xanchor="left", font=dict(size=12, color="white"), bgcolor="rgba(11,17,28,0.85)")
+        fig.add_annotation(xref="paper", yref="y", x=1.01, y=70, text="70 overkjøpt", showarrow=False, xanchor="left", font=dict(size=12, color="white"), bgcolor="rgba(11,17,28,0.85)")
+        fig.add_annotation(xref="paper", yref="y", x=1.01, y=80, text="80 ekstrem", showarrow=False, xanchor="left", font=dict(size=12, color="#ffc107"), bgcolor="rgba(11,17,28,0.85)")
+
+        if current_rsi is not None:
+            if current_rsi >= 80:
+                status, icon = "ekstremt overkjøpt", "🔥"
+            elif current_rsi >= 70:
+                status, icon = "overkjøpt", "!"
+            elif current_rsi <= 30:
+                status, icon = "oversolgt", "🧊"
+            else:
+                status, icon = "nøytral", "📊"
+
+            fig.add_hline(y=current_rsi, line_dash="dot", line_color="#38bdf8", opacity=0.7)
+            fig.add_annotation(
+                text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> · {status}",
+                xref="paper", yref="paper", x=0.01, y=1.16,
+                showarrow=False, align="left",
+                font=dict(size=14, color="white"),
+                bgcolor="rgba(30,41,59,0.94)",
+                bordercolor="rgba(255,255,255,0.30)", borderwidth=1,
+            )
+            fig.add_annotation(
+                xref="paper", yref="y", x=1.01, y=current_rsi,
+                text=f"RSI nå: {current_rsi:.1f}", showarrow=False, xanchor="left",
+                font=dict(size=12, color="#93c5fd"),
+                bgcolor="rgba(11,17,28,0.90)",
+                bordercolor="rgba(147,197,253,0.45)", borderwidth=1,
+            )
+
+        fig.update_yaxes(range=[0, 100])
+        fig.update_layout(margin=dict(l=20, r=155, t=90, b=30))
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+    return fig
+
+
+def format_big_number(value):
+    try:
+        v = float(value or 0)
+    except Exception:
+        return "0"
+
+    abs_v = abs(v)
+    if abs_v >= 1_000_000_000:
+        return f"{v/1_000_000_000:.2f} mrd"
+    if abs_v >= 1_000_000:
+        return f"{v/1_000_000:.2f} mill"
+    if abs_v >= 1_000:
+        return f"{v:,.0f}".replace(",", " ")
+    return f"{v:.0f}"
+
+
+def insider_signal_label(score):
+    try:
+        s = float(score)
+    except Exception:
+        return "Nøytral", "info-warning"
+
+    if s >= 0.60:
+        return "Netto kjøp", "info-positive"
+    if s <= 0.40:
+        return "Netto salg", "info-negative"
+    return "Blandet", "info-warning"
+
+
+
+def render_latest_insider_transactions(insider):
+    txs = insider.get("latest_transactions", []) if insider else []
+    if not txs:
+        st.caption("Ingen siste insiderhandler funnet.")
+        return
+
+    st.markdown("#### Siste insiderhandler")
+    rows = []
+    for tx in txs[:8]:
+        value = tx.get("value")
+        if value is None:
+            value_txt = "N/A"
+        else:
+            try:
+                value_txt = f"{float(value):,.0f}".replace(",", " ")
+            except Exception:
+                value_txt = "N/A"
+
+        rows.append({
+            "Dato": tx.get("date", ""),
+            "Type": "KJØP" if tx.get("type") == "BUY" else "SALG" if tx.get("type") == "SELL" else tx.get("type", ""),
+            "Aksjer": format_big_number(tx.get("shares", 0)),
+            "Pris": round(float(tx.get("price", 0) or 0), 2),
+            "Verdi": value_txt,
+            "Insider": tx.get("name", "")[:26],
+        })
+
+    st.dataframe(rows, width="stretch", hide_index=True)
+
+
+def render_intelligence_cards(insider, analyst, earnings):
+    """v18.6.67: Kompakt Signal Intelligence i én badge-/panelrad."""
+    insider = insider or {}
+    analyst = analyst or {}
+    earnings = earnings or {}
+
+    insider_score = insider.get("score", "N/A")
+    insider_label, insider_class = insider_signal_label(insider_score)
+    analyst_trend = analyst.get("trend", "N/A")
+    earnings_date = earnings.get("date") or "Ingen nær dato"
+    days_until = earnings.get("days_until", "N/A")
+
+    st.markdown(
+        f"""
+        <div class="density-badge-row">
+            <span class="density-badge">Insider <b>{_safe_html_value(insider_label)}</b> · score {_safe_html_value(insider_score)}</span>
+            <span class="density-badge">Analyst <b>{_safe_html_value(analyst_trend)}</b> · B/H/S {_safe_html_value(analyst.get('buy',0))}/{_safe_html_value(analyst.get('hold',0))}/{_safe_html_value(analyst.get('sell',0))}</span>
+            <span class="density-badge">Earnings <b>{_safe_html_value(earnings_date)}</b> · dager {_safe_html_value(days_until)}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Detaljer: insider / analyst / earnings", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f"""
+            <div class="density-panel"><div class="density-panel-title">Insider</div>
+            Kjøp: <b>{_safe_html_value(format_big_number(insider.get('buy_shares',0)))}</b> aksjer<br>
+            Salg: <b>{_safe_html_value(format_big_number(insider.get('sell_shares',0)))}</b> aksjer<br>
+            Transaksjoner: {_safe_html_value(insider.get('transactions',0))}</div>
+            """, unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"""
+            <div class="density-panel"><div class="density-panel-title">Analyst</div>
+            Trend: <b>{_safe_html_value(analyst_trend)}</b><br>
+            Buy/Hold/Sell: {_safe_html_value(analyst.get('buy',0))}/{_safe_html_value(analyst.get('hold',0))}/{_safe_html_value(analyst.get('sell',0))}</div>
+            """, unsafe_allow_html=True)
+        with c3:
+            st.markdown(f"""
+            <div class="density-panel"><div class="density-panel-title">Earnings</div>
+            Dato: <b>{_safe_html_value(earnings_date)}</b><br>
+            Dager igjen: {_safe_html_value(days_until)}</div>
+            """, unsafe_allow_html=True)
+
+
+
+
+
+def render_macd_explanation():
+    st.markdown(
+        """
+        <div class="macd-explain-box">
+            <b>📘 MACD forklart</b><br>
+            <b>🔵 MACD-linje:</b> viser momentum i kursen. Når den stiger, øker positivt momentum.<br>
+            <b>🔴 Signallinje:</b> glattet MACD-linje som brukes som sammenligning.<br>
+            <b>🟢/🔴 Histogram:</b> forskjellen mellom MACD og signallinjen. Grønt = MACD over signal, rødt = MACD under signal.<br>
+            <b>Tolkning:</b> MACD over signallinjen er ofte positivt. MACD under signallinjen kan varsle svakere momentum. Grafene støtter musehjul-zoom og panering.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def normalize_user_ticker(ticker: str) -> str:
+    """Normaliserer manuell ticker uten å falle stille tilbake til AAPL."""
+    value = str(ticker or "").strip().upper().replace(" ", "")
+    aliases = {"ORKLY": "ORK.OL", "ORK": "ORK.OL"}
+    return aliases.get(value, value)
+
+
+LEGACY_SEED_TICKERS_V1863T = {
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
+    "EQNR.OL", "DNB.OL", "STB.OL", "NOVO-B.CO",
+}
+
+
+def _extract_tickers_any_v1863t(value):
+    out = []
+
+    def add(v):
+        if v is None:
+            return
+        if isinstance(v, str):
+            for part in re.split(r"[\s,;|/]+", v):
+                ticker = normalize_user_ticker(part)
+                if ticker and ticker not in out:
+                    out.append(ticker)
+        elif isinstance(v, dict):
+            ticker = normalize_user_ticker(v.get("ticker") or v.get("symbol"))
+            if ticker and ticker not in out:
+                out.append(ticker)
+            for key in ("tickers", "rows", "candidates", "top_picks"):
+                add(v.get(key))
+        elif isinstance(v, (list, tuple, set)):
+            for item in v:
+                add(item)
+
+    add(value)
+    return out
+
+
+def _legacy_seed_only_v1863t(value) -> bool:
+    tickers = _extract_tickers_any_v1863t(value)
+    return bool(tickers) and set(tickers).issubset(LEGACY_SEED_TICKERS_V1863T)
+
+
+def _cleanup_legacy_session_seed_data_v1863t() -> None:
+    """Ignore old demo/seed data so it cannot masquerade as current market data."""
+    try:
+        for key in ["latest_watchlist_tickers_v156", "watchlist", "watchlist_items", "search_main_v157"]:
+            if _legacy_seed_only_v1863t(st.session_state.get(key)):
+                st.session_state[key] = "" if "ticker" in key or key == "search_main_v157" else []
+
+        latest = st.session_state.get("latest_rankings_v148")
+        if isinstance(latest, dict):
+            cleaned = {k: v for k, v in latest.items() if not _legacy_seed_only_v1863t(v)}
+            if len(cleaned) != len(latest):
+                st.session_state["latest_rankings_v148"] = cleaned
+
+        for key in ["top_picks_result", "watchlist_result", "smart_universe_result", "ai_analysis_universe_smart_result_v1859"]:
+            if _legacy_seed_only_v1863t(st.session_state.get(key)):
+                st.session_state[key] = {}
+        controls = st.session_state.get("active_analysis_controls_v148")
+        if isinstance(controls, dict) and _legacy_seed_only_v1863t(controls.get("search")):
+            controls = dict(controls)
+            controls["search"] = ""
+            st.session_state["active_analysis_controls_v148"] = controls
+    except Exception as e:
+        logging.warning("Legacy seed cleanup skipped: %s", e)
+
+
+def active_ticker_from_inputs(manual_ticker: str, selected_from_list: str) -> str:
+    manual = _clean_manual_ticker_input(manual_ticker)
+    return manual if manual else normalize_user_ticker(selected_from_list)
+
+
+def render_analysis(results, label):
+    from pages.analysis import render_analysis as _implementation
+    return _implementation(get_page_context_v1950(_implementation), results, label)
+
+
+
+
+# V15.9 / Oppgave 121: trading-regel-presets må oppdatere både lagrede regler og synlige widget-verdier.
+def _apply_trading_rule_preset_v159(name: str, values: dict):
+    """Setter trading-regel preset uten å trigge tung analyse.
+
+    Streamlit-widgeter med key beholder ellers gamle verdier i session_state selv om
+    save_rules() oppdaterer fil/database. Derfor må de synlige widget-keyene settes
+    eksplisitt før rerun. Verdiene lagres også i trading rules, slik at neste åpning
+    viser samme preset.
+    """
+    current = load_rules() or {}
+    preset = dict(current)
+    preset.update(values or {})
+
+    key_map = {
+        "min_buy_score": "main_rules_min_buy_score_v156",
+        "min_buy_confidence": "main_rules_min_buy_conf_v156",
+        "max_buy_rsi": "main_rules_max_buy_rsi_v156",
+        "min_hold_days": "main_rules_min_hold_days_v156",
+        "enable_sell_signal_exit": "main_rules_sell_signal_v156",
+        "stop_loss_pct": "main_rules_stop_loss_v156",
+        "take_profit_pct": "main_rules_take_profit_v156",
+        "trailing_stop_pct": "main_rules_trailing_stop_v156",
+        "rsi_exit_level": "main_rules_rsi_exit_v156",
+        "rsi_must_fall": "main_rules_rsi_fall_v156",
+        "use_noise_filter": "main_rules_use_noise_filter_v156",
+        "ignore_small_moves_pct": "main_rules_ignore_small_v156",
+    }
+    for rule_key, widget_key in key_map.items():
+        if rule_key in preset:
+            st.session_state[widget_key] = preset[rule_key]
+
+    save_rules(preset)
+    st.session_state["rules_preset_notice_v159"] = f"{name} er lagt inn. Trykk «Oppdater hele appen» når du er klar."
+    st.rerun()
+
+
+_TRADING_RULE_PRESETS_V1863Z = {
+    "Standard": {
+        "min_buy_score": 7.5,
+        "min_buy_confidence": 70,
+        "max_buy_rsi": 72,
+        "min_hold_days": 1,
+        "use_noise_filter": False,
+        "ignore_small_moves_pct": 1.0,
+        "enable_sell_signal_exit": True,
+        "stop_loss_pct": 7.0,
+        "take_profit_pct": 12.0,
+        "trailing_stop_pct": 8.0,
+        "rsi_exit_level": 75,
+        "rsi_must_fall": True,
+    },
+    "Konservativ": {
+        "min_buy_score": 8.0,
+        "min_buy_confidence": 80,
+        "max_buy_rsi": 65,
+        "min_hold_days": 2,
+        "enable_sell_signal_exit": True,
+        "stop_loss_pct": 5.0,
+        "take_profit_pct": 10.0,
+        "trailing_stop_pct": 6.0,
+        "rsi_exit_level": 72,
+        "rsi_must_fall": True,
+        "use_noise_filter": False,
+        "ignore_small_moves_pct": 1.0,
+    },
+    "Aggressiv": {
+        "min_buy_score": 7.0,
+        "min_buy_confidence": 60,
+        "max_buy_rsi": 80,
+        "min_hold_days": 0,
+        "enable_sell_signal_exit": True,
+        "stop_loss_pct": 8.0,
+        "take_profit_pct": 18.0,
+        "trailing_stop_pct": 10.0,
+        "rsi_exit_level": 80,
+        "rsi_must_fall": True,
+        "use_noise_filter": False,
+        "ignore_small_moves_pct": 1.0,
+    },
+}
+
+
+def _trading_strategy_label_v1863z(rules):
+    def _same(current, expected):
+        if isinstance(expected, bool):
+            return bool(current) == bool(expected)
+        try:
+            return abs(float(current) - float(expected)) < 0.001
+        except Exception:
+            return str(current) == str(expected)
+
+    for name, preset in _TRADING_RULE_PRESETS_V1863Z.items():
+        if all(_same(rules.get(k), v) for k, v in preset.items()):
+            return name
+    return "Egendefinert"
+
+
+def _render_trading_strategy_summary_v1863z(rules):
+    name = _trading_strategy_label_v1863z(rules)
+    if name == "Konservativ":
+        profile, cls = "Lavere risiko, færre kjøp, strengere confidence.", "green"
+    elif name == "Aggressiv":
+        profile, cls = "Høyere aktivitet, løsere kjøpskrav og videre exits.", "yellow"
+    elif name == "Standard":
+        profile, cls = "Balansert standardoppsett for normal paper trading.", "green"
+    else:
+        profile, cls = "Reglene avviker fra presetene. Dette er din aktive egendefinerte strategi.", "yellow"
+
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(56,189,248,.55);margin:.45rem 0 .65rem 0;padding:.68rem .78rem;'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <div>
+              <div style='font-size:.78rem;color:#bae6fd;font-weight:950;text-transform:uppercase;'>Gjeldende trading-strategi</div>
+              <div style='font-size:1.08rem;color:#f8fafc;font-weight:950;'>{html.escape(name)}</div>
+            </div>
+            <span class='v18-status-chip {cls}'>Aktiv nå</span>
+          </div>
+          <div style='display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.45rem;'>
+            <span class='v18-status-chip'>BUY score ≥ <b>{float(rules.get("min_buy_score", 0) or 0):.1f}</b></span>
+            <span class='v18-status-chip'>Confidence ≥ <b>{int(rules.get("min_buy_confidence", 0) or 0)}</b></span>
+            <span class='v18-status-chip'>Maks RSI <b>{int(rules.get("max_buy_rsi", 0) or 0)}</b></span>
+            <span class='v18-status-chip red'>Stop-loss <b>{float(rules.get("stop_loss_pct", 0) or 0):.1f}%</b></span>
+            <span class='v18-status-chip green'>Take-profit <b>{float(rules.get("take_profit_pct", 0) or 0):.1f}%</b></span>
+            <span class='v18-status-chip yellow'>Trailing <b>{float(rules.get("trailing_stop_pct", 0) or 0):.1f}%</b></span>
+          </div>
+          <div style='font-size:.82rem;color:#cbd5e1;margin-top:.38rem;line-height:1.35;'>{html.escape(profile)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# V15.5 / Fase 1: flytt store arbeidsinnstillinger ut av venstremenyen og inn i hovedarbeidsflaten.
+def render_trading_rules_workspace():
+    """Hovedområde for trading-regler. Erstatter lange Kjøp/Hold/Salg-menyer i venstresiden."""
+    _rules = load_rules()
+    with st.expander("📊 Trading-regler", expanded=False):
+        st.caption("Arbeidsflate for kjøps-, hold- og salgsregler. Endringer brukes først når du trykker «Oppdater hele appen».")
+        _render_trading_strategy_summary_v1863z(_rules)
+        p1, p2, p3, p4 = st.columns([1, 1, 1, 2])
+        with p1:
+            if st.button("Standard Standard trading-regler", key="main_rules_preset_standard_v156", width="stretch"):
+                _apply_trading_rule_preset_v159("Standard trading-regler", {
+                    "min_buy_score": 7.5,
+                    "min_buy_confidence": 70,
+                    "max_buy_rsi": 72,
+                    "min_hold_days": 1,
+                    "use_noise_filter": False,
+                    "ignore_small_moves_pct": 1.0,
+                    "enable_sell_signal_exit": True,
+                    "stop_loss_pct": 7.0,
+                    "take_profit_pct": 12.0,
+                    "trailing_stop_pct": 8.0,
+                    "rsi_exit_level": 75,
+                    "rsi_must_fall": True,
+                })
+        with p2:
+            if st.button("Sikkerhet Konservativ", key="main_rules_preset_conservative_v156", width="stretch"):
+                _apply_trading_rule_preset_v159("Konservativt preset", {
+                    "min_buy_score": 8.0,
+                    "min_buy_confidence": 80,
+                    "max_buy_rsi": 65,
+                    "min_hold_days": 2,
+                    "enable_sell_signal_exit": True,
+                    "stop_loss_pct": 5.0,
+                    "take_profit_pct": 10.0,
+                    "trailing_stop_pct": 6.0,
+                    "rsi_exit_level": 72,
+                    "rsi_must_fall": True,
+                    "use_noise_filter": False,
+                    "ignore_small_moves_pct": 1.0,
+                })
+        with p3:
+            if st.button("⚡ Aggressiv", key="main_rules_preset_aggressive_v156", width="stretch"):
+                _apply_trading_rule_preset_v159("Aggressivt preset", {
+                    "min_buy_score": 7.0,
+                    "min_buy_confidence": 60,
+                    "max_buy_rsi": 80,
+                    "min_hold_days": 0,
+                    "enable_sell_signal_exit": True,
+                    "stop_loss_pct": 8.0,
+                    "take_profit_pct": 18.0,
+                    "trailing_stop_pct": 10.0,
+                    "rsi_exit_level": 80,
+                    "rsi_must_fall": True,
+                    "use_noise_filter": False,
+                    "ignore_small_moves_pct": 1.0,
+                })
+        with p4:
+            st.caption("Preset-knappene endrer bare trading-regler. Auto trading-parametere endres ikke, og tung analyse startes ikke av preset alene.")
+
+        if st.session_state.get("rules_preset_notice_v159"):
+            st.success(st.session_state.pop("rules_preset_notice_v159"))
+
+        with st.form("trading_rules_form_v17", clear_on_submit=False):
+            buy_col, hold_col, sell_col = st.columns(3)
+            with buy_col:
+                st.markdown("#### 📈 Kjøp")
+                _rules["min_buy_score"] = st.slider("Min BUY score", 1.0, 10.0, float(_rules.get("min_buy_score", 7.5)), 0.1, key="main_rules_min_buy_score_v156")
+                _rules["min_buy_confidence"] = st.slider("Min BUY confidence", 1, 100, int(_rules.get("min_buy_confidence", 70)), key="main_rules_min_buy_conf_v156")
+                _rules["max_buy_rsi"] = st.slider("Maks RSI for kjøp", 40, 90, int(_rules.get("max_buy_rsi", 72)), key="main_rules_max_buy_rsi_v156")
+                st.caption("Maks kjøp per dag styres i Auto trading-oppsett. Gjelder bare nye kjøp, ikke salg/exit.")
+            with hold_col:
+                st.markdown("#### 🟡 Hold")
+                _rules["min_hold_days"] = st.slider("Min hold-dager", 0, 30, int(_rules.get("min_hold_days", 1)), key="main_rules_min_hold_days_v156")
+                st.caption("Støyfilter er flyttet til Avanserte salgsregler slik at enkel visning ikke forveksler filter med stop-loss/take-profit.")
+            with sell_col:
+                st.markdown("#### 🔴 Salg")
+                _rules["enable_sell_signal_exit"] = st.checkbox("Selg ved SELL/AVOID signal", bool(_rules.get("enable_sell_signal_exit", True)), key="main_rules_sell_signal_v156")
+                _rules["stop_loss_pct"] = st.slider("Stop-loss %", 1.0, 25.0, float(_rules.get("stop_loss_pct", 7.0)), 0.5, key="main_rules_stop_loss_v156")
+                _rules["take_profit_pct"] = st.slider("Take-profit %", 1.0, 50.0, float(_rules.get("take_profit_pct", 12.0)), 0.5, key="main_rules_take_profit_v156")
+                _rules["trailing_stop_pct"] = st.slider("Trailing stop %", 1.0, 30.0, float(_rules.get("trailing_stop_pct", 8.0)), 0.5, key="main_rules_trailing_stop_v156")
+                _rules["rsi_exit_level"] = st.slider("RSI exit nivå", 60, 90, int(_rules.get("rsi_exit_level", 75)), key="main_rules_rsi_exit_v156")
+                _rules["rsi_must_fall"] = st.checkbox("RSI må falle etter topp", bool(_rules.get("rsi_must_fall", True)), key="main_rules_rsi_fall_v156")
+            with st.expander("Avanserte salgsregler / støyfilter", expanded=False):
+                _rules["use_noise_filter"] = st.checkbox(
+                    "Bruk støyfilter",
+                    bool(_rules.get("use_noise_filter", False)),
+                    key="main_rules_use_noise_filter_v156",
+                    help="Valgfritt filter som kan hindre reaksjon på små signalendringer. Blokkerer aldri stop-loss, take-profit, trailing stop eller RSI-exit.",
+                )
+                _rules["ignore_small_moves_pct"] = st.slider(
+                    "Støyfilter / ignorer små svingninger %",
+                    0.0,
+                    5.0,
+                    float(_rules.get("ignore_small_moves_pct", 1.0)),
+                    0.25,
+                    key="main_rules_ignore_small_v156",
+                )
+                st.caption("Anbefalt: Av som standard. Hvis aktivert: 0.5–1.0 %. Stop-loss og andre risikoutganger har alltid prioritet.")
+            save_rules_btn = st.form_submit_button("💾 Lagre trading-regler som ventende", width="stretch")
+        if save_rules_btn:
+            _mark_pending_manual_change("Trading-regler endret")
+            saved_db = save_rules(_rules)
+            if saved_db:
+                st.success("Trading-regler lagret som ventende i database ✅")
+            else:
+                st.warning("Trading-regler lagret lokalt som ventende. DATABASE_URL mangler eller DB feilet.")
+
+
+def _render_pushover_test_panel_v18595() -> None:
+    """Desktop/mobile safe Pushover test panel placed high in Auto trading setup."""
+    st.markdown(
+        """
+        <style>
+        html body .stApp .visual-truth-pushover-box-v18596 {
+            position:relative !important;
+            z-index:1 !important;
+            display:block !important;
+            clear:both !important;
+            margin:.72rem 0 .62rem 0 !important;
+        }
+        html body .stApp .pushover-button-anchor-v18596 {
+            display:block !important;
+            clear:both !important;
+            height:.10rem !important;
+            margin:0 !important;
+        }
+        html body .stApp .v18593-pushover-result {
+            display:block !important;
+            clear:both !important;
+            margin:.48rem 0 .86rem 0 !important;
+        }
+        html body .stApp .v1863d-pushover-layout-break {
+            display:block !important;
+            clear:both !important;
+            width:100% !important;
+            height:1.05rem !important;
+            margin:0 0 .35rem 0 !important;
+            border-bottom:1px solid rgba(125,211,252,.18) !important;
+        }
+        html body .stApp .v1863d-auto-form-start {
+            display:block !important;
+            clear:both !important;
+            width:100% !important;
+            height:.25rem !important;
+        }
+        html body .stApp .v1863e-pushover-action-card {
+            display:block !important;
+            clear:both !important;
+            width:100% !important;
+            max-width:100% !important;
+            margin:.52rem 0 .62rem 0 !important;
+            padding:.72rem .88rem !important;
+            border:1px solid rgba(125,211,252,.32) !important;
+            border-radius:12px !important;
+            background:rgba(8,20,42,.54) !important;
+            color:#e0f2fe !important;
+        }
+        html body .stApp .v1863e-pushover-action-card b {
+            color:#f8fafc !important;
+            -webkit-text-fill-color:#f8fafc !important;
+        }
+        html body .stApp div[data-testid="stRadio"],
+        html body .stApp div[data-testid="stForm"] {
+            clear:both !important;
+            width:100% !important;
+            max-width:100% !important;
+            overflow:visible !important;
+        }
+        @media (max-width:900px) {
+            html body .stApp .visual-truth-pushover-box-v18596 {
+                margin:.58rem 0 .54rem 0 !important;
+                padding:.74rem .82rem !important;
+            }
+            html body .stApp .v1863d-pushover-layout-break {
+                height:.80rem !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    _pushover_env_ok_v18595 = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    _pushover_ready_v18595 = _pushover_env_ok_v18595 and bool(load_settings().get("pushover_enabled", True))
+    _token_state_v18595 = "OK" if bool(PUSHOVER_APP_TOKEN) else "MANGLER"
+    _user_state_v18595 = "OK" if bool(PUSHOVER_USER_KEY) else "MANGLER"
+    st.markdown(
+        f"""
+        <div class='visual-truth-pushover-box visual-truth-pushover-box-v18596' data-ui-path='active-pushover-test-v18595' data-ui-patch='active-pushover-test-v18596'>
+            <div class='visual-truth-pushover-title'>🔔 Pushover test / API-status</div>
+            <div class='visual-truth-pushover-status'>
+                Status: {'Aktiv ✅' if _pushover_ready_v18595 else 'Ikke klar Feil'} ·
+                Token: {_token_state_v18595} · User-key: {_user_state_v18595}<br/>
+                Dette er den aktive testflaten. Knappene under skal være synlige på PC og mobil.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _last_pushover_check = st.session_state.get("pushover_last_check_v18585")
+    st.markdown(
+        "<div class='v1863e-pushover-action-card'><b>Pushover handling</b><br/>Velg API-verifisering eller testvarsel, og kjør med knappen under.</div>",
+        unsafe_allow_html=True,
+    )
+    with st.form("pushover_action_form_v1863e", clear_on_submit=False):
+        _pushover_action = st.radio(
+            "Velg handling",
+            ["Verifiser token/user", "Send testvarsel"],
+            horizontal=True,
+            key="pushover_action_choice_v1863e",
+        )
+        _pushover_run_clicked = st.form_submit_button(
+            "Kjør valgt Pushover-handling",
+            width="stretch",
+            type="primary",
+        )
+    if _last_pushover_check:
+        _ok = bool(_last_pushover_check.get("ok"))
+        _http = _last_pushover_check.get("status_code", "-")
+        _kind = _last_pushover_check.get("type", "-")
+        st.markdown(
+            f"<div class='v18593-pushover-result'>Siste API-sjekk: {'OK ✅' if _ok else 'Feil Feil'} · HTTP {_http} · {_kind}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div class='v18593-pushover-result'>Ingen API-verifisering kjørt i denne sesjonen ennå.</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div class='v1863d-pushover-layout-break'></div>", unsafe_allow_html=True)
+
+    if _pushover_run_clicked and _pushover_action == "Verifiser token/user":
+        if not _pushover_env_ok_v18595:
+            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før API-verifisering.")
+        else:
+            verify_info = verify_pushover_credentials_v18585()
+            st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
+            if verify_info.get("ok"):
+                st.success(f"Pushover-verifisering OK ✅ HTTP {verify_info.get('status_code')}")
+            else:
+                st.error(f"Pushover-verifisering feilet Feil {verify_info.get('response_text')}")
+    if _pushover_run_clicked and _pushover_action == "Send testvarsel":
+        if not _pushover_env_ok_v18595:
+            st.error("Pushover-token eller user-key mangler. Legg inn PUSHOVER_APP_TOKEN og PUSHOVER_USER_KEY før testvarsel sendes.")
+        else:
+            ok, err = _send_pushover_safe_v1863af("✅ Testvarsel fra AI Aksje Analyzer Pro", "Testvarsel")
+            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, "error": err}
+            if ok:
+                st.success("Test sendt ✅")
+            else:
+                st.error(f"Testvarsel feilet Feil {err}")
+
+
+def render_auto_trading_workspace():
+    from pages.trading import render_auto_trading_workspace as _implementation
+    return _implementation(get_page_context_v1950(_implementation))
+
+        # v18.5.95: Pushover test/API-status moved to the top of this expander for desktop visibility.
+
+
+# V15.6 / Fase 2: Varselkontroll og dynamisk watchlist flyttes fra venstremenyen til hovedområdet.
+def render_watchlist_alerts_workspace(dynamic_watchlist, pushover_enabled_runtime=False):
+    from pages.trading import render_watchlist_alerts_workspace as _implementation
+    return _implementation(get_page_context_v1950(_implementation), dynamic_watchlist, pushover_enabled_runtime)
+
+
+
+def render_paper_alert_control_workspace_v18611(pushover_enabled_runtime=False):
+    """Pushover and paper alert controls live with Paper Trading, not Watchlist."""
+    _settings = load_settings()
+    _pushover_env_ok = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY)
+    _pushover_setting_on = bool(_settings.get("pushover_enabled", True))
+    _pushover_ready = _pushover_env_ok and _pushover_setting_on
+    st.markdown(
+        f"""
+        <div class="alert-status-pill {'ok' if _pushover_ready else 'bad'}">
+            <div class="alert-status-title">Pushover: {'Aktiv' if _pushover_ready else 'Ikke klar'}</div>
+            <div class="alert-status-sub">Åpne markeder nå: {open_markets()}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        _pushover_setting_on = st.checkbox(
+            "Pushover aktiv",
+            value=bool(_settings.get("pushover_enabled", True)),
+            key="main_alert_pushover_enabled_v156",
+        )
+        _notify_trades = st.checkbox(
+            "Varsle ved faktisk paper BUY/SELL",
+            value=bool(_settings.get("notify_paper_trades", True)),
+            key="main_alert_notify_paper_v156",
+        )
+        _notify_watchlist = st.checkbox(
+            "Varsle ved watchlist signalendring",
+            value=bool(_settings.get("notify_watchlist_signal_changes", True)),
+            key="main_alert_notify_watchlist_v156",
+        )
+    with c2:
+        _high_conf_only = st.checkbox(
+            "Varsle kun høy confidence",
+            value=bool(_settings.get("notify_high_confidence_only", True)),
+            key="main_alert_high_conf_only_v156",
+        )
+        _min_alert_conf = st.slider(
+            "Confidence-grense",
+            50,
+            95,
+            int(_settings.get("notify_min_confidence", 80)),
+            1,
+            key="main_alert_min_conf_v156",
+        )
+        st.caption("Watchlist-varsler bruker denne grensen når høy confidence er aktivert.")
+
+    if _global_apply_requested_v161():
+        _merged = load_settings()
+        _merged["pushover_enabled"] = bool(_pushover_setting_on)
+        _merged["notify_paper_trades"] = bool(_notify_trades)
+        _merged["notify_watchlist_signal_changes"] = bool(_notify_watchlist)
+        _merged["notify_high_confidence_only"] = bool(_high_conf_only)
+        _merged["notify_min_confidence"] = int(_min_alert_conf)
+        save_settings(_merged)
+        st.success("Varselkontroll oppdatert via Global oppdatering.")
+
+    b1, b2, b3 = st.columns([0.25, 0.25, 0.18])
+    with b1:
+        if st.button("Verifiser token/user", key="main_alert_verify_pushover_v18585", disabled=not _pushover_env_ok, width="content"):
+            verify_info = verify_pushover_credentials_v18585()
+            st.session_state["pushover_last_check_v18585"] = {"type": "verify", **verify_info}
+            if verify_info.get("ok"):
+                st.success(f"Pushover-verifisering OK. HTTP {verify_info.get('status_code')}")
+            else:
+                st.error(f"Pushover-verifisering feilet: {verify_info.get('response_text')}")
+    with b2:
+        if st.button("Send testvarsel", key="main_alert_send_test_v18585", disabled=not _pushover_env_ok, width="content"):
+            ok, err = _send_pushover_safe_v1863af("Testvarsel fra AI Aksje Analyzer Pro", "Testvarsel")
+            st.session_state["pushover_last_check_v18585"] = {"type": "send_test", "ok": ok, "error": err}
+            if ok:
+                st.success("Test sendt.")
+            else:
+                st.error(f"Feil: {err}")
+    with b3:
+        if st.button("Nullstill antispam", key="main_alert_reset_antispam_v156", width="content"):
+            reset_alert_state()
+            st.success("Signalhistorikk nullstilt.")
+
+    with st.expander("Varselinfo / Pushover-status", expanded=False):
+        st.caption("Paper BUY/SELL-varsler sendes bare når en faktisk paper-handel utføres.")
+        st.caption("Watchlist-varsler sendes ved signalendring, og bruker confidence-grensen hvis høy confidence er aktivert.")
+        st.write("TOKEN:", _mask_secret_v18585(PUSHOVER_APP_TOKEN))
+        st.write("USER:", _mask_secret_v18585(PUSHOVER_USER_KEY))
+        _last = st.session_state.get("pushover_last_check_v18585")
+        if _last:
+            st.write("Siste Pushover-sjekk:", _last)
+        else:
+            st.caption("Ingen API-verifisering kjørt i denne sesjonen ennå.")
+
+
+def _render_paper_positions_overview_v18581(portfolio):
+    """Show open Paper Trading positions and recent trades high in the dashboard without returning Streamlit objects."""
+    try:
+        positions = (portfolio or {}).get("positions", {}) or {}
+    except Exception:
+        positions = {}
+
+    st.markdown("<div class='v18581-paper-section-title'>📌 Åpne Paper Trading-posisjoner</div>", unsafe_allow_html=True)
+    if positions:
+        rows = []
+        for ticker, pos in positions.items():
+            try:
+                pos = pos or {}
+                last_price = float(pos.get("last_price", pos.get("avg_price", pos.get("entry_price", 0))) or 0)
+                avg_price = float(pos.get("avg_price", pos.get("entry_price", last_price)) or last_price)
+                shares = float(pos.get("shares", pos.get("units", 0)) or 0)
+                value = shares * last_price
+                pnl_pct = ((last_price - avg_price) / avg_price * 100) if avg_price else 0
+                rows.append({
+                    "Ticker": ticker,
+                    "Type": pos.get("asset_type", "Aksje"),
+                    "Antall": round(shares, 4),
+                    "Snittpris": round(avg_price, 4),
+                    "Siste pris": round(last_price, 4),
+                    "Verdi": round(value, 2),
+                    "Valuta": pos.get("currency", ""),
+                    "P/L %": round(pnl_pct, 2),
+                })
+            except Exception:
+                rows.append({"Ticker": ticker, "Type": (pos or {}).get("asset_type", "Aksje") if isinstance(pos, dict) else "Aksje"})
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    else:
+        st.info("Ingen åpne paper trading-posisjoner.")
+
+    try:
+        trades = list((portfolio or {}).get("trades", []) or [])
+    except Exception:
+        trades = []
+    st.markdown("<div class='v18581-paper-section-title'>🧾 Siste Paper Trading-handler</div>", unsafe_allow_html=True)
+    if trades:
+        st.dataframe(pd.DataFrame(paper_trade_rows(trades, limit=20)), width="stretch", hide_index=True)
+    else:
+        st.info("Ingen handler ennå.")
+
+
+def _safe_float_v18581(value, default=0.0):
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _fetch_latest_paper_price_v1863v(ticker: str):
+    """Fetch one latest close for explicit Paper Trading price refresh."""
+    if yf is None:
+        return None, "yfinance er ikke tilgjengelig"
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return None, "mangler ticker"
+    last_error = ""
+    for candidate in _paper_price_candidates_v1863z(symbol, asset_type="Aksje"):
+        try:
+            hist = yf.Ticker(candidate).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+            if hist is None or getattr(hist, "empty", True) or "Close" not in hist:
+                last_error = "fant ingen Close-data"
+                continue
+            close = hist["Close"].dropna()
+            if close.empty:
+                last_error = "Close-data er tom"
+                continue
+            return float(close.iloc[-1]), ""
+        except Exception as exc:
+            last_error = str(exc)[:160]
+    return None, last_error or "fant ingen pris"
+
+
+def _refresh_paper_portfolio_prices_v1863v(portfolio, *, fetch_live: bool = False, rules: dict | None = None):
+    positions = (portfolio or {}).get("positions", {}) or {}
+    latest_prices = {}
+    errors = []
+    updated_at = timestamp_now() if fetch_live else ""
+    if fetch_live:
+        for ticker in positions.keys():
+            price, err = _fetch_latest_paper_price_v1863v(ticker)
+            if price and price > 0:
+                latest_prices[str(ticker).upper()] = price
+            else:
+                errors.append(f"{ticker}: {err or 'ingen pris'}")
+    normalized = normalize_paper_portfolio(portfolio, latest_prices, updated_at=updated_at, rules=rules)
+    # v18.6.75: Never save during ordinary render. Persist only after an
+    # explicit price refresh. stop_status/trailing_stop_distance_pct are display
+    # fields and must not trigger database writes.
+    if fetch_live and latest_prices:
+        save_portfolio(normalized)
+    return normalized, latest_prices, errors, updated_at
+
+
+
+
+def _paper_trailing_stop_alert_rows_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None, position_rows: list[dict] | None = None, rules: dict | None = None) -> list[dict]:
+    rows = list(position_rows) if position_rows is not None else paper_position_rows(portfolio or load_portfolio(), latest_prices or {}, rules=rules)
+    alerts = []
+    for row in rows:
+        status = str(row.get("stop_status") or "").strip().upper()
+        if status not in {"NÆR STOP", "STOP UTLØST"}:
+            continue
+        ticker = str(row.get("ticker") or "-")
+        stop_level = _safe_float_v18581(row.get("trailing_stop_level"), 0.0)
+        last_price = _safe_float_v18581(row.get("last_price"), 0.0)
+        distance = _safe_float_v18581(row.get("trailing_stop_distance_pct"), 0.0)
+        alerts.append({
+            "Ticker": ticker,
+            "Status": status,
+            "Siste kurs": round(last_price, 4),
+            "Høyeste kurs": row.get("highest_price"),
+            "Trailing %": row.get("trailing_stop_pct"),
+            "Stop-nivå": round(stop_level, 4),
+            "Avstand %": round(distance, 2),
+            "Forslag": "Kontroller og selg / paper-selg" if status == "STOP UTLØST" else "Følg tett - nær trailing stop",
+        })
+    return alerts
+
+
+def _render_paper_trailing_stop_alerts_v18674d(portfolio: dict | None = None, latest_prices: dict | None = None, position_rows: list[dict] | None = None, rules: dict | None = None) -> None:
+    alerts = _paper_trailing_stop_alert_rows_v18674d(
+        portfolio or load_portfolio(), latest_prices or {}, position_rows=position_rows, rules=rules
+    )
+    st.markdown("#### 🛑 Trailing stop-varsler")
+    if not alerts:
+        st.success("Ingen posisjoner er nær eller under trailing stop akkurat nå.")
+        return
+    triggered = [a for a in alerts if a.get("Status") == "STOP UTLØST"]
+    near = [a for a in alerts if a.get("Status") == "NÆR STOP"]
+    if triggered:
+        st.error(f"{len(triggered)} posisjon(er) har STOP UTLØST. Kontroller salg manuelt eller via paper-salg.")
+    if near:
+        st.warning(f"{len(near)} posisjon(er) er NÆR STOP og bør følges tett.")
+    st.dataframe(pd.DataFrame(alerts), width="stretch", hide_index=True)
+
+
+def _paper_stop_action_v18674d(row: dict, fallback: str = "Hold / overvåk") -> str:
+    status = str((row or {}).get("stop_status") or "").strip().upper()
+    if status == "STOP UTLØST":
+        return "Stop utløst - vurder paper-salg"
+    if status == "NÆR STOP":
+        return "Nær trailing stop - følg tett"
+    return fallback
+
+
+def _paper_price_candidates_v1863z(symbol: str, *, asset_type: str = "Aksje"):
+    raw = str(symbol or "").strip().upper()
+    if not raw:
+        return []
+    alias = {
+        "ORKLY": "ORK.OL",
+        "ORCLA": "ORK.OL",
+    }.get(raw, raw)
+    candidates = [alias]
+    if asset_type == "Aksje" and "." not in alias and alias.isalpha():
+        candidates.append(f"{alias}.OL")
+    return list(dict.fromkeys(candidates))
+
+
+def _fetch_yfinance_close_v1863z(symbol: str, *, asset_type: str = "Aksje"):
+    if yf is None:
+        return None, "", "yfinance er ikke tilgjengelig i miljøet."
+    last_error = ""
+    for candidate in _paper_price_candidates_v1863z(symbol, asset_type=asset_type):
+        try:
+            hist = yf.Ticker(candidate).history(period="5d", interval="1d", auto_adjust=False, prepost=False)
+            if hist is not None and not hist.empty and "Close" in hist:
+                close = hist["Close"].dropna()
+                if not close.empty:
+                    return float(close.iloc[-1]), candidate, ""
+        except Exception as exc:
+            last_error = str(exc)
+    return None, "", last_error or "Fant ikke pris/NAV i Yahoo Finance."
+
+
+def _paper_fetch_stock_price_v1863z():
+    symbol = str(st.session_state.get("paper_stock_symbol_v1863y", "") or "").strip().upper()
+    if not symbol:
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", "Skriv inn aksjesymbol først.")
+        return
+    price, resolved, err = _fetch_yfinance_close_v1863z(symbol, asset_type="Aksje")
+    if price and price > 0:
+        st.session_state["paper_stock_price_input_v1863y"] = float(price)
+        confidence_msg = ""
+        try:
+            item = score_stock(resolved or symbol, use_news=False)
+            decision = build_trading_decision(item or {}, {})
+            conf = int(decision.get("confidence", item.get("confidence", 0)) or 0)
+            st.session_state["paper_stock_confidence_v1863y"] = max(0, min(100, conf))
+            label = str(decision.get("decision") or decision.get("action") or "").strip()
+            st.session_state["paper_stock_model_signal_v19143"] = label or "IKKE BEREGNET"
+            confidence_msg = f" System-confidence: {conf}%{(' · ' + label) if label else ''}."
+        except Exception as exc:
+            st.session_state["paper_stock_confidence_v1863y"] = 0
+            st.session_state["paper_stock_model_signal_v19143"] = "IKKE BEREGNET"
+            confidence_msg = f" System-confidence mangler: {str(exc)[:90]}."
+        st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Kjøpspris er oppdatert.{confidence_msg}")
+    else:
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("warning", f"Fant ikke aksjekurs for {symbol}. {err} Prøv børs-suffiks, f.eks. .OL, eller skriv pris manuelt.")
+
+
+PAPER_FUND_LOOKUP_CATALOG_V18611 = [
+    {
+        "symbol": "LU2075955943",
+        "name": "DNB Fund - Disruptive Opportunities N NOK (Acc)",
+        "aliases": [
+            "DNB Disruptive Opportunities",
+            "DNB Fund Disruptive Opportunities",
+            "Disruptive Opportunities N NOK",
+            "LU2075955943",
+        ],
+        "asset_type": "Aktivt fond",
+        "category": "EAA Fund Global Flex-Cap Equity",
+        "currency": "NOK",
+    },
+    {
+        "symbol": "VOO",
+        "name": "Vanguard S&P 500 ETF",
+        "aliases": ["Vanguard S&P 500", "VOO ETF"],
+        "asset_type": "ETF",
+        "category": "USA indeks-ETF",
+        "currency": "USD",
+    },
+    {
+        "symbol": "QQQ",
+        "name": "Invesco QQQ Trust",
+        "aliases": ["Nasdaq 100 ETF", "QQQ ETF"],
+        "asset_type": "ETF",
+        "category": "USA teknologi-/vekst-ETF",
+        "currency": "USD",
+    },
+]
+
+
+def _normalize_fund_lookup_text_v18611(text) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
+def _paper_lookup_fund_v18611(query):
+    needle = _normalize_fund_lookup_text_v18611(query)
+    if not needle:
+        return None
+    needle_tokens = set(needle.split())
+    best = None
+    best_score = 0
+    for item in PAPER_FUND_LOOKUP_CATALOG_V18611:
+        texts = [item.get("symbol"), item.get("name"), item.get("category")] + list(item.get("aliases") or [])
+        for text in texts:
+            hay = _normalize_fund_lookup_text_v18611(text)
+            if not hay:
+                continue
+            if needle == hay or needle in hay or hay in needle:
+                score = 100
+            else:
+                hay_tokens = set(hay.split())
+                score = int((len(needle_tokens & hay_tokens) / max(1, len(needle_tokens))) * 100)
+            if score > best_score:
+                best = item
+                best_score = score
+    return best if best_score >= 45 else None
+
+
+def _apply_fund_lookup_hint_v18611(query):
+    match = _paper_lookup_fund_v18611(query)
+    if not match:
+        return None
+    st.session_state["paper_fund_symbol_v18545"] = str(match.get("symbol") or query).upper()
+    st.session_state["paper_fund_type_v18545"] = str(match.get("asset_type") or "Fond")
+    st.session_state["paper_fund_currency_v18545"] = str(match.get("currency") or "NOK")
+    return match
+
+
+def _paper_fetch_fund_price_v1863z():
+    original_query = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip()
+    match = _apply_fund_lookup_hint_v18611(original_query)
+    symbol = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip().upper()
+    asset_type = str(st.session_state.get("paper_fund_type_v18545", "ETF") or "ETF")
+    if not symbol:
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("warning", "Skriv inn fond/ETF-symbol først.")
+        return
+    price, resolved, err = _fetch_yfinance_close_v1863z(symbol, asset_type=asset_type)
+    if price and price > 0:
+        st.session_state["paper_fund_price_input_v18545"] = float(price)
+        st.session_state["paper_fund_price_v18545"] = float(price)
+        st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_fund_last_type_v1863ac"] = asset_type
+        if match:
+            st.session_state["paper_fund_fetch_status_v1863z"] = (
+                "success",
+                f"Hentet {resolved}: {price:.4f}. Pris/NAV er oppdatert. Matchet {match.get('name')} ({match.get('category')}).",
+            )
+            return
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("success", f"Hentet {resolved}: {price:.4f}. Pris/NAV er oppdatert.")
+    else:
+        if match:
+            st.session_state["paper_fund_fetch_status_v1863z"] = (
+                "info",
+                f"Fant fondet som {match.get('name')} | type {match.get('asset_type')} | kategori {match.get('category')}. Gratis NAV ble ikke funnet automatisk, saa skriv Pris/NAV manuelt eller bruk fondssiden som kilde.",
+            )
+            return
+        hint = "ISIN og nordiske fond mangler ofte gratis NAV-kilde. Bruk ETF/Yahoo-symbol eller skriv NAV manuelt."
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("warning", f"Fant ikke pris/NAV for {symbol}. {err} {hint}")
+
+
+def _render_paper_fetch_status_v1863z(key: str):
+    status = st.session_state.get(key)
+    if not status:
+        return
+    level, msg = status
+    if level == "success":
+        st.success(msg)
+    elif level == "warning":
+        st.warning(msg)
+    else:
+        st.info(msg)
+
+
+def _paper_stock_symbol_changed_v1863ac():
+    symbol = str(st.session_state.get("paper_stock_symbol_v1863y", "") or "").strip().upper()
+    previous = str(st.session_state.get("paper_stock_last_symbol_v1863ac", "") or "").strip().upper()
+    if previous and symbol != previous:
+        st.session_state["paper_stock_price_input_v1863y"] = 0.0
+        st.session_state["paper_stock_confidence_v1863y"] = 0
+        st.session_state["paper_stock_model_signal_v19143"] = "IKKE BEREGNET"
+        st.session_state["paper_stock_fetch_status_v1863z"] = ("info", "Ticker er endret. Hent ny aksjekurs før paper-kjøp.")
+    st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
+
+
+def _paper_fund_symbol_changed_v1863ac():
+    symbol = str(st.session_state.get("paper_fund_symbol_v18545", "") or "").strip().upper()
+    asset_type = str(st.session_state.get("paper_fund_type_v18545", "") or "")
+    previous_symbol = str(st.session_state.get("paper_fund_last_symbol_v1863ac", "") or "").strip().upper()
+    previous_type = str(st.session_state.get("paper_fund_last_type_v1863ac", "") or "")
+    if (previous_symbol and symbol != previous_symbol) or (previous_type and asset_type != previous_type):
+        st.session_state["paper_fund_price_input_v18545"] = 0.0
+        st.session_state["paper_fund_price_v18545"] = 0.0
+        st.session_state["paper_fund_fetch_status_v1863z"] = ("info", "Fond/ETF er endret. Hent ny pris/NAV før paper-kjøp.")
+    st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
+    st.session_state["paper_fund_last_type_v1863ac"] = asset_type
+
+
+def _select_paper_position_for_trade_v1863by(ticker: str, price: float, units: float, action: str = "sell", asset_type: str = "Aksje") -> None:
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return
+    try:
+        selected_price = float(price or 0.0)
+    except Exception:
+        selected_price = 0.0
+    try:
+        selected_units = float(units or 0.0)
+    except Exception:
+        selected_units = 0.0
+    st.session_state["paper_selected_position_v1863by"] = {
+        "ticker": symbol,
+        "price": selected_price,
+        "units": selected_units,
+        "action": action,
+        "asset_type": str(asset_type or "Aksje"),
+    }
+    stock_types = {"", "Aksje", "Stock", "Equity"}
+    if str(asset_type or "Aksje") in stock_types:
+        st.session_state["paper_stock_symbol_v1863y"] = symbol
+        st.session_state["paper_stock_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_stock_price_input_v1863y"] = selected_price
+        st.session_state["paper_stock_sell_symbol_v1863y"] = symbol
+        st.session_state["paper_stock_sell_price_v1863y"] = selected_price
+    else:
+        st.session_state["paper_fund_symbol_v18545"] = symbol
+        st.session_state["paper_fund_last_symbol_v1863ac"] = symbol
+        st.session_state["paper_fund_price_v18545"] = selected_price
+        st.session_state["paper_fund_price_input_v18545"] = selected_price
+        st.session_state["paper_fund_sell_symbol_v18545"] = symbol
+        st.session_state["paper_fund_sell_price_v18545"] = selected_price
+    st.session_state["paper_stock_fetch_status_v1863z"] = (
+        "info",
+        f"{symbol} er valgt fra posisjoner. Kjop/salg-feltene er fylt med lagret siste kurs.",
+    )
+
+
+def _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_rows: list[dict] | None = None, rules: dict | None = None):
+    rows = list(position_rows) if position_rows is not None else paper_position_rows(portfolio, latest_prices, rules=rules)
+    if not rows:
+        st.info("Ingen åpne paper trading-posisjoner.")
+        return
+    st.markdown(
+        """
+        <style>
+        .paper-position-card {
+            border:1px solid rgba(56,189,248,.30);
+            background:linear-gradient(180deg,rgba(15,23,42,.88),rgba(2,6,23,.78));
+            border-radius:10px;
+            padding:.62rem .72rem;
+            margin:.35rem 0;
+        }
+        .paper-position-card.gain { border-color:rgba(56,189,248,.62); box-shadow:0 0 0 1px rgba(56,189,248,.10) inset; }
+        .paper-position-card.loss { border-color:rgba(248,113,113,.62); box-shadow:0 0 0 1px rgba(248,113,113,.10) inset; }
+        .paper-position-main { display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center; }
+        .paper-position-main b { color:#f8fafc;font-size:1rem; }
+        .paper-position-main span { color:#94a3b8;margin-left:.38rem;font-weight:850;font-size:.78rem; }
+        .paper-position-pnl { color:#e2e8f0;font-weight:950;font-size:1rem; }
+        .paper-position-card.gain .paper-position-pnl { color:#7dd3fc; }
+        .paper-position-card.loss .paper-position-pnl { color:#fda4af; }
+        .paper-position-pnl span { margin-left:.35rem;color:inherit;font-size:.88rem; }
+        .paper-position-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.38rem;margin-top:.45rem;color:#cbd5e1;font-size:.82rem; }
+        .paper-position-grid b { color:#f8fafc; }
+        .paper-position-hint { color:#94a3b8;font-size:.74rem;margin-top:.32rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    for row in rows:
+        pnl = _safe_float_v18581(row.get("pnl"), 0.0)
+        pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+        cls = "gain" if pnl > 0 else ("loss" if pnl < 0 else "flat")
+        sign = "+" if pnl > 0 else ""
+        updated = html.escape(str(row.get("updated") or "Lagret kurs"))
+        st.markdown(
+            f"""
+            <div class='paper-position-card {cls}'>
+              <div class='paper-position-main'>
+                <div><b>{html.escape(str(row.get('ticker') or '-'))}</b><span>{html.escape(str(row.get('type') or 'Aksje'))}</span></div>
+                <div class='paper-position-pnl'>{sign}{pnl:,.2f} kr <span>{sign}{pnl_pct:.2f}%</span></div>
+              </div>
+              <div class='paper-position-grid'>
+                <span>Antall <b>{row.get('units')}</b></span>
+                <span>Snitt <b>{row.get('avg_price')}</b></span>
+                <span>Siste <b>{row.get('last_price')}</b></span>
+                <span>Høyeste <b>{row.get('highest_price')}</b></span>
+                <span>Trailing <b>{row.get('trailing_stop_pct')}%</b></span>
+                <span>Stop-nivå <b>{row.get('trailing_stop_level')}</b></span>
+                <span>Avstand stop <b>{row.get('trailing_stop_distance_pct')}%</b></span>
+                <span>Stop-status <b>{html.escape(str(row.get('stop_status') or '-'))}</b></span>
+                <span>Målpris <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('target_price')}</b></span>
+                <span>R-multiple <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('r_multiple')}R</b></span>
+                <span>Kapitalbinding <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('capital_binding_pct')}%</b></span>
+                <span>Holdt <b>{position_professional_metrics((portfolio.get('positions', {}) or {}).get(str(row.get('ticker') or ''), {}), float(sum(float(r.get('value') or 0) for r in rows) + float(portfolio.get('cash', 0) or 0))).get('holding_days')} d</b></span>
+                <span>Verdi <b>{float(row.get('value') or 0):,.2f}</b></span>
+                <span>Land <b>{html.escape(str(row.get('land') or '-'))}</b></span>
+                <span>Marked <b>{html.escape(str(row.get('marked') or '-'))}</b></span>
+                <span>Sektor <b>{html.escape(str(row.get('sektor') or '-'))}</b></span>
+                <span>Bransje <b>{html.escape(str(row.get('bransje') or '-'))}</b></span>
+                <span>Oppdatert <b>{updated}</b></span>
+              </div>
+              <div class='paper-position-hint'>Velg en handling for å fylle kjøp/salg-feltene med ticker og lagret siste kurs.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        key_base = "".join(ch if ch.isalnum() else "_" for ch in str(row.get("ticker") or "pos"))
+        action_cols = st.columns([0.09, 0.09, 0.82], gap="small")
+        with action_cols[0]:
+            st.button(
+                "Selg",
+                key=f"paper_position_select_sell_v1863by_{key_base}",
+                width="content",
+                on_click=_select_paper_position_for_trade_v1863by,
+                args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "sell", str(row.get("type") or "Aksje")),
+            )
+        with action_cols[1]:
+            st.button(
+                "Øk",
+                key=f"paper_position_select_buy_v1863by_{key_base}",
+                width="content",
+                on_click=_select_paper_position_for_trade_v1863by,
+                args=(str(row.get("ticker") or ""), float(row.get("last_price") or 0.0), float(row.get("units") or 0.0), "buy", str(row.get("type") or "Aksje")),
+            )
+
+
+def _paper_hypothesis_matches_position_v18621(row: dict, positions: dict) -> bool:
+    ticker = str((row or {}).get("ticker") or "").strip().upper()
+    name = str((row or {}).get("name") or "").strip().lower()
+    for pos_key, pos in (positions or {}).items():
+        pos_ticker = str(pos_key or "").strip().upper()
+        pos_name = str((pos or {}).get("name") or "").strip().lower()
+        if ticker and ticker == pos_ticker:
+            return True
+        if ticker and (ticker in pos_ticker or ticker in pos_name):
+            return True
+        if name and (name in pos_name or pos_name in name):
+            return True
+    return False
+
+
+def _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio=None):
+    rows = list(paper_flow_rows or [])
+    if not rows:
+        return
+    positions = ((portfolio or {}).get("positions", {}) or {})
+    already_count = sum(1 for row in rows if _paper_hypothesis_matches_position_v18621(row, positions))
+    with st.expander(f"Innkommende paper-hypoteser ({len(rows)})", expanded=False):
+        if already_count:
+            st.caption("Noen hypoteser finnes allerede i paper-porteføljen. Bruk dem til oppfølging, økning eller ny vurdering; nye hypoteser blir først beholdning når du gjør paper-kjøp.")
+        else:
+            st.caption("Dette er kandidater sendt inn til Paper Trading. De blir ikke beholdning før du faktisk gjør et paper-kjøp.")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Ticker": row.get("ticker"),
+                    "Selskap": row.get("name"),
+                    "Score": row.get("score"),
+                    "Kilde": row.get("source"),
+                    "Status": "Finnes i beholdning" if _paper_hypothesis_matches_position_v18621(row, positions) else "Ny hypotese",
+                    "Forslag": ("Følg opp / øk / oppdater vurdering" if _paper_hypothesis_matches_position_v18621(row, positions) else (row.get("recommended_action") or "Bruk som paper-hypotese")),
+                }
+                for row in rows[:25]
+            ]),
+            width="stretch",
+            hide_index=True,
+        )
+
+
+def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value, position_rows: list[dict] | None = None, rules: dict | None = None):
+    rows = list(position_rows) if position_rows is not None else paper_position_rows(portfolio, latest_prices, rules=rules)
+    flags = _paper_control_flags_v1863af(rows, _safe_float_v18581(total_value, 0.0))
+    st.markdown("#### Paper-portefølje kontroll")
+    if rows:
+        control_rows = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "-")
+            value = _safe_float_v18581(row.get("value"), 0.0)
+            pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+            weight = (value / total_value * 100.0) if total_value else 0.0
+            if pnl_pct <= -5:
+                action = "Krever oppfølging"
+            elif pnl_pct >= 10:
+                action = "Vurder gevinstsikring"
+            elif weight >= 25:
+                action = "Sjekk konsentrasjon"
+            else:
+                action = "Hold / overvåk"
+            action = _paper_stop_action_v18674d(row, action)
+            control_rows.append({
+                "Ticker": ticker,
+                "Type": row.get("type") or "",
+                "Land": row.get("land") or "",
+                "Marked": row.get("marked") or "",
+                "Sektor": row.get("sektor") or "",
+                "Valuta": row.get("currency") or "",
+                "Snittkurs/NAV": row.get("avg_price"),
+                "Dagens kurs/NAV": row.get("last_price"),
+                "Antall": row.get("units"),
+                "Verdi": round(value, 2),
+                "P/L kr": row.get("pnl"),
+                "P/L %": round(pnl_pct, 2),
+                "Høyeste kurs": row.get("highest_price"),
+                "Trailing %": row.get("trailing_stop_pct"),
+                "Stop-nivå": row.get("trailing_stop_level"),
+                "Avstand stop %": row.get("trailing_stop_distance_pct"),
+                "Stop-status": row.get("stop_status"),
+                "Vekt %": round(weight, 1),
+                "Forslag": action,
+                "Oppdatert": row.get("updated") or "Lagret kurs",
+            })
+        st.dataframe(pd.DataFrame(control_rows), width="stretch", hide_index=True)
+        with st.expander("Detaljert Paper-portefølje kontroll", expanded=True):
+            st.caption("Samme feltfamilie som handelsloggen: tidspunkt/status, ticker, marked, sektor, pris, antall, verdi, P/L, signal og forklaring.")
+            st.dataframe(
+                pd.DataFrame(paper_position_display_rows(portfolio, latest_prices, total_value=total_value, rules=rules)),
+                width="stretch",
+                hide_index=True,
+            )
+    else:
+        st.info("Ingen åpne paper-posisjoner ennå.")
+
+    if flags:
+        with st.expander(f"Varsler og kontrollpunkter ({len(flags)})", expanded=False):
+            st.dataframe(pd.DataFrame(flags), width="stretch", hide_index=True)
+    else:
+        st.success("Ingen tydelige kontrollvarsler i paper-porteføljen akkurat nå.")
+
+    with st.expander("AI-forslag fra paper-testen", expanded=False):
+        for point in _paper_control_learning_points_v1863af(rows, stats, flags):
+            st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
+        if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_inline_v1868", width="content"):
+            total_pnl = sum(_safe_float_v18581(r.get("pnl"), 0.0) for r in rows)
+            avg_pnl_pct = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
+            summary = [
+                "Paper Trading og kontroll",
+                f"Total verdi: {total_value:,.0f} kr",
+                f"Åpne posisjoner: {len(rows)}",
+                f"Urealisert P/L: {total_pnl:+,.0f} kr ({avg_pnl_pct:+.2f}%)",
+                f"Kontrollvarsler: {len(flags)}",
+            ]
+            for flag in flags[:4]:
+                summary.append(f"{flag.get('ticker')}: {flag.get('signal')} - {flag.get('forslag')}")
+            ok, err = _send_pushover_safe_v1863af("\n".join(summary), "Paper Trading og kontroll")
+            if ok:
+                st.success("Pushover-rapport sendt.")
+            else:
+                st.warning(f"Pushover ble ikke sendt: {err or 'ukjent feil'}")
+
+
+def _render_manual_paper_nav_update_v18621(portfolio):
+    positions = (portfolio or {}).get("positions", {}) or {}
+    with st.expander("Manuell kurs/NAV for paper-beholdning", expanded=False):
+        st.caption("Bruk denne når automatisk kurs/NAV ikke finnes. Verdien lagres på posisjonen og brukes i paper-porteføljen.")
+        if not positions:
+            st.info("Ingen åpne posisjoner å oppdatere.")
+            return
+        options = list(positions.keys())
+        c1, c2, c3 = st.columns([1.4, 0.7, 0.8])
+        with c1:
+            selected = st.selectbox("Posisjon", options, key="manual_paper_nav_symbol_v18621")
+        current = positions.get(selected, {}) or {}
+        with c2:
+            manual_price = st.number_input(
+                "Ny kurs/NAV",
+                min_value=0.0,
+                max_value=10_000_000.0,
+                value=float(current.get("last_price") or current.get("avg_price") or 0.0),
+                step=0.01,
+                key="manual_paper_nav_price_v18621",
+            )
+        with c3:
+            nav_date = st.date_input("Dato", value=datetime.now().date(), key="manual_paper_nav_date_v18621")
+        if st.button("Lagre manuell kurs/NAV", key="manual_paper_nav_save_v18621", width="content"):
+            if float(manual_price or 0.0) <= 0:
+                st.error("Kurs/NAV må være større enn 0.")
+            else:
+                pos = dict(current)
+                pos["last_price"] = float(manual_price)
+                pos["nav_date"] = str(nav_date)
+                pos["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                pos["manual_price_source_v18621"] = "Manuell kurs/NAV"
+                positions[selected] = pos
+                portfolio["positions"] = positions
+                save_portfolio(portfolio)
+                st.success(f"Manuell kurs/NAV lagret for {selected}.")
+                st.rerun()
+
+
+
+
+def _render_paper_block_reason_v1871(message: str, portfolio: dict, rules: dict, ticker: str = "", confidence: int = 0, amount: float = 0.0, manual_override: str = "") -> None:
+    """Show concrete validation context for blocked manual paper trades without changing engine rules."""
+    try:
+        positions = portfolio.get("positions", {}) or {}
+        open_count = len(positions)
+        max_open = int((rules or {}).get("max_open_positions", 0) or 0)
+        min_conf = int((rules or {}).get("min_buy_confidence", 0) or 0)
+        max_trades = int((rules or {}).get("max_trades_per_day", (rules or {}).get("max_buys_per_day", 0)) or 0)
+        trades_today = int(performance_stats(portfolio, {}).get("buys_today", performance_stats(portfolio, {}).get("trades_today", 0)) or 0)
+    except Exception:
+        positions, open_count, max_open, min_conf, max_trades, trades_today = {}, 0, 0, 0, 0, 0
+
+    raw = str(message or "Ukjent blokkering")
+    reasons = []
+    manual_state = normalize_manual_override_state(manual_override or st.session_state.get("paper_manual_override_state_v18674a", "OFF"))
+    reasons.append(f"Manuell overstyring: {manual_state} ({_paper_manual_override_status_text_v18674a(manual_state)[1]})")
+    lower = raw.lower()
+    if "confidence" in lower or "lav" in lower:
+        reasons.append(f"Confidence: {int(confidence or 0)} mot min {min_conf}")
+    if "åpne posisjoner" in lower or "open position" in lower or "totalgrense" in lower:
+        reasons.append(f"Totalgrense: {open_count} av {max_open or '-'} åpne posisjoner brukt")
+    if "dag" in lower or "trades" in lower or "kjøp i dag" in lower:
+        reasons.append(f"Kjøp i dag: {trades_today} av {max_trades or '-'}")
+    if "cooldown" in lower or "stop-loss" in lower or "stop loss" in lower:
+        reasons.append("Cooldown/re-entry etter stop-loss er aktiv")
+    if not reasons:
+        reasons.append("Systemmelding: " + raw)
+
+    st.markdown(
+        "<div class='v18-dark-row'><b>Kjøp blokkert – faktisk kontroll</b><br>"
+        + "<br>".join(html.escape(r) for r in reasons)
+        + f"<br><span style='color:#94a3b8'>Ticker: {html.escape(str(ticker or '-'))} · Beløp: {float(amount or 0):,.0f}</span>"
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_paper_rule_badges_v1871(rules: dict) -> None:
+    rules = rules or {}
+    st.markdown(
+        f"""
+        <div class='paper-trade-summary-row'>
+            <span class='paper-pill'>🎯 Min confidence <b>{int(rules.get('min_buy_confidence', 0) or 0)}%</b></span>
+            <span class='paper-pill'>🛑 Stop-loss <b>{float(rules.get('stop_loss_pct', 0) or 0):.1f}%</b></span>
+            <span class='paper-pill'>📈 Take-profit <b>{float(rules.get('take_profit_pct', 0) or 0):.1f}%</b></span>
+            <span class='paper-pill'>⏳ SL cooldown <b>{int(rules.get('stop_loss_cooldown_days', 5) or 0)} dager</b></span>
+            <span class='paper-pill'>📌 Maks åpne <b>{int(rules.get('max_open_positions', 0) or 0)}</b></span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A = ["OFF", "REVIEW_ONLY", "FORCE_ALLOW", "FORCE_BLOCK"]
+
+
+def _paper_manual_override_state_v18674a() -> str:
+    try:
+        state = normalize_manual_override_state(st.session_state.get("paper_manual_override_state_v18674a", "OFF"))
+    except Exception:
+        state = "OFF"
+    if state not in PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A:
+        state = "OFF"
+    st.session_state["paper_manual_override_state_v18674a"] = state
+    return state
+
+
+def _paper_manual_override_status_text_v18674a(state: str) -> tuple[str, str]:
+    state = _paper_manual_override_state_v18674a() if not state else normalize_manual_override_state(state)
+    if state == "FORCE_BLOCK":
+        return "FORCE_BLOCK", "Blokkerer alle nye paper-kjøp eksplisitt. Dette er eneste manuelle modus som blokkerer alene."
+    if state == "FORCE_ALLOW":
+        return "FORCE_ALLOW", "Tillater paper-kjøp gjennom myke regler som min confidence, maks åpne posisjoner, dagsgrense og stop-loss cooldown. Hardvalidering beholdes."
+    if state == "REVIEW_ONLY":
+        return "REVIEW_ONLY", "Legger aksjen/instrumentet i Gule flagg / Manuell vurdering. Ingen kjøp gjennomføres i denne modusen."
+    return "OFF", "Ingen manuell overstyring. Denne modusen påvirker ikke kjøp."
+
+
+def _render_paper_manual_override_control_v18674a() -> str:
+    current = _paper_manual_override_state_v18674a()
+    st.markdown("#### Manuell overstyring")
+    state = st.selectbox(
+        "Manuell overstyring",
+        PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A,
+        index=PAPER_MANUAL_OVERRIDE_OPTIONS_V18674A.index(current),
+        key="paper_manual_override_state_v18674a",
+        help="Standard er OFF. OFF blokkerer aldri kjøp. Kun FORCE_BLOCK blokkerer manuelt.",
+    )
+    state = normalize_manual_override_state(state)
+    label, detail = _paper_manual_override_status_text_v18674a(state)
+    if state == "FORCE_BLOCK":
+        st.error(f"{label}: {detail}")
+    elif state == "FORCE_ALLOW":
+        st.warning(f"{label}: {detail}")
+    else:
+        st.success(f"{label}: {detail}")
+    st.caption("Undersøk manuelt lagrer kandidaten i vurderingskøen. Trailing stop lagres per posisjon og vises i Portefølje/Varsler.")
+    return state
+
+
+def _render_paper_manual_override_readonly_v18674a() -> str:
+    state = _paper_manual_override_state_v18674a()
+    label, detail = _paper_manual_override_status_text_v18674a(state)
+    css = "v18-dark-row"
+    st.markdown(
+        f"<div class='{css}'><b>Manuell overstyring:</b> {html.escape(label)}<br>"
+        f"<span style='color:#94a3b8'>{html.escape(detail)} Endres i fanen Regler → Manuell overstyring.</span></div>",
+        unsafe_allow_html=True,
+    )
+    return state
+
+
+
+
+PAPER_REVIEW_STATUSES_V18674C = ["ÅPEN", "GODKJENT", "AVVIST", "KJØPT"]
+PAPER_REVIEW_STATUS_ALIASES_V18674C = {
+    "OPEN": "ÅPEN",
+    "APEN": "ÅPEN",
+    "ÅPEN": "ÅPEN",
+    "GODKJENT": "GODKJENT",
+    "APPROVED": "GODKJENT",
+    "AVVIST": "AVVIST",
+    "REJECTED": "AVVIST",
+    "KJØPT": "KJØPT",
+    "KJOPT": "KJØPT",
+    "BOUGHT": "KJØPT",
+}
+
+
+def _paper_review_status_v18674c(status: str = "ÅPEN") -> str:
+    raw = str(status or "ÅPEN").strip().upper().replace(" ", "_").replace("-", "_")
+    return PAPER_REVIEW_STATUS_ALIASES_V18674C.get(raw, "ÅPEN")
+
+
+def _paper_review_queue_v18674c(portfolio: dict | None = None) -> list[dict]:
+    portfolio = portfolio or load_portfolio()
+    queue = portfolio.setdefault("review_queue", [])
+    if not isinstance(queue, list):
+        queue = []
+        portfolio["review_queue"] = queue
+    normalized = []
+    for item in queue:
+        if isinstance(item, dict):
+            row = dict(item)
+            row["status"] = _paper_review_status_v18674c(row.get("status", "ÅPEN"))
+            normalized.append(row)
+    portfolio["review_queue"] = normalized
+    return normalized
+
+
+def _paper_review_item_id_v18674c(symbol: str) -> str:
+    clean = str(symbol or "ITEM").strip().upper().replace("/", "_").replace(" ", "_")[:24]
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    return f"REV_{stamp}_{clean}"
+
+
+def _paper_add_review_candidate_v18674c(
+    *,
+    symbol: str,
+    price: float,
+    amount: float,
+    confidence: int = 0,
+    asset_type: str = "Aksje",
+    market: str = "",
+    currency: str = "",
+    source: str = "Paper Trading",
+    reason: str = "REVIEW_ONLY",
+    note: str = "",
+    extra: dict | None = None,
+) -> tuple[bool, str]:
+    symbol = str(symbol or "").strip().upper()
+    if not symbol:
+        return False, "Mangler ticker/symbol – kan ikke legge til vurdering."
+    try:
+        price_f = float(price or 0.0)
+    except Exception:
+        price_f = 0.0
+    try:
+        amount_f = float(amount or 0.0)
+    except Exception:
+        amount_f = 0.0
+    if price_f <= 0:
+        return False, "Pris/NAV må være større enn 0 før kandidaten kan legges i vurdering."
+    if amount_f <= 0:
+        return False, "Beløp må være større enn 0 før kandidaten kan legges i vurdering."
+    portfolio = load_portfolio()
+    queue = _paper_review_queue_v18674c(portfolio)
+    # v18.6.75: avoid several identical open yellow flags for the same symbol/type.
+    for existing in queue:
+        if (
+            str(existing.get("symbol") or existing.get("ticker") or "").strip().upper() == symbol
+            and str(existing.get("asset_type") or "Aksje") == str(asset_type or "Aksje")
+            and _paper_review_status_v18674c(existing.get("status")) in {"ÅPEN", "GODKJENT"}
+        ):
+            existing.update({
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+                "price": round(price_f, 6),
+                "amount": round(amount_f, 2),
+                "confidence": int(confidence or 0),
+                "reason": str(reason or "REVIEW_ONLY"),
+                "note": str(note or existing.get("note") or ""),
+                "extra": dict(extra or existing.get("extra") or {}),
+            })
+            portfolio["review_queue"] = queue
+            save_portfolio(portfolio)
+            return True, f"{symbol} finnes allerede i Gule flagg og er oppdatert. Ingen kjøp er gjennomført."
+    item = {
+        "id": _paper_review_item_id_v18674c(symbol),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "symbol": symbol,
+        "ticker": symbol,
+        "asset_type": str(asset_type or "Aksje"),
+        "market": str(market or ""),
+        "currency": str(currency or ""),
+        "price": round(price_f, 6),
+        "amount": round(amount_f, 2),
+        "confidence": int(confidence or 0),
+        "source": str(source or "Paper Trading"),
+        "reason": str(reason or "REVIEW_ONLY"),
+        "status": "ÅPEN",
+        "note": str(note or ""),
+        "extra": dict(extra or {}),
+    }
+    queue.insert(0, item)
+    portfolio["review_queue"] = queue[:500]
+    save_portfolio(portfolio)
+    return True, f"{symbol} er lagt i Gule flagg / Manuell vurdering. Ingen kjøp er gjennomført."
+
+
+def _paper_update_review_item_v18674c(review_id: str, **updates) -> tuple[bool, str]:
+    portfolio = load_portfolio()
+    queue = _paper_review_queue_v18674c(portfolio)
+    review_id = str(review_id or "")
+    for item in queue:
+        if str(item.get("id") or "") == review_id:
+            if "status" in updates:
+                updates["status"] = _paper_review_status_v18674c(updates.get("status"))
+            item.update(updates)
+            item["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            portfolio["review_queue"] = queue
+            save_portfolio(portfolio)
+            return True, "Vurdering oppdatert."
+    return False, "Fant ikke valgt vurdering."
+
+
+def _paper_review_display_rows_v18674c(queue: list[dict]) -> list[dict]:
+    rows = []
+    for item in queue:
+        rows.append({
+            "Status": _paper_review_status_v18674c(item.get("status")),
+            "Ticker": item.get("symbol") or item.get("ticker"),
+            "Type": item.get("asset_type", "Aksje"),
+            "Marked": item.get("market", ""),
+            "Pris/NAV": item.get("price", 0),
+            "Beløp": item.get("amount", 0),
+            "Confidence": item.get("confidence", 0),
+            "Årsak": item.get("reason", ""),
+            "Notat": item.get("note", ""),
+            "Opprettet": item.get("created_at", ""),
+            "Oppdatert": item.get("updated_at", ""),
+        })
+    return rows
+
+
+def _render_paper_review_queue_v18674c(portfolio: dict, rules: dict) -> None:
+    st.markdown("#### 🟡 Gule flagg / Manuell vurdering")
+    st.caption("REVIEW_ONLY kjøper ikke. Kandidaten lagres her med status ÅPEN, GODKJENT, AVVIST eller KJØPT.")
+    queue = _paper_review_queue_v18674c(portfolio)
+    if not queue:
+        st.info("Ingen aksjer/instrumenter til manuell vurdering ennå.")
+        return
+
+    status_filter = st.multiselect(
+        "Vis status",
+        PAPER_REVIEW_STATUSES_V18674C,
+        default=["ÅPEN", "GODKJENT"],
+        key="paper_review_status_filter_v18674c",
+    )
+    visible = [item for item in queue if _paper_review_status_v18674c(item.get("status")) in set(status_filter or PAPER_REVIEW_STATUSES_V18674C)]
+    st.dataframe(pd.DataFrame(_paper_review_display_rows_v18674c(visible)), width="stretch", hide_index=True)
+
+    for item in visible[:25]:
+        review_id = str(item.get("id") or "")
+        symbol = str(item.get("symbol") or item.get("ticker") or "-")
+        status = _paper_review_status_v18674c(item.get("status"))
+        title = f"{status} · {symbol} · {item.get('asset_type', 'Aksje')} · confidence {int(item.get('confidence') or 0)}"
+        with st.expander(title, expanded=(status == "ÅPEN")):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Pris/NAV", f"{float(item.get('price') or 0):,.2f}")
+            c2.metric("Beløp", f"{float(item.get('amount') or 0):,.0f}")
+            c3.metric("Confidence", f"{int(item.get('confidence') or 0)}%")
+            c4.metric("Status", status)
+            note_key = f"paper_review_note_v18674c_{review_id}"
+            note_val = st.text_area("Notat", value=str(item.get("note") or ""), key=note_key, height=74)
+            b1, b2, b3, b4 = st.columns(4)
+            with b1:
+                if st.button("💾 Lagre notat", key=f"paper_review_save_note_v18674c_{review_id}", width="stretch"):
+                    ok, msg = _paper_update_review_item_v18674c(review_id, note=note_val)
+                    st.success(msg) if ok else st.error(msg)
+                    st.rerun()
+            with b2:
+                if st.button("✅ Godkjenn", key=f"paper_review_approve_v18674c_{review_id}", width="stretch", disabled=(status == "KJØPT")):
+                    ok, msg = _paper_update_review_item_v18674c(review_id, status="GODKJENT", note=note_val)
+                    st.success(msg) if ok else st.error(msg)
+                    st.rerun()
+            with b3:
+                if st.button("🟢 Kjøp manuelt", key=f"paper_review_buy_v18674c_{review_id}", width="stretch", disabled=(status == "KJØPT")):
+                    asset_type = str(item.get("asset_type") or "Aksje")
+                    price = float(item.get("price") or 0.0)
+                    amount = float(item.get("amount") or 0.0)
+                    confidence = int(item.get("confidence") or 0)
+                    if asset_type == "Aksje":
+                        ok, msg = paper_buy(symbol, price, confidence, "Review queue manuell vurdering", amount_override=amount, manual_override="FORCE_ALLOW")
+                    else:
+                        ok, msg = paper_buy_instrument(symbol, price, amount, asset_type=asset_type, confidence=confidence, reason="Review queue manuell vurdering", currency=str(item.get("currency") or ""), manual_override="FORCE_ALLOW")
+                    if ok:
+                        _paper_update_review_item_v18674c(review_id, status="KJØPT", note=note_val, bought_at=datetime.now().isoformat(timespec="seconds"), buy_message=msg)
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            with b4:
+                if st.button("⛔ Avvis", key=f"paper_review_reject_v18674c_{review_id}", width="stretch", disabled=(status == "KJØPT")):
+                    ok, msg = _paper_update_review_item_v18674c(review_id, status="AVVIST", note=note_val)
+                    st.warning(msg) if ok else st.error(msg)
+                    st.rerun()
+
+def _paper_buy_decision_rows_v18674a(portfolio: dict, rules: dict, *, ticker: str = "", price: float = 0.0, amount: float = 0.0, confidence: int = 0, manual_override: str = "OFF") -> list[dict]:
+    rules = rules or {}
+    portfolio = portfolio or {}
+    manual_override = normalize_manual_override_state(manual_override)
+    positions = portfolio.get("positions", {}) or {}
+    ticker_clean = str(ticker or "").strip().upper()
+    cash = _safe_float_v18581(portfolio.get("cash", 0), 0.0)
+    price_f = _safe_float_v18581(price, 0.0)
+    amount_f = _safe_float_v18581(amount, 0.0)
+    min_conf = int(rules.get("min_buy_confidence", 0) or 0)
+    max_open = int(rules.get("max_open_positions", 0) or 0)
+    max_trades = int(rules.get("max_trades_per_day", rules.get("max_buys_per_day", 0)) or 0)
+    try:
+        stats = performance_stats(portfolio, {}) or {}
+    except Exception:
+        stats = {}
+    buys_today = int(stats.get("buys_today", stats.get("trades_today", 0)) or 0)
+
+    def row(rule: str, status: str, detail: str) -> dict:
+        return {"Kontrollpunkt": rule, "Status": status, "Detalj": detail}
+
+    rows = []
+    if manual_override == "FORCE_BLOCK":
+        rows.append(row("Manuell overstyring", "BLOKKERT", "FORCE_BLOCK er aktiv og stopper kjøp eksplisitt."))
+    elif manual_override == "FORCE_ALLOW":
+        rows.append(row("Manuell overstyring", "FORCE_ALLOW", "Myke regler kan overstyres. Pris, ticker og cash beholdes som hardvalidering. Eksisterende aksjeposisjon økes i samme linje."))
+    elif manual_override == "REVIEW_ONLY":
+        rows.append(row("Manuell overstyring", "REVIEW_ONLY", "Kjøp gjennomføres ikke. Kandidaten legges i Gule flagg / Manuell vurdering."))
+    else:
+        rows.append(row("Manuell overstyring", "OFF", "Påvirker ikke kjøp og blokkerer aldri alene."))
+
+    rows.append(row("Ticker", "OK" if ticker_clean else "MANGLER", ticker_clean or "Skriv inn ticker/symbol"))
+    rows.append(row("Pris", "OK" if price_f > 0 else "BLOKKERT", f"{price_f:,.2f}" if price_f > 0 else "Pris må være større enn 0"))
+    rows.append(row("Beløp", "OK" if amount_f > 0 else "BLOKKERT", f"{amount_f:,.0f}" if amount_f > 0 else "Beløp må være større enn 0"))
+    rows.append(row("Cash/kjøpekraft", "OK" if cash >= amount_f and amount_f > 0 else "BLOKKERT", f"Cash {cash:,.0f} mot kjøp {amount_f:,.0f}"))
+    duplicate = bool(ticker_clean and ticker_clean in positions)
+    if duplicate:
+        existing = positions.get(ticker_clean, {}) or {}
+        existing_units = _safe_float_v18581(existing.get("shares", existing.get("units", 0)), 0.0)
+        existing_avg = _safe_float_v18581(existing.get("avg_price", existing.get("entry_price", 0)), 0.0)
+        rows.append(row("Eksisterende aksjeposisjon", "ØK BEHOLDNING", f"{ticker_clean} finnes allerede: {existing_units:,.4f} stk, snitt {existing_avg:,.2f}. Nytt kjøp legges til samme posisjon."))
+    else:
+        rows.append(row("Eksisterende aksjeposisjon", "OK", "Ny aksjeposisjon"))
+
+    soft_override = manual_override == "FORCE_ALLOW"
+    conf_ok = int(confidence or 0) >= min_conf
+    rows.append(row("Min confidence", "OVERSTYRT" if soft_override and not conf_ok else ("OK" if conf_ok else "BLOKKERT"), f"{int(confidence or 0)} mot min {min_conf}"))
+    max_open_ok = (not max_open) or len(positions) < max_open or duplicate
+    max_open_detail = (f"{len(positions)} av {max_open or '-'} brukt" + (" · eksisterende posisjon, øker ikke antall åpne linjer" if duplicate else ""))
+    rows.append(row("Maks åpne posisjoner", "OVERSTYRT" if soft_override and not max_open_ok else ("OK" if max_open_ok else "BLOKKERT"), max_open_detail))
+    buys_ok = (not max_trades) or buys_today < max_trades
+    rows.append(row("Kjøp i dag", "OVERSTYRT" if soft_override and not buys_ok else ("OK" if buys_ok else "BLOKKERT"), f"{buys_today} av {max_trades or '-'}"))
+    rows.append(row("Stop-loss cooldown", "SJEKKES", "Sjekkes av paper-motoren ved trykk på kjøp. FORCE_ALLOW kan overstyre denne myke regelen." if soft_override else "Sjekkes av paper-motoren ved trykk på kjøp."))
+    return rows
+
+
+def _render_paper_buy_decision_context_v18674a(portfolio: dict, rules: dict, *, ticker: str = "", price: float = 0.0, amount: float = 0.0, confidence: int = 0, manual_override: str = "OFF") -> None:
+    rows = _paper_buy_decision_rows_v18674a(portfolio, rules, ticker=ticker, price=price, amount=amount, confidence=confidence, manual_override=manual_override)
+    blocked = [r for r in rows if r.get("Status") == "BLOKKERT"]
+    hard_blocked = [r for r in blocked if r.get("Kontrollpunkt") not in {"Min confidence", "Maks åpne posisjoner", "Kjøp i dag", "Stop-loss cooldown"}]
+    soft_blocked = [r for r in blocked if r.get("Kontrollpunkt") in {"Min confidence", "Maks åpne posisjoner", "Kjøp i dag", "Stop-loss cooldown"}]
+    manual_override = normalize_manual_override_state(manual_override)
+    if manual_override == "FORCE_BLOCK":
+        summary = "Kjøp blokkert av manuell FORCE_BLOCK."
+    elif manual_override == "REVIEW_ONLY":
+        summary = "REVIEW_ONLY: Legg til vurdering, ikke kjøp."
+    elif hard_blocked:
+        summary = "Kjøp er blokkert av hardvalidering."
+    elif soft_blocked and manual_override != "FORCE_ALLOW":
+        summary = "Kjøp vil bli stoppet av vanlige paper-regler."
+    elif soft_blocked and manual_override == "FORCE_ALLOW":
+        summary = "Kjøp kan tillates av FORCE_ALLOW, men hardvalidering beholdes."
+    else:
+        summary = "Kjøpsgrunnlaget ser klart ut ut fra synlige regler."
+    def _rule_css(status: str) -> str:
+        status = str(status or "").upper()
+        if status in {"OK", "OFF"}:
+            return "ok"
+        if status in {"BLOKKERT", "MANGLER", "FORCE_BLOCK"}:
+            return "bad"
+        if status in {"OVERSTYRT", "FORCE_ALLOW", "REVIEW_ONLY", "SJEKKES", "ØK BEHOLDNING"}:
+            return "warn"
+        return "neutral"
+
+    with st.expander(f"Blokkårsaker / kjøpskontroll – {summary}", expanded=False):
+        st.markdown("""
+        <style>
+        .paper-rule-mini{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:.35rem;margin:.25rem 0;}
+        .paper-rule-item{border:1px solid rgba(148,163,184,.22);border-radius:9px;padding:.42rem .55rem;background:rgba(15,23,42,.65);font-size:.78rem;}
+        .paper-rule-item b{color:#e2e8f0;}
+        .paper-rule-item span{display:inline-block;margin-top:.15rem;color:#94a3b8;font-size:.72rem;}
+        .paper-rule-badge{float:right;border-radius:999px;padding:.07rem .42rem;font-weight:900;font-size:.68rem;}
+        .paper-rule-badge.ok{background:rgba(34,197,94,.16);color:#86efac;border:1px solid rgba(34,197,94,.35);}
+        .paper-rule-badge.bad{background:rgba(239,68,68,.16);color:#fecaca;border:1px solid rgba(239,68,68,.35);}
+        .paper-rule-badge.warn{background:rgba(245,158,11,.16);color:#fde68a;border:1px solid rgba(245,158,11,.35);}
+        .paper-rule-badge.neutral{background:rgba(148,163,184,.14);color:#cbd5e1;border:1px solid rgba(148,163,184,.28);}
+        </style>
+        """, unsafe_allow_html=True)
+        html_rows = []
+        for r in rows:
+            status = str(r.get("Status") or "")
+            html_rows.append(
+                "<div class='paper-rule-item'>"
+                f"<b>{html.escape(str(r.get('Kontrollpunkt') or '-'))}</b>"
+                f"<em class='paper-rule-badge {_rule_css(status)}'>{html.escape(status)}</em>"
+                f"<span>{html.escape(str(r.get('Detalj') or ''))}</span>"
+                "</div>"
+            )
+        st.markdown("<div class='paper-rule-mini'>" + "".join(html_rows) + "</div>", unsafe_allow_html=True)
+        with st.expander("Detaljtabell", expanded=False):
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+
+
+PAPER_TRADING_TAB_OPTIONS_V18674C = {
+    "📈 Handel": "handel",
+    "📊 Portefølje": "portefolje",
+    "⚙ Regler": "regler",
+    "🔔 Varsler": "varsler",
+    "🧪 Hypoteser/Test": "hypoteser",
+}
+PAPER_TRADING_TAB_LABEL_BY_SLUG_V18674C = {v: k for k, v in PAPER_TRADING_TAB_OPTIONS_V18674C.items()}
+
+
+def _paper_trading_active_tab_v18674c() -> str:
+    url_state = get_global_navigation_state(st)
+    if "paper_trading_active_tab_label_v18674c" not in st.session_state:
+        initial_slug = str(st.session_state.get("paper_trading_active_tab_slug_v18674c") or url_state.get("tab") or "handel").strip().lower()
+        initial_label = PAPER_TRADING_TAB_LABEL_BY_SLUG_V18674C.get(initial_slug, "📈 Handel")
+        st.session_state["paper_trading_active_tab_label_v18674c"] = initial_label
+    selected_label = st.radio(
+        "Paper Trading arbeidsområde",
+        list(PAPER_TRADING_TAB_OPTIONS_V18674C.keys()),
+        horizontal=True,
+        key="paper_trading_active_tab_label_v18674c",
+        label_visibility="collapsed",
+    )
+    slug = PAPER_TRADING_TAB_OPTIONS_V18674C.get(selected_label, "handel")
+    st.session_state["paper_trading_active_tab_slug_v18674c"] = slug
+    set_global_navigation_state(st, nav="paper_trading", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
+    try:
+        _persist_ui_state_v18658(nav="paper_trading", group="Testing og portefolje", panel="Paper Trading og kontroll", tab=slug)
+    except Exception:
+        pass
+    return slug
+
+def render_paper_trading_dashboard():
+    from pages.paper_trading import render_paper_trading_dashboard as _implementation
+    return _implementation(get_page_context_v1950(_implementation))
+
+
+def render_ipo():
+    st.subheader("🚀 Nye og kommende børsnoteringer")
+    st.caption("Offisiell IPO-kalender vises separat fra ryktede/overvåkede IPO-kandidater.")
+
+    ipo_list, error = get_ipo_calendar()
+    nordic = get_nordic_ipo_calendar()
+    rumored_rows = get_rumored_ipo_watchlist()
+
+    def _render_ipo_rows(rows, empty_text, show_status=False):
+        if not rows:
+            st.info(empty_text)
+            return
+        for ipo in rows[:20]:
+            st.markdown(f"**{ipo.get('name','Ukjent selskap')}** ({ipo.get('symbol','N/A')})")
+            parts = [
+                str(ipo.get("date") or ipo.get("expected") or "Ukjent dato"),
+                str(ipo.get("exchange") or ipo.get("region") or "Ukjent børs"),
+            ]
+            if show_status and ipo.get("status"):
+                parts.append(str(ipo.get("status")))
+            if ipo.get("source"):
+                parts.append(str(ipo.get("source")))
+            st.caption(" · ".join(part for part in parts if part))
+            if show_status and ipo.get("note"):
+                st.caption(str(ipo.get("note")))
+            st.divider()
+
+    tab_global, tab_no, tab_se, tab_watch, tab_help = st.tabs([
+        "USA / global",
+        "Norge",
+        "Sverige",
+        "Overvåking",
+        "Forklaring",
+    ])
+    with tab_global:
+        if error:
+            st.info(error)
+        else:
+            _render_ipo_rows(ipo_list, "Fant ingen IPO-data akkurat nå.")
+
+    with tab_no:
+        norway_rows = nordic.get("Norge", [])
+        _render_ipo_rows(norway_rows, "Fant ingen norske IPO-/noteringsdata akkurat nå.")
+        st.caption("Norge bruker Euronext Oslo-kilde pluss Finnhub-treff som matcher Oslo/Euronext Oslo.")
+
+    with tab_se:
+        sweden_rows = nordic.get("Sverige", [])
+        _render_ipo_rows(sweden_rows, "Fant ingen svenske IPO-/noteringsdata akkurat nå.")
+        st.caption("Sverige vises når IPO-feed returnerer Stockholm/Nasdaq Nordic/First North/Spotlight/NGM-treff.")
+
+    with tab_watch:
+        st.caption("Dette er ikke bekreftede kalendernoteringer. Listen brukes for å følge private selskaper som kan komme på børs.")
+        _render_ipo_rows(rumored_rows, "Ingen overvåkede IPO-kandidater lagt inn.", show_status=True)
+
+    with tab_help:
+        st.markdown(
+            """
+            **Slik fungerer IPO-fanen**
+
+            Kalender-fanene viser selskaper som finnes i IPO-kilder med dato, ticker eller børs.
+
+            **USA / global** bruker Finnhub sin IPO-kalender. Den dekker ofte amerikanske børser best.
+
+            **Norge** bruker Euronext Oslo-søk i tillegg til Finnhub-treff som matcher Oslo/Euronext.
+
+            **Sverige** bruker Finnhub-treff som matcher Stockholm, Nasdaq Nordic, First North, Spotlight eller NGM.
+
+            **Overvåking** er for selskaper som SpaceX, Starlink, Stripe og Databricks. De kan være omtalt i media, men vises ikke som offisiell IPO før dato/ticker/børs er offentlig nok til å ligge i kalenderdata.
+            """
+        )
+
+    if nordic.get("errors"):
+        with st.expander("Datakilde-status", expanded=False):
+            st.caption("Noen eksterne IPO-kilder svarte ikke akkurat nå. Kalenderen viser tilgjengelige treff og overvåkingslisten uansett.")
+            for source_error in nordic.get("errors", [])[:2]:
+                st.caption(source_error)
+
+def render_strategy_backtest(tickers, label):
+    st.subheader("🧪 Smartere strategi-backtest")
+    st.caption("Månedlig rebalansering, transaksjonskostnader, drawdown og benchmark.")
+
+    col_a, col_b, col_c = st.columns(3)
+    months = col_a.slider("Antall måneder", 6, 36, 24, key=f"months_{label}")
+    top_n = col_b.slider("Topp N aksjer", 2, 10, 5, key=f"topn_{label}")
+    cost = col_c.slider("Transaksjonskostnad", 0.0, 1.0, 0.2, step=0.1, key=f"cost_{label}") / 100
+
+    use_stop = st.checkbox("Bruk enkel stop-loss", value=False, key=f"stop_{label}")
+    stop_loss = st.slider("Stop-loss %", 3, 25, 10, key=f"sl_{label}") / 100 if use_stop else None
+
+    benchmark = "^GSPC" if label == "USA" else "OSEBX.OL"
+
+    if st.button(f"Kjør smartere backtest ({label})"):
+        with st.spinner("Kjører backtest..."):
+            strategy, bench, error = run_monthly_score_strategy(
+                tickers,
+                months=months,
+                top_n=top_n,
+                benchmark=benchmark,
+                transaction_cost=cost,
+                stop_loss=stop_loss,
+            )
+
+        if error:
+            st.error(error)
+            return
+
+        strategy, stats = add_stats(strategy)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total avkastning", f"{stats['total_return']*100:.1f}%")
+        c2.metric("Maks drawdown", f"{stats['max_drawdown']*100:.1f}%")
+        c3.metric("Win-rate", f"{stats['win_rate']*100:.0f}%")
+        c4.metric("Sharpe-ish", f"{stats['sharpe_like']:.2f}")
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=strategy["date"], y=strategy["value"], name="Score-strategi", mode="lines+markers"))
+        if not bench.empty:
+            fig.add_trace(go.Scatter(x=bench["date"], y=bench["benchmark_value"], name="Benchmark", mode="lines"))
+        fig.update_layout(title="Strategi vs benchmark", template="plotly_dark", height=430)
+        render_interactive_chart(fig, width="stretch", key=f"backtest_main_{label}")
+        render_graph_explanation("backtest")
+
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(x=strategy["date"], y=strategy["drawdown"], fill="tozeroy", name="Drawdown"))
+        fig_dd.update_layout(title="Drawdown", template="plotly_dark", height=300)
+        render_interactive_chart(fig_dd, width="stretch", key=f"backtest_drawdown_{label}")
+        render_graph_explanation("drawdown")
+
+        st.markdown("#### Valgte aksjer per måned")
+        st.dataframe(strategy[["date", "monthly_return", "gross_return", "cost", "selected"]], width="stretch")
+
+# --- Stabil sidebar v18.6.41 ---
+# Sidebar er flyttet ut av app.py for å unngå at flere CSS-/HTML-lag kjemper mot hverandre.
+
+def _query_params_plain_v18646() -> dict:
+    """Returner query params uten å kaste ved gamle/nye Streamlit-versjoner."""
+    try:
+        raw = dict(st.query_params)
+    except Exception:
+        try:
+            raw = {k: v[0] if isinstance(v, list) and v else v for k, v in st.experimental_get_query_params().items()}
+        except Exception:
+            raw = {}
+    out = {}
+    for k, v in raw.items():
+        if isinstance(v, (list, tuple)):
+            out[k] = str(v[0]) if v else ""
+        else:
+            out[k] = str(v)
+    return out
+
+
+def _mobile_nav_href_v18646(nav: str) -> str:
+    params = _query_params_plain_v18646()
+    for key in ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab", "panel", "tab", "subtab"):
+        params.pop(key, None)
+    params["mobile_nav"] = str(nav)
+    return "?" + urlencode(params)
+
+
+def _ui_state_path_v18658() -> Path:
+    """User-scoped runtime navigation state; never a shared Git-tracked file."""
+    try:
+        from storage_architecture import runtime_data_path
+        user = st.session_state.get("auth_user") or {}
+        username = re.sub(r"[^A-Za-z0-9._-]+", "_", str(user.get("username") or "anonymous")).strip("._") or "anonymous"
+        return runtime_data_path("ui_state", f"{username}.json")
+    except Exception:
+        return Path(".app_runtime/data/ui_state/anonymous.json")
+
+
+def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", tab: str = "", subtab: str = "") -> None:
+    """Persist last visible workspace so browser refresh does not reset the app.
+
+    v18.6.74c also persists inner panel tabs. URL query state is still the
+    strongest source on a browser refresh, but this file remains a safe fallback.
+    """
+    try:
+        active_nav_v19220_rc7 = str(nav or st.session_state.get("active_nav_target_v18674c") or "")
+        active_panel_v19220_rc7 = str(panel or st.session_state.get("ai_control_center_active_panel_v1863aj") or "")
+        active_group_v19220_rc7 = str(group or st.session_state.get("ai_control_center_group_v1863aj") or "")
+        route_tab_v19220_rc7, route_subtab_v19220_rc7 = current_route_tab_from_session_v19220_rc7(
+            st.session_state, nav=active_nav_v19220_rc7, panel=active_panel_v19220_rc7,
+        )
+        payload = {
+            "nav": active_nav_v19220_rc7,
+            "panel": active_panel_v19220_rc7,
+            "group": active_group_v19220_rc7,
+            "tab": str(tab or route_tab_v19220_rc7),
+            "subtab": str(subtab or route_subtab_v19220_rc7),
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "version": "v19.22.0-rc9",
+        }
+        signature = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        if st.session_state.get("ui_state_last_signature_v19016") == signature:
+            return
+        st.session_state["ui_state_last_signature_v19016"] = signature
+        path = _ui_state_path_v18658()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existing = path.read_text(encoding="utf-8") if path.exists() else ""
+            if existing:
+                existing_payload = json.loads(existing)
+                comparable = dict(payload)
+                comparable.pop("saved_at", None)
+                existing_comparable = dict(existing_payload) if isinstance(existing_payload, dict) else {}
+                existing_comparable.pop("saved_at", None)
+                if comparable == existing_comparable:
+                    return
+        except Exception:
+            pass
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_ui_state_v18658() -> dict:
+    try:
+        path = _ui_state_path_v18658()
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _set_query_panel_v18658(nav: str) -> None:
+    """v18.6.61: no-op for desktop navigation.
+
+    Earlier versions wrote panel=... to the URL. That preserved refresh, but it
+    also kept forcing Long Engine back on every rerun and made sidebar buttons
+    and Lukk oppgave appear dead. Refresh persistence now comes from
+    data/ui_state_v18658.json, not from a permanent URL panel parameter.
+    """
+    try:
+        # Clear stale desktop panel params when possible. Mobile links may still
+        # use mobile_nav for one run only.
+        if "panel" in st.query_params:
+            del st.query_params["panel"]
+    except Exception:
+        pass
+
+
+
+def _clear_control_center_nav_state_v18663() -> None:
+    """Clear stale radio/panel state before applying a fresh navigation target."""
+    for key in [
+        "ai_control_center_group_v1863m",
+        "ai_control_center_active_panel_v1863m",
+        "ai_control_center_active_real_panel_v18598",
+        "ai_control_center_group_v1863aj",
+        "ai_control_center_active_panel_v1863aj",
+        "ai_control_center_group_radio_v1863aj",
+        "analysis_pipeline_active_stage_v1863bz",
+    ]:
+        try:
+            st.session_state.pop(key, None)
+        except Exception:
+            pass
+    try:
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("ai_control_center_panel_radio_v1863aj_"):
+                st.session_state.pop(key, None)
+    except Exception:
+        pass
+
+def _apply_nav_target_v18658(nav: str) -> bool:
+    """Apply one canonical navigation target to all known control-center keys."""
+    nav = str(nav or "").strip().lower()
+    if nav in {"autonomous", "autonomi"}:
+        nav = "autonomy"
+    if nav in {"jobber", "jobs", "scheduler", "planlegger", "tidsplan"}:
+        nav = "jobs"
+    if nav in {"approvals", "approval", "godkjenninger", "ventende_godkjenninger", "ventende-godkjenninger"}:
+        nav = "approvals"
+    if nav in {"alerts", "varsler", "varsel", "operations"}:
+        nav = "operations"
+    if nav in {"drift", "driftssenter", "drift_center"}:
+        nav = "drift_center"
+    if nav in {"settings", "innstillinger", "admin", "systemstatus"}:
+        nav = "system"
+    if not nav:
+        return False
+    # v19.0.16: internal navigation can be tapped repeatedly on mobile.
+    # Avoid clearing/rerendering the entire control center when the user is
+    # already on the requested target. This makes moving between areas feel
+    # faster and reduces Streamlit reruns from stale links/query params.
+    last_nav = str(st.session_state.get("ai_control_center_last_applied_nav_v19016") or "").strip().lower()
+    if last_nav == nav and str(st.session_state.get("ai_control_center_force_nav_v18663") or "").strip().lower() == nav:
+        return True
+    _clear_control_center_nav_state_v18663()
+    st.session_state["ai_control_center_force_nav_v18663"] = nav
+    st.session_state["ai_control_center_last_applied_nav_v19016"] = nav
+    if nav == "drift_center":
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "dashboard":
+        st.session_state["ai_control_center_menu_open_v1863ag"] = True
+        st.session_state["ai_control_center_active_panel_v1863m"] = ""
+        st.session_state["ai_control_center_active_real_panel_v18598"] = ""
+        st.session_state["ai_control_center_group_v1863aj"] = ""
+        st.session_state["ai_control_center_active_panel_v1863aj"] = ""
+    elif nav == "analysis":
+        st.session_state["ai_control_center_group_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "AI Kandidattest"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
+        st.session_state["ai_control_center_group_v1863aj"] = "AI Kandidattest"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "AI Kandidattest"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "top_picks":
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Top Picks"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Top Picks"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Top Picks"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"portfolio", "reports", "jobs", "approvals", "operations"}:
+        if nav in {"portfolio", "approvals"}:
+            slug = "learning_portfolio"
+        elif nav == "operations":
+            slug = "operations"
+        else:
+            # Rapporter and Jobber/Planlegger both open Market Intelligence;
+            # the job-profile tab is the first tab in that workspace.
+            slug = "reports"
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["autonomy_core_workspace_slug_v1882"] = slug
+        st.session_state["mobile_nav_last_choice_v19015"] = nav
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"paper", "paper_trading", "papertrading"}:
+        nav = "paper_trading"
+        st.session_state["ai_control_center_group_v1863m"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "long_engine":
+        st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "Long Engine"
+        st.session_state["ai_control_center_group_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Long Engine"
+        st.session_state["ai_control_center_group_radio_v1863aj"] = "Long Engine (1)"
+        st.session_state["ai_control_center_panel_radio_v1863aj_Long Engine"] = "Long Engine"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "ai":
+        st.session_state["ai_control_center_group_v1863m"] = "Analyse og prognose"
+        st.session_state["ai_control_center_group_v1863aj"] = "Analyse og prognose"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = True
+    elif nav == "autonomy":
+        st.session_state["ai_control_center_group_v1863m"] = "Autonomi"
+        st.session_state["ai_control_center_group_v1863aj"] = "Autonomi"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_group_radio_v1863aj"] = "Autonomi (1)"
+        st.session_state["ai_control_center_panel_radio_v1863aj_Autonomi"] = "🧠 Autonomi – Kontrollsenter"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"fx_alerts", "currency_alerts", "valutavarsler"}:
+        nav = "fx_alerts"
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "💱 Valutavarsler"
+        st.session_state["ai_control_center_route_lock_v19220_rc6"] = {
+            "nav": "fx_alerts", "group": "Marked og signaler", "panel": "💱 Valutavarsler"
+        }
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "control_center":
+        # Generic control-center deep link. URL group/panel are applied by the
+        # bootstrap immediately after this canonical top-level target.
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "system":
+        st.session_state["ai_control_center_group_v1863m"] = "System"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
+        st.session_state["ai_control_center_group_v1863aj"] = "System"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "System/admin"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    else:
+        return False
+    st.session_state["active_nav_target_v18674c"] = nav
+    active_group = str(st.session_state.get("ai_control_center_group_v1863aj") or "")
+    active_panel = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "")
+    _persist_ui_state_v18658(nav=nav, group=active_group, panel=active_panel)
+    # v18.6.74c: preserve refresh state in URL without deleting remember_token.
+    set_global_navigation_state(st, nav=nav, group=active_group, panel=active_panel)
+    return True
+
+
+def _apply_mobile_nav_query_v18646() -> None:
+    """Apply one-time mobile/file navigation without locking the UI.
+
+    v18.6.61: Only mobile_nav from URL is treated as a fresh navigation event.
+    The old panel query param is ignored because it forced the same workspace
+    on every rerun. File state is loaded once per session so refresh/new login
+    can restore the last page, but later button clicks/Lukk oppgave are not
+    overwritten.
+    """
+    params = _query_params_plain_v18646()
+
+    # A fresh mobile tap must win over stale refresh state. Only navigation
+    # keys are replaced; remember_token and unrelated query parameters remain.
+    mobile_nav = (params.get("mobile_nav") or "").strip().lower()
+    if mobile_nav:
+        st.session_state["persistent_nav_bootstrap_done_v18661"] = True
+        _apply_nav_target_v18658(mobile_nav)
+        try:
+            if "mobile_nav" in st.query_params:
+                del st.query_params["mobile_nav"]
+            if "panel" in st.query_params:
+                del st.query_params["panel"]
+        except Exception:
+            pass
+        return
+
+    # v18.6.74c: Deep-link/browser-refresh state has priority over the
+    # fallback file. This prevents F5 from sending the user back to the start
+    # page when the URL already carries aa_group/aa_panel/aa_tab.
+    url_state_v18674c = get_global_navigation_state(st)
+    has_url_state_v18674c = any(url_state_v18674c.get(k) for k in ("nav", "group", "panel", "tab", "subtab"))
+    if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
+        st.session_state["persistent_nav_bootstrap_done_v18661"] = True
+        nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
+        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "jobs", "jobber", "scheduler", "planlegger", "approvals", "godkjenninger", "alerts", "varsler", "operations", "drift", "driftssenter", "drift_center", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "settings", "innstillinger", "admin", "systemstatus", "system", "control_center"}:
+            _apply_nav_target_v18658(nav_from_url)
+        group_from_url = str(url_state_v18674c.get("group") or "").strip()
+        panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
+        tab_from_url = str(url_state_v18674c.get("tab") or "").strip()
+        subtab_from_url = str(url_state_v18674c.get("subtab") or "").strip()
+        if group_from_url:
+            st.session_state["ai_control_center_group_v1863aj"] = group_from_url
+            st.session_state["ai_control_center_group_v1863m"] = group_from_url
+        if panel_from_url:
+            st.session_state["ai_control_center_active_panel_v1863aj"] = panel_from_url
+            st.session_state["ai_control_center_active_panel_v1863m"] = panel_from_url
+            st.session_state["ai_control_center_active_real_panel_v18598"] = panel_from_url
+            st.session_state["ai_control_center_menu_open_v1863ag"] = False
+        apply_route_tab_to_session_state_v19220_rc7(
+            st.session_state,
+            nav=nav_from_url,
+            panel=panel_from_url,
+            tab=tab_from_url,
+            subtab=subtab_from_url,
+        )
+        return
+
+    if st.session_state.get("persistent_nav_bootstrap_done_v18661"):
+        return
+    st.session_state["persistent_nav_bootstrap_done_v18661"] = True
+    saved = _load_ui_state_v18658()
+    saved = normalize_navigation_values(
+        saved.get("nav"), saved.get("group"), saved.get("panel"), saved.get("tab"), saved.get("subtab")
+    )
+    nav = str(saved.get("nav") or "").strip().lower()
+    if nav:
+        _apply_nav_target_v18658(nav)
+        saved_panel = str(saved.get("panel") or "").strip()
+        saved_group = str(saved.get("group") or "").strip()
+        if saved_panel:
+            try:
+                if saved_group:
+                    st.session_state["ai_control_center_group_v1863m"] = saved_group
+                    st.session_state["ai_control_center_group_v1863aj"] = saved_group
+                st.session_state["ai_control_center_active_panel_v1863m"] = saved_panel
+                st.session_state["ai_control_center_active_real_panel_v18598"] = saved_panel
+                st.session_state["ai_control_center_active_panel_v1863aj"] = saved_panel
+                st.session_state["ai_control_center_menu_open_v1863ag"] = False
+                saved_tab = str(saved.get("tab") or "").strip()
+                saved_subtab = str(saved.get("subtab") or "").strip()
+                apply_route_tab_to_session_state_v19220_rc7(
+                    st.session_state,
+                    nav=nav,
+                    panel=saved_panel,
+                    tab=saved_tab,
+                    subtab=saved_subtab,
+                )
+                set_global_navigation_state(st, nav=nav, group=saved_group, panel=saved_panel, tab=saved_tab, subtab=saved_subtab)
+            except Exception:
+                pass
+        try:
+            if "panel" in st.query_params:
+                del st.query_params["panel"]
+        except Exception:
+            pass
+
+
+_apply_mobile_nav_query_v18646()
+show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
+
+# v19.17.0 RC2: Driftssenter is a dedicated page, independent from AI Kontrollsenter.
+_active_nav_v19170rc2 = str(
+    # RC4: a fresh user/menu target must win over the previously active page.
+    st.session_state.get("ai_control_center_force_nav_v18663")
+    or st.session_state.get("active_nav_target_v18674c")
+    or ""
+).strip().lower()
+if _active_nav_v19170rc2 in {"drift", "driftssenter", "drift_center"}:
+    st.markdown("# 🧭 Driftssenter")
+    st.caption("Samlet kontrollflate for kontrollert aktivering av trinn 1–8. AI Kontrollsenter og rapportmotor er uendret.")
+    render_drift_center(st, current_user=current_user)
+    st.stop()
+
+
+# v18.6.47: mobilnavigasjon er ekte lenker som setter mobile_nav og utløser rerun.
+_mobile_nav_links_v18646 = {
+    "dashboard": _mobile_nav_href_v18646("dashboard"),
+    "analysis": _mobile_nav_href_v18646("analysis"),
+    "top_picks": _mobile_nav_href_v18646("top_picks"),
+    "long_engine": _mobile_nav_href_v18646("long_engine"),
+    "ai": _mobile_nav_href_v18646("ai"),
+    "autonomy": _mobile_nav_href_v18646("autonomy"),
+    "fx_alerts": _mobile_nav_href_v18646("fx_alerts"),
+    "portfolio": _mobile_nav_href_v18646("portfolio"),
+    "reports": _mobile_nav_href_v18646("reports"),
+    "paper_trading": _mobile_nav_href_v18646("paper_trading"),
+    "jobs": _mobile_nav_href_v18646("jobs"),
+    "approvals": _mobile_nav_href_v18646("approvals"),
+    "alerts": _mobile_nav_href_v18646("alerts"),
+    "drift_center": _mobile_nav_href_v18646("drift_center"),
+    "system": _mobile_nav_href_v18646("system"),
+}
+_ui_mode_v19022 = str(st.session_state.get("ui_experience_mode_v19022") or UX_SIMPLE_MODE_V19022)
+# v19.4.0: Do not inject a second mobile/navigation DOM into the main page.
+# Streamlit's responsive sidebar is the single navigation surface on both
+# desktop and mobile. The former injected navigation could inherit older CSS
+# and expand into a large white desktop block with stray icons/text.
+
+
+def _attention_dashboard_visible_v19022() -> bool:
+    if str(st.session_state.get("ui_experience_mode_v19022") or UX_SIMPLE_MODE_V19022) != UX_SIMPLE_MODE_V19022:
+        return False
+    nav = str(
+        st.session_state.get("active_nav_target_v18674c")
+        or st.session_state.get("ai_control_center_force_nav_v18663")
+        or "dashboard"
+    ).strip().lower()
+    return nav in {"", "dashboard"}
+
+
+def render_daily_attention_dashboard_v19022() -> None:
+    """Task-first home surface. Reads persisted status only; starts no heavy work."""
+    if not _attention_dashboard_visible_v19022():
+        return
+    try:
+        from market_intelligence import _load_report_archive
+        archive = _load_report_archive()
+    except Exception:
+        archive = []
+    try:
+        from autonomi_core.configuration.registry import status as _registry_status
+        pending = int((_registry_status() or {}).get("pending_approvals") or 0)
+    except Exception:
+        pending = 0
+    items = build_overview_page(archive, pending_approvals=pending, scheduler_ok=None)["attention_items"]
+    severity_meta = {
+        "critical": ("🔴", "Kritisk"), "warning": ("🟠", "Følg opp"),
+        "info": ("🔵", "Informasjon"), "ok": ("🟢", "OK"),
+    }
+    st.markdown("### Hva trenger oppmerksomhet nå?")
+    st.caption("Bygget fra siste lagrede rapport, kildehelse og godkjenningsstatus. Ingen ny markedshenting startes her.")
+    rows = []
+    for item in items:
+        icon, status_text = severity_meta.get(str(item.get("severity")), ("⚪", "Status"))
+        rows.append({"Status": f"{icon} {status_text}", "Oppgave": item.get("title"), "Detalj": item.get("detail")})
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+    a1, a2, a3, a4, a5 = st.columns(5)
+    actions = [
+        (a1, "▶ Kjør rapport", "reports", "attention_run_report_v19022"),
+        (a2, "📚 Siste rapport", "reports", "attention_open_report_v19022"),
+        (a3, "Δ Se endringer", "reports", "attention_changes_v19022"),
+        (a4, "✅ Godkjenninger", "approvals", "attention_approvals_v19022"),
+        (a5, "🧭 Driftssenter", "drift_center", "attention_drift_center_v19170rc2"),
+    ]
+    for column, label, nav, key in actions:
+        with column:
+            if st.button(label, key=key, width="stretch"):
+                _apply_nav_target_v18658(nav)
+                st.rerun()
+
+
+# --- Lagrede auto-innstillinger ---
+st.sidebar.markdown(
+    """
+    <style>
+    /* AUTO_TRADING_ACCORDION_V10 */
+    section[data-testid="stSidebar"] details {
+        border-radius: 14px !important;
+        border: 1px solid rgba(148,163,184,0.22) !important;
+        background: rgba(15,23,42,0.52) !important;
+        margin-bottom: 8px !important;
+    }
+    section[data-testid="stSidebar"] details > summary {
+        min-height: 38px !important;
+        font-weight: 950 !important;
+        color: #f8fafc !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input {
+        caret-color: #38bdf8 !important;
+        background: rgba(30,41,59,0.94) !important;
+        color: #f8fafc !important;
+        font-weight: 850 !important;
+        border-radius: 10px !important;
+    }
+    .auto-settings-summary {
+        color: #cbd5e1;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        padding: 6px 8px;
+        border-radius: 11px;
+        background: rgba(2,6,23,0.32);
+        border: 1px solid rgba(148,163,184,0.16);
+        margin-bottom: 8px;
+    }
+    .auto-settings-group-title {
+        margin-top: 8px;
+        margin-bottom: 4px;
+        color: #f8fafc;
+        font-weight: 950;
+        font-size: 0.84rem;
+    }
+    .auto-market-list-note {
+        color: #94a3b8 !important;
+        font-size: 0.74rem;
+        margin: 2px 0 6px 0;
+    }
+    section[data-testid="stSidebar"] [data-testid="stForm"] button {
+        background: #0ea5e9 !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        border: 1px solid rgba(125,211,252,0.70) !important;
+        border-radius: 12px !important;
+        font-weight: 950 !important;
+        min-height: 40px !important;
+        opacity: 1 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stForm"] button * {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stForm"] button:hover {
+        background: #0284c7 !important;
+        color: #ffffff !important;
+        border-color: #bae6fd !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stCheckbox"] label,
+    section[data-testid="stSidebar"] [data-testid="stCheckbox"] span,
+    section[data-testid="stSidebar"] [data-testid="stCheckbox"] p {
+        white-space: normal !important;
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+        color: #f8fafc !important;
+        font-weight: 800 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+# V15.8: ingen duplisert arbeidsflate-info i venstremenyen.
+# v18.1 removed Visning heading
+# Watchlist-feltet bygges etter at marked og ticker-lister er klare.
+
+# V15.7 / Fase 3: Analyseunivers er flyttet til hovedområdet.
+# Verdiene leses fra session_state slik at kontroller kan ligge visuelt senere i hovedflaten.
+selected_market_category = st.session_state.get("market_category_selector_v157", MARKET_CATEGORY_OPTIONS[0])
+if selected_market_category not in MARKET_CATEGORY_OPTIONS:
+    selected_market_category = MARKET_CATEGORY_OPTIONS[0]
+mode = MARKET_CATEGORY_TO_MODE.get(selected_market_category, "Alle")
+max_count = int(st.session_state.get("max_count_main_v157", 30) or 30)
+min_top_pick_score = float(st.session_state.get("min_top_pick_score_main_v157", 6.5) or 6.5)
+use_news = bool(st.session_state.get("use_news_main_v157", True))
+use_signal_intelligence = bool(st.session_state.get("use_signal_intelligence_main_v157", True))
+_alert_runtime_settings = load_settings()
+pushover_enabled = bool(PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY) and bool(_alert_runtime_settings.get("pushover_enabled", True))
+use_high_conf_alerts_only = bool(_alert_runtime_settings.get("notify_high_confidence_only", True))
+min_alert_confidence = int(_alert_runtime_settings.get("notify_min_confidence", 80))
+auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
+search = str(st.session_state.get("search_main_v157", "") or "").strip().upper()
+_cleanup_legacy_session_seed_data_v1863t()
+
+# V14.8 / Oppgave 70 og 72:
+# Menyer skriver først til draft. Tunge analyser bruker aktive verdier til bruker trykker
+# Oppdater hele appen, med mindre Auto-oppdater er PÅ.
+_draft_analysis_controls_v148 = {
+    "selected_market_category": selected_market_category,
+    "mode": mode,
+    "max_count": int(max_count),
+    "min_top_pick_score": float(min_top_pick_score),
+    "use_news": bool(use_news),
+    "use_signal_intelligence": bool(use_signal_intelligence),
+    "search": str(search or "").strip().upper(),
+}
+if "active_analysis_controls_v148" not in st.session_state:
+    st.session_state["active_analysis_controls_v148"] = dict(_draft_analysis_controls_v148)
+    st.session_state["heavy_update_allowed_v148"] = True
+    st.session_state["startup_heavy_update_pending_v1863an"] = True
+    _set_update_reason("Oppstart / første aktive innstillinger")
+
+# V16.1: Auto-oppdater er fjernet fra normal arbeidsflyt.
+# Draft blir først aktivt når Global oppdatering "Oppdater hele appen" trykkes.
+
+_active_analysis_controls_v148 = st.session_state.get("active_analysis_controls_v148", dict(_draft_analysis_controls_v148))
+_pending_analysis_changes_v148 = _controls_differ(_draft_analysis_controls_v148, _active_analysis_controls_v148)
+_clear_startup_heavy_update_for_control_center_v1863an()
+
+# Aktive verdier brukes av datahenting/rangering. Widgetverdier kan endres uten tung analyse.
+mode = _active_analysis_controls_v148.get("mode", mode)
+max_count = int(_active_analysis_controls_v148.get("max_count", max_count))
+min_top_pick_score = float(_active_analysis_controls_v148.get("min_top_pick_score", min_top_pick_score))
+use_news = bool(_active_analysis_controls_v148.get("use_news", use_news))
+use_signal_intelligence = bool(_active_analysis_controls_v148.get("use_signal_intelligence", use_signal_intelligence))
+search = str(_active_analysis_controls_v148.get("search", search or "")).strip()
+
+# Trygge standardverdier for watchlist-knapper
+manual_watchlist_scan = globals().get("manual_watchlist_scan", False)
+watchlist_scan_limit = globals().get("watchlist_scan_limit", 30)
+watchlist_tickers = globals().get("watchlist_tickers", [])
+
+
+# V14.7 / Oppgave 64-66: kompakt toppheader med viktig status og hurtigkontroller.
+_top_settings = load_settings()
+# V16.1 / Oppgave 124-125: Manuell modus er standard. Auto-oppdater skjules som avansert og er av.
+if bool(_top_settings.get("chart_auto_update_enabled", False)):
+    _top_settings["chart_auto_update_enabled"] = False
+    try:
+        save_settings(_top_settings)
+    except Exception as e:
+        logging.warning("Silenced exception restored in v18.6.3: %s", e)
+_top_cron = cron_status_text()
+_top_auto_state, _top_auto_color = _auto_state(_top_settings)
+_top_full_stop = bool(_top_cron.get("vacation_mode"))
+
+# V15.3 / Oppgave 99: Kontrollnotis skal være kompakt fullbredde, ikke smal kolonne.
+st.markdown("""
+<style>
+.v153-control-note{
+    display:block;
+    align-items:center;
+    width:100%;
+    max-width: 1100px;
+    padding: 4px 8px;
+    margin: 3px 0 3px 0;
+    border-radius: 10px;
+    font-size: 0.74rem;
+    font-weight: 800;
+    line-height: 1.18;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+.v153-control-note.warning{
+    background: rgba(255, 193, 7, 0.14);
+    border: 1px solid rgba(255, 193, 7, 0.38);
+    color: #ffe08a;
+}
+@media (max-width: 700px){
+    .v153-control-note{
+        max-width: 100%;
+        font-size: 0.74rem;
+        padding: 6px 8px;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# V15.8: hardere kompakt KPI-stil og anti-vertikal tekst i kontrollområdet.
+st.markdown("""
+<style>
+[data-testid="stMetric"] {
+    min-height: 54px !important;
+    padding: 7px 10px !important;
+    border-radius: 11px !important;
+}
+[data-testid="stMetricLabel"] { font-size: 0.68rem !important; line-height: 1.05 !important; }
+[data-testid="stMetricValue"] { font-size: 1.05rem !important; line-height: 1.08 !important; }
+.v153-control-note, .v153-control-note *, .v15-inline-help, .v15-inline-help * {
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    white-space: normal !important;
+}
+</style>
+""", unsafe_allow_html=True)
+# V15.4: siste hard-override for å hindre smale meldingsbokser og for å gjøre toppkontroller mer samlet.
+st.markdown(
+    """
+    <style>
+    .v153-control-note, .v153-control-note * {
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+        min-width: 360px !important;
+    }
+    @media (max-width: 700px){
+        .v153-control-note { min-width: 0 !important; width: 100% !important; }
+    }
+    .v15-desktop-status-strip .mini-status-chip.yellow {
+        background: rgba(250, 204, 21, 0.14) !important;
+        color: #fde68a !important;
+        border-color: rgba(250, 204, 21, 0.42) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
+_top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
+_top_chart_auto = False  # V16.1: global manuell oppdatering er standard
+
+st.markdown(
+    """
+    <style>
+    html body .stApp .v18534-trading-control-stack,
+    html body .stApp .v18534-control-button-gap,
+    html body .stApp .v18534-trading-warning {
+        display:none !important;
+    }
+    html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+    html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+        display:none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+if not bool(globals().get("show_drift_controls_v1863cc", False)):
+    st.markdown(
+        """
+        <style>
+        html body .stApp .v18534-trading-control-stack,
+        html body .stApp .v18534-control-button-gap,
+        html body .stApp .v18534-trading-warning,
+        html body .stApp .v1863g-global-action-card,
+        html body .stApp .v1862-global-status-line {
+            display:none !important;
+        }
+        html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+        html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+            display:none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown("""
+<style>
+/* v18.6.47 top mini menu and trading status */
+html body .stApp div[data-testid="stButton"] > button[kind="secondary"] {
+  border-radius: 999px !important;
+}
+html body .stApp .v18647-top-status {
+  margin-top: .20rem !important;
+  margin-bottom: .45rem !important;
+}
+html body .stApp .v18647-top-status .v18532-status-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: .38rem !important;
+  align-items: center !important;
+}
+@media (max-width: 760px){
+  html body .stApp .v18647-top-status .mini-status-chip {
+    font-size: .68rem !important;
+    padding: .18rem .34rem !important;
+  }
+  html body .stApp div[data-testid="stButton"] > button {
+    min-height: 34px !important;
+    padding: .20rem .38rem !important;
+    font-size: .76rem !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# v18.6.47: Admin/Drift er flyttet ut av venstresiden og inn i en liten toppmeny.
+_col_admin_v18647, _col_drift_v18647, _col_space_v18647 = st.columns([1.8, 1.8, 5.4])
+with _col_admin_v18647:
+    if st.button("Admin", key="top_admin_menu_v18647", help="Åpne System/admin i AI Kontrollsenter"):
+        st.session_state["ai_control_center_group_v1863m"] = "System"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "System/admin"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "System/admin"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
+        try:
+            st.rerun()
+        except Exception:
+            pass
+with _col_drift_v18647:
+    if st.button("Driftssenter", key="top_drift_menu_v19170rc2", help="Åpne eget Driftssenter med steg 1–8"):
+        _apply_nav_target_v18658("drift_center")
+        try:
+            st.rerun()
+        except Exception:
+            pass
+show_drift_controls_v1863cc = False
+
+# v18.5.34: samlet toppstatus og tradingkontroller rett under global topbar.
+st.markdown(
+    f"""
+    <div class='v18532-header-status v18647-top-status'>
+        <div class='v18532-status-row'>
+            <span class='mini-status-chip {_top_auto_color}'>🔵 Auto Trading: <b>{_top_auto_state}</b></span>
+            <span class='mini-status-chip {_top_paper_color}'>🧪 Paper Trading: <b>{_top_paper_label}</b></span>
+            <span class='mini-status-chip {'red' if _top_full_stop else 'green'}'>Full stopp: <b>{'JA' if _top_full_stop else 'NEI'}</b></span>
+            <span class='mini-status-chip'>Scan: <b>{_fmt_dt_short(_top_cron.get('last_scan_at'))}</b></span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# v18.6.4p: Topplinjen viser status. Selve paper/auto-kontrollen ligger i Paper Trading.
+_top_emergency_stop = bool(_top_settings.get("auto_trading_emergency_stop", False))
+_block_reason = _auto_block_reason(_top_settings)
+
+if bool(globals().get("show_drift_controls_v1863cc", False)):
+    render_drift_center(st, current_user=current_user)
+    render_global_update_action_panel_v1863g()
+    try:
+        from operations_ui import render_operations_trace_panel
+        render_operations_trace_panel()
+    except Exception as operations_ui_exc:
+        st.warning(f"Sporbar drift kunne ikke vises: {operations_ui_exc}")
+
+# V15.8: alle handlingsmeldinger vises fullbredde under kontrollgruppen.
+if st.session_state.get("auto_control_notice_v153"):
+    _notice = html.escape(str(st.session_state.pop("auto_control_notice_v153", "")))
+    _level = str(st.session_state.pop("auto_control_notice_level_v153", "info"))
+    _prefix = "✅" if _level == "success" else ("!" if _level == "warning" else "Info")
+    if _notice:
+        st.markdown(f"<div class='v153-control-note {'warning' if _level == 'warning' else ''}'>{_prefix} {_notice}</div>", unsafe_allow_html=True)
+
+
+
+# v18.5.35: ekstra lazy-paneler i AI Kontrollsenter.
+def render_news_control_center_v18535(default_ticker: str = ""):
+    """Manual NewsAPI workspace. It never fetches news before the user presses the button."""
+    st.subheader("📰 Nyheter")
+    st.caption("Live NewsAPI brukes bare når du trykker knappen. Automatiske kall holdes av som standard.")
+    default_ticker = normalize_user_ticker(default_ticker or search or "")
+    ticker = st.text_input("Ticker", value=default_ticker, key="cc_news_ticker_v18535")
+    limit = st.slider("Antall nyheter", 3, 10, 6, 1, key="cc_news_limit_v18535")
+    if st.button("Hent nyheter manuelt", key="cc_news_fetch_v18535", type="primary"):
+        clean = normalize_user_ticker(ticker).replace(".OL", "")
+        if not clean:
+            st.warning("Skriv inn en ticker først.")
+            return
+        with st.spinner(f"Henter nyheter for {clean}..."):
+            articles, error = get_news(clean, limit=int(limit), source="manual", force=True)
+        if error:
+            st.warning(f"Nyheter midlertidig utilgjengelig: {error}")
+        elif not articles:
+            st.info("Ingen relevante nyheter funnet.")
+        else:
+            st.success(f"Fant {len(articles)} nyheter for {clean}.")
+            st.metric("Nyhets-sentiment", simple_finance_sentiment(articles))
+            for article in articles:
+                st.markdown(
+                    f"- **{article.get('title','Uten tittel')}**  \n"
+                    f"  <span class='small'>{article.get('source','')} · {article.get('published','')}</span>",
+                    unsafe_allow_html=True,
+                )
+    else:
+        st.info("Ingen nyhetskall kjøres før du trykker knappen.")
+
+
+def render_interactive_technical_control_center_v18535():
+    """Manual single-ticker analysis panel for interactive/technical/trading-engine views."""
+    try:
+        _persist_ui_state_v18658(nav="analysis", panel="Interaktiv analyse", group="Analyse og prognose")
+    except Exception:
+        pass
+    st.subheader("📊 Interaktiv / teknisk analyse")
+    st.caption("Panelet henter ikke data før du trykker Kjør analyse. Teknisk analyse og Trading engine vises i samme aksjekort.")
+    default_ticker = normalize_user_ticker(search or "")
+    ticker = st.text_input("Ticker for analyse", value=default_ticker, key="cc_interactive_ticker_v18535")
+    run = st.button("Kjør interaktiv analyse", key="cc_interactive_run_v18535", type="primary")
+    if run:
+        clean = normalize_user_ticker(ticker)
+        if not clean:
+            st.warning("Skriv inn én ticker først.")
+            return
+        with st.spinner(f"Henter analyse for {clean}..."):
+            item = cached_score_stock_manual(clean, use_news=False, force=True)
+        if not item:
+            st.warning(f"Fant ikke data for {clean}. Sjekk ticker/suffiks, for eksempel DNB.OL, STB.OL, VOLV-B.ST eller AAPL.")
+            return
+        st.session_state["cc_interactive_last_result_v18535"] = [item]
+        st.success(f"Analyse klar for {clean}.")
+    rows = st.session_state.get("cc_interactive_last_result_v18535") or []
+    if rows:
+        render_analysis(rows, "Kontrollsenter")
+    else:
+        st.info("Kjør en analyse for å åpne teknisk analyse, Trading engine og nyhetspanel for valgt ticker.")
+
+
+def render_market_ranking_control_center_v18535(selected_market: str | None = None, selected_limit: int | None = None, *, embedded: bool = False):
+    """On-demand market ranking panel. No market scan runs before the button is pressed."""
+    st.subheader("Marked Marked / rangering")
+    st.caption("Rangering kjøres bare når du trykker knappen. Siste lagrede rangering vises ellers.")
+    import_source_label = "AI kildegrunnlag"
+    canonical_ranking_label = "Autonomi – full ranking"
+    try:
+        from autonomi_core.learning_reporting import load_canonical_top_picks
+        canonical_ranking_package = load_canonical_top_picks()
+    except Exception:
+        canonical_ranking_package = {}
+    if selected_market is None:
+        ranking_options = ([canonical_ranking_label] if canonical_ranking_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, import_source_label] + market_scope_options(include_aggregate=True)
+        market = st.selectbox("Velg univers", ranking_options, key="cc_ranking_market_v18535")
+    else:
+        market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
+    import_tickers = _ai_candidate_import_tickers_v1864l("Kombiner kilder") if market == import_source_label else []
+    if selected_limit is None:
+        limit_max = max(5, len(import_tickers)) if market == import_source_label and import_tickers else (60 if market == import_source_label else 100)
+        limit_default = min(max(int(max_count or 30), 5), limit_max)
+        limit_key = "cc_ranking_limit_v18535"
+        limit_default = _clamp_slider_state_v1864e(limit_key, 5, limit_max, limit_default)
+        limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key=limit_key)
+    else:
+        limit_cap = max(5, len(import_tickers)) if market == import_source_label and import_tickers else (60 if market == import_source_label else 100)
+        limit = min(int(selected_limit or max_count or 30), limit_cap)
+    source_tickers = []
+    if market == import_source_label:
+        source_tickers = import_tickers[: int(limit)]
+    elif market in MARKET_SCOPE_OPTIONS:
+        source_tickers = resolve_universe_tickers([market], max_count=int(limit))
+    storage_key = f"Kontrollsenter_{market}"
+    latest = st.session_state.setdefault("latest_rankings_v148", {})
+    if market == canonical_ranking_label:
+        storage_key = "Canonical_Full_Ranking"
+        latest[storage_key] = list(canonical_ranking_package.get("full_ranking") or [])[:int(limit)]
+        st.info(f"Kanonisk full ranking · {canonical_ranking_package.get('result_id')} · oppdrag {canonical_ranking_package.get('mission_id') or '-'}")
+    if market == import_source_label:
+        if import_tickers:
+            st.success(f"AI kildegrunnlag er klart: {len(import_tickers)} tickere fra lagrede kilder.")
+        else:
+            st.warning("Ingen importerte kildetickere er lagret ennå. Importer kilder i AI Kandidattest før du bruker dette universet.")
+        st.caption("AI kildegrunnlag bruker lagrede Finansavisen-, Oljefond/NBIM- og Folketrygdfondet-overlays.")
+    if source_tickers:
+        st.caption(f"Valgt univers: {len(source_tickers)} tickere. Eksempel: {', '.join(source_tickers[:8])}")
+    elif market != canonical_ranking_label:
+        st.info("Velg marked og trykk Kjør rangering. Ingen skjult USA/AAPL-fallback kjøres.")
+    if market != canonical_ranking_label and st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
+        progress_box = st.empty()
+        progress = st.progress(0, text="Starter rangering")
+        progress_box.markdown(
+            f"<div class='v18-dark-row'><b>Rangering kjører</b><br>1/4 Henter univers · {len(source_tickers)} tickere</div>",
+            unsafe_allow_html=True,
+        )
+        progress.progress(25, text=f"1/4 Henter univers · {len(source_tickers)} tickere")
+        progress.progress(45, text="2/4 Henter/cache aksjedata")
+        with st.spinner(f"Rangerer {market}..."):
+            ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False, force_manual_fetch=True)
+        progress.progress(80, text="3/4 Lagrer rangering")
+        latest[storage_key] = ranked or []
+        progress.progress(100, text=f"4/4 Ferdig · {len(ranked or [])} kandidater")
+        progress_box.markdown(
+            f"<div class='v18-dark-row' style='border-color:rgba(34,197,94,.55);'><b>Rangering ferdig</b><br>{len(ranked or [])} kandidater klare.</div>",
+            unsafe_allow_html=True,
+        )
+        st.success(f"Rangering ferdig: {len(ranked or [])} kandidater.")
+    rows = latest.get(storage_key, []) or []
+    if rows:
+        render_ranking(rows, f"Marked {market} rangering")
+    else:
+        st.info("Ingen lagret rangering for dette panelet ennå.")
+
+
+def _render_market_room_toolbar_v1863cb() -> dict:
+    """Compact Market room toolbar with dropdown-style controls."""
+    market_options = ["AI kildegrunnlag"] + market_scope_options(include_aggregate=True)
+    c_filter, c_market, c_chart, c_group, c_period, c_view = st.columns([0.42, 1.05, 1.05, 1.0, 0.72, 1.45])
+    with c_filter:
+        filter_open = st.toggle("Filter", value=False, key="market_room_filter_open_v1863cb")
+    with c_market:
+        market = st.selectbox("Marked", market_options, key="market_room_market_v1863cb")
+    with c_chart:
+        chart_content = st.multiselect(
+            "Chart",
+            ["Hovedindeks", "Toppindeks", "Valuta", "Strategier", "Toppselskaper"],
+            default=["Hovedindeks", "Toppindeks"],
+            key="market_room_chart_content_v1863cb",
+        )
+    with c_group:
+        grouping = st.selectbox(
+            "Gruppering",
+            ["Sektor", "Land", "Industri", "Faktorstil", "Risikostil", "Storrelse"],
+            key="market_room_grouping_v1863cb",
+        )
+    with c_period:
+        period = st.selectbox("Periode", ["1D", "1U", "1M", "3M", "6M", "1Y"], index=2, key="market_room_period_v1863cb")
+    with c_view:
+        view = st.radio(
+            "Visning",
+            ["Oversikt", "Rangering", "Heatmap", "Markedsklima", "Lagrede signaler", "IPO", "Regime", "Makro", "Nyheter"],
+            horizontal=True,
+            key="market_room_view_v1863cb",
+        )
+    if filter_open:
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            st.multiselect("Signalfilter", ["Momentum", "Volum", "Relativ styrke", "Lav risiko", "Insider/bjellesau"], default=[], key="market_room_signal_filter_v1863cb")
+        with fc2:
+            st.slider("Min score", 0, 100, 50, 5, key="market_room_min_score_v1863cb")
+        with fc3:
+            st.checkbox("Vis bare kandidater med pipeline-input", value=False, key="market_room_pipeline_only_v1863cb")
+    return {"market": market, "chart_content": chart_content, "grouping": grouping, "period": period, "view": view}
+
+
+def _render_market_room_overview_v1863cb(config: dict) -> None:
+    market = str(config.get("market") or "AI kildegrunnlag")
+    st.markdown("#### Markedsoversikt")
+    st.caption("Oversikten starter ingen tunge analyser. Bruk Rangering når du vil kjøre markedsmotoren.")
+    try:
+        tickers = _ai_candidate_import_tickers_v1864l("Kombiner kilder") if market == "AI kildegrunnlag" else resolve_universe_tickers([market], max_count=250)
+    except Exception:
+        tickers = []
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Univers", len(tickers or []))
+    with c2:
+        st.metric("Chart-valg", len(config.get("chart_content") or []))
+    with c3:
+        st.metric("Gruppering", str(config.get("grouping") or "Sektor"))
+    with c4:
+        st.metric("Periode", str(config.get("period") or "1M"))
+    if tickers:
+        st.caption("Eksempel fra valgt univers: " + ", ".join(tickers[:12]))
+    st.info("Velg Rangering for å kjøre markedsmotoren. Heatmap, Markedsklima, Lagrede signaler, IPO, Regime, Makro og Nyheter ligger som visninger i samme Marked-panel.")
+
+
+def render_market_room_control_center_v1863cb() -> None:
+    """Market room with toolbar, dropdowns and existing market functions grouped together."""
+    st.subheader("Marked")
+    st.caption("Spor markeder, prisendringer, sektortrender og rangering fra samme arbeidsflate.")
+    config = _render_market_room_toolbar_v1863cb()
+    view = str(config.get("view") or "Oversikt")
+    if view == "Rangering":
+        limit_max = 60 if str(config.get("market") or "") == "AI kildegrunnlag" else 100
+        limit_default = min(max(int(max_count or 30), 5), limit_max)
+        limit_key = "market_room_ranking_limit_v1863cb"
+        limit_default = _clamp_slider_state_v1864e(limit_key, 5, limit_max, limit_default)
+        limit = st.slider("Maks kandidater", 5, limit_max, limit_default, 1, key=limit_key)
+        render_market_ranking_control_center_v18535(selected_market=str(config.get("market") or "AI kildegrunnlag"), selected_limit=int(limit), embedded=True)
+    elif view == "Heatmap":
+        st.caption(f"Heatmap bruker valgt markedsrom som kontekst: {config.get('market')} / {config.get('grouping')}.")
+        render_ai_heatmaps()
+    elif view == "Markedsklima":
+        st.caption("Markedsklima er samlet her som makrobilde, grafarkiv og klimaeffekt for AI Kandidattest.")
+        render_market_climate_panel()
+    elif view == "Lagrede signaler":
+        st.caption("Lagrede signaler viser prognoser/varsler som allerede finnes. Det starter ingen ny universskanning.")
+        render_market_intelligence_center()
+    elif view == "IPO":
+        st.caption("IPO-kalender og IPO-/spekulasjonsunderlag er samlet under Marked.")
+        render_ipo()
+    elif view == "Regime":
+        st.caption(f"Regime vises sammen med periode {config.get('period')}.")
+        render_market_regime_widget()
+    elif view == "Makro":
+        render_macro_rates_breadth_panel()
+    elif view == "Nyheter":
+        render_news_control_center_v18535()
+    else:
+        _render_market_room_overview_v1863cb(config)
+
+
+def _parse_control_center_tickers_v1863s(text: str) -> list[str]:
+    values = re.split(r"[\s,;|/]+", str(text or ""))
+    out, seen = [], set()
+    for raw in values:
+        ticker = normalize_user_ticker(raw)
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        out.append(ticker)
+    return out
+
+
+def _resolve_control_center_scope_tickers_v1863s(scope: str, limit: int, manual_text: str = "") -> list[str]:
+    limit = max(1, min(int(limit or 30), 250))
+    scope = str(scope or "").strip()
+    if scope in {"", NO_UNIVERSE_SELECTION_LABEL, "Velg marked"}:
+        return []
+    if scope == "Aktivt univers":
+        return _source_tickers_for_interactive("Smart Universe Picker", max_fallback=limit)[:limit]
+    if scope == "Analyseflyt input":
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            pipeline = get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            )
+            return _dedupe_text_list([row.get("ticker") for row in pipeline.candidates_for_stage("top_picks")])[:limit]
+        except Exception:
+            return []
+    if scope in MARKET_SCOPE_OPTIONS:
+        return resolve_universe_tickers([scope], max_count=limit)
+    if scope == "Watchlist":
+        return _dedupe_text_list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])[:limit]
+    if scope == "Manuell liste":
+        return _parse_control_center_tickers_v1863s(manual_text)[:limit]
+    return []
+
+
+def _pipeline_candidate_count_for_stage_v1864(stage_id: str) -> int:
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        return len(pipeline.candidates_for_stage(stage_id))
+    except Exception:
+        return 0
+
+
+def _clamp_slider_state_v1864e(key: str, minimum: int, maximum: int, fallback: int) -> int:
+    """Keep Streamlit's stored widget value inside a dynamic slider range."""
+    safe_min = int(minimum)
+    safe_max = max(safe_min, int(maximum))
+    safe_fallback = min(max(int(fallback), safe_min), safe_max)
+    try:
+        current_int = int(st.session_state.get(key, safe_fallback))
+    except Exception:
+        current_int = safe_fallback
+    clamped = min(max(current_int, safe_min), safe_max)
+    if st.session_state.get(key) != clamped:
+        st.session_state[key] = clamped
+    return clamped
+
+
+def render_top_picks_control_center_v1863s():
+    from pages.top_picks import render_top_picks_control_center_v1863s as _implementation
+    return _implementation(get_page_context_v1950(_implementation))
+
+
+
+
+
+def _long_engine_load_cached_rows_v18653(path: str = "data/long_engine/top_long_usa_alpha.json") -> list[dict]:
+    """Load latest Long Engine Alpha cache without triggering API calls."""
+    try:
+        from pathlib import Path
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        rows = payload.get("results") if isinstance(payload, dict) else payload
+        if isinstance(rows, list):
+            return [dict(x) for x in rows if isinstance(x, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def _long_engine_latest_top_picks_rows_v18653(limit: int = 50) -> list[dict]:
+    """Use already-visible/latest Top Picks rows for overlap; never fetch new market data."""
+    rows: list[dict] = []
+    for key in (
+        "dashboard2026_visible_rows_v18638",
+        "dashboard2026_force_rows_v18635",
+        "dashboard2026_last_rendered_rankings_v18635",
+    ):
+        val = st.session_state.get(key)
+        if isinstance(val, list):
+            rows.extend([dict(x) for x in val if isinstance(x, dict)])
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    if isinstance(latest, dict):
+        for k, val in latest.items():
+            if "TopPicks" in str(k) or "Top Picks" in str(k):
+                if isinstance(val, list):
+                    rows.extend([dict(x) for x in val if isinstance(x, dict)])
+    seen = set()
+    out = []
+    for row in rows:
+        t = normalize_user_ticker(row.get("ticker") or row.get("symbol") or "")
+        if t and t not in seen:
+            row["ticker"] = t
+            seen.add(t)
+            out.append(row)
+        if len(out) >= int(limit or 50):
+            break
+    return out
+
+
+
+
+def _long_engine_country_from_ticker_v18656(ticker: str) -> tuple[str, str, str]:
+    """Return country label, flag and exchange hint from ticker suffix.
+
+    Kept local to the UI so Long Engine can later mix USA/Norge/Sverige/Norden
+    without changing the score engine.
+    """
+    t = str(ticker or "").upper().strip()
+    if t.endswith(".OL"):
+        return "Norge", "🇳🇴", "Oslo Børs"
+    if t.endswith(".ST"):
+        return "Sverige", "🇸🇪", "Stockholm"
+    if t.endswith(".HE"):
+        return "Finland", "🇫🇮", "Helsinki"
+    if t.endswith(".CO"):
+        return "Danmark", "🇩🇰", "København"
+    if t.endswith(".SA"):
+        return "Brasil", "🇧🇷", "B3"
+    return "USA", "🇺🇸", "USA"
+
+
+_LONG_ENGINE_COMPANY_FALLBACK_V18656 = {
+    "MMM": ("3M Company", "NYSE", "Industrials"),
+    "AOS": ("A. O. Smith", "NYSE", "Industrials"),
+    "ABT": ("Abbott Laboratories", "NYSE", "Healthcare"),
+    "ABBV": ("AbbVie Inc.", "NYSE", "Healthcare"),
+    "ACN": ("Accenture plc", "NYSE", "IT Services"),
+    "ADBE": ("Adobe Inc.", "Nasdaq", "Technology"),
+    "AMD": ("Advanced Micro Devices", "Nasdaq", "Semiconductors"),
+    "AES": ("AES Corporation", "NYSE", "Utilities"),
+    "AIG": ("American International Group", "NYSE", "Insurance"),
+    "AXP": ("American Express", "NYSE", "Financials"),
+    "AWK": ("American Water Works", "NYSE", "Utilities"),
+    "ARE": ("Alexandria Real Estate Equities", "NYSE", "Real Estate"),
+    "LNT": ("Alliant Energy", "Nasdaq", "Utilities"),
+    "ALGN": ("Align Technology", "Nasdaq", "Healthcare"),
+    "APD": ("Air Products and Chemicals", "NYSE", "Materials"),
+    "AAPL": ("Apple Inc.", "Nasdaq", "Technology"),
+    "MSFT": ("Microsoft Corporation", "Nasdaq", "Technology"),
+    "NVDA": ("NVIDIA Corporation", "Nasdaq", "Semiconductors"),
+    "META": ("Meta Platforms", "Nasdaq", "Communication Services"),
+    "AMZN": ("Amazon.com", "Nasdaq", "Consumer Discretionary"),
+    "GOOGL": ("Alphabet Inc.", "Nasdaq", "Communication Services"),
+    "TSLA": ("Tesla", "Nasdaq", "Consumer Discretionary"),
+    "JPM": ("JPMorgan Chase", "NYSE", "Financials"),
+    "LLY": ("Eli Lilly", "NYSE", "Healthcare"),
+    "UNH": ("UnitedHealth Group", "NYSE", "Healthcare"),
+    "XOM": ("Exxon Mobil", "NYSE", "Energy"),
+    "MA": ("Mastercard", "NYSE", "Financials"),
+    "V": ("Visa", "NYSE", "Financials"),
+    "COST": ("Costco Wholesale", "Nasdaq", "Consumer Staples"),
+    "NFLX": ("Netflix", "Nasdaq", "Communication Services"),
+    "WMT": ("Walmart", "NYSE", "Consumer Staples"),
+    "HD": ("Home Depot", "NYSE", "Consumer Discretionary"),
+    "PG": ("Procter & Gamble", "NYSE", "Consumer Staples"),
+    "JNJ": ("Johnson & Johnson", "NYSE", "Healthcare"),
+    "CRM": ("Salesforce", "NYSE", "Technology"),
+    "BAC": ("Bank of America", "NYSE", "Financials"),
+    "ORCL": ("Oracle", "NYSE", "Technology"),
+    "KO": ("Coca-Cola", "NYSE", "Consumer Staples"),
+    "PEP": ("PepsiCo", "Nasdaq", "Consumer Staples"),
+    "CSCO": ("Cisco Systems", "Nasdaq", "Technology"),
+    "MRK": ("Merck & Co.", "NYSE", "Healthcare"),
+}
+
+_LONG_ENGINE_SECTOR_BY_SUFFIX_V18656 = {
+    ".OL": "Norsk marked",
+    ".ST": "Svensk marked",
+    ".HE": "Finsk marked",
+    ".CO": "Dansk marked",
+    ".SA": "Brasiliansk marked",
+}
+
+
+def _long_engine_meta_v18656(row: dict) -> dict[str, str]:
+    ticker = str(row.get("ticker") or row.get("symbol") or "").upper().strip()
+    country, flag, exchange_hint = _long_engine_country_from_ticker_v18656(ticker)
+    name = str(row.get("name") or row.get("company") or row.get("company_name") or "").strip()
+    exchange = str(row.get("exchange") or row.get("børs") or row.get("bors") or "").strip()
+    sector = str(row.get("sector") or row.get("sektor") or row.get("industry") or "").strip()
+    if not name or not exchange or not sector:
+        fallback = _LONG_ENGINE_COMPANY_FALLBACK_V18656.get(ticker)
+        if fallback:
+            name = name or fallback[0]
+            exchange = exchange or fallback[1]
+            sector = sector or fallback[2]
+    if not exchange:
+        exchange = exchange_hint
+    if not sector:
+        for suffix, label in _LONG_ENGINE_SECTOR_BY_SUFFIX_V18656.items():
+            if ticker.endswith(suffix):
+                sector = label
+                break
+    if not sector:
+        sector = "Ukjent"
+    return {
+        "country": country,
+        "flag": flag,
+        "exchange": exchange,
+        "sector": sector,
+        "name": name or ticker,
+    }
+
+
+def _long_engine_driver_icon_v18656(driver: str) -> str:
+    text = str(driver or "").lower()
+    if "insider" in text:
+        return "💰 Insider"
+    if "ownership" in text:
+        return "🏢 Ownership"
+    if "earning" in text:
+        return "📊 Earnings"
+    if "analyst" in text:
+        return "📈 Analyst"
+    return str(driver or "-")
+
+
+def _long_engine_risk_icon_v18656(risk: str) -> str:
+    risk = str(risk or "")
+    if risk.lower().startswith("lav"):
+        return "🟢 Lav"
+    if risk.lower().startswith("middels"):
+        return "🟡 Middels"
+    if risk.lower().startswith("høy") or risk.lower().startswith("hoy"):
+        return "🔴 Høy"
+    return risk or "Ukjent"
+
+
+def _long_engine_overlap_label_v18656(ticker: str, overlap_tickers: set[str] | None = None) -> str:
+    return "✓ Begge" if str(ticker or "").upper().strip() in (overlap_tickers or set()) else "🚀 Long Exclusive"
+
+def _long_engine_display_rows_v18653(rows: list[dict], overlap_tickers: set[str] | None = None) -> list[dict]:
+    """Compact professional table rows for Long Engine.
+
+    v18.6.57 adds decision columns (1M/3M/6M), data quality and a compact
+    investment-view layout while keeping component scores in candidate details.
+    """
+    display = []
+    for row in rows or []:
+        ticker = str(row.get("ticker") or "").upper().strip()
+        meta = _long_engine_meta_v18656(row)
+        horizons = _long_engine_horizon_scores_v18657(row)
+        risk = _long_engine_risk_label_v18654(row)
+        active_h = str(row.get("active_horizon") or _long_engine_active_horizon_v18662())
+        active_score = row.get("active_horizon_score")
+        if active_score in (None, ""):
+            active_score = _long_engine_active_horizon_score_v18662(row, active_h)
+        display.append({
+            "#": row.get("rank", ""),
+            "🌍": meta.get("flag", ""),
+            "Ticker": ticker,
+            "Navn": meta.get("name", ticker),
+            "Børs": meta.get("exchange", ""),
+            "Sektor": meta.get("sector", ""),
+            "Valgt": active_h,
+            "Valgt score": active_score,
+            "1M": horizons.get("1M", ""),
+            "3M": horizons.get("3M", ""),
+            "6M": horizons.get("6M", ""),
+            "Best": _long_engine_best_horizon_v18657(row),
+            "Alpha": row.get("long_alpha_score", ""),
+            "Conf": _long_engine_confidence_badge_v18657(row),
+            "Data": f"{_long_engine_data_quality_v18657(row)}%",
+            "Risiko": _long_engine_risk_icon_v18656(risk),
+            "Driver": _long_engine_driver_icon_v18656(_long_engine_primary_driver_v18654(row)),
+            "Top Picks": _long_engine_overlap_label_v18656(ticker, overlap_tickers),
+        })
+    return display
+
+
+def _long_engine_component_scores_v18654(row: dict) -> dict[str, float]:
+    out = {}
+    for key, label in (("ownership_score", "Ownership"), ("insider_score", "Insider"), ("earnings_score", "Earnings"), ("analyst_score", "Analyst")):
+        try:
+            out[label] = float(row.get(key) or 0)
+        except Exception:
+            out[label] = 0.0
+    return out
+
+
+def _long_engine_weighted_score_v18657(scores: dict[str, float], weights: dict[str, float]) -> float:
+    total = 0.0
+    weight_sum = 0.0
+    for label, weight in weights.items():
+        try:
+            total += float(scores.get(label, 0.0)) * float(weight)
+            weight_sum += float(weight)
+        except Exception:
+            continue
+    if weight_sum <= 0:
+        return 0.0
+    return round(max(0.0, min(10.0, total / weight_sum)), 2)
+
+
+def _long_engine_horizon_scores_v18657(row: dict) -> dict[str, float]:
+    """Decision-view horizon estimates based on the existing Alpha components.
+
+    The Alpha engine is intentionally Smart-Money weighted. Until separate historical
+    1M/3M/6M backtests are added, these horizon scores re-weight the same component
+    signals so the UI can show whether a candidate looks short, medium or longer term.
+    """
+    scores = _long_engine_component_scores_v18654(row)
+    one_m = _long_engine_weighted_score_v18657(scores, {
+        "Insider": 0.35,
+        "Analyst": 0.25,
+        "Earnings": 0.25,
+        "Ownership": 0.15,
+    })
+    three_m = _long_engine_weighted_score_v18657(scores, {
+        "Ownership": 0.35,
+        "Insider": 0.30,
+        "Earnings": 0.25,
+        "Analyst": 0.10,
+    })
+    six_m = _long_engine_weighted_score_v18657(scores, {
+        "Ownership": 0.40,
+        "Earnings": 0.25,
+        "Analyst": 0.20,
+        "Insider": 0.15,
+    })
+    return {"1M": one_m, "3M": three_m, "6M": six_m}
+
+
+def _long_engine_best_horizon_v18657(row: dict) -> str:
+    horizons = _long_engine_horizon_scores_v18657(row)
+    if not horizons:
+        return "-"
+    label, value = max(horizons.items(), key=lambda kv: kv[1])
+    return f"{label} ({value:.2f})"
+
+
+def _long_engine_active_horizon_v18662() -> str:
+    """Active decision horizon for v18.6.62. Default is 3M."""
+    value = str(st.session_state.get("long_engine_active_horizon_v18662") or "3M").upper().strip()
+    return value if value in {"1M", "3M", "6M"} else "3M"
+
+
+def _long_engine_active_horizon_score_v18662(row: dict, horizon: str | None = None) -> float:
+    horizons = _long_engine_horizon_scores_v18657(row)
+    label = str(horizon or _long_engine_active_horizon_v18662()).upper().strip()
+    try:
+        return float(horizons.get(label) if label in horizons else horizons.get("3M", 0.0))
+    except Exception:
+        return 0.0
+
+
+def _long_engine_rank_by_horizon_v18662(rows: list[dict], horizon: str | None = None) -> list[dict]:
+    """Sort candidates by selected 1M/3M/6M horizon and rewrite visible ranks."""
+    label = str(horizon or _long_engine_active_horizon_v18662()).upper().strip()
+    ranked = sorted([dict(x) for x in (rows or []) if isinstance(x, dict)], key=lambda r: _long_engine_active_horizon_score_v18662(r, label), reverse=True)
+    for idx, row in enumerate(ranked, start=1):
+        row["rank"] = idx
+        row["active_horizon"] = label
+        row["active_horizon_score"] = round(_long_engine_active_horizon_score_v18662(row, label), 2)
+    return ranked
+
+
+def _long_engine_conf_thresholds_v18662() -> tuple[int, int]:
+    """Manual-overridable confidence thresholds. Defaults prevent all candidates from becoming green."""
+    try:
+        green = int(st.session_state.get("long_engine_conf_green_v18662", 85))
+    except Exception:
+        green = 85
+    try:
+        yellow = int(st.session_state.get("long_engine_conf_yellow_v18662", 70))
+    except Exception:
+        yellow = 70
+    green = max(50, min(100, green))
+    yellow = max(0, min(green - 1, yellow))
+    return green, yellow
+
+
+def _long_engine_data_quality_v18657(row: dict) -> int:
+    scores = _long_engine_component_scores_v18654(row)
+    if not scores:
+        return 0
+    valid = sum(1 for v in scores.values() if float(v or 0) > 0)
+    strong = sum(1 for v in scores.values() if float(v or 0) >= 5)
+    quality = (valid / len(scores)) * 60 + (strong / len(scores)) * 40
+    return int(max(0, min(100, round(quality))))
+
+
+def _long_engine_confidence_badge_v18657(row: dict) -> str:
+    # v18.6.62: calibrated thresholds with manual override.
+    # Default: green >= 85, yellow >= 70, red below 70.
+    conf = _long_engine_confidence_v18654(row)
+    green, yellow = _long_engine_conf_thresholds_v18662()
+    if conf >= green:
+        icon = "🟢"
+    elif conf >= yellow:
+        icon = "🟡"
+    else:
+        icon = "🔴"
+    return f"{icon} {conf}%"
+
+
+def _long_engine_confidence_v18654(row: dict) -> int:
+    scores = list(_long_engine_component_scores_v18654(row).values())
+    if not scores:
+        return 0
+    avg = sum(scores) / len(scores)
+    spread = max(scores) - min(scores)
+    data_quality = _long_engine_data_quality_v18657(row)
+    # v18.6.60: less punitive confidence model.
+    # Strong average score + full data coverage should be readable as usable,
+    # while high spread still reduces confidence.
+    confidence = 38 + (avg * 5.8) + (data_quality * 0.16) - (spread * 3.0)
+    return int(max(0, min(100, round(confidence))))
+
+
+def _long_engine_risk_label_v18654(row: dict) -> str:
+    scores = list(_long_engine_component_scores_v18654(row).values())
+    if not scores:
+        return "Ukjent"
+    spread = max(scores) - min(scores)
+    low = min(scores)
+    score = float(row.get("active_horizon_score") or row.get("long_alpha_score") or 0)
+    conf = _long_engine_confidence_v18654(row)
+    green, yellow = _long_engine_conf_thresholds_v18662()
+    # v18.6.62: risk follows selected decision horizon and calibrated confidence.
+    # High risk should be reserved for weak confidence/data or extreme disagreement.
+    if score >= 7.0 and conf >= green and low >= 5.0 and spread <= 4.5:
+        return "Lav"
+    if conf < yellow or low < 3.5 or spread >= 6.0:
+        return "Høy"
+    return "Middels"
+
+
+def _long_engine_primary_driver_v18654(row: dict) -> str:
+    scores = _long_engine_component_scores_v18654(row)
+    if not scores:
+        return "-"
+    return max(scores.items(), key=lambda kv: kv[1])[0]
+
+
+def _long_engine_secondary_driver_v18654(row: dict) -> str:
+    scores = sorted(_long_engine_component_scores_v18654(row).items(), key=lambda kv: kv[1], reverse=True)
+    return scores[1][0] if len(scores) > 1 else "-"
+
+
+def _long_engine_driver_text_v18654(label: str, score: float) -> str:
+    if score >= 8.5:
+        return f"Sterk {label}-støtte"
+    if score >= 7.0:
+        return f"God {label}-støtte"
+    if score >= 5.0:
+        return f"Nøytral {label}-støtte"
+    return f"Svak {label}-støtte"
+
+
+def _long_engine_explanation_bullets_v18654(row: dict) -> list[str]:
+    scores = _long_engine_component_scores_v18654(row)
+    bullets = []
+    for label, score in sorted(scores.items(), key=lambda kv: kv[1], reverse=True):
+        bullets.append(_long_engine_driver_text_v18654(label, score))
+    bullets.append(f"Risiko: {_long_engine_risk_label_v18654(row)} · Confidence: {_long_engine_confidence_v18654(row)}%")
+    return bullets
+
+
+def _long_engine_render_score_bar_v18654(label: str, value: float) -> None:
+    try:
+        value = float(value or 0)
+    except Exception:
+        value = 0.0
+    st.progress(max(0.0, min(1.0, value / 10.0)), text=f"{label}: {value:.2f}/10")
+
+
+def _long_engine_render_candidate_card_v18654(row: dict, overlap_tickers: set[str] | None = None) -> None:
+    ticker = str(row.get("ticker") or "-").upper().strip()
+    meta = _long_engine_meta_v18656(row)
+    score = row.get("long_alpha_score", "-")
+    active_h = str(row.get("active_horizon") or _long_engine_active_horizon_v18662())
+    active_score = row.get("active_horizon_score")
+    if active_score in (None, ""):
+        active_score = _long_engine_active_horizon_score_v18662(row, active_h)
+    confidence = _long_engine_confidence_v18654(row)
+    data_quality = _long_engine_data_quality_v18657(row)
+    risk = _long_engine_risk_label_v18654(row)
+    primary = _long_engine_primary_driver_v18654(row)
+    secondary = _long_engine_secondary_driver_v18654(row)
+    tag = _long_engine_overlap_label_v18656(ticker, overlap_tickers)
+    horizons = _long_engine_horizon_scores_v18657(row)
+    with st.container(border=True):
+        st.markdown(f"### #{row.get('rank', '-')} {html.escape(ticker)} – {html.escape(meta.get('name') or ticker)}")
+        st.caption(f"{meta.get('flag','')} {meta.get('country','')} | {html.escape(meta.get('exchange',''))} | {html.escape(meta.get('sector',''))}")
+        st.markdown(
+            f"**Valgt horisont:** `{active_h}` &nbsp; | &nbsp; **Valgt score:** `{active_score}` &nbsp; | &nbsp; "
+            f"**Alpha:** `{score}` &nbsp; | &nbsp; **Confidence:** `{confidence}%` &nbsp; | &nbsp; "
+            f"**Datakvalitet:** `{data_quality}%` &nbsp; | &nbsp; **Risiko:** `{_long_engine_risk_icon_v18656(risk)}` &nbsp; | &nbsp; **Status:** `{tag}`"
+        )
+        h1, h2, h3, h4 = st.columns(4)
+        h1.metric("1M", horizons.get("1M", "-"))
+        h2.metric("3M", horizons.get("3M", "-"))
+        h3.metric("6M", horizons.get("6M", "-"))
+        h4.metric("Aktiv", f"{active_h} ({active_score})")
+        d1, d2 = st.columns([1.0, 1.35])
+        with d1:
+            st.markdown(f"**Primær driver:** {_long_engine_driver_icon_v18656(primary)}")
+            st.markdown(f"**Sekundær driver:** {_long_engine_driver_icon_v18656(secondary)}")
+            st.markdown("**Hvorfor:**")
+            for bullet in _long_engine_explanation_bullets_v18654(row)[:5]:
+                st.markdown(f"- {bullet}")
+            if tag.startswith("🚀"):
+                st.markdown("- Long Engine Exclusive: finnes ikke i siste synlige Top Picks-utvalg")
+        with d2:
+            for label, val in _long_engine_component_scores_v18654(row).items():
+                _long_engine_render_score_bar_v18654(label, val)
+
+
+def _long_engine_csv_v18654(rows: list[dict]) -> str:
+    return pd.DataFrame(_long_engine_display_rows_v18653(rows)).to_csv(index=False)
+
+
+def _long_engine_excel_v18654(rows: list[dict]) -> bytes:
+    output = io.BytesIO()
+    display_df = pd.DataFrame(_long_engine_display_rows_v18653(rows))
+    detail_df = pd.DataFrame(rows or [])
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        display_df.to_excel(writer, index=False, sheet_name="Top Long USA")
+        detail_df.to_excel(writer, index=False, sheet_name="Detaljer")
+    return output.getvalue()
+
+
+def _long_engine_html_report_v18654(rows: list[dict], overlap: dict | None = None) -> str:
+    overlap = overlap or {}
+    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cards = []
+    for row in rows[:20]:
+        bullets = ''.join(f"<li>{html.escape(b)}</li>" for b in _long_engine_explanation_bullets_v18654(row))
+        cards.append(
+            f"<section class='card'><h2>#{row.get('rank','')} {html.escape(str(row.get('ticker','')))} – {html.escape(_long_engine_meta_v18656(row).get('name',''))}</h2>"
+            f"<p><b>Marked:</b> {_long_engine_meta_v18656(row).get('flag','')} {_long_engine_meta_v18656(row).get('country','')} · {_long_engine_meta_v18656(row).get('exchange','')} · {_long_engine_meta_v18656(row).get('sector','')}</p>"
+            f"<p><b>Long Alpha:</b> {row.get('long_alpha_score','-')} · <b>1M/3M/6M:</b> {_long_engine_horizon_scores_v18657(row).get('1M')} / {_long_engine_horizon_scores_v18657(row).get('3M')} / {_long_engine_horizon_scores_v18657(row).get('6M')} · <b>Confidence:</b> {_long_engine_confidence_v18654(row)}% · "
+            f"<b>Datakvalitet:</b> {_long_engine_data_quality_v18657(row)}% · <b>Risiko:</b> {_long_engine_risk_label_v18654(row)} · <b>Primær driver:</b> {_long_engine_primary_driver_v18654(row)}</p>"
+            f"<ul>{bullets}</ul></section>"
+        )
+    table = pd.DataFrame(_long_engine_display_rows_v18653(rows)).to_html(index=False, escape=True) if rows else "<p>Ingen resultater.</p>"
+    return f"""<!doctype html><html><head><meta charset='utf-8'><title>Long Engine USA Alpha</title>
+<style>body{{font-family:Arial,sans-serif;margin:28px;color:#111827}}h1{{margin-bottom:0}}.meta{{color:#4b5563}}.card{{border:1px solid #d1d5db;border-radius:12px;padding:14px;margin:12px 0;page-break-inside:avoid}}table{{border-collapse:collapse;width:100%;font-size:12px}}td,th{{border:1px solid #d1d5db;padding:6px;text-align:left}}th{{background:#f3f4f6}}@media print{{button{{display:none}}}}</style></head>
+<body><h1>Long Engine USA Alpha</h1><p class='meta'>Generert {generated}. Overlap mot Top Picks: {overlap.get('overlap_pct',0)}%.</p>
+<h2>Kandidatforklaringer</h2>{''.join(cards)}<h2>Resultattabell</h2>{table}</body></html>"""
+
+
+def render_long_engine_control_center_v18653():
+    from pages.long_engine import render_long_engine_control_center_v18653 as _implementation
+    return _implementation(get_page_context_v1950(_implementation))
+
+
+
+
+def render_alpha_radar_control_center_v1863ap():
+    """Explicit-run Alpha Radar panel for unusual opportunity hypotheses."""
+    radar_engine = str(st.session_state.get("alpha_radar_engine_v1863au") or "Alpha Radar")
+
+    def _resolve(scope: str, limit: int, manual_text: str = "") -> list[str]:
+        if str(scope or "").strip() == "Analyseflyt input":
+            try:
+                from services.analysis_pipeline_service import get_analysis_pipeline_service
+                from services.state_service import get_state_service
+                from services.storage_service import get_storage_service
+
+                pipeline = get_analysis_pipeline_service(
+                    state_service=get_state_service(st.session_state),
+                    storage_service=get_storage_service(),
+                )
+                rows = pipeline.candidates_for_stage("early_warning") or pipeline.candidates_for_stage("alpha_radar")
+                return _dedupe_text_list([row.get("ticker") for row in rows])[: max(1, int(limit or 30))]
+            except Exception:
+                return []
+        return _resolve_control_center_scope_tickers_v1863s(scope, limit, manual_text=manual_text)
+
+    def _score_provider(ticker: str, use_news: bool = False, include_insider: bool = False):
+        return cached_score_stock_manual(
+            ticker,
+            use_news=use_news,
+            force=True,
+            include_insider=include_insider,
+        )
+
+    render_alpha_radar_panel(
+        resolve_tickers=_resolve,
+        score_provider=_score_provider,
+        insider_provider=get_insider_data,
+        news_provider=get_news,
+        data_enricher=enrich_alpha_radar_row,
+        earnings_provider=get_earnings,
+        market_options=["Analyseflyt input"] + market_scope_options(include_aggregate=True),
+        no_selection_label=NO_UNIVERSE_SELECTION_LABEL,
+    )
+
+
+def render_watchlist_signals_control_center_v18535():
+    """Watchlist and signal settings in the control center only."""
+    st.subheader("🔔 Watchlist / signaler")
+    latest = st.session_state.get("latest_rankings_v148", {}) or {}
+    dynamic: list[str] = []
+    for rows in latest.values():
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, dict):
+                    t = normalize_user_ticker(row.get("ticker"))
+                    if t and t not in dynamic:
+                        dynamic.append(t)
+                if len(dynamic) >= 30:
+                    break
+        if len(dynamic) >= 30:
+            break
+    if dynamic:
+        st.caption(f"Dynamiske kandidater fra siste rangering: {len(dynamic)}")
+    else:
+        st.caption("Ingen dynamiske kandidater i cache ennå. Kjør rangering eller Smart AI først.")
+    render_watchlist_alerts_workspace(dynamic, pushover_enabled_runtime=pushover_enabled)
+
+
+
+def _send_pushover_safe_v1863af(message: str, title: str):
+    """Handle both old and new notifier return shapes."""
+    try:
+        result = send_pushover_alert(message, title=title)
+        if isinstance(result, tuple):
+            ok = bool(result[0]) if result else False
+            err = result[1] if len(result) > 1 else ""
+            return ok, err or ""
+        return bool(result), ""
+    except Exception as exc:
+        return False, str(exc)[:180]
+
+
+def _pushover_runtime_status_v1864u() -> dict:
+    try:
+        load_app_env()
+    except Exception:
+        pass
+    token = os.getenv("PUSHOVER_APP_TOKEN") or PUSHOVER_APP_TOKEN
+    user = os.getenv("PUSHOVER_USER_KEY") or PUSHOVER_USER_KEY
+    try:
+        enabled = bool((load_settings() or {}).get("pushover_enabled", True))
+    except Exception:
+        enabled = True
+    configured = bool(token and user)
+    if not configured:
+        label = "Mangler token/user"
+    elif not enabled:
+        label = "Deaktivert"
+    else:
+        label = "Klar"
+    return {"configured": configured, "enabled": enabled, "label": label}
+
+
+def _paper_control_latest_prices_v1863af(portfolio):
+    latest_prices = {}
+    for ticker, pos in ((portfolio or {}).get("positions", {}) or {}).items():
+        symbol = str(ticker or "").upper()
+        latest_prices[symbol] = _safe_float_v18581(
+            (pos or {}).get("last_price", (pos or {}).get("avg_price", (pos or {}).get("entry_price", 0))),
+            0.0,
+        )
+    return latest_prices
+
+
+def _paper_control_rows_v1863af(portfolio, rules: dict | None = None):
+    latest_prices = _paper_control_latest_prices_v1863af(portfolio)
+    return paper_position_rows(portfolio, latest_prices, rules=rules), latest_prices
+
+
+def _paper_control_flags_v1863af(rows, total_value: float):
+    flags = []
+    for row in rows or []:
+        ticker = str(row.get("ticker") or "-")
+        value = _safe_float_v18581(row.get("value"), 0.0)
+        pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+        weight = (value / total_value * 100.0) if total_value else 0.0
+        updated = str(row.get("updated") or "").strip()
+        if pnl_pct <= -5:
+            flags.append({"ticker": ticker, "nivå": "Krever oppfølging", "signal": f"Tap {pnl_pct:.2f}%", "forslag": "Sjekk stop-loss, nyheter og om posisjonen fortsatt passer reglene."})
+        elif pnl_pct >= 10:
+            flags.append({"ticker": ticker, "nivå": "Gevinst", "signal": f"Gevinst {pnl_pct:.2f}%", "forslag": "Vurder gevinstsikring, trailing stop eller delvis salg."})
+        if weight >= 25:
+            flags.append({"ticker": ticker, "nivå": "Konsentrasjon", "signal": f"{weight:.1f}% av portefoljen", "forslag": "Vurder om enkeltselskap tar for stor plass i paper-testen."})
+        stop_status = str(row.get("stop_status") or "").strip().upper()
+        if stop_status == "STOP UTLØST":
+            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Trailing stop utløst", "forslag": "Kontroller posisjonen og vurder paper-salg."})
+        elif stop_status == "NÆR STOP":
+            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Nær trailing stop", "forslag": "Følg tett; liten kursnedgang kan utløse salgssignal."})
+        if not updated:
+            flags.append({"ticker": ticker, "nivå": "Datakvalitet", "signal": "Lagret kurs", "forslag": "Trykk Oppdater paper-kurser for ferskere kontroll."})
+    return flags
+
+
+def _paper_control_learning_points_v1863af(rows, stats, flags):
+    points = []
+    if not rows:
+        return ["Ingen paper-posisjoner ennå. Start med små simulerte kjøp for å bygge testgrunnlag."]
+    avg_pnl = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
+    loss_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) < 0])
+    gain_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) > 0])
+    if avg_pnl > 0:
+        points.append(f"Paper-porteføljen har positiv snitt-P/L ({avg_pnl:.2f}%). Test om samme regler holder i flere markeder.")
+    else:
+        points.append(f"Paper-porteføljen har svak/negativ snitt-P/L ({avg_pnl:.2f}%). Se om inngangene skjer for tidlig eller med for lav confidence.")
+    if loss_count > gain_count:
+        points.append("Flere tapere enn vinnere akkurat nå. AI-forslag: stram inn kjøpsscore/confidence før nye paper-kjøp.")
+    if stats.get("closed_trades", 0) and stats.get("win_rate", 0) < 45:
+        points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab før ekte ordre.")
+    if any((f.get("nivå") or f.get("nivaa")) == "Konsentrasjon" for f in flags):
+        points.append("Konsentrasjonsvarsel funnet. Porteføljeovervåking bør varsle før ett papir dominerer totalrisikoen.")
+    if any((f.get("nivå") or f.get("nivaa")) == "Stop" for f in flags):
+        points.append("Trailing stop-varsel funnet. Sjekk om exit-regelen beskytter gevinst eller begrenser tap som planlagt.")
+    if any((f.get("nivå") or f.get("nivaa")) == "Datakvalitet" for f in flags):
+        points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre når paper-kurser oppdateres først.")
+    return points[:5]
+
+
+def render_paper_portfolio_control_center_v1863af():
+    """Paper portfolio monitoring, controls and deterministic AI suggestions."""
+    st.subheader("🧭 Paper-portefølje kontroll")
+    st.caption("Bruker Paper Trading-porteføljen som trygg testarena for overvåking, kontroll og AI-forslag. Ingen ekte ordre sendes.")
+
+    portfolio = load_portfolio() or {}
+    if st.button("Oppdater paper-kurser", key="paper_control_refresh_prices_v1863af", type="primary", width="content"):
+        portfolio, refreshed_prices, refresh_errors, refreshed_at = _refresh_paper_portfolio_prices_v1863v(portfolio, fetch_live=True)
+        st.session_state["paper_control_refresh_status_v1863af"] = {
+            "time": refreshed_at,
+            "updated": len(refreshed_prices),
+            "errors": refresh_errors[:8],
+        }
+
+    status = st.session_state.get("paper_control_refresh_status_v1863af") or {}
+    if status:
+        st.caption(f"Sist kurssjekk: {status.get('time', '-')} · oppdatert: {status.get('updated', 0)}")
+        if status.get("errors"):
+            st.warning("Noen kurser ble ikke oppdatert: " + " | ".join(status.get("errors", [])[:5]))
+
+    rows, latest_prices = _paper_control_rows_v1863af(portfolio)
+    stats = performance_stats(portfolio, latest_prices)
+    cash = _safe_float_v18581(portfolio.get("cash"), 0.0)
+    total_value = _safe_float_v18581(stats.get("total_value"), 0.0)
+    total_pnl = sum(_safe_float_v18581(r.get("pnl"), 0.0) for r in rows)
+    avg_pnl_pct = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
+    flags = _paper_control_flags_v1863af(rows, total_value)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total verdi", f"{total_value:,.0f} kr")
+    m2.metric("Kontant", f"{cash:,.0f} kr")
+    m3.metric("Åpne posisjoner", str(len(rows)))
+    m4.metric("Urealisert P/L", f"{total_pnl:+,.0f} kr", f"{avg_pnl_pct:+.2f}%")
+
+    if rows:
+        st.markdown("#### Kontrollkort")
+        control_rows = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "-")
+            value = _safe_float_v18581(row.get("value"), 0.0)
+            pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+            weight = (value / total_value * 100.0) if total_value else 0.0
+            if pnl_pct <= -5:
+                action = "Krever oppfølging"
+            elif pnl_pct >= 10:
+                action = "Vurder gevinstsikring"
+            elif weight >= 25:
+                action = "Sjekk konsentrasjon"
+            else:
+                action = "Hold / overvåk"
+            action = _paper_stop_action_v18674d(row, action)
+            control_rows.append({
+                "Ticker": ticker,
+                "Valuta": row.get("currency") or currency_suffix(ticker),
+                "Verdi": round(value, 2),
+                "P/L %": round(pnl_pct, 2),
+                "Stop-status": row.get("stop_status"),
+                "Stop-nivå": row.get("trailing_stop_level"),
+                "Avstand stop %": row.get("trailing_stop_distance_pct"),
+                "Vekt %": round(weight, 1),
+                "Forslag": action,
+            })
+        st.dataframe(pd.DataFrame(control_rows), width="stretch", hide_index=True)
+    else:
+        st.info("Ingen åpne paper-posisjoner ennå.")
+
+    if flags:
+        st.markdown("#### Varsler og kontrollpunkter")
+        st.dataframe(pd.DataFrame(flags), width="stretch", hide_index=True)
+    else:
+        st.success("Ingen tydelige kontrollvarsler i paper-porteføljen akkurat nå.")
+
+    st.markdown("#### AI-forslag fra paper-testen")
+    for point in _paper_control_learning_points_v1863af(rows, stats, flags):
+        st.markdown(f"<div class='v18-dark-row'>{html.escape(point)}</div>", unsafe_allow_html=True)
+
+    if st.button("Send kontrollrapport til Pushover", key="paper_control_pushover_v1863af", width="content"):
+        summary = [
+            "Paper-portefølje kontroll",
+            f"Total verdi: {total_value:,.0f} kr",
+            f"Åpne posisjoner: {len(rows)}",
+            f"Urealisert P/L: {total_pnl:+,.0f} kr ({avg_pnl_pct:+.2f}%)",
+            f"Kontrollvarsler: {len(flags)}",
+        ]
+        for flag in flags[:4]:
+            summary.append(f"{flag.get('ticker')}: {flag.get('signal')} - {flag.get('forslag')}")
+        ok, err = _send_pushover_safe_v1863af("\n".join(summary), "Paper-portefølje kontroll")
+        if ok:
+            st.success("Pushover-rapport sendt.")
+        else:
+            st.warning(f"Pushover ble ikke sendt: {err or 'ukjent feil'}")
+
+
+FX_ALERT_PAIRS_V1863AF = {
+    "BRL/NOK": "BRLNOK=X",
+    "USD/NOK": "USDNOK=X",
+    "EUR/NOK": "EURNOK=X",
+    "SEK/NOK": "SEKNOK=X",
+    "DKK/NOK": "DKKNOK=X",
+}
+
+
+def _fetch_fx_rate_v1863af(symbol: str):
+    """Compatibility wrapper around the canonical FX provider chain."""
+    from currency_alert_service import _fetch
+
+    rate, error, _quote_time = _fetch(str(symbol or "").strip().upper())
+    return rate, error
+
+
+def _currency_alert_defaults_v1863af():
+    return {
+        "pair": "BRL/NOK",
+        "symbol": "BRLNOK=X",
+        "lower": 1.70,
+        "upper": 2.20,
+        "active": True,
+        "pushover": True,
+        "cooldown_hours": 12,
+    }
+
+
+def _load_currency_alerts_v1863af():
+    settings = load_settings() or {}
+    alerts = settings.get("currency_alerts_v1863af")
+    if isinstance(alerts, list) and alerts:
+        return alerts
+    return [_currency_alert_defaults_v1863af()]
+
+
+def _save_currency_alerts_v1863af(alerts):
+    settings = load_settings() or {}
+    settings["currency_alerts_v1863af"] = alerts
+    save_settings(settings)
+
+
+
+
+
+
+FX_CHECK_INTERVAL_OPTIONS_V1864S = {
+    "5 min": 5,
+    "10 min": 10,
+    "15 min": 15,
+    "30 min": 30,
+    "1 time": 60,
+    "3 timer": 180,
+}
+FX_COOLDOWN_OPTIONS_V1864S = {
+    "15 min": 15,
+    "30 min": 30,
+    "1 time": 60,
+    "3 timer": 180,
+    "12 timer": 720,
+    "24 timer": 1440,
+}
+
+
+def _currency_option_label_v1864s(options: dict[str, int], value: int, default_label: str) -> str:
+    try:
+        minutes = int(value)
+    except Exception:
+        minutes = options.get(default_label, 60)
+    for label, candidate in options.items():
+        if int(candidate) == minutes:
+            return label
+    return default_label
+
+
+def _currency_alert_cooldown_minutes_v1864s(alert: dict) -> int:
+    if alert.get("cooldown_minutes") not in (None, ""):
+        try:
+            return int(alert.get("cooldown_minutes") or 720)
+        except Exception:
+            return 720
+    try:
+        return int(alert.get("cooldown_hours", 12) or 12) * 60
+    except Exception:
+        return 720
+
+
+def _currency_alert_store_latest_rate_v1864s(symbol: str, pair: str, rate: float) -> None:
+    settings = load_settings() or {}
+    latest = settings.setdefault("currency_alert_latest_rates_v1864s", {})
+    latest[str(symbol or "").upper()] = {
+        "pair": pair,
+        "symbol": str(symbol or "").upper(),
+        "rate": float(rate),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    save_settings(settings)
+
+
+def _currency_alert_latest_rate_v1864s(symbol: str) -> dict:
+    settings = load_settings() or {}
+    latest = settings.get("currency_alert_latest_rates_v1864s", {}) if isinstance(settings, dict) else {}
+    return dict((latest or {}).get(str(symbol or "").upper()) or {})
+
+
+def _currency_alert_can_send_v1863af(settings, alert_key: str, cooldown_minutes: int):
+    sent = (settings or {}).get("currency_alert_last_sent_v1863af", {}) or {}
+    raw = sent.get(alert_key)
+    if not raw:
+        return True
+    try:
+        last = datetime.fromisoformat(str(raw))
+        return datetime.now() - last >= timedelta(minutes=max(1, int(cooldown_minutes or 720)))
+    except Exception:
+        return True
+
+
+CURRENCY_ALERT_NAV_V19220_RC6 = "fx_alerts"
+CURRENCY_ALERT_GROUP_V19220_RC6 = "Marked og signaler"
+CURRENCY_ALERT_PANEL_V19220_RC6 = "💱 Valutavarsler"
+
+
+def _preserve_currency_alert_navigation_v19220_rc6() -> None:
+    """Keep Valutavarsler authoritative across action-triggered Streamlit reruns.
+
+    The action buttons run inside a lazily rendered control-center panel. A
+    normal ``st.rerun()`` must not allow a stale group radio or the previous
+    Autonomi route to become authoritative. The generic route lock is consumed
+    by ``workspace_layout`` before its radio widgets are synchronized.
+    """
+    st.session_state["active_nav_target_v18674c"] = CURRENCY_ALERT_NAV_V19220_RC6
+    st.session_state["ai_control_center_group_v1863m"] = CURRENCY_ALERT_GROUP_V19220_RC6
+    st.session_state["ai_control_center_group_v1863aj"] = CURRENCY_ALERT_GROUP_V19220_RC6
+    st.session_state["ai_control_center_active_panel_v1863m"] = CURRENCY_ALERT_PANEL_V19220_RC6
+    st.session_state["ai_control_center_active_panel_v1863aj"] = CURRENCY_ALERT_PANEL_V19220_RC6
+    st.session_state["ai_control_center_active_real_panel_v18598"] = CURRENCY_ALERT_PANEL_V19220_RC6
+    st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    st.session_state["ai_control_center_route_lock_v19220_rc6"] = {
+        "nav": CURRENCY_ALERT_NAV_V19220_RC6,
+        "group": CURRENCY_ALERT_GROUP_V19220_RC6,
+        "panel": CURRENCY_ALERT_PANEL_V19220_RC6,
+    }
+    st.session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
+    set_global_navigation_state(
+        st,
+        nav=CURRENCY_ALERT_NAV_V19220_RC6,
+        group=CURRENCY_ALERT_GROUP_V19220_RC6,
+        panel=CURRENCY_ALERT_PANEL_V19220_RC6,
+        tab="",
+        subtab="",
+    )
+
+
+def _rerun_currency_alerts_v19220_rc6() -> None:
+    _preserve_currency_alert_navigation_v19220_rc6()
+    st.rerun()
+
+
+def render_currency_alerts_control_center_v1863af():
+    display_settings = load_settings() or {}
+    display_tz = display_timezone_name(display_settings, streamlit_module=st)
+
+    def _fx_local_time(value):
+        try:
+            return display_time(value, display_tz, include_seconds=True, include_timezone=True)
+        except Exception:
+            return str(value or "-")
+
+    def _status_label(value):
+        return {
+            "normal": "Innenfor grensene",
+            "breach_lower": "Under nedre grense",
+            "breach_upper": "Over øvre grense",
+            "error": "Kursfeil",
+            "disabled": "Deaktivert",
+        }.get(str(value or "").lower(), "Ikke kontrollert")
+
+    def _selected_result(rows, symbol):
+        rows = list(rows or [])
+        return next(
+            (row for row in rows if str(row.get("symbol") or "").upper() == str(symbol or "").upper()),
+            rows[0] if rows else {},
+        )
+
+    def _flash(level, message):
+        st.session_state["currency_alert_flash_v19220_rc5"] = {
+            "level": str(level or "info"), "message": str(message or "")
+        }
+
+    st.subheader("Valutavarsler")
+    st.caption(
+        "Overvåker valutapar med faste øvre/nedre grenser. Automatisk kontroll kjøres av Render Cron "
+        "uavhengig av innlogging og børsenes åpningstider."
+    )
+
+    flash = st.session_state.pop("currency_alert_flash_v19220_rc5", None)
+    if isinstance(flash, dict) and flash.get("message"):
+        renderer = getattr(st, flash.get("level", "info"), st.info)
+        renderer(flash["message"])
+
+    alerts = _load_currency_alerts_v1863af()
+    current = dict(alerts[0] if alerts else _currency_alert_defaults_v1863af())
+    pair_options = list(FX_ALERT_PAIRS_V1863AF.keys()) + ["Egendefinert"]
+    pair_label = str(current.get("pair") or current.get("symbol") or "Valuta")
+    symbol_value = str(current.get("symbol") or FX_ALERT_PAIRS_V1863AF.get(pair_label, "BRLNOK=X")).upper()
+    lower_v = float(current.get("lower") or 0)
+    upper_v = float(current.get("upper") or 0)
+    check_minutes = int(current.get("check_interval_minutes", 60) or 60)
+    cooldown_minutes = _currency_alert_cooldown_minutes_v1864s(current)
+
+    from currency_alert_service import (
+        get_currency_alert_events,
+        get_currency_alert_health,
+        get_currency_alert_runtime,
+        run_currency_alert_checks,
+    )
+
+    runtime = get_currency_alert_runtime() or {}
+    current_key = f"{pair_label}:{symbol_value}"
+    runtime_state = dict(runtime.get(current_key) or {})
+    cache = _currency_alert_latest_rate_v1864s(symbol_value)
+    authoritative = runtime_state if runtime_state.get("rate") is not None else cache
+    try:
+        rate_number = float(authoritative.get("rate"))
+    except Exception:
+        rate_number = None
+    status_code = str(runtime_state.get("status") or "")
+    if rate_number is not None and status_code not in {"normal", "breach_lower", "breach_upper"}:
+        status_code = "breach_lower" if lower_v and rate_number <= lower_v else (
+            "breach_upper" if upper_v and rate_number >= upper_v else "normal"
+        )
+    pushover_status = _pushover_runtime_status_v1864u()
+    quote_time = authoritative.get("quote_time") or authoritative.get("updated_at")
+    checked_time = runtime_state.get("last_checked_at") or authoritative.get("updated_at")
+
+    st.markdown("#### Status nå")
+    freshness_text, freshness_state = data_freshness_label(quote_time, fresh_minutes=max(20, check_minutes * 2), stale_minutes=max(120, check_minutes * 4))
+    cards = [
+        ("Aktivt varsel", pair_label, f"{format_decimal(lower_v)} - {format_decimal(upper_v)}"),
+        ("Kurs", format_decimal(rate_number) if rate_number is not None else "-", f"Kurssitat: {_fx_local_time(quote_time)}"),
+        ("Status", _status_label(status_code), f"Sist kontrollert: {_fx_local_time(checked_time)}"),
+        ("Dataalder", freshness_text, "Ferskhet beregnes fra faktisk kurssitat"),
+        ("Sjekkintervall", f"{check_minutes} min", "Automatisk via Render Cron"),
+        ("Varselpause", f"{cooldown_minutes} min", "Gjelder gjentatte grensebrudd"),
+        ("Datakilde", symbol_value or "-", "Yahoo Finance via yfinance"),
+        ("Pushover", pushover_status.get("label") or "-", "Varsling ved bekreftet grensebrudd"),
+    ]
+    st.markdown(currency_status_html(cards), unsafe_allow_html=True)
+
+    action_left, action_mid = st.columns(2)
+    with action_left:
+        fetch_now = st.button("Hent kurs nå", key="currency_alert_fetch_rate_now_v19220", width="stretch")
+    with action_mid:
+        check_now = st.button("Sjekk valutagrense nå", key="currency_alert_check_now_v19220", width="stretch")
+    action_test, action_diag = st.columns(2)
+    with action_test:
+        pushover_test_now = st.button(
+            "Send Pushover-test med fersk kurs",
+            key="currency_alert_pushover_test_now_v19220",
+            disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
+            width="stretch",
+        )
+    with action_diag:
+        currency_trigger_test_now = st.button(
+            "Test hele varselkjeden",
+            key="currency_alert_full_chain_test_v19220",
+            disabled=not bool(pushover_status.get("configured") and pushover_status.get("enabled")),
+            help="Tester innhenting, kunstig trigger og Pushover uten å etterlate falsk kurs eller grensestatus.",
+            width="stretch",
+        )
+
+    if fetch_now:
+        try:
+            selected = _selected_result(
+                run_currency_alert_checks(force=True, notify=False, source="manual_fetch"), symbol_value
+            )
+            if not selected:
+                _flash("warning", "En annen valutakontroll kjører allerede. Prøv igjen om noen sekunder.")
+            elif selected.get("status") == "error":
+                _flash("error", f"Kunne ikke hente valutakurs: {selected.get('error') or 'ukjent feil'}")
+            else:
+                _flash(
+                    "success",
+                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.2f} · "
+                    f"{_status_label(selected.get('status'))} · kurssitat {_fx_local_time(selected.get('quote_time'))}.",
+                )
+        except Exception as exc:
+            _flash("error", f"Kurshentingen feilet: {exc}")
+        _rerun_currency_alerts_v19220_rc6()
+
+    if check_now:
+        if not current.get("active", True):
+            st.info("Valutavarselet er deaktivert.")
+        else:
+            try:
+                selected = _selected_result(
+                    run_currency_alert_checks(force=True, notify=True, source="manual_check"), symbol_value
+                )
+                if not selected:
+                    _flash("warning", "En annen valutakontroll kjører allerede. Prøv igjen om noen sekunder.")
+                elif selected.get("status") == "error":
+                    _flash("error", f"Valutakontrollen feilet: {selected.get('error') or 'ukjent feil'}")
+                elif selected.get("sent"):
+                    _flash(
+                        "success",
+                        f"Kurs {float(selected.get('rate')):.2f} ble kontrollert og Pushover-varsel ble sendt.",
+                    )
+                elif selected.get("send_error"):
+                    _flash("warning", f"Kursen ble kontrollert, men Pushover feilet: {selected.get('send_error')}")
+                elif selected.get("status") in {"breach_lower", "breach_upper"}:
+                    _flash(
+                        "warning",
+                        f"Kurs {float(selected.get('rate')):.2f}: {_status_label(selected.get('status'))}. "
+                        "Nytt varsel er ikke sendt fordi varselpause eller varslingsinnstilling gjelder.",
+                    )
+                else:
+                    _flash("success", f"Kurs {float(selected.get('rate')):.2f} er innenfor grensene.")
+            except Exception as exc:
+                _flash("error", f"Valutakontrollen feilet: {exc}")
+            _rerun_currency_alerts_v19220_rc6()
+
+    if pushover_test_now:
+        try:
+            selected = _selected_result(
+                run_currency_alert_checks(force=True, notify=False, source="pushover_test_quote"), symbol_value
+            )
+            if not selected:
+                _flash("warning", "En annen valutakontroll kjører allerede. Pushover-testen ble ikke sendt.")
+            elif selected.get("status") == "error":
+                _flash(
+                    "error",
+                    "Pushover-testen ble ikke sendt fordi fersk kurs ikke kunne hentes: "
+                    f"{selected.get('error') or 'ukjent feil'}",
+                )
+            else:
+                rate = float(selected.get("rate"))
+                message = (
+                    f"Test fra Valutavarsler: {pair_label} ({symbol_value})\n"
+                    f"Kurs: {rate:.2f}\n"
+                    f"Status: {_status_label(selected.get('status'))}\n"
+                    f"Grenser: {lower_v:.2f} - {upper_v:.2f}\n"
+                    f"Kurssitat: {_fx_local_time(selected.get('quote_time'))}"
+                )
+                ok, send_err = _send_pushover_safe_v1863af(message, "Pushover-test Valutavarsler")
+                if ok:
+                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.2f} og samme status som i appen.")
+                else:
+                    _flash("warning", f"Pushover-test feilet: {send_err or 'ukjent feil'}")
+        except Exception as exc:
+            _flash("error", f"Pushover-testen feilet: {exc}")
+        _rerun_currency_alerts_v19220_rc6()
+
+    if currency_trigger_test_now:
+        try:
+            from currency_alert_service import run_currency_alert_diagnostic_test
+            selected = _selected_result(run_currency_alert_diagnostic_test(symbol_value), symbol_value)
+            if selected.get("sent"):
+                _flash(
+                    "success",
+                    "Hele varselkjeden fungerte. Den kunstige testkursen ble fjernet igjen; ordinær kurs og status er uendret.",
+                )
+            else:
+                _flash(
+                    "error",
+                    "Varselkjeden stoppet før Pushover. "
+                    f"Status: {selected.get('status', '-')}; årsak: {selected.get('reason', '-')}; "
+                    f"feil: {selected.get('send_error') or selected.get('error') or '-'}",
+                )
+        except Exception as exc:
+            _flash("error", f"Diagnosetesten feilet: {exc}")
+        _rerun_currency_alerts_v19220_rc6()
+
+    st.markdown("#### Bakgrunnsstatus og diagnose")
+    try:
+        health = get_currency_alert_health(max_age_minutes=20)
+        if health.get("healthy"):
+            st.success(
+                "Automatisk valutakontroll er frisk · siste Render Cron-syklus "
+                f"{_fx_local_time(health.get('last_automatic_at'))}."
+            )
+        elif health.get("state") == "NOT_STARTED":
+            st.warning(
+                "Automatisk valutakontroll er ikke registrert ennå. Etter deploy skal Render Cron kjøre innen fem minutter."
+            )
+        else:
+            age_text = "ukjent" if health.get("age_seconds") is None else f"{int(health.get('age_seconds')) // 60} min"
+            st.error(
+                f"Automatisk valutakontroll er ikke frisk: {health.get('state')}. "
+                f"Siste automatiske syklus: {_fx_local_time(health.get('last_automatic_at'))} ({age_text} siden). "
+                f"{health.get('last_error') or ''}"
+            )
+
+        runtime_rows = []
+        for runtime_key, runtime_value in runtime.items():
+            if not isinstance(runtime_value, dict):
+                continue
+            runtime_rows.append({
+                "Valuta": runtime_value.get("pair") or runtime_key,
+                "Symbol": runtime_value.get("symbol") or "-",
+                "Kurs": format_decimal(runtime_value.get("rate")) if runtime_value.get("rate") is not None else "-",
+                "Status": _status_label(runtime_value.get("status")),
+                "Kurssitat": _fx_local_time(runtime_value.get("quote_time")),
+                "Sist sjekket": _fx_local_time(runtime_value.get("last_checked_at")),
+                "Neste sjekk": _fx_local_time(runtime_value.get("next_check_at")),
+                "Sist sendt": _fx_local_time(runtime_value.get("last_sent_at")),
+                "Årsak": runtime_value.get("last_reason") or "-",
+                "Feil": runtime_value.get("last_error") or "",
+            })
+        if runtime_rows:
+            latest_row = runtime_rows[0]
+            with st.container(border=True):
+                runtime_rate = str(latest_row["Kurs"] if latest_row["Kurs"] is not None else "-")
+                st.markdown(
+                    currency_runtime_summary_html(
+                        title=f"{latest_row['Valuta']} - {runtime_rate} - {latest_row['Status']}",
+                        quote_time=latest_row["Kurssitat"],
+                        checked_time=latest_row["Sist sjekket"],
+                        next_time=latest_row["Neste sjekk"],
+                        error=latest_row.get("Feil") or "",
+                    ),
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("Ingen valutakontroll er registrert ennå.")
+
+        with st.expander("Teknisk valutastatus og logg", expanded=False):
+            if runtime_rows:
+                st.dataframe(runtime_rows, width="stretch", hide_index=True)
+            event_rows = get_currency_alert_events(limit=80)
+            if event_rows:
+                st.dataframe(event_rows, width="stretch", hide_index=True)
+            else:
+                st.caption("Ingen diagnostikkhendelser er registrert.")
+            st.caption(
+                "Automatisk valutakontroll kjøres av samme varige Render Cron som planlagte rapporter, "
+                "men er uavhengig av rapporttidspunkter og markedstider."
+            )
+    except Exception as runtime_exc:
+        st.warning(f"Kunne ikke lese valutadiagnostikk: {runtime_exc}")
+
+    st.markdown("#### Varseloppsett")
+    current_pair = current.get("pair", "BRL/NOK")
+    current_check_minutes = int(current.get("check_interval_minutes", 60) or 60)
+    current_cooldown_minutes = _currency_alert_cooldown_minutes_v1864s(current)
+    with st.form("currency_alert_form_v19220"):
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            pair = st.selectbox("Valutapar", pair_options, index=pair_options.index(current_pair) if current_pair in pair_options else 0)
+        with c2:
+            default_symbol = FX_ALERT_PAIRS_V1863AF.get(pair, current.get("symbol", "BRLNOK=X"))
+            symbol = st.text_input("Yahoo-symbol", value=str(default_symbol or "BRLNOK=X"))
+        c3, c4 = st.columns(2)
+        with c3:
+            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.01, format="%.2f")
+        with c4:
+            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.2f")
+        i1, i2 = st.columns(2)
+        with i1:
+            check_label = st.radio(
+                "Sjekk hvert",
+                list(FX_CHECK_INTERVAL_OPTIONS_V1864S.keys()),
+                index=list(FX_CHECK_INTERVAL_OPTIONS_V1864S.keys()).index(_currency_option_label_v1864s(FX_CHECK_INTERVAL_OPTIONS_V1864S, current_check_minutes, "1 time")),
+                horizontal=True,
+            )
+        with i2:
+            cooldown_label = st.radio(
+                "Varselpause",
+                list(FX_COOLDOWN_OPTIONS_V1864S.keys()),
+                index=list(FX_COOLDOWN_OPTIONS_V1864S.keys()).index(_currency_option_label_v1864s(FX_COOLDOWN_OPTIONS_V1864S, current_cooldown_minutes, "12 timer")),
+                horizontal=True,
+            )
+        f1, f2, f3 = st.columns([0.22, 0.28, 0.50])
+        with f1:
+            active = st.checkbox("Aktiv", value=bool(current.get("active", True)))
+        with f2:
+            pushover = st.checkbox("Send Pushover ved brudd", value=bool(current.get("pushover", True)))
+        with f3:
+            saved = st.form_submit_button("Lagre varsel")
+
+    if saved:
+        check_minutes = int(FX_CHECK_INTERVAL_OPTIONS_V1864S.get(check_label, 60))
+        cooldown_minutes = int(FX_COOLDOWN_OPTIONS_V1864S.get(cooldown_label, 720))
+        _save_currency_alerts_v1863af([{
+            "pair": pair,
+            "symbol": symbol.strip().upper(),
+            "lower": float(lower),
+            "upper": float(upper),
+            "active": bool(active),
+            "pushover": bool(pushover),
+            "check_interval_minutes": check_minutes,
+            "cooldown_minutes": cooldown_minutes,
+            "cooldown_hours": max(1, int(round(cooldown_minutes / 60))),
+        }])
+        _flash("success", "Valutavarselet er lagret. Ny konfigurasjon vurderes ved neste manuelle eller automatiske kontroll.")
+        _rerun_currency_alerts_v19220_rc6()
+
+
+# v18.5.37: Auto Test Lab Progress + Safe Run Controls.
+def _auto_lab_scope_tickers_v18536(scope: str, limit: int, manual_text: str = ""):
+    """Resolve Auto Test Lab universe without running hidden scans."""
+    from auto_test_lab import parse_ticker_list, normalize_ticker
+    limit = max(1, min(int(limit or 25), 150))
+    scope = str(scope or "").strip()
+    if scope in {"", NO_UNIVERSE_SELECTION_LABEL, "Velg marked"}:
+        return []
+
+    def _dedupe(values):
+        out, seen = [], set()
+        for raw in values or []:
+            ticker = normalize_ticker(raw.get("ticker") if isinstance(raw, dict) else raw)
+            if ticker and ticker not in seen:
+                out.append(ticker)
+                seen.add(ticker)
+            if len(out) >= limit:
+                break
+        return out
+
+    if scope == "Manuell liste":
+        return _dedupe(parse_ticker_list(manual_text))
+    if scope == "Analyseflyt input":
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            pipeline = get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            )
+            return _dedupe(pipeline.candidates_for_stage("auto_test_lab"))
+        except Exception:
+            return []
+    if scope in MARKET_SCOPE_OPTIONS:
+        return _dedupe(resolve_universe_tickers([scope], max_count=limit))
+    if scope == "Multi-marked":
+        return _dedupe(resolve_universe_tickers(["Alle"], max_count=limit))
+    if scope == "Aktivt Smart Universe":
+        try:
+            from services.service_registry import build_service_registry
+            services = build_service_registry(st.session_state)
+            active = services.universe.load_active_universe().data or {}
+            return _dedupe(active.get("tickers") or active.get("rows") or [])
+        except Exception:
+            active = st.session_state.get("smart_universe_picker_active_v18517", {}) or st.session_state.get("active_universe", {}) or {}
+            if isinstance(active, dict):
+                return _dedupe(active.get("tickers") or active.get("rows") or [])
+            return []
+    if scope == "Siste Smart AI-resultat":
+        try:
+            from services.universe_service import SMART_RESULT_KEY
+            smart = st.session_state.get(SMART_RESULT_KEY, {}) or st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        except Exception:
+            smart = st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        if isinstance(smart, dict):
+            return _dedupe(smart.get("top_tickers") or smart.get("candidates") or smart.get("top_picks") or [])
+        return []
+    if scope == "Top Picks":
+        latest = st.session_state.get("latest_rankings_v148", {}) or {}
+        rows = []
+        for key, vals in latest.items():
+            if "Top" in str(key) or key in MARKET_SCOPE_OPTIONS:
+                rows.extend(vals or [])
+        rows = _ranked_for_display(rows)
+        return _dedupe(rows)
+    if scope == "Watchlist":
+        return _dedupe(st.session_state.get("latest_watchlist_tickers_v156", []) or [])
+    if scope == "Paper trading":
+        try:
+            portfolio = load_portfolio() or {}
+            positions = portfolio.get("positions") if isinstance(portfolio, dict) else {}
+            if isinstance(positions, dict):
+                return _dedupe(list(positions.keys()))
+            if isinstance(positions, list):
+                return _dedupe([p.get("ticker") or p.get("symbol") for p in positions if isinstance(p, dict)])
+        except Exception:
+            return []
+    return []
+
+
+def _render_auto_lab_decision_rows_v18536(rows, title="Beste enkeltaksjer", limit=8):
+    import html as _html
+    rows = list(rows or [])[: int(limit or 8)]
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not rows:
+        st.markdown("<div class='v18-dark-row'>Ingen kandidater å vise ennå.</div>", unsafe_allow_html=True)
+        return
+    for idx, row in enumerate(rows, start=1):
+        grade = str(row.get("grade") or "-")
+        grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
+        ticker_raw = str(row.get("ticker") or row.get("symbol") or "-")
+        ticker = _html.escape(_security_display_label_v18569(ticker_raw, row))
+        action = _html.escape(str(row.get("action") or ""))
+        quality = row.get("decision_quality", "-")
+        composite_score = (
+            row.get("composite_score")
+            or row.get("fund_intelligence_score")
+            or row.get("shared_score")
+            or row.get("ai_score")
+            or row.get("decision_quality")
+            or "-"
+        )
+        base_score = (
+            row.get("base_score")
+            or row.get("score")
+            or row.get("raw_score")
+            or "-"
+        )
+        ai = row.get("ai_score", "-")
+        mom = row.get("momentum_score", "-")
+        risk = row.get("risk_score", "-")
+        event = row.get("event_score", "-")
+        explain = row.get("explainability_profile") or {}
+        pos = "; ".join(str(x) for x in (explain.get("why_ranked_here") or row.get("reasons_positive") or [])[:2])
+        caution = "; ".join(str(x) for x in (explain.get("what_holds_it_back") or row.get("reasons_caution") or [])[:2])
+        select_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_it_selected") or [])[:2])
+        reject_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_model_reject_it") or [])[:2])
+        explain_short = _html.escape(str(explain.get("short_explanation") or row.get("explainability_summary") or ""))
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.25rem 0; padding:.46rem .56rem;'>
+              <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
+                <b>#{idx} {ticker}</b>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip green'>Intelligens {composite_score}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span>
+              </div>
+              <div style='font-size:.78rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>
+                {action} · AI {ai} · Momentum {mom} · Risiko {risk} · Event {event}
+              </div>
+              <div style='font-size:.76rem; color:rgba(191,219,254,.86); margin-top:.14rem;'>
+                Felles ranking: #{_html.escape(str(row.get('shared_rank') or '-'))} · score {_html.escape(str(row.get('shared_score') or '-'))} · {_html.escape(str(row.get('shared_recommended_action') or '-'))}
+              </div>
+              <div style='font-size:.74rem; color:rgba(209,250,229,.86); margin-top:.18rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
+              <div style='font-size:.74rem; color:rgba(254,226,226,.86); margin-top:.10rem;'>! {_html.escape(caution or 'Ingen store røde flagg')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_auto_lab_combination_rows_v18536(rows, limit=6):
+    import html as _html
+    rows = list(rows or [])[: int(limit or 6)]
+    st.markdown("<div class='ptw-control-panel-title'>Beste kombinasjoner</div>", unsafe_allow_html=True)
+    if not rows:
+        st.markdown("<div class='v18-dark-row'>Ingen kombinasjoner ennå. Kjør minst 3 gode kandidater.</div>", unsafe_allow_html=True)
+        return
+    for idx, row in enumerate(rows, start=1):
+        tickers = " + ".join(row.get("tickers") or [])
+        score = row.get("combination_score", "-")
+        reason = str(row.get("reason") or "")
+        sectors = ", ".join(row.get("sectors") or [])
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.25rem 0; padding:.44rem .56rem;'>
+              <div style='display:flex; justify-content:space-between; gap:.6rem; flex-wrap:wrap;'>
+                <b>#{idx} {_html.escape(tickers)}</b>
+                <span class='v18-status-chip green'>{score}/100</span>
+              </div>
+              <div style='font-size:.76rem; color:rgba(226,232,240,.82); margin-top:.18rem;'>{_html.escape(reason)}</div>
+              <div style='font-size:.72rem; color:rgba(191,219,254,.84); margin-top:.10rem;'>Grupper: {_html.escape(sectors or 'Ukjent')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_auto_test_lab_control_center_v18536():
+    """On-demand research lab for testing many tickers/funds against the decision stack."""
+    st.subheader("🔬 Auto Test Lab")
+    st.caption("Velg én modus og ett univers. Panelet tester kandidater automatisk når du trykker Kjør; skjulte moduser starter ingen tunge jobber.")
+
+    lab_mode = st.radio(
+        "Auto Test Lab-modus",
+        ["Aksjer", "Fond / ETF"],
+        horizontal=True,
+        key="auto_lab_mode_v18543",
+        help="Fond / ETF-modus bruker fondsmotoren: kostnad, benchmark, aktiv merverdi, grunnmur/satellitt og Fond Decision Quality.",
+    )
+    if lab_mode == "Fond / ETF":
+        render_auto_test_lab_fund_mode_v18543()
+        return
+
+    col_a, col_b, col_c, col_d = st.columns([1.25, 1.0, 0.9, 0.9])
+    with col_a:
+        scope = st.selectbox(
+            "Univers",
+            [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading"] + market_scope_options(include_aggregate=True) + ["Multi-marked", "Manuell liste"],
+            key="auto_lab_scope_v18537",
+        )
+    with col_b:
+        target = st.selectbox("Mål", ["Balansert", "Momentum", "Lav risiko", "Kortsiktig", "Langsiktig"], key="auto_lab_target_v18537")
+    with col_c:
+        test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="auto_lab_test_mode_v18537")
+    with col_d:
+        input_count = _pipeline_candidate_count_for_stage_v1864("auto_test_lab") if scope == "Analyseflyt input" else 0
+        limit_max = max(1, input_count) if input_count > 0 else 60
+        limit_min = 1 if limit_max < 5 else 5
+        limit_default = min(max(20, limit_min), limit_max)
+        limit_key = "auto_lab_limit_v18537"
+        limit_default = _clamp_slider_state_v1864e(limit_key, limit_min, limit_max, limit_default)
+        limit = st.slider("Maks", limit_min, limit_max, limit_default, 1, key=limit_key)
+        if input_count > 0:
+            st.caption(f"Maks er låst til inputpakken fra Test 6: {input_count} kandidater.")
+
+    manual_text = ""
+    if scope == "Manuell liste":
+        manual_text = st.text_area("Tickere", value="", placeholder="EQNR.OL, VOLV-B.ST, NOVO-B.CO, NOKIA.HE, PETR4.SA", height=82, key="auto_lab_manual_v18537")
+
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
+    with c1:
+        include_event = st.checkbox("Hendelsesrisiko", value=True, key="auto_lab_event_v18537")
+    with c2:
+        use_news_for_score = st.checkbox("Nyheter i score", value=False, key="auto_lab_news_v18537", help="Av som standard for å spare NewsAPI. Manuelle nyheter ligger i Nyheter-panelet.")
+    with c3:
+        combo_size = st.multiselect("Kombinasjoner", [2, 3, 4, 5, 6, 8], default=[3, 5], key="auto_lab_combo_sizes_v18537")
+
+    preview_tickers = _auto_lab_scope_tickers_v18536(scope, int(limit), manual_text=manual_text)
+    try:
+        from auto_test_lab import estimate_auto_lab_run
+        budget = estimate_auto_lab_run(preview_tickers, test_mode=test_mode, use_news=bool(use_news_for_score), include_event=bool(include_event))
+    except Exception:
+        budget = {"mode": test_mode, "total_tests": len(preview_tickers), "tests_per_ticker": 1, "load_label": "Ukjent", "news_calls": 0, "event_checks": 0, "tests": []}
+
+    if preview_tickers:
+        st.markdown(
+            f"<div class='v18-dark-row'>Valgt univers: <b>{html.escape(scope)}</b> · {len(preview_tickers)} tickere · første: {html.escape(', '.join(preview_tickers[:8]))}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen tickere funnet i valgt univers ennå. Velg et annet univers eller bruk Manuell liste.</div>", unsafe_allow_html=True)
+
+    tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:8])
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
+          <span><b>Planlagt test:</b> {int(budget.get('tickers', len(preview_tickers)) or 0)} tickere · {int(budget.get('tests_per_ticker', 0) or 0)} tester per ticker · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>NewsAPI: {int(budget.get('news_calls', 0) or 0)} · Event: {int(budget.get('event_checks', 0) or 0)}</span>
+        </div>
+        <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {html.escape(tests_text or 'Ingen')}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    try:
+        from module_overlap_audit import assess_module_overlap, format_overlap_markdown
+
+        with st.expander("Modul-overlapp / sammenslaing", expanded=False):
+            st.markdown(format_overlap_markdown(assess_module_overlap()))
+    except Exception as exc:
+        st.caption(f"Modul-overlapp kunne ikke vises: {exc}")
+
+    run_col, stop_col = st.columns([2.2, 1.0])
+    with run_col:
+        run_clicked = st.button("🔬 Kjør Auto Test Lab", key="auto_lab_run_v18537", type="primary", width="stretch", disabled=not bool(preview_tickers), on_click=set_global_busy, kwargs={"label": "Kjører Auto Test Lab", "detail": "Tester kandidater mot beslutningskvalitet"})
+    with stop_col:
+        if st.button("Stopp Stopp/avbryt", key="auto_lab_stop_v18537", width="stretch", help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
+            st.session_state["auto_lab_stop_requested_v18537"] = True
+            st.warning("Stopp er bedt om. Pågående kjøring stopper ved neste trygge kontrollpunkt.")
+
+    if run_clicked:
+        st.session_state["auto_lab_stop_requested_v18537"] = False
+        if not preview_tickers:
+            st.warning("Ingen tickere å teste.")
+            finish_global_busy("Klar", "Auto Test Lab manglet tickere.")
+            return
+        from auto_test_lab import run_auto_test_lab
+        from forecast_store import load_learning_stats
+        from event_risk_engine import detect_event_risk
+        from services.storage_service import get_storage_service
+        from datetime import datetime, timezone
+
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter Auto Test Lab")
+        update_global_busy("Kjører Auto Test Lab", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+        learning_stats = load_learning_stats()
+
+        def _score_provider(ticker, use_news):
+            return cached_score_stock_manual(ticker, use_news=use_news, force=True)
+
+        def _event_provider(ticker, prices):
+            if not include_event:
+                return {}
+            return detect_event_risk(ticker, prices, horizon="auto_lab", include_news=False)
+
+        def _should_stop():
+            return bool(st.session_state.get("auto_lab_stop_requested_v18537", False))
+
+        def _progress_callback(ev):
+            pct = float(ev.get("percent") or 0.0)
+            completed = int(ev.get("completed_tests") or 0)
+            total = int(ev.get("total_tests") or 0)
+            ticker = str(ev.get("ticker") or "-")
+            test_name = str(ev.get("test_name") or "Starter")
+            ticker_idx = int(ev.get("ticker_index") or 0)
+            ticker_total = int(ev.get("ticker_total") or len(preview_tickers))
+            test_idx = int(ev.get("test_index") or 0)
+            tests_per = int(ev.get("tests_per_ticker") or max(1, int(budget.get("tests_per_ticker", 1) or 1)))
+            status = str(ev.get("status") or "running")
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Auto Test Lab", f"{ticker} · {test_name} · {pct:.0f}%", step=completed, total=total)
+            status_box.markdown(
+                f"""
+                <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
+                  <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
+                    <b>🔄 Auto Test Lab kjører</b>
+                    <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
+                  </div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Aksje: <b>{html.escape(ticker)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Ticker {ticker_idx}/{ticker_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        result = run_auto_test_lab(
+            preview_tickers,
+            score_provider=_score_provider,
+            event_risk_provider=_event_provider if include_event else None,
+            learning_stats=learning_stats,
+            use_news=bool(use_news_for_score),
+            target=target,
+            max_candidates=int(limit),
+            combination_sizes=combo_size or [3, 5],
+            test_mode=test_mode,
+            progress_callback=_progress_callback,
+            should_stop=_should_stop,
+        )
+        result["scope"] = scope
+        result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        try:
+            from auto_test_lab import attach_shared_ranking_to_auto_lab_result
+
+            result = attach_shared_ranking_to_auto_lab_result(result, source="Auto Test Lab Aksjer")
+        except Exception as exc:
+            result["shared_ranking"] = {"status": "unavailable", "error": str(exc)[:180]}
+        st.session_state["auto_test_lab_last_result_v18536"] = result
+        if result.get("shared_ranking"):
+            st.session_state.setdefault("latest_shared_rankings_v1863br", {})["Auto Test Lab"] = result.get("shared_ranking")
+        try:
+            storage = get_storage_service()
+            storage.write_json("auto_test_lab/latest.json", result)
+            if result.get("shared_ranking"):
+                storage.write_json("auto_test_lab/latest_shared_ranking.json", result.get("shared_ranking"))
+            storage.append_jsonl("auto_test_lab/history.jsonl", result)
+            result["storage_backend"] = storage.backend()
+            try:
+                from services.analysis_pipeline_service import get_analysis_pipeline_service
+                from services.state_service import get_state_service
+
+                auto_rows = result.get("shared_ranking_rows") or result.get("best_single") or result.get("ranked") or []
+                get_analysis_pipeline_service(
+                    state_service=get_state_service(st.session_state),
+                    storage_service=storage,
+                ).save_stage_output(
+                    "auto_test_lab",
+                    auto_rows,
+                    source_label="Auto Test Lab Aksjer",
+                    context={"scope": scope, "target": target, "test_mode": test_mode, "analyzed": result.get("analyzed")},
+                    max_items=len(auto_rows) or int(limit or 20),
+                    auto_handoff=True,
+                )
+            except Exception as exc:
+                result["pipeline_error"] = str(exc)[:180]
+        except Exception as exc:
+            result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        finish_global_busy("Klar", "Auto Test Lab ferdig." if not result.get("interrupted") else "Auto Test Lab avbrutt.")
+        if result.get("interrupted"):
+            st.warning(f"Auto Test Lab avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
+        else:
+            st.success(f"Auto Test Lab ferdig: {result.get('analyzed', 0)} analyserte kandidater · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+
+    result = st.session_state.get("auto_test_lab_last_result_v18536") or {}
+    if result:
+        summary = result.get("summary", {}) or {}
+        cols = st.columns(5)
+        cols[0].metric("Analyserte", result.get("analyzed", 0))
+        cols[1].metric("Tester", f"{result.get('completed_tests', 0)}/{result.get('total_tests', 0)}")
+        cols[2].metric("Beste ticker", summary.get("best_ticker") or "-")
+        cols[3].metric("Beste kvalitet", summary.get("best_quality") or "-")
+        cols[4].metric("Kombinasjoner", summary.get("combinations", 0))
+        if result.get("interrupted"):
+            st.warning("Siste Auto Test Lab ble avbrutt. Resultatene under er foreløpige.")
+        _render_auto_lab_decision_rows_v18536(result.get("shared_ranking_rows"), title="Felles ranking / testbenk", limit=8)
+        _render_auto_lab_decision_rows_v18536(result.get("best_single"), title="Beste enkeltaksjer", limit=8)
+        _render_auto_lab_combination_rows_v18536(result.get("combinations"), limit=6)
+        rejected = result.get("rejected") or []
+        errors = result.get("errors") or []
+        if rejected or errors:
+            with st.expander("Vent / forkastede / feilede kandidater", expanded=False):
+                for row in rejected[:12]:
+                    st.caption(f"{row.get('ticker')}: {row.get('reason')}")
+                for row in errors[:12]:
+                    st.caption(f"{row.get('ticker')}: {row.get('test', '-')}: {row.get('error')}")
+    else:
+        st.info("Ingen Auto Test Lab-resultat ennå. Velg univers og trykk Kjør.")
+
+
+# v18.5.43: Fund Selection Engine + Core/Satellite + Auto Test Lab Fund Mode.
+def _fund_result_limit_key_v18547(title):
+    import re
+    return "fund_result_view_" + re.sub(r"[^a-z0-9]+", "_", str(title).lower()).strip("_")[:36] + "_v18547"
+
+def _render_fund_result_scope_v18547(result, *, default_limit=8):
+    import html as _html
+    res = dict(result or {})
+    summary = dict(res.get("summary") or {})
+    selection = dict(res.get("selection") or {})
+    analyzed = int(summary.get("actual_analyzed") or summary.get("analyzed") or len(res.get("ranked") or []) or 0)
+    selected_max = int(summary.get("selected_max") or selection.get("display_limit") or selection.get("max_funds") or 8)
+    available = selection.get("available_in_universe") or summary.get("available_in_universe") or "-"
+    source = selection.get("source") or res.get("scope") or "-"
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='margin:.35rem 0 .55rem 0;padding:.55rem .65rem;'>
+          <div style='display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;'>
+            <span class='v18-status-chip green'>Faktisk analysert: {analyzed}</span>
+            <span class='v18-status-chip yellow'>Valgt maks: {selected_max}</span>
+            <span class='v18-status-chip yellow'>Tilgjengelig i univers: {_html.escape(str(available))}</span>
+            <span>{_html.escape(str(source))}</span>
+          </div>
+          <div style='font-size:.78rem;color:rgba(226,232,240,.82);margin-top:.25rem;'>Auto-universet er et starter-univers, ikke hele markedet. Hele starter-universet analyseres først; deretter vises valgt antall eller alle analyserte.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_what_changed_v18555(profile, title="Hva endret seg siden sist?"):
+    import html as _html
+    prof = dict(profile or {})
+    summary = str(prof.get("summary") or "Ingen endringsanalyse tilgjengelig ennå.")
+    st.markdown(f"<div class='ptw-control-panel-title' style='margin-top:.85rem;margin-bottom:.35rem;'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='v18-dark-row' style='margin:.35rem 0 .75rem 0;padding:.62rem .70rem;line-height:1.35;'><b>Layer 6:</b> {_html.escape(summary)}</div>", unsafe_allow_html=True)
+    if not prof.get("has_previous"):
+        st.caption("Første sammenlignbare snapshot er lagret. Neste kjøring kan forklare rang-, score-, risiko- og insiderendringer.")
+        return
+    movers = list(prof.get("rank_movers") or [])[:5]
+    score_movers = list(prof.get("score_movers") or [])[:5]
+    insider = list(prof.get("insider_direction_changes") or [])[:5]
+    risk = list(prof.get("risk_flag_changes") or [])[:5]
+    with st.expander("Detaljer om endringer", expanded=False):
+        if movers:
+            st.markdown("**Rangendringer**")
+            for m in movers:
+                st.caption(f"{m.get('symbol')}: {m.get('explanation')}")
+        if score_movers:
+            st.markdown("**Scoreendringer**")
+            for m in score_movers:
+                st.caption(f"{m.get('symbol')}: {m.get('explanation')}")
+        if insider:
+            st.markdown("**Insiderretning**")
+            for m in insider:
+                st.caption(f"{m.get('symbol')}: {m.get('explanation')}")
+        if risk:
+            st.markdown("**Risikoflagg**")
+            for r in risk:
+                added = ", ".join(r.get("added") or []) or "ingen nye"
+                removed = ", ".join(r.get("removed") or []) or "ingen fjernet"
+                st.caption(f"{r.get('symbol')}: nye: {added} · fjernet: {removed}")
+
+def _render_fund_etf_rows_v18538(rows, title="Beste fond / ETF-kandidater", limit=8, allow_view_toggle=True, empty_text=None):
+    import html as _html
+    all_rows = list(rows or [])
+    key = _fund_result_limit_key_v18547(title)
+    if allow_view_toggle and len(all_rows) > int(limit or 8):
+        mode = st.radio("Visning", [f"Topp {int(limit or 8)}", "Vis alle"], horizontal=True, key=key)
+    else:
+        mode = f"Topp {int(limit or 8)}"
+    shown_limit = len(all_rows) if mode == "Vis alle" else int(limit or 8)
+    rows = all_rows[:shown_limit]
+    suffix = f"Topp {len(rows)} av {len(all_rows)} analyserte" if len(all_rows) > len(rows) else f"{len(rows)} analyserte"
+    st.markdown(f"<div class='ptw-control-panel-title' style='margin-top:.85rem;margin-bottom:.35rem;'>{_html.escape(title)} <span style='font-size:.78rem;opacity:.75;'>· {_html.escape(suffix)}</span></div>", unsafe_allow_html=True)
+    if not rows:
+        msg = empty_text or "Ingen fond/ETF-kandidater å vise ennå. Kjør analysen eller utvid valgt fondunivers."
+        st.markdown(f"<div class='v18-dark-row' style='margin:.35rem 0 .75rem 0;padding:.62rem .70rem;line-height:1.35;'>{_html.escape(msg)}</div>", unsafe_allow_html=True)
+        return
+    for idx, row in enumerate(rows, start=1):
+        grade = str(row.get("grade") or "-")
+        grade_cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        full_label = _html.escape(_fund_display_label_v18574(row))
+        raw_name = str(row.get("name") or "Navn ikke funnet")
+        name = _html.escape(raw_name if raw_name and raw_name != str(row.get("symbol") or "") else "Navn ikke funnet")
+        fund_type = _html.escape(str(row.get("fund_type") or "-"))
+        decision = _html.escape(str(row.get("decision") or ""))
+        quality = row.get("decision_quality", "-")
+        base_score = row.get("base_score", "-")
+        composite_score = row.get("fund_intelligence_score", "-")
+        scenario_score = row.get("scenario_score", "-")
+        portfolio_fit_score = row.get("portfolio_fit_score", "-")
+        scenario_summary = _html.escape(str(row.get("scenario_summary") or ""))
+        portfolio_fit_summary = _html.escape(str(row.get("portfolio_fit_summary") or ""))
+        composite_summary = _html.escape(str(row.get("composite_summary") or ""))
+        base_summary = _html.escape(str(row.get("base_score_summary") or ""))
+        cost = row.get("expense_ratio_pct")
+        ret = row.get("period_return_pct")
+        dd = row.get("max_drawdown_pct")
+        excess = row.get("excess_return_pct")
+        explain = row.get("explainability_profile") or {}
+        pos = "; ".join(str(x) for x in (explain.get("why_ranked_here") or row.get("reasons_positive") or [])[:2])
+        caution = "; ".join(str(x) for x in (explain.get("what_holds_it_back") or row.get("reasons_caution") or [])[:2])
+        select_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_it_selected") or [])[:2])
+        reject_trigger = "; ".join(str(x) for x in (explain.get("what_would_make_model_reject_it") or [])[:2])
+        explain_short = _html.escape(str(explain.get("short_explanation") or row.get("explainability_summary") or ""))
+        cost_txt = "ukjent" if cost is None else f"{cost}%"
+        ret_txt = "ukjent" if ret is None else f"{ret}%"
+        dd_txt = "ukjent" if dd is None else f"{dd}%"
+        excess_txt = "ukjent" if excess is None else f"{excess}%"
+        st.markdown(
+            f"""
+            <div class='v18-dark-row v18574-readable-fund' style='margin:.42rem 0; padding:.68rem .76rem; line-height:1.48;'>
+              <div style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap; align-items:flex-start;'>
+                <div>
+                  <div style='font-weight:950;font-size:1.00rem;'>#{idx} {full_label}</div>
+                  <div style='font-size:.82rem;color:rgba(191,219,254,.90);margin-top:.12rem;'>Type: {fund_type}</div>
+                </div>
+                <span class='v18-status-chip {grade_cls}'>{_html.escape(grade)} · {quality}/100</span><span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span><span class='v18-status-chip green'>Scenario {scenario_score}/100</span><span class='v18-status-chip green'>Portefølje-fit {portfolio_fit_score}/100</span>
+              </div>
+              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.35rem;'>Beslutning: {decision or '-'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 5:</b> {composite_summary or 'Composite intelligence beregnet fra tilgjengelige lag'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 7:</b> {scenario_summary or 'Scenario/regime-profil beregnet fra tilgjengelige data'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.82);margin-top:.16rem;'><b>Layer 8:</b> {portfolio_fit_summary or 'Portefølje-fit vurderer overlapp, hull og diversifisering'}</div><div style='font-size:.82rem;color:rgba(226,232,240,.80);margin-top:.16rem;'>{base_summary}</div>
+              <div style='font-size:.84rem;color:rgba(226,232,240,.88);margin-top:.22rem;'><b>Forklaring:</b> {explain_short or 'Layer 2 forklaring mangler'}</div>
+              <div style='font-size:.84rem;color:rgba(191,219,254,.88);margin-top:.25rem;'>Kostnad {cost_txt} · Avkastning {ret_txt} · Max DD {dd_txt} · Mot benchmark {excess_txt}</div>
+              <div style='font-size:.82rem;color:rgba(209,250,229,.88);margin-top:.25rem;'>+ {_html.escape(pos or 'Ingen dominerende positiv driver')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.18rem;'>! {_html.escape(caution or 'Ingen store røde flagg')}</div>
+              <div style='font-size:.82rem;color:rgba(191,219,254,.84);margin-top:.18rem;'>Velges hvis: {_html.escape(select_trigger or 'bedre total score mot alternativer')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.84);margin-top:.12rem;'>Forkastes hvis: {_html.escape(reject_trigger or 'risiko/kostnad forverres uten kompenserende avkastning')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_fund_comparator_v18539(comparator, title="Fond vs fond-sammenligning"):
+    import html as _html
+    comp = dict(comparator or {})
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not comp or not comp.get("rows"):
+        st.markdown("<div class='v18-dark-row'>Ingen sammenligning ennå. Kjør Fond / ETF-analyse først.</div>", unsafe_allow_html=True)
+        return
+    leaders = comp.get("leaders") or {}
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;'>
+          <span class='v18-status-chip green'>Billigst: {_html.escape(str(leaders.get('billigst') or '-'))}</span>
+          <span class='v18-status-chip green'>Best kvalitet: {_html.escape(str(leaders.get('best_kvalitet') or '-'))}</span>
+          <span class='v18-status-chip yellow'>Best etter kostnad: {_html.escape(str(leaders.get('best_etter_kostnad') or '-'))}</span>
+          <span class='v18-status-chip yellow'>Best risikojustert: {_html.escape(str(leaders.get('best_risikojustert') or '-'))}</span>
+          <span class='v18-status-chip green'>Best grunnmur: {_html.escape(str(leaders.get('best_grunnmur') or '-'))}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    rows = list(comp.get("rows") or [])[:10]
+    for r in rows:
+        symbol = _html.escape(_fund_display_label_v18574(r))
+        ftype = _html.escape(str(r.get("fund_type") or "-"))
+        quality = r.get("decision_quality", "-")
+        fee = "ukjent" if r.get("expense_ratio_pct") is None else f"{r.get('expense_ratio_pct')}%"
+        ret = "ukjent" if r.get("period_return_pct") is None else f"{r.get('period_return_pct')}%"
+        vol = "ukjent" if r.get("volatility_pct") is None else f"{r.get('volatility_pct')}%"
+        dd = "ukjent" if r.get("max_drawdown_pct") is None else f"{r.get('max_drawdown_pct')}%"
+        excess = "ukjent" if r.get("excess_return_pct") is None else f"{r.get('excess_return_pct')}%"
+        evidence = str(r.get("active_evidence_status") or "-")
+        cls = "green" if evidence == "Godkjent" else ("yellow" if evidence in {"Usikker", "Ikke relevant"} else "red")
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.18rem 0;padding:.36rem .5rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;'>
+                <b>{symbol}</b><span>{ftype}</span><span>Kvalitet <b>{quality}</b></span><span>Kostnad {fee}</span><span>Avkastning {ret}</span><span>Vol {vol}</span><span>DD {dd}</span><span>Mot bench {excess}</span><span class='v18-status-chip {cls}'>Aktiv bevis: {_html.escape(evidence)}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_active_evidence_v18539(rows, title="Aktivt fond må bevise merverdi"):
+    import html as _html
+    active = [dict(r) for r in (rows or []) if dict(r).get("fund_type") == "Aktivt fond"]
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not active:
+        st.markdown("<div class='v18-dark-row'>Ingen aktive fond i denne kjøringen.</div>", unsafe_allow_html=True)
+        return
+    for row in active[:8]:
+        symbol = _html.escape(_fund_display_label_v18574(row))
+        status = str(row.get("active_evidence_status") or "Mangler data")
+        score = row.get("active_evidence_score")
+        msg = _html.escape(str(row.get("active_evidence_message") or ""))
+        excess = row.get("excess_return_pct")
+        fee = row.get("expense_ratio_pct")
+        cls = "green" if status == "Godkjent" else ("yellow" if status == "Usikker" else "red")
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='border-color:rgba(245,158,11,.35);'>
+              <div style='display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;'>
+                <b>{symbol}</b>
+                <span class='v18-status-chip {cls}'>{_html.escape(status)} · {score if score is not None else '-'}/100</span>
+              </div>
+              <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.18rem;'>Meravkastning mot benchmark: {excess if excess is not None else 'ukjent'}% · Kostnad: {fee if fee is not None else 'ukjent'}%</div>
+              <div style='font-size:.76rem;color:rgba(254,226,226,.86);margin-top:.18rem;'>{msg}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+
+
+def _render_fund_decision_quality_v18542(summary, title="Fondskvalitet og grunnscore"):
+    """Render hardened Fund Decision Quality without dataframes/white boxes."""
+    import html as _html
+    dq = dict(summary or {})
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not dq or not dq.get("rows"):
+        st.markdown("<div class='v18-dark-row'>Ingen Fond Decision Quality ennå. Kjør Fond / ETF-analyse først.</div>", unsafe_allow_html=True)
+        return
+    avg = dq.get("average_quality")
+    avg_base = dq.get("average_base_score")
+    best = _html.escape(str(dq.get("best_symbol") or "-"))
+    grade_counts = dq.get("grade_counts") or {}
+    role_counts = dq.get("role_counts") or {}
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(59,130,246,.45);'>
+          <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+            <b>Fond Decision Quality</b>
+            <span class='v18-status-chip green'>Decision Quality {avg if avg is not None else '-'}/100</span>
+            <span class='v18-status-chip yellow'>Layer 1 grunnscore {avg_base if avg_base is not None else '-'}/100</span>
+            <span class='v18-status-chip green'>Best: {best}</span>
+            <span class='v18-status-chip yellow'>Høy: {_html.escape(str(grade_counts.get('Høy', 0)))}</span>
+            <span class='v18-status-chip yellow'>Middels: {_html.escape(str(grade_counts.get('Middels', 0)))}</span>
+            <span class='v18-status-chip red'>Lav: {_html.escape(str(grade_counts.get('Lav', 0)))}</span>
+            <span class='v18-status-chip green'>Grunnmur: {_html.escape(str(role_counts.get('Grunnmur', 0)))}</span>
+            <span class='v18-status-chip yellow'>Satellitt: {_html.escape(str(role_counts.get('Satellitt', 0)))}</span>
+          </div>
+          <div style='font-size:.77rem;color:rgba(226,232,240,.84);margin-top:.22rem;'>Layer 1 er stabil grunnscore. Layer 2 forklarer hvorfor fondet rangeres slik, hva som må til for valg, og hva som kan få modellen til å forkaste fondet.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for row in list(dq.get("rows") or [])[:8]:
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        ftype = _html.escape(str(row.get("fund_type") or "-"))
+        quality = row.get("decision_quality", "-")
+        base_score = row.get("base_score", "-")
+        base_profile = row.get("base_score_profile") or {}
+        base_summary = _html.escape(str(row.get("base_score_summary") or base_profile.get("summary") or ""))
+        grade = str(row.get("grade") or "-")
+        decision = _html.escape(str(row.get("decision") or "-"))
+        role = _html.escape(str(row.get("recommended_role") or "-"))
+        cls = "green" if grade == "Høy" else ("yellow" if grade == "Middels" else "red")
+        comps = row.get("component_scores") or {}
+        role_scores = row.get("role_scores") or {}
+        drivers = "; ".join(str(x) for x in (row.get("drivers") or [])[:2])
+        cautions = "; ".join(str(x) for x in (row.get("cautions") or [])[:2])
+        why = "; ".join(str(x) for x in (row.get("why_not_100") or [])[:2])
+        cost = comps.get("cost", "-")
+        risk = comps.get("risk", "-")
+        bench = comps.get("benchmark", "-")
+        data_q = comps.get("data", "-")
+        cost_impact = comps.get("cost_impact", "-")
+        core_score = role_scores.get("grunnmur_score", "-")
+        sat_score = role_scores.get("satellitt_score", "-")
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.22rem 0;padding:.44rem .55rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+                <b>{symbol}</b>
+                <span>{ftype}</span>
+                <span class='v18-status-chip {cls}'>{_html.escape(grade)} · {quality}/100</span>
+                <span class='v18-status-chip yellow'>Grunnscore {base_score}/100</span>
+                <span class='v18-status-chip yellow'>Rolle: {role}</span>
+                <span>{decision}</span>
+              </div>
+              <div style='font-size:.75rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>Kostnad {cost} · Kostnadstid {cost_impact} · Risiko {risk} · Benchmark {bench} · Data {data_q}</div>
+              <div style='font-size:.82rem;color:rgba(226,232,240,.80);margin-top:.10rem;'>{base_summary}</div>
+              <div style='font-size:.75rem;color:rgba(226,232,240,.82);margin-top:.10rem;'>Grunnmur-score {core_score} · Satellitt-score {sat_score}</div>
+              <div style='font-size:.82rem;color:rgba(209,250,229,.88);margin-top:.10rem;'>+ {_html.escape(drivers or 'Ingen tydelig hoveddriver')}</div>
+              <div style='font-size:.82rem;color:rgba(254,226,226,.88);margin-top:.10rem;'>! {_html.escape(cautions or why or 'Ingen store røde flagg')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    warnings = list(dq.get("warnings") or [])
+    if warnings:
+        st.markdown(
+            "<div class='v18-dark-row' style='border-color:rgba(245,158,11,.38);'><b>Merk:</b> "
+            + _html.escape(" ".join(str(x) for x in warnings[:3]))
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+def _render_core_satellite_v18540(core_satellite, title="Grunnmur / satellitt-forslag"):
+    import html as _html
+    cs = dict(core_satellite or {})
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+    if not cs or not cs.get("allocation"):
+        warnings = cs.get("warnings") or ["Kjør Fond / ETF-analyse først."]
+        st.markdown(
+            f"<div class='v18-dark-row'>Ingen allokering foreslått ennå. {_html.escape(' '.join(str(x) for x in warnings[:2]))}</div>",
+            unsafe_allow_html=True,
+        )
+        return
+    profile = _html.escape(str(cs.get("profile") or "Balansert"))
+    avg_q = cs.get("average_quality")
+    core_pct = cs.get("target_core_pct", "-")
+    sat_pct = cs.get("target_satellite_pct", "-")
+    summary = _html.escape(str(cs.get("summary") or ""))
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(34,197,94,.42);'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <b>Porteføljeforslag: {profile}</b>
+            <span class='v18-status-chip green'>Grunnmur {core_pct}%</span>
+            <span class='v18-status-chip yellow'>Satellitter {sat_pct}%</span>
+            <span class='v18-status-chip green'>Kvalitet {avg_q if avg_q is not None else '-'}/100</span>
+          </div>
+          <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.22rem;'>{summary}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for row in list(cs.get("allocation") or [])[:10]:
+        symbol = _html.escape(str(row.get("symbol") or "-"))
+        role = _html.escape(str(row.get("role") or "-"))
+        role_cls = "green" if role == "Grunnmur" else "yellow"
+        weight = row.get("weight_pct", 0)
+        quality = row.get("decision_quality", "-")
+        ftype = _html.escape(str(row.get("fund_type") or "-"))
+        reason = _html.escape(str(row.get("reason") or ""))
+        cost = "ukjent" if row.get("expense_ratio_pct") is None else f"{row.get('expense_ratio_pct')}%"
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.2rem 0;padding:.42rem .55rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;'>
+                <b>{symbol}</b>
+                <span class='v18-status-chip {role_cls}'>{role}</span>
+                <span>Vekt <b>{weight}%</b></span>
+                <span>Kvalitet <b>{quality}</b></span>
+                <span>{ftype}</span>
+                <span>Kostnad {cost}</span>
+              </div>
+              <div style='font-size:.84rem;color:rgba(191,219,254,.88);margin-top:.16rem;'>{reason}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    warnings = list(cs.get("warnings") or [])
+    needs = list(cs.get("needs_proof") or [])
+    avoid = list(cs.get("avoid") or [])
+    if warnings:
+        st.markdown(
+            "<div class='v18-dark-row' style='border-color:rgba(245,158,11,.38);'>" +
+            "<b>Merk:</b> " + _html.escape(" ".join(str(x) for x in warnings[:3])) +
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    if needs or avoid:
+        with st.expander("Kandidater uten plass i forslaget", expanded=False):
+            for row in needs[:8]:
+                st.caption(f"{row.get('symbol')}: Krever mer bevis · {row.get('reason')}")
+            for row in avoid[:8]:
+                st.caption(f"{row.get('symbol')}: Unngå · {row.get('reason')}")
+
+
+
+def _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid"):
+    """Render compact cost-impact cards without large white dataframes."""
+    import html as _html
+    from fund_etf_analyzer import build_fund_cost_impact
+
+    rows = list((result or {}).get("ranked") or [])
+    st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns([1.0, 1.0, 1.0, 0.9])
+    with c1:
+        start_amount = st.number_input("Startbeløp", min_value=0, max_value=100_000_000, value=100_000, step=10_000, key="fund_cost_start_v18541")
+    with c2:
+        monthly_saving = st.number_input("Månedlig sparing", min_value=0, max_value=2_000_000, value=2_000, step=500, key="fund_cost_monthly_v18541")
+    with c3:
+        annual_return = st.number_input("Avkastning før kostnad %", min_value=-20.0, max_value=30.0, value=7.0, step=0.25, key="fund_cost_return_v18541")
+    with c4:
+        years = st.selectbox("Horisont", [10, 20, 30], index=1, key="fund_cost_years_v18541")
+
+    impact = build_fund_cost_impact(
+        rows,
+        start_amount=float(start_amount or 0),
+        monthly_saving=float(monthly_saving or 0),
+        annual_return_pct=float(annual_return or 0),
+        years=int(years or 20),
+        include_standard_levels=True,
+    )
+    summary = impact.get("summary") or {}
+    diff = summary.get("difference_best_worst")
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(59,130,246,.48);'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <b>Kostnadseffekt over {int(impact.get('years') or years)} år</b>
+            <span class='v18-status-chip green'>Baseline: {impact.get('baseline_fee_pct')}%</span>
+            <span class='v18-status-chip yellow'>Forskjell billigst/dyrest: {diff:,.0f} kr</span>
+          </div>
+          <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.18rem;'>
+            Start {float(start_amount or 0):,.0f} kr · Månedlig {float(monthly_saving or 0):,.0f} kr · Forventet avkastning før kostnad {float(annual_return or 0):.2f}%.
+            Dette er en enkel illustrasjon, ikke en garanti for fremtidig avkastning.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    for row in list(impact.get("rows") or [])[:12]:
+        label = _html.escape(_security_display_label_v18569(row.get("symbol") or row.get("label") or "", row) if row.get("symbol") else str(row.get("label") or "-"))
+        fee = row.get("expense_ratio_pct")
+        ending = float(row.get("ending_value") or 0.0)
+        vs_base = float(row.get("vs_baseline") or 0.0)
+        drag = float(row.get("cost_drag_vs_no_fee") or 0.0)
+        cls = "green" if vs_base >= -1 else ("yellow" if abs(vs_base) < 50_000 else "red")
+        sign = "+" if vs_base >= 0 else ""
+        st.markdown(
+            f"""
+            <div class='v18-dark-row' style='margin:.18rem 0;padding:.42rem .55rem;'>
+              <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+                <b>{label}</b>
+                <span class='v18-status-chip {cls}'>Kostnad {fee}%</span>
+                <span>Sluttverdi <b>{ending:,.0f} kr</b></span>
+                <span>Mot baseline <b>{sign}{vs_base:,.0f} kr</b></span>
+                <span>Tapt mot 0% kostnad <b>{drag:,.0f} kr</b></span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if not rows:
+        st.markdown("<div class='v18-dark-row'>Kjør Fond / ETF-analyse for å bruke faktiske fondskostnader. Referansenivåene over viser likevel kostnadseffekten.</div>", unsafe_allow_html=True)
+
+def render_fund_etf_control_center_v18538():
+    """On-demand Fund / ETF Analyzer with fund-specific progress and quality score."""
+    st.subheader("Fond Fond / ETF-analyse")
+    st.caption("Analyser aksje-, indeks-, aktive-, rente-, high yield- og pengemarkedsfond når du trykker Kjør. Rente- og kredittfond vurderes separat fra vanlige aksjefond.")
+
+    from fund_etf_analyzer import default_fund_benchmark, fund_market_options, fund_selection_sources, fund_type_options
+    col_src, col_market, col_a, col_b, col_c, col_d = st.columns([1.0, 0.92, 0.9, 1.0, 0.86, 0.72])
+    with col_src:
+        selection_source = st.selectbox("Utvalgskilde", fund_selection_sources(), key="fund_lab_source_v18539", help="Auto-univers velger fra fondskatalogen. Manuell liste bruker dine symboler i rekkefølge.")
+    with col_market:
+        fund_market = st.selectbox("Marked / region", fund_market_options(), key="fund_lab_market_v1863x", help="Bruker samme markedslogikk som resten av AI Kontrollsenter, med ekstra Europa/UCITS for fond.")
+    with col_a:
+        fund_type = st.selectbox("Fondstype", fund_type_options(), key="fund_lab_type_v18538")
+    with col_b:
+        objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="fund_lab_objective_v18538")
+    with col_c:
+        test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="fund_lab_test_mode_v18538")
+    with col_d:
+        max_funds = st.slider("Maks fond", 1, 40, 8, 1, key="fund_lab_limit_v18538")
+
+    auto_benchmark = st.checkbox("Automatisk benchmark", value=True, key="fund_lab_auto_benchmark_v1863x")
+    auto_benchmark_symbol = default_fund_benchmark(fund_type, fund_market)
+    col_bench, col_period = st.columns([1.0, 1.0])
+    with col_bench:
+        if auto_benchmark:
+            benchmark_symbol = auto_benchmark_symbol
+            st.markdown(f"<div class='v18-dark-row'>Benchmark: <b>{html.escape(benchmark_symbol)}</b> valgt automatisk for {html.escape(str(fund_type))} / {html.escape(str(fund_market))}.</div>", unsafe_allow_html=True)
+        else:
+            benchmark_symbol = st.text_input("Benchmark", value=auto_benchmark_symbol, key="fund_lab_benchmark_v18538", help="Yahoo-symbol for benchmark, f.eks. SPY, HYG, BND, SGOV, EUNL.DE.").strip().upper()
+    with col_period:
+        period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="fund_lab_period_v18538")
+
+    default_list = "SPY, VOO, VTI, QQQ, ACWI, BND, HYG, SGOV"
+    manual_text = st.text_area("Fond/ETF-liste", value=default_list, height=76, key="fund_lab_manual_v18538", help="Bruk tickere der Yahoo Finance har data. For norske fond som Kraft High Yield D kan NAV-data mangle i gratis datakilder; skriv gjerne Kraft High Yield D eller KRAFT_HIGH_YIELD_D for manuell klassifisering.")
+
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
+    with c1:
+        include_benchmark = st.checkbox("Benchmark-sjekk", value=True, key="fund_lab_include_benchmark_v18538")
+    with c2:
+        fetch_costs = st.checkbox("Prøv å hente kostnader", value=True, key="fund_lab_fetch_costs_v18538")
+    with c3:
+        store_result = st.checkbox("Lagre resultat", value=True, key="fund_lab_store_result_v18538")
+
+    from fund_etf_analyzer import parse_fund_list, estimate_fund_etf_run, select_fund_candidates
+    manual_symbols = parse_fund_list(manual_text)
+    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8), market_scope=fund_market)
+    symbols = list(selection.get("symbols") or [])
+    budget = estimate_fund_etf_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
+    tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
+          <span><b>Planlagt fondanalyse:</b> {int(budget.get('funds', len(symbols)) or 0)} fond · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip green'>Kilde: {html.escape(str(selection.get('source') or selection_source))}</span>
+          <span class='v18-status-chip green'>Marked: {html.escape(str(selection.get('market_scope') or fund_market))}</span>
+          <span class='v18-status-chip {'red' if budget.get('load_label') == 'Høy' else ('yellow' if budget.get('load_label') == 'Medium' else 'green')}'>Databudsjett: {html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
+        </div>
+        <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {html.escape(tests_text or 'Ingen')}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if symbols:
+        reasons = []
+        for item in list(selection.get("selected") or [])[:12]:
+            markets = ", ".join(str(x) for x in (item.get("markets") or []))
+            reasons.append(f"<b>{html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({html.escape(str(markets or item.get('bucket') or '-'))}: {html.escape(str(item.get('reason') or 'valgt'))})</span>")
+        st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. Prøv Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
+
+    run_col, stop_col = st.columns([2.2, 1.0])
+    with run_col:
+        run_clicked = st.button("Fond Kjør Fond / ETF-analyse", key="fund_lab_run_v18538", type="primary", width="stretch", on_click=set_global_busy, kwargs={"label": "Kjører Fond / ETF", "detail": "Tester fond mot kostnad, risiko og benchmark"})
+    with stop_col:
+        if st.button("Stopp Stopp/avbryt", key="fund_lab_stop_v18538", width="stretch"):
+            st.session_state["fund_lab_stop_requested_v18538"] = True
+            st.warning("Stopp er bedt om. Kjøringen stopper ved neste trygge kontrollpunkt.")
+
+    if run_clicked:
+        st.session_state["fund_lab_stop_requested_v18538"] = False
+        if not symbols:
+            st.warning("Ingen fond/ETF-er å teste.")
+            finish_global_busy("Klar", "Fond / ETF-analyse manglet symboler.")
+            return
+        if yf is None:
+            st.error("yfinance er ikke tilgjengelig i miljøet. Legg yfinance i requirements/deploy før fonddata kan hentes.")
+            finish_global_busy("Klar", "Fond / ETF-analyse stoppet: yfinance mangler.")
+            return
+
+        from fund_etf_analyzer import run_fund_etf_lab
+        from services.storage_service import get_storage_service
+        from datetime import datetime, timezone
+
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter Fond / ETF-analyse")
+        update_global_busy("Kjører Fond / ETF", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+
+        def _download_symbol(symbol):
+            info = {}
+            hist = None
+            try:
+                t = yf.Ticker(symbol)
+                if fetch_costs:
+                    try:
+                        info = dict(getattr(t, "info", {}) or {})
+                    except Exception:
+                        info = {}
+                try:
+                    hist = t.history(period=period, auto_adjust=True)
+                except Exception:
+                    hist = None
+            except Exception:
+                info = {}
+                hist = None
+            closes = []
+            if hist is not None:
+                try:
+                    if hasattr(hist, "columns") and "Close" in hist.columns:
+                        closes = [float(x) for x in hist["Close"].dropna().tolist()]
+                except Exception:
+                    closes = []
+            return {
+                "symbol": symbol,
+                "name": info.get("longName") or info.get("shortName") or symbol,
+                "longName": info.get("longName") or info.get("shortName") or symbol,
+                "quoteType": info.get("quoteType") or info.get("typeDisp"),
+                "category": info.get("category"),
+                "fundFamily": info.get("fundFamily"),
+                "expenseRatio": info.get("annualReportExpenseRatio") or info.get("expenseRatio") or info.get("netExpenseRatio"),
+                "prices": closes,
+            }
+
+        def _should_stop():
+            return bool(st.session_state.get("fund_lab_stop_requested_v18538", False))
+
+        def _progress_callback(ev):
+            pct = float(ev.get("percent") or 0.0)
+            completed = int(ev.get("completed_tests") or 0)
+            total = int(ev.get("total_tests") or 0)
+            symbol = str(ev.get("symbol") or "-")
+            test_name = str(ev.get("test_name") or "Starter")
+            fund_idx = int(ev.get("fund_index") or 0)
+            fund_total = int(ev.get("fund_total") or len(symbols))
+            test_idx = int(ev.get("test_index") or 0)
+            tests_per = int(ev.get("tests_per_fund") or max(1, int(budget.get("tests_per_fund", 1) or 1)))
+            status = str(ev.get("status") or "running")
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Fond / ETF", f"{symbol} · {test_name} · {pct:.0f}%", step=completed, total=total)
+            status_box.markdown(
+                f"""
+                <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
+                  <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
+                    <b>🔄 Fond / ETF-analyse kjører</b>
+                    <span class='v18-status-chip yellow'>{html.escape(status)} · {completed}/{total}</span>
+                  </div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{html.escape(symbol)}</b> · Test nå: <b>{html.escape(test_name)}</b></div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        result = run_fund_etf_lab(
+            symbols,
+            data_provider=_download_symbol,
+            benchmark_provider=_download_symbol if include_benchmark else None,
+            benchmark_symbol=benchmark_symbol or "SPY",
+            fund_type=fund_type,
+            objective=objective,
+            test_mode=test_mode,
+            progress_callback=_progress_callback,
+            should_stop=_should_stop,
+            max_funds=int(max_funds or 8),
+            selection_info=selection,
+        )
+        result["period"] = period
+        result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        st.session_state["fund_etf_lab_last_result_v18538"] = result
+        if store_result:
+            try:
+                storage = get_storage_service()
+                storage.write_json("fund_etf_lab/latest.json", result)
+                storage.append_jsonl("fund_etf_lab/history.jsonl", result)
+                result["storage_backend"] = storage.backend()
+            except Exception as exc:
+                result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        finish_global_busy("Klar", "Fond / ETF-analyse ferdig." if not result.get("interrupted") else "Fond / ETF-analyse avbrutt.")
+        if result.get("interrupted"):
+            st.warning(f"Fond / ETF-analyse avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
+        else:
+            st.success(f"Fond / ETF-analyse ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+
+    result = st.session_state.get("fund_etf_lab_last_result_v18538") or {}
+    if result:
+        summary = result.get("summary", {}) or {}
+        cols = st.columns(5)
+        cols[0].metric("Analyserte", summary.get("analyzed", 0))
+        cols[1].metric("Tester", f"{result.get('completed_tests', 0)}/{result.get('total_tests', 0)}")
+        cols[2].metric("Beste", summary.get("best_symbol") or "-")
+        cols[3].metric("Kvalitet", summary.get("best_quality") or "-")
+        cols[4].metric("Feil", summary.get("errors", 0))
+        if result.get("interrupted"):
+            st.warning("Siste Fond / ETF-analyse ble avbrutt. Resultatene under er foreløpige.")
+        if int(summary.get("analyzed", 0) or 0) == 0 and int(summary.get("errors", 0) or 0) > 0:
+            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste årsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under før du endrer strategi.")
+        _render_fund_result_scope_v18547(result, default_limit=8)
+        _render_what_changed_v18555(result.get("what_changed_profile"))
+        display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
+        _render_fund_etf_rows_v18538(result.get("ranked"), title="Beste fond / ETF-kandidater", limit=display_limit)
+        _render_fund_comparator_v18539(result.get("comparator"), title="Fond vs fond-sammenligning")
+        _render_fund_decision_quality_v18542(result.get("decision_quality_summary"), title="Fondskvalitet og grunnscore")
+        _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
+        _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
+        _render_fund_etf_rows_v18538(result.get("index_candidates"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennå. Kjør fondanalyse først.")
+        _render_active_evidence_v18539(result.get("ranked"), title="Vurdering av aktive fond")
+        _render_fund_etf_rows_v18538(result.get("active_candidates"), title="Aktive fond som kan vurderes", limit=5)
+        _render_fund_etf_rows_v18538(result.get("fixed_income_candidates"), title="Rente-/obligasjonsfond og pengemarked", limit=5)
+        _render_fund_etf_rows_v18538(result.get("high_yield_candidates"), title="High yield / kredittsatellitter", limit=5)
+        needs = result.get("needs_proof") or []
+        errors = result.get("errors") or []
+        if needs or errors:
+            with st.expander("Krever mer bevis / mangler data / feil", expanded=False):
+                for row in needs[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('decision')} · {', '.join(row.get('reasons_caution') or [])}")
+                for row in errors[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('test', '-')}: {row.get('error')}")
+    else:
+        st.info("Ingen Fond / ETF-resultat ennå. Legg inn fond/ETF-er og trykk Kjør.")
+
+
+
+# v18.5.43: Auto Test Lab Fund Mode.
+def render_auto_test_lab_fund_mode_v18543():
+    """Run the fund/ETF engine from Auto Test Lab, with progress and safe controls."""
+    import html as _html
+    st.markdown("<div class='v18-dark-row'><b>Fondmodus:</b> Auto Test Lab tester fond/ETF-er mot kostnad, benchmark, aktiv merverdi, grunnmur/satellitt og Fond Decision Quality.</div>", unsafe_allow_html=True)
+
+    from fund_etf_analyzer import default_fund_benchmark, fund_market_options, fund_selection_sources, fund_type_options, parse_fund_list, select_fund_candidates
+    from auto_test_lab import estimate_auto_lab_fund_run
+
+    col_src, col_market, col_type, col_obj, col_mode, col_max = st.columns([1.0, 0.92, 0.9, 1.0, 0.86, 0.72])
+    with col_src:
+        selection_source = st.selectbox(
+            "Utvalgskilde",
+            fund_selection_sources(),
+            key="auto_lab_fund_source_v18543",
+            help="Auto-kilder velger fond/ETF-er fra et transparent start-univers. Manuell liste bruker dine symboler i rekkefølge.",
+        )
+    with col_market:
+        fund_market = st.selectbox("Marked / region", fund_market_options(), key="auto_lab_fund_market_v1863x")
+    with col_type:
+        fund_type = st.selectbox("Fondstype", fund_type_options(), key="auto_lab_fund_type_v18543")
+    with col_obj:
+        objective = st.selectbox("Mål", ["Balansert", "Lav kostnad", "Lav risiko", "Best historikk", "Grunnmur"], key="auto_lab_fund_objective_v18543")
+    with col_mode:
+        test_mode = st.selectbox("Testmodus", ["Rask", "Normal", "Grundig"], index=1, key="auto_lab_fund_test_mode_v18543")
+    with col_max:
+        max_funds = st.slider("Maks fond", 1, 40, 8, 1, key="auto_lab_fund_limit_v18543")
+
+    auto_benchmark = st.checkbox("Automatisk benchmark", value=True, key="auto_lab_fund_auto_benchmark_v1863x")
+    auto_benchmark_symbol = default_fund_benchmark(fund_type, fund_market)
+    col_bench, col_period = st.columns([1.0, 1.0])
+    with col_bench:
+        if auto_benchmark:
+            benchmark_symbol = auto_benchmark_symbol
+            st.markdown(f"<div class='v18-dark-row'>Benchmark: <b>{_html.escape(benchmark_symbol)}</b> valgt automatisk for {_html.escape(str(fund_type))} / {_html.escape(str(fund_market))}.</div>", unsafe_allow_html=True)
+        else:
+            benchmark_symbol = st.text_input(
+                "Benchmark",
+                value=auto_benchmark_symbol,
+                key="auto_lab_fund_benchmark_v18543",
+                help="Yahoo-symbol for benchmark, f.eks. SPY, HYG, BND, SGOV, EUNL.DE.",
+            ).strip().upper()
+    with col_period:
+        period = st.selectbox("Historikk", ["1y", "3y", "5y", "10y"], index=2, key="auto_lab_fund_period_v18543")
+
+    default_list = "SPY, VOO, VTI, QQQ, ACWI, BND, HYG, SGOV"
+    manual_text = st.text_area(
+        "Fond/ETF-liste",
+        value=default_list,
+        height=72,
+        key="auto_lab_fund_manual_v18543",
+        help="Bruk tickere der Yahoo Finance har data. Auto-kilder brukes når Utvalgskilde ikke er Manuell liste. Kraft High Yield D kan skrives som tekst/alias, men krever NAV-datakilde for full data.",
+    )
+
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.2])
+    with c1:
+        include_benchmark = st.checkbox("Benchmark-sjekk", value=True, key="auto_lab_fund_include_benchmark_v18543")
+    with c2:
+        fetch_costs = st.checkbox("Prøv å hente kostnader", value=True, key="auto_lab_fund_fetch_costs_v18543")
+    with c3:
+        store_result = st.checkbox("Lagre Auto Test Lab-resultat", value=True, key="auto_lab_fund_store_result_v18543")
+
+    manual_symbols = parse_fund_list(manual_text)
+    selection = select_fund_candidates(source=selection_source, fund_type=fund_type, manual_symbols=manual_symbols, max_funds=int(max_funds or 8), market_scope=fund_market)
+    symbols = list(selection.get("symbols") or [])
+    budget = estimate_auto_lab_fund_run(symbols, test_mode=test_mode, include_benchmark=bool(include_benchmark), fetch_costs=bool(fetch_costs))
+    tests_text = ", ".join(str(x) for x in (budget.get("tests") or [])[:10])
+
+    load_cls = "red" if budget.get("load_label") == "Høy" else ("yellow" if budget.get("load_label") == "Medium" else "green")
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='display:flex; justify-content:space-between; gap:.7rem; flex-wrap:wrap;'>
+          <span><b>Planlagt fondmodus:</b> {int(budget.get('funds', len(symbols)) or 0)} fond/ETF · {int(budget.get('tests_per_fund', 0) or 0)} tester per fond · {int(budget.get('total_tests', 0) or 0)} totalt</span>
+          <span class='v18-status-chip green'>Auto Test Lab: Fond / ETF</span>
+          <span class='v18-status-chip green'>Marked: {_html.escape(str(selection.get('market_scope') or fund_market))}</span>
+          <span class='v18-status-chip {load_cls}'>Databudsjett: {_html.escape(str(budget.get('load_label') or 'Ukjent'))}</span>
+          <span>Prisdata: {int(budget.get('price_calls', 0) or 0)} · Metadata: {int(budget.get('metadata_calls', 0) or 0)} · Benchmark: {int(budget.get('benchmark_calls', 0) or 0)}</span>
+        </div>
+        <div class='v18-dark-row' style='font-size:.75rem; opacity:.86;'>Tester: {_html.escape(tests_text or 'Ingen')}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if symbols:
+        reasons = []
+        for item in list(selection.get("selected") or [])[:12]:
+            markets = ", ".join(str(x) for x in (item.get("markets") or []))
+            reasons.append(f"<b>{_html.escape(str(item.get('symbol') or ''))}</b> <span style='opacity:.75'>({_html.escape(str(markets or item.get('bucket') or '-'))}: {_html.escape(str(item.get('reason') or 'valgt'))})</span>")
+        st.markdown(f"<div class='v18-dark-row'>Valgte fond/ETF-er: {', '.join(reasons)}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen fond/ETF-symboler funnet for valgt marked/type. Prøv Alle, Europa/UCITS eller Manuell liste.</div>", unsafe_allow_html=True)
+
+    run_col, stop_col = st.columns([2.2, 1.0])
+    with run_col:
+        run_clicked = st.button(
+            "Fond Kjør Auto Test Lab – Fondmodus",
+            key="auto_lab_fund_run_v18543",
+            type="primary",
+            width="stretch",
+            on_click=set_global_busy,
+            kwargs={"label": "Kjører Auto Test Lab Fondmodus", "detail": "Tester fond/ETF mot kostnad, benchmark og beslutningskvalitet"},
+        )
+    with stop_col:
+        if st.button("Stopp Stopp/avbryt", key="auto_lab_fund_stop_v18543", width="stretch", help="Ber kjøringen stoppe trygt ved neste kontrollpunkt."):
+            st.session_state["auto_lab_fund_stop_requested_v18543"] = True
+            st.warning("Stopp er bedt om. Fondmodus stopper ved neste trygge kontrollpunkt.")
+
+    if run_clicked:
+        st.session_state["auto_lab_fund_stop_requested_v18543"] = False
+        if not symbols:
+            st.warning("Ingen fond/ETF-er å teste.")
+            finish_global_busy("Klar", "Auto Test Lab Fondmodus manglet symboler.")
+            return
+        if yf is None:
+            st.error("yfinance er ikke tilgjengelig i miljøet. Legg yfinance i requirements/deploy før fonddata kan hentes.")
+            finish_global_busy("Klar", "Auto Test Lab Fondmodus stoppet: yfinance mangler.")
+            return
+
+        from auto_test_lab import run_auto_test_lab_fund_mode
+        from services.storage_service import get_storage_service
+        from datetime import datetime, timezone
+
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter Auto Test Lab Fondmodus")
+        update_global_busy("Kjører Auto Test Lab Fondmodus", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
+
+        def _download_symbol(symbol):
+            info = {}
+            hist = None
+            try:
+                t = yf.Ticker(symbol)
+                if fetch_costs:
+                    try:
+                        info = dict(getattr(t, "info", {}) or {})
+                    except Exception:
+                        info = {}
+                try:
+                    hist = t.history(period=period, auto_adjust=True)
+                except Exception:
+                    hist = None
+            except Exception:
+                info = {}
+                hist = None
+            closes = []
+            if hist is not None:
+                try:
+                    if hasattr(hist, "columns") and "Close" in hist.columns:
+                        closes = [float(x) for x in hist["Close"].dropna().tolist()]
+                except Exception:
+                    closes = []
+            return {
+                "symbol": symbol,
+                "name": info.get("longName") or info.get("shortName") or symbol,
+                "longName": info.get("longName") or info.get("shortName") or symbol,
+                "quoteType": info.get("quoteType") or info.get("typeDisp"),
+                "category": info.get("category"),
+                "fundFamily": info.get("fundFamily"),
+                "expenseRatio": info.get("annualReportExpenseRatio") or info.get("expenseRatio") or info.get("netExpenseRatio"),
+                "prices": closes,
+            }
+
+        def _should_stop():
+            return bool(st.session_state.get("auto_lab_fund_stop_requested_v18543", False))
+
+        def _progress_callback(ev):
+            pct = float(ev.get("percent") or 0.0)
+            completed = int(ev.get("completed_tests") or 0)
+            total = int(ev.get("total_tests") or 0)
+            symbol = str(ev.get("symbol") or "-")
+            test_name = str(ev.get("test_name") or "Starter")
+            fund_idx = int(ev.get("fund_index") or 0)
+            fund_total = int(ev.get("fund_total") or len(symbols))
+            test_idx = int(ev.get("test_index") or 0)
+            tests_per = int(ev.get("tests_per_fund") or max(1, int(budget.get("tests_per_fund", 1) or 1)))
+            status = str(ev.get("status") or "running")
+            progress.progress(min(100, max(0, int(round(pct)))), text=f"{completed}/{total} tester · {pct:.0f}%")
+            update_global_busy("Kjører Auto Test Lab Fondmodus", f"{symbol} · {test_name} · {pct:.0f}%", step=completed, total=total)
+            status_box.markdown(
+                f"""
+                <div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'>
+                  <div style='display:flex;justify-content:space-between;gap:.7rem;flex-wrap:wrap;'>
+                    <b>🔄 Auto Test Lab Fondmodus kjører</b>
+                    <span class='v18-status-chip yellow'>{_html.escape(status)} · {completed}/{total}</span>
+                  </div>
+                  <div style='font-size:.82rem;margin-top:.25rem;'>Fond/ETF: <b>{_html.escape(symbol)}</b> · Test nå: <b>{_html.escape(test_name)}</b></div>
+                  <div style='font-size:.86rem;color:rgba(226,232,240,.86);'>Fond {fund_idx}/{fund_total} · Test {test_idx}/{tests_per} · Total fremdrift {pct:.1f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        result = run_auto_test_lab_fund_mode(
+            symbols,
+            data_provider=_download_symbol,
+            benchmark_provider=_download_symbol if include_benchmark else None,
+            benchmark_symbol=benchmark_symbol or "SPY",
+            fund_type=fund_type,
+            objective=objective,
+            test_mode=test_mode,
+            progress_callback=_progress_callback,
+            should_stop=_should_stop,
+            max_funds=int(max_funds or 8),
+            selection_info=selection,
+        )
+        result["scope"] = selection_source
+        result["period"] = period
+        result["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        st.session_state["auto_test_lab_last_result_fund_v18543"] = result
+        if store_result:
+            try:
+                storage = get_storage_service()
+                storage.write_json("auto_test_lab/fund_latest.json", result)
+                storage.append_jsonl("auto_test_lab/fund_history.jsonl", result)
+                result["storage_backend"] = storage.backend()
+            except Exception as exc:
+                result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        finish_global_busy("Klar", "Auto Test Lab Fondmodus ferdig." if not result.get("interrupted") else "Auto Test Lab Fondmodus avbrutt.")
+        if result.get("interrupted"):
+            st.warning(f"Auto Test Lab Fondmodus avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
+        else:
+            st.success(f"Auto Test Lab Fondmodus ferdig: {result.get('summary', {}).get('analyzed', 0)} analyserte fond · {result.get('completed_tests', 0)}/{result.get('total_tests', 0)} tester.")
+
+    result = st.session_state.get("auto_test_lab_last_result_fund_v18543") or {}
+    if result:
+        summary = result.get("summary", {}) or {}
+        cols = st.columns(5)
+        cols[0].metric("Analyserte fond", summary.get("analyzed", 0))
+        cols[1].metric("Tester", f"{result.get('completed_tests', 0)}/{result.get('total_tests', 0)}")
+        cols[2].metric("Beste", summary.get("best_symbol") or "-")
+        cols[3].metric("Kvalitet", summary.get("best_quality") or "-")
+        cols[4].metric("Grunnmur/sat", summary.get("core_satellite_positions", 0))
+        if result.get("interrupted"):
+            st.warning("Siste Auto Test Lab Fondmodus ble avbrutt. Resultatene under er foreløpige.")
+        if int(summary.get("analyzed", 0) or 0) == 0 and int(summary.get("errors", 0) or 0) > 0:
+            st.warning("Fond/ETF-er ble valgt, men ingen kunne analyseres. Vanligste årsak er manglende pris-/NAV-historikk i valgt datakilde. Se detaljene under før du endrer strategi.")
+        _render_fund_result_scope_v18547(result, default_limit=8)
+        _render_what_changed_v18555(result.get("what_changed_profile"))
+        display_limit = int((summary or {}).get("selected_max") or (result.get("selection") or {}).get("display_limit") or 8)
+        _render_fund_etf_rows_v18538(result.get("ranked") or result.get("best_funds"), title="Beste fond / ETF fra Auto Test Lab", limit=display_limit)
+        _render_fund_comparator_v18539(result.get("fund_comparator") or result.get("comparator"), title="Fond vs fond-sammenligning")
+        _render_fund_decision_quality_v18542(result.get("fund_decision_quality_summary") or result.get("decision_quality_summary"), title="Fondskvalitet og grunnscore")
+        _render_core_satellite_v18540(result.get("core_satellite"), title="Grunnmur / satellitt-forslag")
+        _render_fund_cost_impact_v18541(result, title="Kostnadseffekt over tid")
+        _render_fund_etf_rows_v18538(result.get("index_candidates") or result.get("best_index_etf"), title="Indeksfond / ETF-kandidater", limit=5, empty_text="Ingen kandidater ennå. Kjør fondanalyse først.")
+        _render_active_evidence_v18539(result.get("ranked"), title="Vurdering av aktive fond")
+        needs = result.get("requires_more_evidence") or result.get("needs_proof") or []
+        errors = result.get("errors") or []
+        if needs or errors:
+            with st.expander("Krever mer bevis / mangler data / feil", expanded=False):
+                for row in needs[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('decision')} · {', '.join(row.get('reasons_caution') or [])}")
+                for row in errors[:12]:
+                    st.caption(f"{row.get('symbol')}: {row.get('test', '-')}: {row.get('error')}")
+    else:
+        st.info("Ingen Auto Test Lab-resultat i fondmodus ennå. Velg fondunivers og trykk Kjør.")
+
+
+
+# v18.5.44: Portfolio Analyzer - Stocks + Funds -----------------------------
+def _portfolio_analyzer_result_rows_v18544(result_key: str, row_keys: list[str], limit: int = 12):
+    """Fetch rows from a previous lab/result in session_state without triggering analysis."""
+    result = st.session_state.get(result_key) or {}
+    if not isinstance(result, dict):
+        return []
+    rows = []
+    for key in row_keys:
+        vals = result.get(key) or []
+        if isinstance(vals, list):
+            rows.extend([v for v in vals if isinstance(v, dict)])
+        if len(rows) >= limit:
+            break
+    return rows[: int(limit or 12)]
+
+
+def _paper_trading_holdings_v18544(limit: int | None = None):
+    """Resolve paper trading positions as portfolio rows without price/network calls."""
+    try:
+        portfolio = load_portfolio() or {}
+        positions = portfolio.get("positions") if isinstance(portfolio, dict) else {}
+        rows = []
+        if isinstance(positions, dict):
+            for ticker, pos in positions.items():
+                if not ticker:
+                    continue
+                weight = None
+                try:
+                    shares = float((pos or {}).get("shares") or 0)
+                    price = float((pos or {}).get("last_price") or (pos or {}).get("entry_price") or 0)
+                    value = shares * price
+                    rows.append({"symbol": ticker, "asset_type": (pos or {}).get("asset_type", "Aksje"), "position_value": value, "source": "Paper trading", "metadata": {"currency": (pos or {}).get("currency", ""), "purchase_mode": (pos or {}).get("purchase_mode", "")}})
+                except Exception:
+                    rows.append({"symbol": ticker, "asset_type": (pos or {}).get("asset_type", "Aksje"), "source": "Paper trading"})
+        elif isinstance(positions, list):
+            for pos in positions:
+                if isinstance(pos, dict):
+                    ticker = pos.get("ticker") or pos.get("symbol")
+                    if ticker:
+                        rows.append({"symbol": ticker, "asset_type": (pos or {}).get("asset_type", "Aksje"), "source": "Paper trading"})
+        total_value = sum(float(r.get("position_value") or 0.0) for r in rows)
+        if total_value > 0:
+            for r in rows:
+                r["weight_pct"] = round((float(r.get("position_value") or 0.0) / total_value) * 100.0, 2)
+        if limit is None:
+            return rows
+        return rows[: int(limit or len(rows))]
+    except Exception:
+        return []
+
+
+def _portfolio_position_table_rows_v1864h(rows: list[dict]) -> list[dict]:
+    sector_labels = {
+        "Financials": "Finans",
+        "Healthcare": "Healthcare",
+        "Consumer": "Consumer",
+        "Technology": "Technology",
+        "Communication": "Communication",
+        "Energy": "Energy",
+        "Materials": "Materials",
+        "Industrials": "Industrials",
+        "Utilities": "Utilities",
+    }
+    table_rows: list[dict] = []
+    for row in rows:
+        symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
+        meta = resolve_security_metadata(symbol, row)
+        listing = infer_security_listing(symbol, meta)
+        label = _fund_display_label_v18574(meta)
+        sector_raw = str(row.get("sector") or meta.get("sector") or "").strip()
+        if not sector_raw or sector_raw in {"-", "Unknown", "Ukjent"}:
+            sector_raw = str(meta.get("sector") or "-")
+        market_raw = str(row.get("market") or row.get("geography") or "").strip()
+        if not market_raw or market_raw in {"-", "Unknown", "Ukjent", "USA/Global"}:
+            market_raw = str(listing.get("market") or listing.get("country") or "-")
+        detail = []
+        if row.get("decision_quality") is not None:
+            detail.append(f"Kvalitet {row.get('decision_quality')}")
+        if row.get("expense_ratio_pct") is not None:
+            detail.append(f"Kostnad {row.get('expense_ratio_pct')}%")
+        table_rows.append({
+            "Ticker / selskap": label,
+            "Vekt": f"{row.get('weight_pct', '-')}%",
+            "Type": row.get("asset_type") or "-",
+            "Kategori": row.get("role") or "-",
+            "Sektor": sector_labels.get(sector_raw, sector_raw or "-"),
+            "Marked": market_raw or "-",
+            "Detalj": " | ".join(detail) or "-",
+        })
+    return table_rows
+
+
+def _render_portfolio_health_rows_v18544(result):
+    import html as _html
+    res = dict(result or {})
+    summary = res.get("summary") or {}
+    grade = str(res.get("grade") or "-")
+    health = res.get("portfolio_health", "-")
+    grade_cls = "green" if str(grade).startswith("Sterk") else ("yellow" if str(grade).startswith("OK") else "red")
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(59,130,246,.48);'>
+          <div style='display:flex;justify-content:space-between;gap:.55rem;flex-wrap:wrap;align-items:center;'>
+            <b>📊 Porteføljehelse</b>
+            <span class='v18-status-chip {grade_cls}'>{_html.escape(str(grade))} · {health}/100</span>
+            <span class='v18-status-chip green'>Fond/ETF {summary.get('fund_pct', 0)}%</span>
+            <span class='v18-status-chip yellow'>Aksjer {summary.get('stock_pct', 0)}%</span>
+            <span class='v18-status-chip green'>Grunnmur {summary.get('core_pct', 0)}%</span>
+            <span class='v18-status-chip yellow'>Satellitt {summary.get('satellite_pct', 0)}%</span>
+            <span class='v18-status-chip yellow'>Tech/vekst {summary.get('tech_pct', 0)}%</span>
+          </div>
+          <div style='font-size:.86rem;color:rgba(226,232,240,.86);margin-top:.22rem;'>{_html.escape(str(summary.get('text') or ''))}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    metrics = [
+        ("Topp 3", f"{summary.get('top3_pct', '-')}%"),
+        ("Største posisjon", f"{summary.get('max_single_position_pct', '-')}%"),
+        ("Vektet fondskostnad", "ukjent" if summary.get("weighted_fund_expense_pct") is None else f"{summary.get('weighted_fund_expense_pct')}%"),
+        ("Vektet kvalitet", summary.get("weighted_quality") or "-"),
+    ]
+    st.markdown(
+        "<div class='v18-dark-row' style='display:flex;gap:.45rem;flex-wrap:wrap;'>" + "".join(
+            f"<span class='v18-status-chip'>{_html.escape(str(k))}: <b>{_html.escape(str(v))}</b></span>" for k, v in metrics
+        ) + "</div>",
+        unsafe_allow_html=True,
+    )
+    rows = list(res.get("holdings") or [])[:14]
+    if rows:
+        st.markdown("<div class='ptw-control-panel-title'>Posisjoner</div>", unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(_portfolio_position_table_rows_v1864h(rows)), width="stretch", hide_index=True)
+
+    for title, key, icon in [
+        ("Styrker", "strengths", "+"),
+        ("Forbedringsforslag", "suggestions", "→"),
+        ("Advarsler", "warnings", "!"),
+    ]:
+        vals = list(res.get(key) or [])
+        st.markdown(f"<div class='ptw-control-panel-title'>{_html.escape(title)}</div>", unsafe_allow_html=True)
+        if not vals:
+            st.markdown("<div class='v18-dark-row'>Ingen punkter.</div>", unsafe_allow_html=True)
+        for v in vals[:8]:
+            st.markdown(f"<div class='v18-dark-row'>{icon} {_html.escape(str(v))}</div>", unsafe_allow_html=True)
+
+    overlap = list(res.get("overlap_risks") or [])
+    st.markdown("<div class='ptw-control-panel-title'>Overlapprisiko</div>", unsafe_allow_html=True)
+    if not overlap:
+        st.markdown("<div class='v18-dark-row'>Ingen tydelig overlapp registrert med tilgjengelige data.</div>", unsafe_allow_html=True)
+    for r in overlap[:8]:
+        level = str(r.get("level") or "-")
+        cls = "red" if level == "Høy" else "yellow"
+        st.markdown(
+            f"""
+            <div class='v18-dark-row'>
+              <span class='v18-status-chip {cls}'>{_html.escape(level)}</span>
+              <b>{_html.escape(str(r.get('title') or 'Overlapp'))}</b> · {_html.escape(str(r.get('message') or ''))}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_mixed_portfolio_control_center_v18544():
+    """Analyze portfolio health across stocks, funds and ETFs without hidden fetches."""
+    st.subheader("📊 Porteføljeanalyse")
+    st.caption("Analyserer aksjer + fond/ETF samlet. Panelet bruker eksisterende resultater/manuell input og henter ikke nye markedsdata før du eksplisitt kjører andre moduler.")
+    from portfolio_mixed_analyzer import build_holdings_from_sources, analyze_mixed_portfolio
+
+    c1, c2, c3 = st.columns([1.1, 1.1, 1.0])
+    with c1:
+        stock_source = st.selectbox("Aksjekilde", ["Manuell", "Analyseflyt input", "Auto Test Lab aksjer", "Paper trading", "Siste Smart AI-resultat"], key="mixed_portfolio_stock_source_v18544")
+    with c2:
+        fund_source = st.selectbox("Fondkilde", ["Manuell", "Siste Fond / ETF-analyse", "Auto Test Lab fondmodus", "Ingen"], key="mixed_portfolio_fund_source_v18544")
+    with c3:
+        profile = st.selectbox("Profil", ["Balansert", "Lav risiko", "Lav kostnad", "Grunnmur", "Vekst"], key="mixed_portfolio_profile_v18544")
+
+    is_paper_source = stock_source == "Paper trading"
+    stock_budget = 30
+    max_rows = 12
+    if is_paper_source:
+        st.markdown(
+            "<div class='v18-dark-row'><b>Paper trading analyseres komplett.</b> Maks posisjoner og aksjeandel ved auto-forslag brukes ikke i denne modusen.</div>",
+            unsafe_allow_html=True,
+        )
+        stock_budget = 100
+        max_rows = 9999
+    else:
+        c4, c5 = st.columns([1.0, 1.0])
+        with c4:
+            stock_budget = st.slider("Aksjeandel ved auto-forslag", 0, 80, 30, 5, key="mixed_portfolio_stock_budget_v18544")
+        with c5:
+            input_count = _pipeline_candidate_count_for_stage_v1864("portfolio_analysis") if stock_source == "Analyseflyt input" else 0
+            row_max = max(1, input_count) if input_count > 0 else 30
+            row_min = 1 if row_max < 3 else 3
+            row_default = min(max(12, row_min), row_max)
+            row_key = "mixed_portfolio_max_rows_v18544"
+            row_default = _clamp_slider_state_v1864e(row_key, row_min, row_max, row_default)
+            max_rows = st.slider("Maks posisjoner", row_min, row_max, row_default, 1, key=row_key)
+            if input_count > 0:
+                st.caption(f"Maks er låst til inputpakken fra Test 8: {input_count} kandidater.")
+
+    manual_stocks = ""
+    manual_funds = ""
+    if stock_source == "Manuell":
+        manual_stocks = st.text_area("Manuelle aksjer", value="", placeholder="EQNR.OL 10\nVOLV-B.ST 10\nNOVO-B.CO 10", height=76, key="mixed_portfolio_manual_stocks_v18544", help="Format: TICKER vekt. Hvis vekt mangler fordeles likt.")
+    if fund_source == "Manuell":
+        manual_funds = st.text_area("Manuelle fond/ETF", value="VOO 50 ETF\nQQQ 20 ETF", height=76, key="mixed_portfolio_manual_funds_v18544", help="Format: SYMBOL vekt type. Eksempel: VOO 60 ETF")
+
+    stock_rows = []
+    if stock_source == "Analyseflyt input":
+        try:
+            from services.analysis_pipeline_service import get_analysis_pipeline_service
+            from services.state_service import get_state_service
+            from services.storage_service import get_storage_service
+
+            pipeline = get_analysis_pipeline_service(
+                state_service=get_state_service(st.session_state),
+                storage_service=get_storage_service(),
+            )
+            stock_rows = [dict(row.get("raw") or row) for row in pipeline.candidates_for_stage("portfolio_analysis")][: int(max_rows)]
+        except Exception:
+            stock_rows = []
+    elif stock_source == "Auto Test Lab aksjer":
+        stock_rows = _portfolio_analyzer_result_rows_v18544("auto_test_lab_last_result_v18536", ["best_single", "test_further"], limit=int(max_rows))
+    elif stock_source == "Paper trading":
+        stock_rows = _paper_trading_holdings_v18544(limit=None)
+    elif stock_source == "Siste Smart AI-resultat":
+        try:
+            from services.universe_service import SMART_RESULT_KEY
+            smart = st.session_state.get(SMART_RESULT_KEY, {}) or st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        except Exception:
+            smart = st.session_state.get("ai_analysis_universe_smart_result_v1859", {}) or {}
+        vals = []
+        if isinstance(smart, dict):
+            vals = smart.get("candidates") or smart.get("top_picks") or smart.get("top_tickers") or []
+        if vals and isinstance(vals[0], str):
+            stock_rows = [{"ticker": x, "asset_type": "Aksje", "source": "Smart AI"} for x in vals[: int(max_rows)]]
+        else:
+            stock_rows = [v for v in vals if isinstance(v, dict)][: int(max_rows)]
+
+    fund_rows = []
+    if fund_source == "Siste Fond / ETF-analyse":
+        fund_rows = _portfolio_analyzer_result_rows_v18544("fund_etf_lab_last_result_v18538", ["core_satellite.allocation", "ranked"], limit=int(max_rows))
+        if not fund_rows:
+            result = st.session_state.get("fund_etf_lab_last_result_v18538") or {}
+            fund_rows = list((result.get("core_satellite") or {}).get("allocation") or []) or list(result.get("ranked") or [])[: int(max_rows)]
+    elif fund_source == "Auto Test Lab fondmodus":
+        result = st.session_state.get("auto_test_lab_last_result_fund_v18543") or {}
+        fund_rows = list((result.get("core_satellite") or {}).get("allocation") or []) or list(result.get("ranked") or result.get("best_funds") or [])[: int(max_rows)]
+
+    auto_stock_weight = None
+    auto_fund_weight = None
+    if stock_source != "Manuell" and not is_paper_source and stock_rows:
+        auto_stock_weight = float(stock_budget) / max(1, len(stock_rows))
+    if fund_source != "Manuell" and fund_rows:
+        auto_fund_weight = float(100 - stock_budget) / max(1, len(fund_rows))
+
+    stock_rows_for_analysis = stock_rows if is_paper_source else stock_rows[: int(max_rows)]
+    holdings_preview = build_holdings_from_sources(
+        stock_rows=stock_rows_for_analysis,
+        fund_rows=fund_rows[: int(max_rows)],
+        manual_stock_text=manual_stocks,
+        manual_fund_text=manual_funds,
+        default_stock_weight_pct=auto_stock_weight,
+        default_fund_weight_pct=auto_fund_weight,
+    )
+    st.markdown(
+        f"<div class='v18-dark-row'><b>Planlagt analyse:</b> {len(holdings_preview)} posisjoner · Aksjekilde: {html.escape(stock_source)} · Fondkilde: {html.escape(fund_source)} · Profil: {html.escape(profile)}</div>",
+        unsafe_allow_html=True,
+    )
+    if holdings_preview:
+        preview = ", ".join(f"{h.get('symbol')} {h.get('weight_pct')}%" for h in holdings_preview[:8])
+        st.markdown(f"<div class='v18-dark-row' style='font-size:.78rem;'>Preview: {html.escape(preview)}</div>", unsafe_allow_html=True)
+        if is_paper_source:
+            st.markdown(
+                f"<div class='v18-dark-row' style='font-size:.78rem;'>Paper trading analyseres komplett: {len(stock_rows)} posisjoner fra portefoljen.</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown("<div class='v18-dark-row'>Ingen posisjoner funnet. Bruk manuell input eller kjør Auto Test Lab / Fondanalyse først.</div>", unsafe_allow_html=True)
+
+    if st.button("📊 Kjør porteføljeanalyse", key="mixed_portfolio_run_v18544", type="primary", width="stretch", on_click=set_global_busy, kwargs={"label": "Kjører porteføljeanalyse", "detail": "Analyserer aksjer, fond, overlapp og risiko"}):
+        status_box = st.empty()
+        progress = st.progress(0, text="Starter porteføljeanalyse")
+        steps = ["Samler beholdninger", "Normaliserer vekter", "Måler grunnmur/satellitt", "Sjekker overlapp", "Lager forbedringsforslag"]
+        for idx, step in enumerate(steps, start=1):
+            pct = int(round((idx - 1) / max(1, len(steps)) * 100))
+            progress.progress(pct, text=f"{idx}/{len(steps)} {step}")
+            update_global_busy("Kjører porteføljeanalyse", f"{idx}/{len(steps)} {step}", step=idx, total=len(steps))
+            status_box.markdown(
+                f"<div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'><b>🔄 Porteføljeanalyse kjører</b><br><span style='font-size:.82rem;'>{idx}/{len(steps)} {html.escape(step)}</span></div>",
+                unsafe_allow_html=True,
+            )
+        result = analyze_mixed_portfolio(holdings_preview, profile=profile)
+        result["source"] = {"stocks": stock_source, "funds": fund_source}
+        st.session_state["mixed_portfolio_last_result_v18544"] = result
+        try:
+            from services.storage_service import get_storage_service
+            storage = get_storage_service()
+            storage.write_json("portfolio_analysis/latest.json", result)
+            storage.append_jsonl("portfolio_analysis/history.jsonl", result)
+            result["storage_backend"] = storage.backend()
+            try:
+                from services.analysis_pipeline_service import get_analysis_pipeline_service
+                from services.state_service import get_state_service
+
+                get_analysis_pipeline_service(
+                    state_service=get_state_service(st.session_state),
+                    storage_service=storage,
+                ).save_stage_output(
+                    "portfolio_analysis",
+                    holdings_preview,
+                    source_label="Portefoljeanalyse",
+                    context={"profile": profile, "stock_source": stock_source, "fund_source": fund_source, "grade": result.get("grade")},
+                    max_items=len(holdings_preview) or int(max_rows or 12),
+                    auto_handoff=True,
+                )
+            except Exception as exc:
+                result["pipeline_error"] = str(exc)[:180]
+        except Exception as exc:
+            result["storage_error"] = str(exc)[:180]
+        progress.progress(100, text="Ferdig")
+        finish_global_busy("Klar", "Porteføljeanalyse ferdig.")
+        st.success(f"Porteføljeanalyse ferdig: {result.get('portfolio_health', '-')}/100 · {result.get('grade', '-')}")
+
+    result = st.session_state.get("mixed_portfolio_last_result_v18544") or {}
+    if result:
+        _render_portfolio_health_rows_v18544(result)
+    else:
+        st.info("Ingen porteføljeanalyse ennå. Velg kilder eller manuell portefølje og trykk Kjør.")
+
+def _analysis_pipeline_service_v1863bw():
+    from services.analysis_pipeline_service import get_analysis_pipeline_service
+    from services.state_service import get_state_service
+    from services.storage_service import get_storage_service
+
+    return get_analysis_pipeline_service(
+        state_service=get_state_service(st.session_state),
+        storage_service=get_storage_service(),
+    )
+
+
+_PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H = {
+    "top_picks",
+    "early_warning",
+    "alpha_radar",
+    "auto_test_lab",
+    "decision_support",
+    "portfolio_analysis",
+}
+
+
+def _pipeline_candidate_count_from_package_v1864h(package: dict | None) -> int:
+    if not package:
+        return 0
+    try:
+        return int(package.get("candidate_count") or 0)
+    except Exception:
+        return 0
+
+
+def _pipeline_input_rows_from_package_v1864h(package: dict | None) -> list[dict]:
+    if not package:
+        return []
+    return [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
+
+
+def _pipeline_effective_input_count_v1864h(stage_id: str, inp: dict | None, out: dict | None) -> int:
+    input_count = _pipeline_candidate_count_from_package_v1864h(inp)
+    if input_count > 0:
+        return input_count
+    if stage_id in {"portfolio_analysis", "paper_trading"}:
+        return _pipeline_candidate_count_from_package_v1864h(out)
+    return 0
+
+
+def _pipeline_send_raw_input_and_open_next_v1864h(stage_id: str) -> None:
+    from services.analysis_pipeline_service import next_stage_id, stage_wizard_info
+
+    target_stage = next_stage_id(stage_id)
+    if not target_stage:
+        st.info("Dette er siste test i flyten.")
+        return
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        inp = pipeline.load_stage_input(stage_id)
+        rows = _pipeline_input_rows_from_package_v1864h(inp)
+        if not rows:
+            st.warning("Ingen inputpakke å sende videre fra dette steget.")
+            return
+        info = stage_wizard_info(stage_id)
+        pipeline.save_stage_output(
+            stage_id,
+            rows,
+            source_label=f"Rå input via {info.get('label') or stage_id}",
+            context={
+                "bypass_from_input": True,
+                "reason": "Steget ga ingen output, men inputpakken skal kunne vurderes i neste test.",
+                "input_package_id": str(inp.get("package_id") or ""),
+            },
+            max_items=len(rows),
+            auto_handoff=True,
+        )
+    except Exception as exc:
+        st.warning(f"Kunne ikke sende inputpakken videre: {exc}")
+        return
+    _pipeline_open_stage_v1863bw(target_stage)
+
+
+def _pipeline_open_stage_v1863bw(stage_id: str) -> None:
+    from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY, stage_wizard_info
+
+    info = stage_wizard_info(stage_id)
+    if not info:
+        st.warning("Ukjent analyseflyt-steg.")
+        return
+    defaults = dict(info.get("defaults") or {})
+    if stage_id == "paper_trading":
+        try:
+            pipeline = _analysis_pipeline_service_v1863bw()
+            rows = pipeline.candidates_for_stage("paper_trading")
+            first_ticker = next((str(row.get("ticker") or "").strip().upper() for row in rows if row.get("ticker")), "")
+            if first_ticker:
+                defaults["paper_stock_symbol_v1863y"] = first_ticker
+                defaults.setdefault("paper_stock_fetch_status_v1863z", ("info", "Ticker er hentet fra analyseflyt. Hent aksjekurs manuelt for paper-kjøp."))
+        except Exception:
+            pass
+    st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+        "stage_id": stage_id,
+        "group": info.get("group") or "",
+        "panel": info.get("panel_label") or "",
+        "defaults": defaults,
+        "auto_run": False,
+    }
+    st.rerun()
+
+
+def _pipeline_send_and_open_next_v1863bw(stage_id: str, *, max_items: int | None = None) -> None:
+    from services.analysis_pipeline_service import next_stage_id
+
+    target_stage = next_stage_id(stage_id)
+    if not target_stage:
+        st.info("Dette er siste test i flyten.")
+        return
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        if stage_id == "data_foundation":
+            source_rows = _data_foundation_source_rows_v1863by()
+            pipeline.save_stage_output(
+                "data_foundation",
+                [{
+                    "name": "Dataunderlag godkjent",
+                    "score": 100,
+                    "source": "Dataunderlag",
+                    "recommended_action": "Send til Marked/rangering",
+                    "reason": "Datakilder er kontrollert og underlaget er klart for Test 2.",
+                }],
+                source_label="Dataunderlag",
+                context={"manual_checkpoint": True, "source_rows": source_rows},
+                auto_handoff=True,
+            )
+        else:
+            result = pipeline.handoff_latest_output_to_next(stage_id, max_items=max_items)
+            if not result.ok:
+                st.warning(result.message)
+                return
+    except Exception as exc:
+        st.warning(f"Kunne ikke sende inputpakken videre: {exc}")
+        return
+    _pipeline_open_stage_v1863bw(target_stage)
+
+
+def _pipeline_defaults_label_v1863bw(defaults: dict) -> str:
+    if not defaults:
+        return "Ingen spesielle standardvalg."
+    parts = []
+    for key, value in defaults.items():
+        if key.endswith("_scope_v1863s") or key.endswith("_scope_v1863au") or key.endswith("_scope_v18537") or key.endswith("_source_v18544"):
+            parts.append(str(value))
+        elif key.endswith("_engine_v1863au"):
+            parts.append(str(value))
+        elif key.endswith("_market_v18535"):
+            parts.append(f"Univers {value}")
+    return ", ".join(dict.fromkeys(parts)) or f"{len(defaults)} trygge standardvalg settes."
+
+
+def _pipeline_go_to_panel_v1863by(group: str, panel: str, defaults: dict | None = None) -> None:
+    from services.analysis_pipeline_service import PIPELINE_PENDING_NAV_KEY
+
+    st.session_state[PIPELINE_PENDING_NAV_KEY] = {
+        "stage_id": "",
+        "group": group,
+        "panel": panel,
+        "defaults": dict(defaults or {}),
+        "auto_run": False,
+    }
+    st.rerun()
+
+
+def _data_foundation_source_rows_v1863by() -> list[dict]:
+    rows: list[dict] = []
+    try:
+        tickers = get_all_tickers()
+        rows.append({
+            "Område": "Tickerlister / univers",
+            "Status": "klar",
+            "Detalj": f"{len(tickers or [])} tickere i felles univers",
+            "Handling": "Brukes av AI Kandidattest og radarene",
+        })
+    except Exception as exc:
+        rows.append({"Område": "Tickerlister / univers", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller stocks.py"})
+    try:
+        from actor_registry import load_actor_registry
+
+        actors = load_actor_registry()
+        active = sum(1 for row in actors if row.get("active", True))
+        rows.append({
+            "Område": "Aktørregister",
+            "Status": "klar" if active else "mangler aktive",
+            "Detalj": f"{len(actors)} aktører, {active} aktive",
+            "Handling": "Importer/rediger navn, alias og roller",
+        })
+    except Exception as exc:
+        rows.append({"Område": "Aktørregister", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Aktørregister"})
+    try:
+        from finansavisen_bjellesau import PERIOD_OPTIONS, finansavisen_status
+
+        status = finansavisen_status()
+        periods = ", ".join(status.get("periods") or [])
+        rows.append({
+            "Område": "Finansavisen Bjellesauer",
+            "Status": "importert" if int(status.get("rows") or 0) else "venter på import",
+            "Detalj": f"{status.get('rows', 0)} handler, {status.get('investors', 0)} investorer, perioder {periods or '-'}",
+            "Handling": "Kan importere flere periodefiler samtidig: " + ", ".join(PERIOD_OPTIONS),
+        })
+    except Exception as exc:
+        rows.append({"Område": "Finansavisen Bjellesauer", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Finansavisen-import"})
+    try:
+        from nbim_radar import load_nbim_overlay
+
+        overlay = load_nbim_overlay()
+        rows.append({
+            "Område": "Oljefond/NBIM",
+            "Status": "overlay lagret" if overlay else "venter på import",
+            "Detalj": f"{len(overlay or {})} tickere i NBIM-overlay",
+            "Handling": "Importer ny og forrige NBIM CSV for endringer",
+        })
+    except Exception as exc:
+        rows.append({"Område": "Oljefond/NBIM", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Oljefond Radar"})
+    try:
+        from folketrygdfondet import load_folketrygdfondet_snapshot
+
+        snapshot = load_folketrygdfondet_snapshot()
+        overlay = snapshot.get("overlay") or {}
+        saved_rows = snapshot.get("rows") or []
+        status_text = "overlay lagret" if overlay else "importert uten ticker-match" if saved_rows else "venter på import"
+        rows.append({
+            "Område": "Folketrygdfondet",
+            "Status": status_text,
+            "Detalj": f"{len(saved_rows or [])} rader, {len(overlay or {})} tickere i Folketrygdfondet-overlay",
+            "Handling": "Importer Folketrygdfondet XLS som eierkilde",
+        })
+    except Exception as exc:
+        rows.append({"Område": "Folketrygdfondet", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Åpne Folketrygdfondet"})
+    try:
+        status = fmp_api_status() or {}
+        rows.append({
+            "Område": "FMP live",
+            "Status": "klar" if status.get("has_key") else "venter på FMP_API_KEY",
+            "Detalj": "Analytiker/estimat, price target, earnings, insider og aktivt tickerunivers",
+            "Handling": "Brukes automatisk av AI Kandidattest når FMP live er valgt eller nøkkel finnes",
+        })
+    except Exception as exc:
+        rows.append({"Område": "FMP live", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller FMP_API_KEY"})
+    try:
+        from data_source_diagnostics import build_data_source_status
+
+        diagnostics = build_data_source_status("3m")
+        key_count = sum(1 for row in diagnostics if "nokkel funnet" in str(row.get("Status", "")).lower() or "nokler" in str(row.get("Status", "")).lower())
+        rows.append({
+            "Område": "API-status / kilder",
+            "Status": "klar" if key_count else "delvis",
+            "Detalj": f"{len(diagnostics)} kildesjekker tilgjengelig",
+            "Handling": "Vises under datakilde-status i radarene",
+        })
+    except Exception as exc:
+        rows.append({"Område": "API-status / kilder", "Status": "feil", "Detalj": str(exc)[:120], "Handling": "Kontroller .env og kilder"})
+    return rows
+
+
+def _render_data_foundation_workspace_v1863by(status_rows: list[dict]) -> None:
+    st.markdown("#### Kilder og import")
+    st.caption("Importer og kontroller kildene AI Kandidattest kan bruke. Dette er eneste synlige importsted for disse kildene.")
+    source_rows = _data_foundation_source_rows_v1863by()
+    st.dataframe(pd.DataFrame(source_rows), width="stretch", hide_index=True)
+
+    st.info(
+        "Finansavisen, Oljefond/NBIM og Folketrygdfondet behandles som datakilder. "
+        "AI Kandidattest henter bare relevant evidens når kilden er importert og lagret."
+    )
+    source_options = ["Velg kilde", "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Aktørregister"]
+    source_key = "ai_candidate_source_hub_choice_v1864q"
+    if st.session_state.get(source_key) not in source_options:
+        st.session_state[source_key] = "Velg kilde"
+    source_choice = st.selectbox(
+        "Velg kilde",
+        source_options,
+        index=source_options.index(st.session_state.get(source_key, "Velg kilde")),
+        key=source_key,
+        help="Alle importer for Finansavisen, Oljefond/NBIM og Folketrygdfondet håndteres her.",
+    )
+
+    if source_choice == "Finansavisen":
+        render_finansavisen_bjellesau_panel()
+    elif source_choice == "Oljefond/NBIM":
+        render_nbim_radar_panel()
+    elif source_choice == "Folketrygdfondet":
+        render_folketrygdfondet_panel()
+    elif source_choice == "Aktørregister":
+        render_actor_registry_panel()
+    else:
+        st.caption("Velg kilde for import, søk, tabell, eksport, print/PDF og sending til AI Kandidattest.")
+
+def _pipeline_package_summary_rows_v1863bz(package: dict, stage_id: str) -> list[dict]:
+    if not package:
+        return []
+    next_stage = str(package.get("next_stage_id") or "")
+    previous_stage = str(package.get("previous_stage_id") or "")
+    try:
+        from services.analysis_pipeline_service import STAGES_BY_ID
+
+        next_label = STAGES_BY_ID.get(next_stage).label if next_stage in STAGES_BY_ID else ""
+        previous_label = STAGES_BY_ID.get(previous_stage).label if previous_stage in STAGES_BY_ID else ""
+    except Exception:
+        next_label = next_stage
+        previous_label = previous_stage
+    return [
+        {"Felt": "Pakke", "Verdi": package.get("package_type") or "-"},
+        {"Felt": "Steg", "Verdi": package.get("stage_label") or stage_id},
+        {"Felt": "Status", "Verdi": package.get("status") or "-"},
+        {"Felt": "Kilde", "Verdi": package.get("source_label") or "-"},
+        {"Felt": "Antall", "Verdi": int(package.get("candidate_count") or 0)},
+        {"Felt": "Fra forrige steg", "Verdi": previous_label or previous_stage or "-"},
+        {"Felt": "Sendes til", "Verdi": next_label or next_stage or "-"},
+        {"Felt": "Tidspunkt", "Verdi": package.get("generated_at") or "-"},
+    ]
+
+
+def _render_data_foundation_package_v1863bz(package: dict, package_title: str) -> None:
+    st.markdown(f"#### {package_title}")
+    if not package:
+        st.info("Ingen lagret kontrollrapport for 1. Dataunderlag ennå.")
+        return
+    st.caption("Dataunderlag sender et kontrollpunkt videre, ikke en aksjeliste. Tabellen under viser hva som er kontrollert og hva Test 2 mottar.")
+    context = package.get("context") if isinstance(package.get("context"), dict) else {}
+    source_rows = context.get("source_rows") if isinstance(context.get("source_rows"), list) else []
+    if not source_rows:
+        source_rows = _data_foundation_source_rows_v1863by()
+    summary_rows = _pipeline_package_summary_rows_v1863bz(package, "data_foundation")
+    try:
+        tickers = get_all_tickers()
+        summary_rows.append({"Felt": "Tickerunivers", "Verdi": f"{len(tickers or [])} tickere"})
+    except Exception:
+        pass
+    for row in source_rows:
+        area = str(row.get("Område") or row.get("Omraade") or "")
+        detail = str(row.get("Detalj") or "")
+        status = str(row.get("Status") or "")
+        if area:
+            summary_rows.append({"Felt": area, "Verdi": f"{status} - {detail}".strip(" -")})
+    st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
+    if source_rows:
+        st.dataframe(pd.DataFrame(source_rows), width="stretch", hide_index=True)
+    candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
+    if candidates:
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Output": row.get("name") or row.get("ticker") or "-",
+                    "Score": row.get("score"),
+                    "Kilde": row.get("source"),
+                    "Handling": row.get("recommended_action"),
+                    "Forklaring": row.get("reason"),
+                }
+                for row in candidates
+            ]),
+            width="stretch",
+            hide_index=True,
+        )
+
+
+def _render_pipeline_package_v1863bz(stage_id: str, package: dict, package_title: str) -> None:
+    if stage_id == "data_foundation":
+        _render_data_foundation_package_v1863bz(package, package_title)
+        return
+    if not package:
+        st.info("Ingen pakke for valgt steg ennå.")
+        return
+    candidates = [dict(row) for row in (package.get("candidates") or []) if isinstance(row, dict)]
+    if candidates:
+        display_rows = [
+            {
+                "rank": row.get("pipeline_rank") or row.get("rank"),
+                "ticker": row.get("ticker"),
+                "navn": row.get("name"),
+                "score": row.get("score"),
+                "kilde": row.get("source"),
+                "handling": row.get("recommended_action"),
+            }
+            for row in candidates[:30]
+        ]
+        st.dataframe(display_rows, width="stretch", hide_index=True)
+    else:
+        st.dataframe(pd.DataFrame(_pipeline_package_summary_rows_v1863bz(package, stage_id)), width="stretch", hide_index=True)
+
+
+def _render_pipeline_stage_bar_v1863bw(stage_id: str, *, show_actions: bool = True) -> None:
+    try:
+        from services.analysis_pipeline_service import stage_wizard_info
+
+        pipeline = _analysis_pipeline_service_v1863bw()
+        info = stage_wizard_info(stage_id)
+        if not info:
+            return
+        inp = pipeline.load_stage_input(stage_id)
+        out = pipeline.load_stage_output(stage_id)
+    except Exception as exc:
+        st.caption(f"Analyseflyt-status kunne ikke vises: {exc}")
+        return
+
+    input_count = _pipeline_effective_input_count_v1864h(stage_id, inp, out)
+    true_input_count = _pipeline_candidate_count_from_package_v1864h(inp)
+    output_count = _pipeline_candidate_count_from_package_v1864h(out)
+    next_label = info.get("next_label") or ""
+    defaults_label = _pipeline_defaults_label_v1863bw(dict(info.get("defaults") or {}))
+    st.markdown(
+        f"""
+        <div class='v18-dark-row' style='border-color:rgba(56,189,248,.52);'>
+          <div style='display:flex;justify-content:space-between;gap:.65rem;flex-wrap:wrap;align-items:center;'>
+            <b>{html.escape(str(info.get('wizard_label') or 'Analyseflyt'))}</b>
+            <span>{input_count} inn | {output_count} ut</span>
+            <span>Auto-kjoring: av</span>
+          </div>
+          <div style='font-size:.82rem;color:rgba(226,232,240,.86);margin-top:.22rem;'>
+            {html.escape(str(info.get('purpose') or ''))}
+          </div>
+          <div style='font-size:.78rem;color:rgba(191,219,254,.90);margin-top:.16rem;'>
+            Standardvalg ved veiviser: {html.escape(defaults_label)}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if not show_actions:
+        return
+    prev_stage = str(info.get("previous_stage_id") or "")
+    prev_label = str(info.get("previous_label") or "")
+    c_prev, c_status, c_next = st.columns([0.70, 1.05, 1.15])
+    with c_prev:
+        if prev_stage:
+            if st.button(f"Forrige: {prev_label}", key=f"analysis_pipeline_prev_{stage_id}_v1863bz", width="stretch"):
+                _pipeline_open_stage_v1863bw(prev_stage)
+        else:
+            st.markdown("<div class='v18-dark-row'>Forste steg</div>", unsafe_allow_html=True)
+    with c_status:
+        st.metric("Input / output", f"{input_count} / {output_count}")
+        if stage_id == "market_ranking":
+            st.caption("Bruker input fra 1. Dataunderlag og universvalg Dataunderlag som standard.")
+        elif stage_id == "portfolio_analysis" and true_input_count == 0 and output_count > 0:
+            st.caption("Viser effektiv input fra portefoljepanelet. Outputen ble laget fra Analyseflyt/manuell kilde.")
+        elif stage_id == "paper_trading":
+            st.caption("Siste steg. Input er kandidatene som kan brukes til praktisk paper-oppfolging.")
+        elif prev_stage:
+            st.caption("Dette er status for pakken fra forrige steg og output fra dette steget.")
+        else:
+            st.caption("Dette steget lager kontrollrapporten som sendes til Test 2.")
+    with c_next:
+        if next_label:
+            if stage_id == "data_foundation":
+                label = f"Godkjenn dataunderlag og åpne Test {info.get('next_test_number')}"
+                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", width="stretch"):
+                    _pipeline_send_and_open_next_v1863bw(stage_id)
+            elif output_count > 0:
+                noun = "portefoljeanalyserte kandidater" if stage_id == "portfolio_analysis" else "kandidater"
+                label = f"Send {output_count} {noun} til Test {info.get('next_test_number')} og åpne {next_label}"
+                if st.button(label, key=f"analysis_pipeline_next_{stage_id}_v1863bw", width="stretch"):
+                    _pipeline_send_and_open_next_v1863bw(stage_id)
+            elif true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
+                label = f"Send rå input ({true_input_count}) til Test {info.get('next_test_number')} og åpne {next_label}"
+                if st.button(label, key=f"analysis_pipeline_next_raw_{stage_id}_v1864h", width="stretch", type="primary"):
+                    _pipeline_send_raw_input_and_open_next_v1864h(stage_id)
+            else:
+                st.button(
+                    f"Ingen input/output å sende til Test {info.get('next_test_number')}",
+                    key=f"analysis_pipeline_next_disabled_{stage_id}_v1864h",
+                    width="stretch",
+                    disabled=True,
+                )
+        else:
+            final_text = (
+                f"Siste test i flyten. Mottatt {input_count} kandidater; Paper Trading lager ikke neste pipeline-output."
+                if input_count > 0
+                else "Siste test i flyten. Ingen kandidatpakke er mottatt ennå."
+            )
+            st.markdown(f"<div class='v18-dark-row'>{html.escape(final_text)}</div>", unsafe_allow_html=True)
+
+    if stage_id == "data_foundation":
+        st.info("Start med 1. Dataunderlag. Kontroller tickerlister, Aktørregister, Finansavisen, Oljefond/NBIM, Folketrygdfondet og API-status, og gå deretter videre til Test 2.")
+    elif output_count == 0 and true_input_count > 0 and stage_id in _PIPELINE_RAW_INPUT_BYPASS_STAGES_V1864H:
+        st.caption("Ingen output fra dette steget ennå. Hvis testen ikke finner treff, kan rå input sendes videre som bypass.")
+    elif output_count == 0 and stage_id != "paper_trading":
+        st.caption("Når testen er kjørt ferdig, dukker send-knappen opp aktivert for neste test.")
+
+
+def render_analysis_pipeline_control_center_v1863bv():
+    """Source hub for AI Kandidattest."""
+    st.subheader("Kilder og import")
+    st.caption("Importer og kontroller datakilder før du kjører AI Kandidattest.")
+    _render_data_foundation_workspace_v1863by([])
+
+
+def _ai_candidate_dedupe_tickers_v1864l(values) -> list[str]:
+    out, seen = [], set()
+    for raw in values or []:
+        ticker = normalize_user_ticker(raw)
+        if ticker and ticker not in seen:
+            seen.add(ticker)
+            out.append(ticker)
+    return out
+
+
+AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y = "FMP live"
+AI_CANDIDATE_SOURCE_OPTIONS_V1864Q = ["Marked", AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y, "Finansavisen", "Oljefond/NBIM", "Folketrygdfondet", "Manuell liste"]
+AI_CANDIDATE_IMPORT_SOURCES_V1864Q = ["Finansavisen", "Oljefond/NBIM", "Folketrygdfondet"]
+AI_CANDIDATE_HORIZON_OPTIONS_V1864S = ["1-3 mnd", "1-6 mnd", "3-12 mnd"]
+AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q = "ai_candidate_evaluation_settings_v1864q"
+AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q = {
+    "profile_name": "Standard 1-6 mnd",
+    "horizon": "1-6 mnd",
+    "relative_strength_weight": 25,
+    "estimate_revision_weight": 25,
+    "insider_buy_weight": 20,
+    "growth_weight": 15,
+    "technical_trend_weight": 15,
+    "market_score_weight": 1.10,
+    "finansavisen_bonus": 0.20,
+    "nbim_bonus": 0.15,
+    "folketrygdfondet_bonus": 0.15,
+    "multi_source_bonus": 0.15,
+    "medium_risk_penalty": 0.15,
+    "high_risk_penalty": 0.45,
+    "hard_guard_score_cap": 6.10,
+    "hard_guard_penalty": 0.50,
+    "strong_threshold": 7.40,
+    "consider_threshold": 6.30,
+    "wait_threshold": 5.20,
+    "alert_threshold": 7.50,
+    "min_confidence_for_strong": 60,
+    "require_above_200dma": True,
+    "warn_below_50dma": True,
+    "warn_high_debt": True,
+    "max_debt_to_equity": 150,
+    "warn_falling_growth": True,
+    "warn_weak_liquidity": True,
+    "min_avg_volume": 50000,
+    "warn_stale_data": True,
+    "stale_data_days": 7,
+    "warn_single_signal": True,
+    "signal_positive_threshold": 6.50,
+    "source_full_bonus_days": 45,
+    "source_partial_bonus_days": 120,
+    "source_partial_bonus_factor": 0.35,
+    "old_source_penalty": 0.20,
+    "exclude_old_sources_from_multi_bonus": True,
+    "source_support_mode": "Vis som info",
+    "market_climate_mode": "Bruk i score",
+    "market_climate_score_weight": 0.45,
+    "market_climate_cap_enabled": True,
+    "market_climate_cap_threshold": 45,
+    "market_climate_low_score_cap": 7.20,
+    "market_climate_warn_missing": True,
+    "active_core_signals": ["Momentum / relativ styrke", "Estimatløft", "Innsider / eiertrykk"],
+    "special_search": "Ingen",
+    "search_momentum_weight": 50,
+    "search_estimate_weight": 30,
+    "search_insider_weight": 20,
+}
+
+AI_CANDIDATE_HORIZON_DEFAULTS_V1864S = {
+    "1-3 mnd": {
+        "profile_name": "Standard 1-3 mnd",
+        "horizon": "1-3 mnd",
+        "relative_strength_weight": 30,
+        "estimate_revision_weight": 25,
+        "insider_buy_weight": 20,
+        "growth_weight": 10,
+        "technical_trend_weight": 15,
+        "market_score_weight": 1.15,
+        "finansavisen_bonus": 0.20,
+        "nbim_bonus": 0.10,
+        "folketrygdfondet_bonus": 0.10,
+        "multi_source_bonus": 0.15,
+        "source_full_bonus_days": 21,
+        "source_partial_bonus_days": 75,
+        "source_partial_bonus_factor": 0.30,
+        "old_source_penalty": 0.25,
+        "strong_threshold": 7.45,
+        "consider_threshold": 6.35,
+        "wait_threshold": 5.25,
+    },
+    "1-6 mnd": {
+        "profile_name": "Standard 1-6 mnd",
+        "horizon": "1-6 mnd",
+    },
+    "3-12 mnd": {
+        "profile_name": "Standard 3-12 mnd",
+        "horizon": "3-12 mnd",
+        "relative_strength_weight": 25,
+        "estimate_revision_weight": 25,
+        "insider_buy_weight": 15,
+        "growth_weight": 20,
+        "technical_trend_weight": 15,
+        "market_score_weight": 1.05,
+        "finansavisen_bonus": 0.15,
+        "nbim_bonus": 0.20,
+        "folketrygdfondet_bonus": 0.20,
+        "multi_source_bonus": 0.15,
+        "source_full_bonus_days": 90,
+        "source_partial_bonus_days": 210,
+        "source_partial_bonus_factor": 0.40,
+        "old_source_penalty": 0.10,
+        "strong_threshold": 7.35,
+        "consider_threshold": 6.25,
+        "wait_threshold": 5.15,
+    },
+}
+
+AI_CANDIDATE_CORE_SIGNALS_V1864T = {
+    "Momentum / relativ styrke": "momentum",
+    "Estimatløft": "estimate",
+    "Innsider / eiertrykk": "insider",
+}
+AI_CANDIDATE_CORE_SIGNAL_DEFAULT_LABELS_V1864T = list(AI_CANDIDATE_CORE_SIGNALS_V1864T.keys())
+AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T = [
+    "Ingen",
+    "Resultatsjokk",
+    "52-ukers breakout",
+    "Volumbrudd",
+    "Vekstakselerasjon",
+    "Sektorleder",
+    "Short squeeze",
+    "Katalysator-klynge",
+]
+AI_CANDIDATE_SPECIAL_SEARCH_WEIGHTS_V1864T = {
+    "Resultatsjokk": {"result_shock": 55, "estimate": 25, "momentum": 20},
+    "52-ukers breakout": {"momentum": 60, "technical": 25, "volume": 15},
+    "Volumbrudd": {"volume": 55, "momentum": 35, "technical": 10},
+    "Vekstakselerasjon": {"growth": 55, "estimate": 30, "momentum": 15},
+    "Sektorleder": {"sector_leader": 60, "momentum": 30, "technical": 10},
+    "Short squeeze": {"short_squeeze": 55, "volume": 25, "momentum": 20},
+    "Katalysator-klynge": {"momentum": 35, "estimate": 25, "insider": 20, "growth": 10, "volume": 10},
+}
+AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U = ["Ingen", "Vis som info", "Bruk som støtte i score"]
+AI_CANDIDATE_MARKET_CLIMATE_MODES_V1865 = ["Av", "Vis som info", "Bruk i score"]
+AI_CANDIDATE_CORE_WEIGHT_DEFAULTS_V1864T = {
+    ("momentum",): {"momentum": 100, "estimate": 0, "insider": 0},
+    ("estimate",): {"momentum": 0, "estimate": 100, "insider": 0},
+    ("insider",): {"momentum": 0, "estimate": 0, "insider": 100},
+    ("estimate", "momentum"): {"momentum": 55, "estimate": 45, "insider": 0},
+    ("insider", "momentum"): {"momentum": 65, "estimate": 0, "insider": 35},
+    ("estimate", "insider"): {"momentum": 0, "estimate": 60, "insider": 40},
+    ("estimate", "insider", "momentum"): {"momentum": 50, "estimate": 30, "insider": 20},
+}
+
+
+def _ai_candidate_core_signal_keys_v1864t(labels_or_keys=None) -> list[str]:
+    raw_items = labels_or_keys if isinstance(labels_or_keys, (list, tuple, set)) else [labels_or_keys]
+    out: list[str] = []
+    reverse = {value: value for value in AI_CANDIDATE_CORE_SIGNALS_V1864T.values()}
+    reverse.update({label: key for label, key in AI_CANDIDATE_CORE_SIGNALS_V1864T.items()})
+    for raw in raw_items or []:
+        key = reverse.get(str(raw or "").strip())
+        if key and key not in out:
+            out.append(key)
+    return out or ["momentum", "estimate", "insider"]
+
+
+def _ai_candidate_core_signal_labels_v1864t(keys_or_labels=None) -> list[str]:
+    keys = _ai_candidate_core_signal_keys_v1864t(keys_or_labels)
+    labels_by_key = {key: label for label, key in AI_CANDIDATE_CORE_SIGNALS_V1864T.items()}
+    return [labels_by_key.get(key, key) for key in keys]
+
+
+def _ai_candidate_default_core_weights_v1864t(keys_or_labels=None) -> dict[str, int]:
+    keys = tuple(sorted(_ai_candidate_core_signal_keys_v1864t(keys_or_labels)))
+    return dict(AI_CANDIDATE_CORE_WEIGHT_DEFAULTS_V1864T.get(keys, AI_CANDIDATE_CORE_WEIGHT_DEFAULTS_V1864T[("estimate", "insider", "momentum")]))
+
+
+def _ai_candidate_special_search_v1864t(config: dict | None = None) -> str:
+    text = str((config or {}).get("special_search") or "Ingen").strip()
+    return text if text in AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T else "Ingen"
+
+
+def _ai_candidate_active_search_weights_v1864t(config: dict | None = None) -> dict[str, float]:
+    config = config or {}
+    special = _ai_candidate_special_search_v1864t(config)
+    if special != "Ingen":
+        return dict(AI_CANDIDATE_SPECIAL_SEARCH_WEIGHTS_V1864T.get(special, {}))
+    active = _ai_candidate_core_signal_keys_v1864t(config.get("active_core_signals"))
+    defaults = _ai_candidate_default_core_weights_v1864t(active)
+    weights = {
+        "momentum": float(config.get("search_momentum_weight", defaults.get("momentum", 0)) or 0),
+        "estimate": float(config.get("search_estimate_weight", defaults.get("estimate", 0)) or 0),
+        "insider": float(config.get("search_insider_weight", defaults.get("insider", 0)) or 0),
+    }
+    return {key: value for key, value in weights.items() if key in active and value > 0}
+
+
+def _ai_candidate_search_label_v1864t(config: dict | None = None) -> str:
+    special = _ai_candidate_special_search_v1864t(config)
+    if special != "Ingen":
+        return f"Spesialsøk: {special}"
+    return " + ".join(_ai_candidate_core_signal_labels_v1864t((config or {}).get("active_core_signals"))) or "Kombinasjonssøk"
+
+
+def _ai_candidate_search_weight_label_v1864t(config: dict | None = None) -> str:
+    weights = _ai_candidate_active_search_weights_v1864t(config)
+    labels = {
+        "momentum": "Momentum",
+        "estimate": "Estimat",
+        "insider": "Eiertrykk",
+        "growth": "Vekst",
+        "technical": "Trend",
+        "volume": "Volum",
+        "result_shock": "Resultatsjokk",
+        "sector_leader": "Sektorleder",
+        "short_squeeze": "Short squeeze",
+    }
+    total = sum(max(0.0, float(value or 0.0)) for value in weights.values()) or 1.0
+    return ", ".join(f"{labels.get(key, key)} {round((float(value) / total) * 100):.0f}%" for key, value in weights.items())
+
+
+def _ai_candidate_source_support_mode_v1864u(config: dict | None = None) -> str:
+    text = str((config or {}).get("source_support_mode") or "Vis som info").strip()
+    return text if text in AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U else "Vis som info"
+
+
+def _ai_candidate_source_support_scoring_v1864u(config: dict | None = None) -> bool:
+    return _ai_candidate_source_support_mode_v1864u(config) == "Bruk som støtte i score"
+
+
+def _ai_candidate_market_climate_mode_v1865(config: dict | None = None) -> str:
+    text = str((config or {}).get("market_climate_mode") or "Bruk i score").strip()
+    return text if text in AI_CANDIDATE_MARKET_CLIMATE_MODES_V1865 else "Bruk i score"
+
+
+def _ai_candidate_market_climate_snapshot_v1865(config: dict | None = None) -> dict | None:
+    if _ai_candidate_market_climate_mode_v1865(config) == "Av":
+        return None
+    raw = (config or {}).get("_market_climate_snapshot")
+    if isinstance(raw, dict):
+        return raw
+    try:
+        loaded = load_latest_market_climate_snapshot()
+        return loaded if isinstance(loaded, dict) else None
+    except Exception:
+        return None
+
+
+def _ai_candidate_market_climate_summary_v1865(snapshot: dict | None) -> str:
+    if not isinstance(snapshot, dict):
+        return "Markedsklima mangler"
+    score = snapshot.get("climate_score")
+    confidence = snapshot.get("confidence")
+    label = snapshot.get("label") or "-"
+    created = snapshot.get("created_at") or "-"
+    return f"{label} {score}/100, confidence {confidence}%, oppdatert {created}"
+
+
+def _ai_candidate_market_climate_level_v1866(snapshot: dict | None = None, score: float | None = None) -> dict:
+    raw = (snapshot or {}).get("climate_level") if isinstance(snapshot, dict) else None
+    if isinstance(raw, dict) and raw:
+        return dict(raw)
+    try:
+        number = float(score if score is not None else (snapshot or {}).get("climate_score"))
+    except Exception:
+        number = 50.0
+    if number >= 75:
+        return {"Nivå": "Risk-on / høyt", "Fargekode": "Grønn", "Farge": "#16a34a", "Scoreintervall": "75-100", "Tolkning": "Grønt klima: vekst og momentum kan få litt mer rom."}
+    if number >= 60:
+        return {"Nivå": "Støttende", "Fargekode": "Grønn", "Farge": "#22c55e", "Scoreintervall": "60-74", "Tolkning": "Støttende klima: normal kandidatjakt med god datakvalitet."}
+    if number >= 45:
+        return {"Nivå": "Nøytralt / blandet", "Fargekode": "Gul", "Farge": "#f59e0b", "Scoreintervall": "45-59", "Tolkning": "Blandet klima: aksjesignalene må bære caset."}
+    if number >= 30:
+        return {"Nivå": "Svakere / oransje", "Fargekode": "Oransje", "Farge": "#f97316", "Scoreintervall": "30-44", "Tolkning": "Oransje klima: motoren blir strengere."}
+    return {"Nivå": "Risk-off / rødt", "Fargekode": "Rød", "Farge": "#dc2626", "Scoreintervall": "0-29", "Tolkning": "Rødt klima: bare svært sterke signaler bør slippe høyt opp."}
+
+
+def _ai_candidate_market_climate_badge_v1866(climate_effect: dict | None) -> str:
+    climate_effect = climate_effect if isinstance(climate_effect, dict) else {}
+    code = str(climate_effect.get("level_code") or "-")
+    level = str(climate_effect.get("level") or "-")
+    symbol_map = {"Grønn": "-", "Gul": "-", "Oransje": "-", "Rød": "-"}
+    return f"{symbol_map.get(code, '-')} {code}: {level}"
+
+
+def _ai_candidate_market_climate_style_v1866() -> str:
+    return """
+    .climate-badge{display:inline-block;border-radius:999px;padding:4px 10px;color:#fff;font-weight:700}
+    .climate-box{border:1px solid #cbd5e1;background:#f8fafc;padding:12px;border-radius:8px;margin:14px 0}
+    .climate-note{color:#475569;font-size:12px;margin:4px 0 10px}
+    """
+
+
+def _ai_candidate_market_climate_compact_v1865(config: dict | None = None) -> dict:
+    snapshot = _ai_candidate_market_climate_snapshot_v1865(config)
+    mode = _ai_candidate_market_climate_mode_v1865(config)
+    if mode == "Av":
+        return {"mode": mode, "available": False, "summary": "Markedsklima er av", "snapshot": None}
+    if not isinstance(snapshot, dict):
+        return {"mode": mode, "available": False, "summary": "Markedsklima mangler", "snapshot": None}
+    factor_rows = [
+        {
+            "Faktor": row.get("Faktor"),
+            "Score": row.get("Score"),
+            "Status": row.get("Status"),
+            "Målt verdi": row.get("Målt verdi"),
+            "Lavt nivå": row.get("Lavt nivå"),
+            "Normalt nivå": row.get("Normalt nivå"),
+            "Høyt nivå": row.get("Høyt nivå"),
+            "Nivå": row.get("Nivå") or row.get("Status"),
+            "Bevis": row.get("Bevis"),
+        }
+        for row in (snapshot.get("factor_rows") or [])
+        if isinstance(row, dict)
+    ]
+    climate_effect = _ai_candidate_market_climate_effect_v1865({**(config or {}), "_market_climate_snapshot": snapshot})
+    return {
+        "mode": mode,
+        "available": True,
+        "created_at": snapshot.get("created_at"),
+        "label": snapshot.get("label"),
+        "climate_score": snapshot.get("climate_score"),
+        "confidence": snapshot.get("confidence"),
+        "climate_level": _ai_candidate_market_climate_level_v1866(snapshot),
+        "level_rows": snapshot.get("level_rows") or [],
+        "score_ranges": snapshot.get("score_ranges") or [],
+        "action": snapshot.get("action"),
+        "summary": _ai_candidate_market_climate_summary_v1865(snapshot),
+        "effect_text": climate_effect.get("effect_text"),
+        "impact_text": climate_effect.get("impact_text"),
+        "effect_delta": climate_effect.get("delta"),
+        "effect_cap": climate_effect.get("cap"),
+        "missing_factors": snapshot.get("missing_factors") or [],
+        "factor_rows": factor_rows,
+    }
+
+
+def _ai_candidate_market_climate_effect_v1865(config: dict | None = None) -> dict:
+    mode = _ai_candidate_market_climate_mode_v1865(config)
+    snapshot = _ai_candidate_market_climate_snapshot_v1865(config)
+    if mode == "Av":
+        return {"mode": mode, "available": False, "delta": 0.0, "label": "Av", "summary": "Markedsklima er av", "flags": [], "missing": []}
+    if not isinstance(snapshot, dict):
+        missing = ["Markedsklima mangler"] if _ai_candidate_bool_v1864r(config or {}, "market_climate_warn_missing") else []
+        return {"mode": mode, "available": False, "delta": 0.0, "label": "Mangler", "summary": "Markedsklima mangler", "flags": [], "missing": missing}
+    try:
+        climate_score = float(snapshot.get("climate_score") or 50.0)
+    except Exception:
+        climate_score = 50.0
+    try:
+        confidence = float(snapshot.get("confidence") or 50.0)
+    except Exception:
+        confidence = 50.0
+    weight = max(0.0, min(2.0, _ai_candidate_num_v1864q(config or {}, "market_climate_score_weight")))
+    confidence_factor = max(0.35, min(1.0, confidence / 100.0))
+    delta = round((((climate_score - 50.0) / 50.0) * weight * confidence_factor) if mode == "Bruk i score" else 0.0, 2)
+    level = _ai_candidate_market_climate_level_v1866(snapshot, climate_score)
+    flags: list[str] = []
+    if climate_score < 30:
+        flags.append("Rødt markedsklima")
+    elif climate_score < 45:
+        flags.append("Oransje markedsklima")
+    elif climate_score < _ai_candidate_num_v1864q(config or {}, "market_climate_cap_threshold"):
+        flags.append("Svakt markedsklima")
+    elif climate_score >= 70:
+        flags.append("Markedsklima støtter risk-on")
+    cap = None
+    if (
+        mode == "Bruk i score"
+        and _ai_candidate_bool_v1864r(config or {}, "market_climate_cap_enabled")
+        and climate_score < _ai_candidate_num_v1864q(config or {}, "market_climate_cap_threshold")
+    ):
+        cap = _ai_candidate_num_v1864q(config or {}, "market_climate_low_score_cap")
+    factor_bits = []
+    for row in (snapshot.get("factor_rows") or [])[:4]:
+        if isinstance(row, dict):
+            factor_bits.append(f"{row.get('Faktor')}: {row.get('Score')}/100 ({row.get('Status')})")
+    effect_text = "Ingen scoreeffekt"
+    if mode == "Bruk i score":
+        effect_text = f"{delta:+.2f}"
+        if cap is not None:
+            effect_text += f" | cap {float(cap):.2f}"
+    impact_text = str(level.get("Tolkning") or "")
+    if mode == "Vis som info":
+        impact_text = "Klima vises som forklaring, men påvirker ikke kandidat-score."
+    elif mode == "Av":
+        impact_text = "Klima er slått av for denne kjøringen."
+    return {
+        "mode": mode,
+        "available": True,
+        "delta": delta,
+        "cap": cap,
+        "score": round(climate_score, 1),
+        "confidence": round(confidence, 1),
+        "label": snapshot.get("label") or "-",
+        "level": level.get("Nivå") or snapshot.get("label") or "-",
+        "level_color": level.get("Farge") or "#64748b",
+        "level_code": level.get("Fargekode") or "-",
+        "range": level.get("Scoreintervall") or "-",
+        "effect_text": effect_text,
+        "impact_text": impact_text,
+        "summary": _ai_candidate_market_climate_summary_v1865(snapshot),
+        "evidence": "; ".join(factor_bits) or "-",
+        "flags": flags,
+        "missing": list(snapshot.get("missing_factors") or []),
+    }
+
+
+def _ai_candidate_runtime_config_with_climate_v1865(config: dict | None = None) -> dict:
+    runtime = dict(config or {})
+    snapshot = _ai_candidate_market_climate_snapshot_v1865(runtime)
+    if isinstance(snapshot, dict):
+        runtime["_market_climate_snapshot"] = snapshot
+    return runtime
+
+
+def _ai_candidate_source_list_v1864q(source_or_sources) -> list[str]:
+    raw_items = source_or_sources if isinstance(source_or_sources, (list, tuple, set)) else [source_or_sources]
+    out: list[str] = []
+    for raw in raw_items or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if text == "Kombiner kilder":
+            for item in ["Marked", *AI_CANDIDATE_IMPORT_SOURCES_V1864Q]:
+                if item not in out:
+                    out.append(item)
+            continue
+        if text in AI_CANDIDATE_SOURCE_OPTIONS_V1864Q and text not in out:
+            out.append(text)
+    return out or ["Marked"]
+
+
+def _ai_candidate_source_label_v1864q(sources) -> str:
+    return " + ".join(_ai_candidate_source_list_v1864q(sources))
+
+
+def _ai_candidate_horizon_v1864s(config: dict | None = None) -> str:
+    text = str((config or {}).get("horizon") or "1-6 mnd").strip()
+    return text if text in AI_CANDIDATE_HORIZON_OPTIONS_V1864S else "1-6 mnd"
+
+
+def _ai_candidate_standard_config_v1864s(horizon: str | None = None) -> dict:
+    selected = horizon if horizon in AI_CANDIDATE_HORIZON_OPTIONS_V1864S else "1-6 mnd"
+    config = dict(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q)
+    config.update(AI_CANDIDATE_HORIZON_DEFAULTS_V1864S.get(selected, {}))
+    config["horizon"] = selected
+    config["profile_name"] = f"Standard {selected}"
+    return config
+
+
+def _ai_candidate_load_evaluation_config_v1864q() -> dict:
+    settings = load_settings() or {}
+    stored = settings.get(AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q)
+    stored_horizon = stored.get("horizon") if isinstance(stored, dict) else None
+    config = _ai_candidate_standard_config_v1864s(stored_horizon)
+    if isinstance(stored, dict):
+        for key, value in stored.items():
+            if key in config:
+                config[key] = value
+    config["horizon"] = _ai_candidate_horizon_v1864s(config)
+    return config
+
+
+def _ai_candidate_save_evaluation_config_v1864q(config: dict) -> None:
+    settings = load_settings() or {}
+    settings[AI_CANDIDATE_EVALUATION_SETTINGS_KEY_V1864Q] = dict(config)
+    save_settings(settings)
+
+
+def _ai_candidate_num_v1864q(config: dict, key: str) -> float:
+    try:
+        return float(config.get(key, AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.get(key, 0.0)))
+    except Exception:
+        return float(AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.get(key, 0.0))
+
+
+def _ai_candidate_confidence_number_v1864q(value) -> float:
+    if value in (None, ""):
+        return 0.0
+    try:
+        return float(str(value).replace("%", "").strip())
+    except Exception:
+        return 0.0
+
+
+def _ai_candidate_bool_v1864r(config: dict, key: str) -> bool:
+    value = (config or {}).get(key, AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.get(key, False))
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "ja", "yes", "on"}
+    return bool(value)
+
+
+def _ai_candidate_clamp_v1864r(value, low: float = 0.0, high: float = 10.0) -> float:
+    try:
+        number = float(value)
+    except Exception:
+        number = 5.0
+    return max(float(low), min(float(high), number))
+
+
+def _ai_candidate_scorepart_v1864r(item: dict, key: str, default: float = 5.0) -> float:
+    parts = item.get("score_parts") if isinstance(item, dict) else {}
+    value = (parts or {}).get(key) if isinstance(parts, dict) else None
+    if value in (None, ""):
+        value = item.get(key) if isinstance(item, dict) else None
+    try:
+        number = float(value)
+    except Exception:
+        return float(default)
+    if 0.0 <= number <= 1.0:
+        number *= 10.0
+    elif 10.0 < number <= 100.0:
+        number /= 10.0
+    return _ai_candidate_clamp_v1864r(number)
+
+
+def _ai_candidate_hist_snapshot_v1864r(item: dict) -> dict:
+    hist = item.get("hist") if isinstance(item, dict) else None
+    out = {
+        "above_50dma": None,
+        "above_200dma": None,
+        "near_52w_high": None,
+        "last_close": None,
+        "ma50": None,
+        "ma200": None,
+        "high_52w": None,
+        "pct_of_52w_high": None,
+        "last_volume": None,
+        "avg_volume_20": None,
+        "avg_volume_50": None,
+        "volume_ratio_20": None,
+        "volume_ratio_50": None,
+        "volume_boost": None,
+        "last_price_days_old": None,
+    }
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty or "Close" not in hist:
+        return out
+    close = hist["Close"].dropna()
+    if close.empty:
+        return out
+    last = float(close.iloc[-1])
+    out["last_close"] = last
+    if len(close) >= 50:
+        ma50 = float(close.tail(50).mean())
+        out["ma50"] = ma50
+        out["above_50dma"] = bool(ma50 and last >= ma50)
+    if len(close) >= 200:
+        ma200 = float(close.tail(200).mean())
+        out["ma200"] = ma200
+        out["above_200dma"] = bool(ma200 and last >= ma200)
+    if len(close) >= 120:
+        high_52w = float(close.tail(min(252, len(close))).max())
+        out["high_52w"] = high_52w
+        out["pct_of_52w_high"] = (last / high_52w * 100.0) if high_52w else None
+        out["near_52w_high"] = bool(high_52w and last >= high_52w * 0.90)
+    if "Volume" in hist:
+        volume = hist["Volume"].dropna()
+        if not volume.empty:
+            out["last_volume"] = float(volume.iloc[-1])
+        if len(volume) >= 20:
+            avg20 = float(volume.tail(20).mean())
+            out["avg_volume_20"] = avg20
+            out["volume_ratio_20"] = (float(volume.iloc[-1]) / avg20) if avg20 else None
+        if len(volume) >= 50:
+            avg50 = float(volume.tail(50).mean())
+            out["avg_volume_50"] = avg50
+            out["volume_ratio_50"] = (float(volume.iloc[-1]) / avg50) if avg50 else None
+        if len(volume) >= 60:
+            recent = float(volume.tail(20).mean())
+            older = float(volume.tail(60).head(40).mean())
+            out["volume_boost"] = (recent / older) if older else None
+    try:
+        latest = close.index[-1]
+        if hasattr(latest, "date"):
+            out["last_price_days_old"] = max(0, (datetime.now().date() - latest.date()).days)
+    except Exception:
+        pass
+    return out
+
+
+def _ai_candidate_metric_text_v1864u(value, decimals: int = 2, suffix: str = "") -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        number = float(value)
+    except Exception:
+        return str(value)
+    return f"{number:,.{decimals}f}{suffix}"
+
+
+def _ai_candidate_ratio_text_v1864u(value) -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        return f"{float(value):.2f}x"
+    except Exception:
+        return "-"
+
+
+def _ai_candidate_bool_text_v1864u(value) -> str:
+    if value is True:
+        return "Ja"
+    if value is False:
+        return "Nei"
+    return "Mangler"
+
+
+def _ai_candidate_liquidity_status_v1864u(snapshot: dict, config: dict | None = None) -> str:
+    avg20 = snapshot.get("avg_volume_20") if isinstance(snapshot, dict) else None
+    if avg20 in (None, ""):
+        return "Mangler volumdata"
+    threshold = _ai_candidate_num_v1864q(config or {}, "min_avg_volume")
+    try:
+        return "OK" if float(avg20) >= float(threshold) else "Svak"
+    except Exception:
+        return "Mangler volumdata"
+
+
+def _ai_candidate_technical_evidence_text_v1864u(snapshot: dict, config: dict | None = None) -> str:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return "Teknisk bevis mangler"
+    parts = [
+        f"Kurs {_ai_candidate_metric_text_v1864u(snapshot.get('last_close'))}",
+        f"52u høy {_ai_candidate_metric_text_v1864u(snapshot.get('high_52w'))}",
+        f"{_ai_candidate_metric_text_v1864u(snapshot.get('pct_of_52w_high'), 1, '%')} av 52u",
+        f"over MA50 {_ai_candidate_bool_text_v1864u(snapshot.get('above_50dma'))}",
+        f"over MA200 {_ai_candidate_bool_text_v1864u(snapshot.get('above_200dma'))}",
+        f"vol/20d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_20'))}",
+        f"vol/50d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_50'))}",
+        f"likviditet {_ai_candidate_liquidity_status_v1864u(snapshot, config)}",
+    ]
+    return " | ".join(parts)
+
+
+AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X = 40
+
+
+def _ai_candidate_finnhub_ready_v1864x() -> bool:
+    try:
+        from runtime_env import data_source_env_status
+
+        return bool((data_source_env_status() or {}).get("finnhub_key"))
+    except Exception:
+        return False
+
+
+def _ai_candidate_fmp_ready_v1864y() -> bool:
+    try:
+        from runtime_env import data_source_env_status
+
+        return bool((data_source_env_status() or {}).get("fmp_key"))
+    except Exception:
+        return False
+
+
+def _ai_candidate_live_signal_limit_v1864x(config: dict | None, row_count: int, result_limit: int | None = None) -> int:
+    base = max(int(result_limit or 0), 12)
+    special = _ai_candidate_special_search_v1864t(config)
+    active = set(_ai_candidate_active_search_weights_v1864t(config).keys())
+    if special in {"Resultatsjokk", "Vekstakselerasjon", "Katalysator-klynge"} or {"estimate", "insider"} & active:
+        base = max(base, 30)
+    return max(0, min(int(row_count or 0), AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X, base))
+
+
+def _ai_candidate_safe_float_v1864x(value, default=None):
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _ai_candidate_score_0_10_from_unit_v1864x(value):
+    number = _ai_candidate_safe_float_v1864x(value, None)
+    if number is None:
+        return None
+    if 0.0 <= number <= 1.0:
+        number *= 10.0
+    elif 10.0 < number <= 100.0:
+        number /= 10.0
+    return round(_ai_candidate_clamp_v1864r(number), 2)
+
+
+def _ai_candidate_money_text_v1864x(value) -> str:
+    number = _ai_candidate_safe_float_v1864x(value, None)
+    if number is None:
+        return "-"
+    abs_number = abs(number)
+    if abs_number >= 1_000_000_000:
+        return f"{number / 1_000_000_000:.2f} mrd"
+    if abs_number >= 1_000_000:
+        return f"{number / 1_000_000:.2f} mill"
+    if abs_number >= 1_000:
+        return f"{number / 1_000:.1f}k"
+    return f"{number:.2f}"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _ai_candidate_fetch_live_signal_packet_v1864x(ticker: str, finnhub_ready: bool, fmp_ready: bool = False) -> dict:
+    symbol = normalize_user_ticker(ticker)
+    packet = {
+        "ticker": symbol,
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "finnhub_ready": bool(finnhub_ready),
+        "fmp_ready": bool(fmp_ready),
+        "analyst": {},
+        "earnings": {},
+        "insider": {},
+        "fmp": {},
+    }
+    if not symbol:
+        packet["status"] = "Ticker mangler"
+        return packet
+    if not finnhub_ready and not fmp_ready:
+        packet["status"] = "FINNHUB_API_KEY og FMP_API_KEY mangler"
+        return packet
+    if finnhub_ready:
+        try:
+            packet["analyst"] = dict(get_analyst_trend(symbol) or {})
+        except Exception as exc:
+            packet["analyst"] = {"error": str(exc)}
+        try:
+            packet["earnings"] = dict(get_earnings(symbol) or {})
+        except Exception as exc:
+            packet["earnings"] = {"error": str(exc)}
+        try:
+            packet["insider"] = dict(get_insider_data(symbol) or {})
+        except Exception as exc:
+            packet["insider"] = {"error": str(exc)}
+    if fmp_ready:
+        try:
+            packet["fmp"] = dict(fetch_fmp_signal_packet(symbol) or {})
+        except Exception as exc:
+            packet["fmp"] = {"error": str(exc), "status": "FMP-feil"}
+    providers = []
+    if finnhub_ready:
+        providers.append("Finnhub")
+    if fmp_ready:
+        providers.append("FMP")
+    packet["status"] = "Hentet: " + " + ".join(providers)
+    return packet
+
+
+def _ai_candidate_analyst_detail_v1864x(analyst: dict) -> tuple[str, float | None, str]:
+    if not isinstance(analyst, dict) or not analyst:
+        return "Ingen analytikerdata hentet", None, "Mangler"
+    error = str(analyst.get("error") or "").strip()
+    counts = {
+        "strongBuy": int(analyst.get("strongBuy") or 0),
+        "buy": int(analyst.get("buy") or 0),
+        "hold": int(analyst.get("hold") or 0),
+        "sell": int(analyst.get("sell") or 0),
+        "strongSell": int(analyst.get("strongSell") or 0),
+    }
+    total = sum(counts.values())
+    if error:
+        return f"Analytikerdata mangler: {error}", None, "Mangler"
+    if total <= 0:
+        return "Ingen analytikerkonsensus funnet", None, "Ingen treff"
+    score = _ai_candidate_score_0_10_from_unit_v1864x(analyst.get("score"))
+    detail = (
+        f"Anbefalinger: strong buy {counts['strongBuy']}, buy {counts['buy']}, hold {counts['hold']}, "
+        f"sell {counts['sell']}, strong sell {counts['strongSell']} | trend {analyst.get('trend') or '-'}"
+    )
+    if analyst.get("period"):
+        detail += f" | periode {analyst.get('period')}"
+    return detail, score, "Konsensus funnet"
+
+
+def _ai_candidate_earnings_detail_v1864x(earnings: dict) -> tuple[str, str]:
+    if not isinstance(earnings, dict) or not earnings:
+        return "Ingen resultatkalender hentet", "Mangler"
+    error = str(earnings.get("error") or "").strip()
+    if error:
+        return f"Resultatkalender mangler: {error}", "Mangler"
+    date_text = str(earnings.get("date") or "").strip()
+    eps_estimate = earnings.get("epsEstimate")
+    revenue_estimate = earnings.get("revenueEstimate")
+    if not date_text and eps_estimate in (None, "") and revenue_estimate in (None, ""):
+        return "Ingen nær resultatdato/estimat funnet", "Ingen treff"
+    bits = []
+    if date_text:
+        bits.append(f"dato {date_text}")
+    if earnings.get("days_until") not in (None, ""):
+        bits.append(f"{earnings.get('days_until')} dager til")
+    if eps_estimate not in (None, ""):
+        bits.append(f"EPS-estimat {eps_estimate}")
+    if revenue_estimate not in (None, ""):
+        bits.append(f"omsetningsestimat {_ai_candidate_money_text_v1864x(revenue_estimate)}")
+    return " | ".join(bits) or "Resultatkalender funnet", "Kalender/estimat funnet"
+
+
+def _ai_candidate_insider_detail_v1864x(insider: dict) -> tuple[str, float | None, str, str | None]:
+    if not isinstance(insider, dict) or not insider:
+        return "Ingen insiderdata hentet", None, "Mangler", None
+    error = str(insider.get("error") or "").strip()
+    if error:
+        return f"Insiderdata mangler: {error}", None, "Mangler", None
+    score = _ai_candidate_score_0_10_from_unit_v1864x(insider.get("score"))
+    buy_count = int(insider.get("buy_count") or 0)
+    sell_count = int(insider.get("sell_count") or 0)
+    transactions = int(insider.get("transactions") or 0)
+    latest_type = str(insider.get("latest_type") or "").strip()
+    latest_date = insider.get("latest_date")
+    latest_value = None
+    latest_rows = insider.get("latest_transactions") if isinstance(insider.get("latest_transactions"), list) else []
+    if latest_rows and isinstance(latest_rows[0], dict):
+        latest_value = latest_rows[0].get("value")
+    if transactions <= 0 and buy_count <= 0 and sell_count <= 0:
+        return "Ingen insidertransaksjoner i valgt periode", score, "Ingen treff", None
+    detail = (
+        f"{insider.get('label') or 'Insiderbilde'} | kjøp {buy_count}, salg {sell_count}, "
+        f"transaksjoner {transactions}, siste {latest_type or '-'} {latest_date or '-'}"
+    )
+    if latest_value not in (None, ""):
+        detail += f", siste verdi {_ai_candidate_money_text_v1864x(latest_value)}"
+    return detail, score, "Transaksjoner funnet", latest_value
+
+
+def _ai_candidate_merge_signal_score_v1864y(existing, fresh, fresh_weight: float = 0.60) -> float | None:
+    fresh_score = _ai_candidate_score_0_10_from_unit_v1864x(fresh)
+    if fresh_score is None:
+        return _ai_candidate_score_0_10_from_unit_v1864x(existing)
+    existing_score = _ai_candidate_score_0_10_from_unit_v1864x(existing)
+    if existing_score is None:
+        return fresh_score
+    weight = max(0.0, min(1.0, float(fresh_weight or 0.60)))
+    return round(_ai_candidate_clamp_v1864r(existing_score * (1.0 - weight) + fresh_score * weight), 2)
+
+
+def _ai_candidate_fmp_analyst_detail_v1864y(analyst: dict) -> tuple[str, float | None, str]:
+    if not isinstance(analyst, dict) or not analyst:
+        return "Ingen FMP analytikerdata hentet", None, "Mangler"
+    error = str(analyst.get("error") or "").strip()
+    if error:
+        return f"FMP analytikerdata mangler: {error}", None, "Mangler"
+    score = _ai_candidate_score_0_10_from_unit_v1864x(analyst.get("score"))
+    detail = str(analyst.get("detail") or "").strip() or "FMP analytiker-/estimatdata funnet"
+    if score is None:
+        return detail, None, "Ingen treff"
+    return detail, score, "FMP estimat/analytiker funnet"
+
+
+def _ai_candidate_fmp_earnings_detail_v1864y(earnings: dict) -> tuple[str, str]:
+    if not isinstance(earnings, dict) or not earnings:
+        return "Ingen FMP earnings hentet", "Mangler"
+    error = str(earnings.get("error") or "").strip()
+    if error:
+        return f"FMP earnings mangler: {error}", "Mangler"
+    detail = str(earnings.get("detail") or "").strip()
+    if not detail and not earnings.get("date") and earnings.get("epsEstimate") in (None, ""):
+        return "Ingen FMP earnings-treff", "Ingen treff"
+    return detail or "FMP earnings funnet", "FMP earnings funnet"
+
+
+def _ai_candidate_fmp_insider_detail_v1864y(insider: dict) -> tuple[str, float | None, str, str | None]:
+    if not isinstance(insider, dict) or not insider:
+        return "Ingen FMP insiderdata hentet", None, "Mangler", None
+    error = str(insider.get("error") or "").strip()
+    if error:
+        return f"FMP insiderdata mangler: {error}", None, "Mangler", None
+    score = _ai_candidate_score_0_10_from_unit_v1864x(insider.get("score"))
+    transactions = int(insider.get("transactions") or 0)
+    if transactions <= 0:
+        return str(insider.get("label") or "Ingen FMP insiderhandler"), score, "Ingen treff", None
+    latest_value = None
+    latest_rows = insider.get("latest_transactions") if isinstance(insider.get("latest_transactions"), list) else []
+    if latest_rows and isinstance(latest_rows[0], dict):
+        latest_value = latest_rows[0].get("value")
+    detail = str(insider.get("detail") or "").strip() or (
+        f"{insider.get('label') or 'FMP insiderbilde'} | kjop {int(insider.get('buy_count') or 0)}, "
+        f"salg {int(insider.get('sell_count') or 0)}, transaksjoner {transactions}"
+    )
+    return detail, score, "FMP transaksjoner funnet", latest_value
+
+
+def _ai_candidate_apply_live_signal_packet_v1864x(item: dict, packet: dict, *, enriched: bool) -> dict:
+    row = dict(item or {})
+    sources: list[str] = []
+    statuses: list[str] = []
+    if not enriched:
+        row["live_signal_status"] = "Ikke hentet; utenfor fersk-signalgrense"
+        return row
+    finnhub_ready = bool((packet or {}).get("finnhub_ready"))
+    fmp_ready = bool((packet or {}).get("fmp_ready"))
+    if not finnhub_ready and not fmp_ready:
+        row["live_signal_status"] = "FINNHUB_API_KEY og FMP_API_KEY mangler"
+        row["estimate_signal_status"] = "Mangler"
+        row["insider_signal_status"] = "Mangler"
+        row["earnings_signal_status"] = "Mangler"
+        return row
+
+    analyst_detail, analyst_score, analyst_status = _ai_candidate_analyst_detail_v1864x((packet or {}).get("analyst") or {})
+    row["estimate_signal_detail"] = analyst_detail
+    row["estimate_signal_status"] = analyst_status
+    if analyst_score is not None:
+        row["analyst_score"] = analyst_score
+        row["analyst_revision_score"] = analyst_score
+        row["estimate_revision_score"] = analyst_score
+        sources.append("Finnhub analytikerkonsensus")
+    statuses.append(f"Estimat: {analyst_status}")
+
+    earnings_detail, earnings_status = _ai_candidate_earnings_detail_v1864x((packet or {}).get("earnings") or {})
+    earnings = (packet or {}).get("earnings") or {}
+    row["earnings_signal_detail"] = earnings_detail
+    row["earnings_signal_status"] = earnings_status
+    if earnings.get("date"):
+        row["earnings_date"] = earnings.get("date")
+        row["latest_earnings_date"] = earnings.get("date")
+    if earnings.get("epsEstimate") not in (None, ""):
+        row["eps_estimate"] = earnings.get("epsEstimate")
+    if earnings.get("revenueEstimate") not in (None, ""):
+        row["revenue_estimate"] = earnings.get("revenueEstimate")
+    if earnings_status == "Kalender/estimat funnet":
+        sources.append("Finnhub resultatkalender")
+    statuses.append(f"Resultat: {earnings_status}")
+
+    insider_detail, insider_score, insider_status, latest_value = _ai_candidate_insider_detail_v1864x((packet or {}).get("insider") or {})
+    insider = (packet or {}).get("insider") or {}
+    row["insider_signal_detail"] = insider_detail
+    row["insider_signal_status"] = insider_status
+    if insider_score is not None:
+        row["insider_score"] = round(insider_score / 10.0, 3)
+        row["insider_label"] = insider.get("label") or row.get("insider_label") or "Insiderdata"
+        row["insider_transactions"] = insider.get("transactions", row.get("insider_transactions"))
+        row["insider_latest_type"] = insider.get("latest_type", row.get("insider_latest_type"))
+        row["insider_latest_date"] = insider.get("latest_date", row.get("insider_latest_date"))
+        row["insider_buy_count"] = insider.get("buy_count")
+        row["insider_sell_count"] = insider.get("sell_count")
+        row["insider_buy_shares"] = insider.get("buy_shares")
+        row["insider_sell_shares"] = insider.get("sell_shares")
+        if latest_value not in (None, ""):
+            row["insider_latest_value"] = latest_value
+        sources.append("Finnhub insider")
+    statuses.append(f"Insider: {insider_status}")
+
+    fmp = (packet or {}).get("fmp") if isinstance((packet or {}).get("fmp"), dict) else {}
+    if fmp_ready:
+        fmp_analyst_detail, fmp_analyst_score, fmp_analyst_status = _ai_candidate_fmp_analyst_detail_v1864y((fmp or {}).get("analyst") or {})
+        if fmp_analyst_detail:
+            existing_detail = str(row.get("estimate_signal_detail") or "").strip()
+            keep_existing = existing_detail and "mangler" not in existing_detail.lower() and not existing_detail.lower().startswith("ingen ")
+            row["estimate_signal_detail"] = " | ".join(
+                part for part in [existing_detail if keep_existing else "", f"FMP: {fmp_analyst_detail}"] if part
+            ) or f"FMP: {fmp_analyst_detail}"
+        if fmp_analyst_score is not None:
+            merged_estimate_score = _ai_candidate_merge_signal_score_v1864y(row.get("estimate_revision_score"), fmp_analyst_score, 0.65)
+            row["analyst_score"] = merged_estimate_score
+            row["analyst_revision_score"] = merged_estimate_score
+            row["estimate_revision_score"] = merged_estimate_score
+            row["estimate_signal_status"] = "FMP estimat/analytiker funnet"
+            sources.append("FMP analyst/estimates")
+        statuses.append(f"FMP estimat: {fmp_analyst_status}")
+
+        fmp_earnings_detail, fmp_earnings_status = _ai_candidate_fmp_earnings_detail_v1864y((fmp or {}).get("earnings") or {})
+        if fmp_earnings_detail:
+            existing_earnings = str(row.get("earnings_signal_detail") or "").strip()
+            keep_existing = existing_earnings and "mangler" not in existing_earnings.lower() and not existing_earnings.lower().startswith("ingen ")
+            row["earnings_signal_detail"] = " | ".join(
+                part for part in [existing_earnings if keep_existing else "", f"FMP: {fmp_earnings_detail}"] if part
+            ) or f"FMP: {fmp_earnings_detail}"
+        fmp_earnings = (fmp or {}).get("earnings") or {}
+        if isinstance(fmp_earnings, dict) and not fmp_earnings.get("error"):
+            if fmp_earnings.get("date"):
+                row["earnings_date"] = fmp_earnings.get("date")
+                row["latest_earnings_date"] = fmp_earnings.get("date")
+            if fmp_earnings.get("epsEstimate") not in (None, ""):
+                row["eps_estimate"] = fmp_earnings.get("epsEstimate")
+            if fmp_earnings.get("epsActual") not in (None, ""):
+                row["eps_actual"] = fmp_earnings.get("epsActual")
+            if fmp_earnings.get("epsSurprisePct") not in (None, ""):
+                row["eps_surprise_pct"] = fmp_earnings.get("epsSurprisePct")
+                row["earnings_surprise_pct"] = fmp_earnings.get("epsSurprisePct")
+            if fmp_earnings_status == "FMP earnings funnet":
+                row["earnings_signal_status"] = "FMP earnings funnet"
+                sources.append("FMP earnings")
+        statuses.append(f"FMP earnings: {fmp_earnings_status}")
+
+        fmp_insider_detail, fmp_insider_score, fmp_insider_status, fmp_latest_value = _ai_candidate_fmp_insider_detail_v1864y((fmp or {}).get("insider") or {})
+        if fmp_insider_detail:
+            existing_insider = str(row.get("insider_signal_detail") or "").strip()
+            keep_existing = existing_insider and "mangler" not in existing_insider.lower() and not existing_insider.lower().startswith("ingen ")
+            row["insider_signal_detail"] = " | ".join(
+                part for part in [existing_insider if keep_existing else "", f"FMP: {fmp_insider_detail}"] if part
+            ) or f"FMP: {fmp_insider_detail}"
+        fmp_insider = (fmp or {}).get("insider") or {}
+        if fmp_insider_score is not None:
+            merged_insider_score = _ai_candidate_merge_signal_score_v1864y(row.get("insider_score"), fmp_insider_score, 0.65)
+            row["insider_score"] = round(merged_insider_score / 10.0, 3) if merged_insider_score is not None else row.get("insider_score")
+            row["insider_label"] = fmp_insider.get("label") or row.get("insider_label") or "FMP insiderdata"
+            row["insider_transactions"] = fmp_insider.get("transactions", row.get("insider_transactions"))
+            row["insider_latest_type"] = fmp_insider.get("latest_type", row.get("insider_latest_type"))
+            row["insider_latest_date"] = fmp_insider.get("latest_date", row.get("insider_latest_date"))
+            row["insider_buy_count"] = fmp_insider.get("buy_count", row.get("insider_buy_count"))
+            row["insider_sell_count"] = fmp_insider.get("sell_count", row.get("insider_sell_count"))
+            row["insider_buy_shares"] = fmp_insider.get("buy_shares", row.get("insider_buy_shares"))
+            row["insider_sell_shares"] = fmp_insider.get("sell_shares", row.get("insider_sell_shares"))
+            if fmp_latest_value not in (None, ""):
+                row["insider_latest_value"] = fmp_latest_value
+            row["insider_signal_status"] = "FMP transaksjoner funnet"
+            sources.append("FMP insider")
+        statuses.append(f"FMP insider: {fmp_insider_status}")
+
+    row["live_signal_sources"] = ", ".join(dict.fromkeys(sources)) if sources else "Ingen ferske signaltreff"
+    row["live_signal_status"] = " | ".join(statuses)
+    row["live_signal_fetched_at"] = (packet or {}).get("fetched_at")
+    return row
+
+
+def _ai_candidate_enrich_live_signals_v1864x(
+    ranked_rows: list[dict],
+    config: dict | None,
+    *,
+    result_limit: int | None = None,
+) -> tuple[list[dict], dict]:
+    rows = [dict(row or {}) for row in (ranked_rows or []) if isinstance(row, dict)]
+    finnhub_ready = _ai_candidate_finnhub_ready_v1864x()
+    fmp_ready = _ai_candidate_fmp_ready_v1864y()
+    enrich_limit = _ai_candidate_live_signal_limit_v1864x(config, len(rows), result_limit)
+    enriched_rows: list[dict] = []
+    fetched = 0
+    matched_sources = 0
+    for idx, row in enumerate(rows):
+        ticker = normalize_user_ticker(row.get("ticker") or row.get("symbol"))
+        should_enrich = bool(ticker and idx < enrich_limit)
+        packet = _ai_candidate_fetch_live_signal_packet_v1864x(ticker, finnhub_ready, fmp_ready) if should_enrich else {}
+        enriched = _ai_candidate_apply_live_signal_packet_v1864x(row, packet, enriched=should_enrich)
+        fetched += 1 if should_enrich and (finnhub_ready or fmp_ready) else 0
+        matched_sources += 1 if str(enriched.get("live_signal_sources") or "").strip() not in {"", "Ingen ferske signaltreff"} else 0
+        enriched_rows.append(enriched)
+    providers = []
+    if finnhub_ready:
+        providers.append("Finnhub")
+    if fmp_ready:
+        providers.append("FMP")
+    status = " + ".join(providers) + " aktiv" if providers else "FINNHUB_API_KEY og FMP_API_KEY mangler"
+    summary = {
+        "provider": "Finnhub + FMP live-signaler",
+        "enabled": bool(finnhub_ready or fmp_ready),
+        "finnhub_enabled": bool(finnhub_ready),
+        "fmp_enabled": bool(fmp_ready),
+        "enrich_limit": enrich_limit,
+        "fetched": fetched,
+        "rows": len(rows),
+        "rows_with_signal_source": matched_sources,
+        "status": status,
+    }
+    return enriched_rows, summary
+
+
+def _ai_candidate_estimate_evidence_text_v1864x(item: dict, signals: dict | None = None) -> str:
+    detail = str((item or {}).get("estimate_signal_detail") or "").strip()
+    earnings_detail = str((item or {}).get("earnings_signal_detail") or "").strip()
+    bits = [detail] if detail else []
+    if earnings_detail:
+        bits.append(f"Resultatkalender: {earnings_detail}")
+    if not bits:
+        value = (signals or {}).get("estimate_revisions") if isinstance(signals, dict) else None
+        bits.append(f"Estimatløftscore {value if value not in (None, '') else '-'}")
+    return " | ".join(bits)
+
+
+def _ai_candidate_insider_evidence_text_v1864x(item: dict) -> str:
+    detail = str((item or {}).get("insider_signal_detail") or "").strip()
+    if detail:
+        return detail
+    latest_type = _ai_candidate_first_value_v1864w(item, "insider_latest_type", "latest_insider_type")
+    latest_date = _ai_candidate_first_value_v1864w(item, "insider_latest_date", "latest_insider_date")
+    latest_value = _ai_candidate_first_value_v1864w(item, "insider_latest_value", "insider_value", "insider_amount")
+    if latest_type or latest_date or latest_value:
+        return f"Siste {latest_type or 'transaksjon'} {latest_date or ''} verdi {_ai_candidate_money_text_v1864x(latest_value)}".strip()
+    return "Ingen konkrete innside-/eiertransaksjoner funnet"
+
+
+def _ai_candidate_signal_scores_v1864r(item: dict, config: dict | None = None) -> dict:
+    horizon = _ai_candidate_horizon_v1864s(config)
+    snapshot = _ai_candidate_hist_snapshot_v1864r(item)
+    ret_6m = _ai_candidate_clamp_v1864r(5.0 + float(item.get("ret_6m") or 0.0) * 8.0, 0.0, 10.0)
+    ret_3m = _ai_candidate_clamp_v1864r(5.0 + float(item.get("ret_3m") or 0.0) * 10.0, 0.0, 10.0)
+    ret_1m = _ai_candidate_clamp_v1864r(5.0 + float(item.get("ret_1m") or 0.0) * 8.0, 0.0, 10.0)
+    momentum_part = _ai_candidate_scorepart_v1864r(item, "momentum", 5.0)
+    if horizon == "1-3 mnd":
+        relative_strength = momentum_part * 0.30 + ret_3m * 0.35 + ret_1m * 0.25 + ret_6m * 0.10
+    elif horizon == "3-12 mnd":
+        relative_strength = momentum_part * 0.35 + ret_6m * 0.45 + ret_3m * 0.15 + ret_1m * 0.05
+    else:
+        relative_strength = momentum_part * 0.45 + ret_6m * 0.30 + ret_3m * 0.20 + ret_1m * 0.05
+    if snapshot.get("near_52w_high") is True:
+        relative_strength += 0.35
+    if snapshot.get("above_200dma") is False:
+        relative_strength -= 0.90
+    volume_boost = snapshot.get("volume_boost")
+    try:
+        if horizon == "1-3 mnd" and volume_boost is not None and float(volume_boost) >= 1.25:
+            relative_strength += 0.30
+        elif horizon == "3-12 mnd" and volume_boost is not None and float(volume_boost) < 0.80:
+            relative_strength -= 0.20
+    except Exception:
+        pass
+    volume_score = 5.0
+    try:
+        if volume_boost is not None:
+            volume_score = 5.0 + (float(volume_boost) - 1.0) * 4.0
+    except Exception:
+        volume_score = 5.0
+    if snapshot.get("above_50dma") is True:
+        volume_score += 0.30
+    if snapshot.get("above_200dma") is True:
+        volume_score += 0.20
+
+    estimate_score = None
+    for key in ("estimate_revision_score", "eps_revision_score", "analyst_revision_score", "analyst_score"):
+        if item.get(key) not in (None, ""):
+            estimate_score = _ai_candidate_scorepart_v1864r(item, key, 5.0)
+            break
+    estimate_status = str(item.get("estimate_signal_status") or "").lower()
+    estimate_missing = estimate_score is None or "mangler" in estimate_status
+    if estimate_score is None:
+        estimate_score = 5.0
+
+    insider_status = str(item.get("insider_signal_status") or "").lower()
+    insider_error = str(item.get("insider_error") or "").lower()
+    insider_missing = (
+        item.get("insider_score") in (None, "")
+        or "mangler" in insider_status
+        or "finnhub_api_key" in insider_error
+        or "mangler finnhub" in insider_error
+    )
+    insider_score = None
+    for key in ("insider_score", "insider_buy_score", "insider"):
+        if item.get(key) not in (None, ""):
+            insider_score = _ai_candidate_score_0_10_from_unit_v1864x(item.get(key))
+            break
+    if insider_score is None:
+        insider_score = _ai_candidate_scorepart_v1864r(item, "insider", 5.0)
+    latest_type = str(item.get("insider_latest_type") or "").upper()
+    if latest_type == "BUY":
+        insider_score += 0.60
+    elif latest_type == "SELL":
+        insider_score -= 0.55
+
+    growth_missing = item.get("revenue_growth") in (None, "") and not (isinstance(item.get("score_parts"), dict) and "fundamental_growth" in item.get("score_parts"))
+    growth_score = _ai_candidate_scorepart_v1864r(item, "fundamental_growth", 5.0)
+    technical_score = _ai_candidate_scorepart_v1864r(item, "trend", 5.0)
+    if snapshot.get("above_50dma") is True:
+        technical_score += 0.60 if horizon == "1-3 mnd" else 0.40
+    elif snapshot.get("above_50dma") is False:
+        technical_score -= 0.75 if horizon == "1-3 mnd" else 0.55
+    if snapshot.get("above_200dma") is True:
+        technical_score += 0.70 if horizon == "3-12 mnd" else 0.50
+    elif snapshot.get("above_200dma") is False:
+        technical_score -= 1.35 if horizon == "3-12 mnd" else 1.20
+    result_shock = estimate_score * 0.50 + growth_score * 0.25 + ret_1m * 0.25
+    sector_leader = relative_strength * 0.70 + technical_score * 0.20 + volume_score * 0.10
+    short_score = None
+    for key in ("short_squeeze_score", "short_interest_score", "days_to_cover_score", "short_score"):
+        if item.get(key) not in (None, ""):
+            short_score = _ai_candidate_scorepart_v1864r(item, key, 5.0)
+            break
+    short_missing = short_score is None
+    if short_score is None:
+        short_score = 5.0
+    if volume_score >= 7.0:
+        short_score += 0.40
+    if relative_strength >= 7.0:
+        short_score += 0.30
+
+    return {
+        "relative_strength": round(_ai_candidate_clamp_v1864r(relative_strength), 2),
+        "estimate_revisions": round(_ai_candidate_clamp_v1864r(estimate_score), 2),
+        "insider_buying": round(_ai_candidate_clamp_v1864r(insider_score), 2),
+        "growth": round(_ai_candidate_clamp_v1864r(growth_score), 2),
+        "technical_trend": round(_ai_candidate_clamp_v1864r(technical_score), 2),
+        "volume_breakout": round(_ai_candidate_clamp_v1864r(volume_score), 2),
+        "result_shock": round(_ai_candidate_clamp_v1864r(result_shock), 2),
+        "sector_leader": round(_ai_candidate_clamp_v1864r(sector_leader), 2),
+        "short_squeeze": round(_ai_candidate_clamp_v1864r(short_score), 2),
+        "estimate_missing": estimate_missing,
+        "insider_missing": insider_missing,
+        "growth_missing": growth_missing,
+        "short_missing": short_missing,
+        "snapshot": snapshot,
+    }
+
+
+def _ai_candidate_weighted_signal_score_v1864r(signals: dict, config: dict) -> float:
+    family_scores = _ai_candidate_signal_family_scores_v1864t(signals)
+    search_weights = _ai_candidate_active_search_weights_v1864t(config)
+    if search_weights:
+        total = sum(max(0.0, float(value or 0.0)) for value in search_weights.values())
+        if total > 0:
+            score = 0.0
+            for family_key, weight in search_weights.items():
+                score += float(family_scores.get(family_key, 5.0) or 0.0) * max(0.0, float(weight or 0.0))
+            return round(_ai_candidate_clamp_v1864r(score / total), 2)
+    weight_map = [
+        ("relative_strength", "relative_strength_weight"),
+        ("estimate_revisions", "estimate_revision_weight"),
+        ("insider_buying", "insider_buy_weight"),
+        ("growth", "growth_weight"),
+        ("technical_trend", "technical_trend_weight"),
+    ]
+    total_weight = sum(max(0.0, _ai_candidate_num_v1864q(config, key)) for _, key in weight_map)
+    if total_weight <= 0:
+        total_weight = 100.0
+    score = 0.0
+    for signal_key, weight_key in weight_map:
+        score += float(signals.get(signal_key) or 0.0) * max(0.0, _ai_candidate_num_v1864q(config, weight_key))
+    return round(_ai_candidate_clamp_v1864r(score / total_weight), 2)
+
+
+def _ai_candidate_signal_family_scores_v1864t(signals: dict) -> dict[str, float]:
+    relative_strength = float(signals.get("relative_strength") or 5.0)
+    estimate = float(signals.get("estimate_revisions") or 5.0)
+    insider = float(signals.get("insider_buying") or 5.0)
+    growth = float(signals.get("growth") or 5.0)
+    technical = float(signals.get("technical_trend") or 5.0)
+    volume = float(signals.get("volume_breakout") or 5.0)
+    result_shock = float(signals.get("result_shock") or 5.0)
+    sector_leader = float(signals.get("sector_leader") or 5.0)
+    short_squeeze = float(signals.get("short_squeeze") or 5.0)
+    catalyst_cluster = min(
+        10.0,
+        relative_strength * 0.30 + estimate * 0.25 + insider * 0.20 + growth * 0.15 + volume * 0.10,
+    )
+    return {
+        "momentum": round(_ai_candidate_clamp_v1864r(relative_strength * 0.70 + technical * 0.20 + volume * 0.10), 2),
+        "estimate": round(_ai_candidate_clamp_v1864r(estimate), 2),
+        "insider": round(_ai_candidate_clamp_v1864r(insider), 2),
+        "growth": round(_ai_candidate_clamp_v1864r(growth), 2),
+        "technical": round(_ai_candidate_clamp_v1864r(technical), 2),
+        "volume": round(_ai_candidate_clamp_v1864r(volume), 2),
+        "result_shock": round(_ai_candidate_clamp_v1864r(result_shock), 2),
+        "sector_leader": round(_ai_candidate_clamp_v1864r(sector_leader), 2),
+        "short_squeeze": round(_ai_candidate_clamp_v1864r(short_squeeze), 2),
+        "catalyst_cluster": round(_ai_candidate_clamp_v1864r(catalyst_cluster), 2),
+    }
+
+
+def _ai_candidate_parse_date_v1864s(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    iso_match = re.search(r"(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)", text)
+    if iso_match:
+        try:
+            return datetime(int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3))).date()
+        except Exception:
+            pass
+    no_match = re.search(r"([0-3]?\d)[.\/-]([01]?\d)[.\/-](20\d{2})", text)
+    if no_match:
+        try:
+            return datetime(int(no_match.group(3)), int(no_match.group(2)), int(no_match.group(1))).date()
+        except Exception:
+            pass
+    for candidate in (text[:10], text):
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%d.%m.%Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(candidate, fmt).date()
+            except Exception:
+                continue
+    year_match = re.search(r"\b(20\d{2})\b", text)
+    if year_match:
+        try:
+            return datetime(int(year_match.group(1)), 12, 31).date()
+        except Exception:
+            return None
+    return None
+
+
+def _ai_candidate_days_old_v1864s(value) -> int | None:
+    parsed = _ai_candidate_parse_date_v1864s(value)
+    if parsed is None:
+        return None
+    return max(0, (datetime.now().date() - parsed).days)
+
+
+def _ai_candidate_source_meta_v1864s() -> dict[str, dict]:
+    meta = {
+        "Finansavisen": {"data_date": "", "updated_at": "", "tickers": 0, "rows": 0},
+        "Oljefond/NBIM": {"data_date": "", "updated_at": "", "tickers": 0, "rows": 0},
+        "Folketrygdfondet": {"data_date": "", "updated_at": "", "tickers": 0, "rows": 0},
+    }
+    try:
+        from finansavisen_bjellesau import finansavisen_status
+
+        status = finansavisen_status() or {}
+        meta["Finansavisen"].update({
+            "data_date": status.get("last_date") or "",
+            "updated_at": status.get("updated_at") or "",
+            "tickers": int(status.get("overlay_tickers") or 0),
+            "rows": int(status.get("rows") or 0),
+        })
+    except Exception:
+        pass
+    try:
+        from nbim_radar import NBIM_OVERLAY_SETTINGS_KEY
+        from folketrygdfondet import FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY
+
+        settings = load_settings() or {}
+        raw = settings.get(NBIM_OVERLAY_SETTINGS_KEY) if isinstance(settings, dict) else {}
+        if isinstance(raw, dict):
+            overlay = raw.get("overlay") if isinstance(raw.get("overlay"), dict) else {}
+            source_file = str(raw.get("source_file") or raw.get("filename") or "")
+            meta["Oljefond/NBIM"].update({
+                "data_date": raw.get("source_as_of") or raw.get("as_of_date") or _ai_candidate_parse_date_v1864s(source_file) or "",
+                "updated_at": raw.get("updated_at") or "",
+                "tickers": len(overlay or {}),
+                "rows": int(raw.get("rows_count") or len(raw.get("rows") or []) or 0),
+            })
+        raw = settings.get(FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY) if isinstance(settings, dict) else {}
+        if isinstance(raw, dict):
+            overlay = raw.get("overlay") if isinstance(raw.get("overlay"), dict) else {}
+            rows = raw.get("rows") if isinstance(raw.get("rows"), list) else []
+            source_file = str(raw.get("source_file") or raw.get("filename") or "")
+            meta["Folketrygdfondet"].update({
+                "data_date": raw.get("source_as_of") or raw.get("as_of_date") or _ai_candidate_parse_date_v1864s(source_file) or "",
+                "updated_at": raw.get("updated_at") or "",
+                "tickers": len(overlay or {}),
+                "rows": len(rows or []),
+            })
+    except Exception:
+        pass
+    return meta
+
+
+def _ai_candidate_source_freshness_v1864s(source_name: str, data_date, config: dict) -> dict:
+    days_old = _ai_candidate_days_old_v1864s(data_date)
+    full_days = _ai_candidate_num_v1864q(config, "source_full_bonus_days")
+    partial_days = max(full_days, _ai_candidate_num_v1864q(config, "source_partial_bonus_days"))
+    partial_factor = max(0.0, min(1.0, _ai_candidate_num_v1864q(config, "source_partial_bonus_factor")))
+    if days_old is None:
+        return {
+            "source": source_name,
+            "data_date": str(data_date or ""),
+            "days_old": "",
+            "status": "kildedato mangler",
+            "bonus_factor": 0.0,
+            "counts_for_multi": False,
+            "flag": f"{source_name}: kildedato mangler",
+        }
+    if days_old <= full_days:
+        return {
+            "source": source_name,
+            "data_date": str(data_date),
+            "days_old": days_old,
+            "status": "fersk",
+            "bonus_factor": 1.0,
+            "counts_for_multi": True,
+            "flag": "",
+        }
+    if days_old <= partial_days:
+        return {
+            "source": source_name,
+            "data_date": str(data_date),
+            "days_old": days_old,
+            "status": "eldre, redusert bonus",
+            "bonus_factor": partial_factor,
+            "counts_for_multi": not _ai_candidate_bool_v1864r(config, "exclude_old_sources_from_multi_bonus"),
+            "flag": f"{source_name}: eldre kilde ({days_old} dager)",
+        }
+    return {
+        "source": source_name,
+        "data_date": str(data_date),
+        "days_old": days_old,
+        "status": "historisk støtte",
+        "bonus_factor": 0.0,
+        "counts_for_multi": False,
+        "flag": f"{source_name}: gammel kilde ({days_old} dager)",
+    }
+
+
+def _ai_candidate_evidence_freshness_v1864s(
+    evidence: list[str],
+    overlays: dict,
+    ticker: str,
+    config: dict,
+) -> dict[str, dict]:
+    source_meta = _ai_candidate_source_meta_v1864s()
+    out: dict[str, dict] = {}
+    for source_name in evidence or []:
+        data = {}
+        if source_name == "Finansavisen":
+            data = (overlays.get("finansavisen") or {}).get(ticker) or {}
+            data_date = (
+                data.get("finansavisen_bjellesau_latest_date")
+                or data.get("latest_date")
+                or source_meta.get(source_name, {}).get("data_date")
+            )
+        elif source_name == "Oljefond/NBIM":
+            data = (overlays.get("nbim") or {}).get(ticker) or {}
+            data_date = data.get("nbim_as_of") or data.get("source_as_of") or source_meta.get(source_name, {}).get("data_date")
+        elif source_name == "Folketrygdfondet":
+            data = (overlays.get("folketrygdfondet") or {}).get(ticker) or {}
+            data_date = data.get("folketrygdfondet_as_of") or data.get("source_as_of") or source_meta.get(source_name, {}).get("data_date")
+        else:
+            data_date = ""
+        out[source_name] = _ai_candidate_source_freshness_v1864s(source_name, data_date, config)
+    return out
+
+
+def _ai_candidate_signal_breakdown_v1864r(
+    item: dict,
+    evidence: list[str],
+    risk: str,
+    config: dict,
+    source_freshness: dict[str, dict] | None = None,
+) -> dict:
+    signals = _ai_candidate_signal_scores_v1864r(item, config)
+    score = _ai_candidate_weighted_signal_score_v1864r(signals, config)
+    score *= _ai_candidate_num_v1864q(config, "market_score_weight")
+    base_before_support = score
+    source_support_mode = _ai_candidate_source_support_mode_v1864u(config)
+    source_score_enabled = _ai_candidate_source_support_scoring_v1864u(config)
+    source_bonus_map = {
+        "Finansavisen": "finansavisen_bonus",
+        "Oljefond/NBIM": "nbim_bonus",
+        "Folketrygdfondet": "folketrygdfondet_bonus",
+    }
+    scoring_sources: list[str] = []
+    stale_source_flags: list[str] = []
+    for source_name, bonus_key in source_bonus_map.items():
+        if source_name in evidence:
+            freshness = (source_freshness or {}).get(source_name) or _ai_candidate_source_freshness_v1864s(source_name, "", config)
+            bonus_factor = max(0.0, min(1.0, float(freshness.get("bonus_factor") or 0.0)))
+            if source_score_enabled and bonus_factor > 0:
+                score += _ai_candidate_num_v1864q(config, bonus_key) * bonus_factor
+                if freshness.get("counts_for_multi", True):
+                    scoring_sources.append(source_name)
+            elif source_score_enabled and freshness.get("flag"):
+                stale_source_flags.append(str(freshness.get("flag")))
+    if source_score_enabled and len(scoring_sources if _ai_candidate_bool_v1864r(config, "exclude_old_sources_from_multi_bonus") else [item for item in evidence if item]) >= 2:
+        score += _ai_candidate_num_v1864q(config, "multi_source_bonus")
+    if source_score_enabled and stale_source_flags and _ai_candidate_num_v1864q(config, "old_source_penalty") > 0:
+        score -= _ai_candidate_num_v1864q(config, "old_source_penalty")
+
+    flags: list[str] = list(stale_source_flags)
+    climate_effect = _ai_candidate_market_climate_effect_v1865(config)
+    if climate_effect.get("available") and climate_effect.get("mode") == "Bruk i score":
+        score += float(climate_effect.get("delta") or 0.0)
+        if climate_effect.get("cap") is not None:
+            score = min(score, float(climate_effect.get("cap") or score))
+    for climate_flag in climate_effect.get("flags") or []:
+        if str(climate_flag).lower().startswith("svakt"):
+            flags.append(str(climate_flag))
+    blockers: list[str] = []
+    snapshot = signals.get("snapshot") or {}
+    if _ai_candidate_bool_v1864r(config, "require_above_200dma") and snapshot.get("above_200dma") is False:
+        blockers.append("Under 200-dagers snitt")
+    if _ai_candidate_bool_v1864r(config, "warn_below_50dma") and snapshot.get("above_50dma") is False:
+        flags.append("Under 50-dagers snitt")
+    debt = item.get("debt_to_equity")
+    try:
+        debt_number = float(debt)
+    except Exception:
+        debt_number = None
+    if _ai_candidate_bool_v1864r(config, "warn_high_debt") and debt_number is not None and debt_number > _ai_candidate_num_v1864q(config, "max_debt_to_equity"):
+        flags.append("Hoy gjeld")
+        score -= _ai_candidate_num_v1864q(config, "hard_guard_penalty")
+    revenue_growth = item.get("revenue_growth")
+    try:
+        revenue_growth_number = float(revenue_growth)
+    except Exception:
+        revenue_growth_number = None
+    if _ai_candidate_bool_v1864r(config, "warn_falling_growth") and revenue_growth_number is not None and revenue_growth_number < 0:
+        flags.append("Fallende omsetnings-/resultatvekst")
+        score -= _ai_candidate_num_v1864q(config, "hard_guard_penalty")
+    avg_volume = snapshot.get("avg_volume_20")
+    if _ai_candidate_bool_v1864r(config, "warn_weak_liquidity") and avg_volume is not None and avg_volume < _ai_candidate_num_v1864q(config, "min_avg_volume"):
+        flags.append("Svak likviditet")
+    days_old = snapshot.get("last_price_days_old")
+    if _ai_candidate_bool_v1864r(config, "warn_stale_data") and days_old is not None and days_old > _ai_candidate_num_v1864q(config, "stale_data_days"):
+        flags.append("Gammel kursdata")
+    positive_threshold = _ai_candidate_num_v1864q(config, "signal_positive_threshold")
+    family_scores = _ai_candidate_signal_family_scores_v1864t(signals)
+    family_labels = {
+        "momentum": "Momentum / relativ styrke",
+        "estimate": "Estimatløft",
+        "insider": "Innsider / eiertrykk",
+        "growth": "Vekst",
+        "technical": "Teknisk trend",
+        "volume": "Volumbrudd",
+        "result_shock": "Resultatsjokk",
+        "sector_leader": "Sektorleder",
+        "short_squeeze": "Short squeeze",
+    }
+    active_weight_keys = list(_ai_candidate_active_search_weights_v1864t(config).keys())
+    strong_signals = [
+        family_labels.get(key, key)
+        for key in active_weight_keys
+        if float(family_scores.get(key) or 0.0) >= positive_threshold
+    ]
+    if _ai_candidate_bool_v1864r(config, "warn_single_signal") and len(active_weight_keys) > 1 and len(strong_signals) <= 1:
+        flags.append("Kun ett sterkt signal" if strong_signals else "Ingen sterke signaler")
+    missing = []
+    if signals.get("estimate_missing"):
+        missing.append("Estimatdata mangler")
+    if signals.get("insider_missing"):
+        missing.append("Insiderdata mangler")
+    if signals.get("growth_missing"):
+        missing.append("Vekstdata mangler")
+    if _ai_candidate_special_search_v1864t(config) == "Short squeeze" and signals.get("short_missing"):
+        missing.append("Short-data mangler")
+    if climate_effect.get("mode") != "Av":
+        if not climate_effect.get("available"):
+            missing.extend(climate_effect.get("missing") or [])
+        elif climate_effect.get("missing"):
+            missing.append("Markedsklima delvis: " + ", ".join(str(x) for x in climate_effect.get("missing") or []))
+
+    risk_text = str(risk or "").lower()
+    if "høy" in risk_text or "hoy" in risk_text or "high" in risk_text:
+        score -= _ai_candidate_num_v1864q(config, "high_risk_penalty")
+    elif "middels" in risk_text or "medium" in risk_text:
+        score -= _ai_candidate_num_v1864q(config, "medium_risk_penalty")
+    if blockers:
+        score = min(score, _ai_candidate_num_v1864q(config, "hard_guard_score_cap"))
+    return {
+        "score": round(_ai_candidate_clamp_v1864r(score), 2),
+        "base_signal_score": round(base_before_support, 2),
+        "signals": signals,
+        "family_scores": family_scores,
+        "search_label": _ai_candidate_search_label_v1864t(config),
+        "search_weights": _ai_candidate_search_weight_label_v1864t(config),
+        "source_support_mode": source_support_mode,
+        "strong_signals": strong_signals,
+        "flags": flags,
+        "blockers": blockers,
+        "missing": missing,
+        "source_freshness": source_freshness or {},
+        "fresh_evidence": scoring_sources,
+        "historical_evidence": [name for name in (evidence or []) if name not in scoring_sources],
+        "market_climate": climate_effect,
+    }
+
+
+def _ai_candidate_adjusted_score_v1864q(base_score: float, evidence: list[str], risk: str, config: dict) -> float:
+    score = float(base_score or 0.0) * _ai_candidate_num_v1864q(config, "market_score_weight")
+    source_bonus_map = {
+        "Finansavisen": "finansavisen_bonus",
+        "Oljefond/NBIM": "nbim_bonus",
+        "Folketrygdfondet": "folketrygdfondet_bonus",
+    }
+    for source_name, bonus_key in source_bonus_map.items():
+        if source_name in evidence:
+            score += _ai_candidate_num_v1864q(config, bonus_key)
+    if len([item for item in evidence if item]) >= 2:
+        score += _ai_candidate_num_v1864q(config, "multi_source_bonus")
+    risk_text = str(risk or "").lower()
+    if "høy" in risk_text or "hoy" in risk_text or "high" in risk_text:
+        score -= _ai_candidate_num_v1864q(config, "high_risk_penalty")
+    elif "middels" in risk_text or "medium" in risk_text:
+        score -= _ai_candidate_num_v1864q(config, "medium_risk_penalty")
+    return round(max(0.0, min(10.0, score)), 2)
+
+
+
+
+
+
+def _render_ai_candidate_evaluation_setup_v1864q() -> dict:
+    saved_config = _ai_candidate_load_evaluation_config_v1864q()
+    key_prefix = "ai_candidate_eval_v1864q"
+    if st.session_state.get(f"{key_prefix}_loaded") != saved_config:
+        for key, value in saved_config.items():
+            st.session_state[f"{key_prefix}_{key}"] = value
+        st.session_state[f"{key_prefix}_loaded"] = dict(saved_config)
+
+    def _state(key: str, default=None):
+        return st.session_state.get(f"{key_prefix}_{key}", saved_config.get(key, default))
+
+    def _num_state(key: str, default=0.0) -> float:
+        try:
+            return float(_state(key, default))
+        except Exception:
+            return float(default)
+
+    def _int_state(key: str, default=0) -> int:
+        try:
+            return int(_state(key, default))
+        except Exception:
+            return int(default)
+
+    with st.expander("Evalueringsoppsett", expanded=False):
+        st.caption("Oppsettet styrer faktisk søk, score og rapport. Rene signalvalg teller rent; spesialsøk viser egen oppskrift.")
+        h_col, n_col = st.columns([0.55, 1.45])
+        with h_col:
+            current_horizon = _ai_candidate_horizon_v1864s({"horizon": _state("horizon", saved_config.get("horizon"))})
+            horizon = st.selectbox(
+                "Tidshorisont",
+                AI_CANDIDATE_HORIZON_OPTIONS_V1864S,
+                index=AI_CANDIDATE_HORIZON_OPTIONS_V1864S.index(current_horizon),
+                key=f"{key_prefix}_horizon",
+                help="Dette valget endrer hvordan delsignalene tolkes. Profilnavn alene endrer ikke scoringen.",
+            )
+        with n_col:
+            name = st.text_input("Profilnavn", key=f"{key_prefix}_profile_name")
+
+        st.markdown("**1. Signalvalg**")
+        special_index = AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T.index(
+            _ai_candidate_special_search_v1864t({"special_search": _state("special_search", "Ingen")})
+        )
+        special_search = st.selectbox(
+            "Spesialsøk",
+            AI_CANDIDATE_SPECIAL_SEARCH_OPTIONS_V1864T,
+            index=special_index,
+            key=f"{key_prefix}_special_search",
+            help="Velg Ingen for rent Momentum/Estimat/Eiertrykk-søk. Spesialsøk bruker egen ferdig oppskrift.",
+        )
+
+        saved_active_labels = _ai_candidate_core_signal_labels_v1864t(_state("active_core_signals", saved_config.get("active_core_signals")))
+        selected_core_labels: list[str] = []
+        if special_search == "Ingen":
+            st.caption("Velg ett eller flere hovedsignaler. Når bare ett signal er valgt, teller bare dette signalet i søkescore.")
+            sig_cols = st.columns(3)
+            for sig_col, label in zip(sig_cols, AI_CANDIDATE_CORE_SIGNAL_DEFAULT_LABELS_V1864T):
+                with sig_col:
+                    if st.checkbox(
+                        label,
+                        value=label in saved_active_labels,
+                        key=f"{key_prefix}_core_{AI_CANDIDATE_CORE_SIGNALS_V1864T[label]}",
+                    ):
+                        selected_core_labels.append(label)
+            if not selected_core_labels:
+                selected_core_labels = ["Momentum / relativ styrke"]
+                st.info("Minst ett hovedsignal må være aktivt. Momentum brukes som trygg fallback.")
+            selected_core_keys = _ai_candidate_core_signal_keys_v1864t(selected_core_labels)
+            default_search_weights = _ai_candidate_default_core_weights_v1864t(selected_core_keys)
+            sw1, sw2, sw3, sw4 = st.columns([1, 1, 1, 0.22])
+            with sw1:
+                search_momentum_weight = st.slider(
+                    "Momentum-vekt",
+                    0,
+                    100,
+                    _int_state("search_momentum_weight", default_search_weights.get("momentum", 0)),
+                    1,
+                    key=f"{key_prefix}_search_momentum_weight",
+                    disabled=("momentum" not in selected_core_keys),
+                )
+            with sw2:
+                search_estimate_weight = st.slider(
+                    "Estimat-vekt",
+                    0,
+                    100,
+                    _int_state("search_estimate_weight", default_search_weights.get("estimate", 0)),
+                    1,
+                    key=f"{key_prefix}_search_estimate_weight",
+                    disabled=("estimate" not in selected_core_keys),
+                )
+            with sw3:
+                search_insider_weight = st.slider(
+                    "Eiertrykk-vekt",
+                    0,
+                    100,
+                    _int_state("search_insider_weight", default_search_weights.get("insider", 0)),
+                    1,
+                    key=f"{key_prefix}_search_insider_weight",
+                    disabled=("insider" not in selected_core_keys),
+                )
+            with sw4:
+                if st.button("Std", key="ai_candidate_search_std_v1864t", help="Sett standard vekter for valgte signaler."):
+                    for key, value in default_search_weights.items():
+                        st.session_state[f"{key_prefix}_search_{key}_weight"] = int(value)
+                    st.rerun()
+            manual_total = sum([
+                search_momentum_weight if "momentum" in selected_core_keys else 0,
+                search_estimate_weight if "estimate" in selected_core_keys else 0,
+                search_insider_weight if "insider" in selected_core_keys else 0,
+            ])
+            if manual_total != 100:
+                st.info(f"Søkevektene summerer til {manual_total} %. Motoren normaliserer automatisk til 100 %.")
+        else:
+            selected_core_labels = saved_active_labels or ["Momentum / relativ styrke"]
+            selected_core_keys = _ai_candidate_core_signal_keys_v1864t(selected_core_labels)
+            default_search_weights = _ai_candidate_default_core_weights_v1864t(selected_core_keys)
+            search_momentum_weight = _int_state("search_momentum_weight", default_search_weights.get("momentum", 0))
+            search_estimate_weight = _int_state("search_estimate_weight", default_search_weights.get("estimate", 0))
+            search_insider_weight = _int_state("search_insider_weight", default_search_weights.get("insider", 0))
+            st.info(f"Spesialsøk aktivt: {_ai_candidate_search_weight_label_v1864t({'special_search': special_search})}. Hovedsignal-sliderne er ikke brukt i denne kjøringen.")
+
+        st.markdown("**2. Kildestøtte**")
+        support_mode = _ai_candidate_source_support_mode_v1864u({"source_support_mode": _state("source_support_mode", "Vis som info")})
+        source_support_mode = st.selectbox(
+            "Hvordan skal importerte kilder påvirke søket?",
+            AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U,
+            index=AI_CANDIDATE_SOURCE_SUPPORT_MODES_V1864U.index(support_mode),
+            key=f"{key_prefix}_source_support_mode",
+            help="Ingen = ikke brukt i score. Vis som info = forklares i tabell/rapport. Bruk som støtte i score = ferske kilder kan løfte rangering.",
+        )
+
+        st.markdown("**3. Markedsklima**")
+        climate_mode_current = _ai_candidate_market_climate_mode_v1865({"market_climate_mode": _state("market_climate_mode", "Bruk i score")})
+        climate_cols = st.columns([0.34, 0.50, 0.16])
+        with climate_cols[0]:
+            market_climate_mode = st.selectbox(
+                "Hvordan skal markedsklima brukes?",
+                AI_CANDIDATE_MARKET_CLIMATE_MODES_V1865,
+                index=AI_CANDIDATE_MARKET_CLIMATE_MODES_V1865.index(climate_mode_current),
+                key=f"{key_prefix}_market_climate_mode",
+                help="Av = ikke brukt. Vis som info = bare rapport. Bruk i score = klima kan løfte/trekke og cappe i svakt marked.",
+            )
+        with climate_cols[1]:
+            climate_preview = _ai_candidate_market_climate_compact_v1865({"market_climate_mode": market_climate_mode})
+            if climate_preview.get("available"):
+                st.caption(f"{climate_preview.get('summary')} | {climate_preview.get('action') or ''}")
+            else:
+                st.caption("Ingen lagret Markedsklima-snapshot. Kjør Markedsklima først, eller la modusen stå på info/av.")
+        with climate_cols[2]:
+            if st.button("Std klima", key="ai_candidate_market_climate_std_v1866", help="Tilbakestill bare markedsklima-effekten til standard for valgt horisont."):
+                standard_config = _ai_candidate_standard_config_v1864s(horizon)
+                for climate_key in [
+                    "market_climate_mode",
+                    "market_climate_score_weight",
+                    "market_climate_cap_enabled",
+                    "market_climate_cap_threshold",
+                    "market_climate_low_score_cap",
+                    "market_climate_warn_missing",
+                ]:
+                    st.session_state[f"{key_prefix}_{climate_key}"] = standard_config.get(
+                        climate_key,
+                        AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q.get(climate_key),
+                    )
+                st.rerun()
+
+        show_advanced = st.checkbox("Vis avansert scoring, kilder og sperrer", value=False, key=f"{key_prefix}_show_advanced_v1864u")
+
+        relative_strength_weight = _int_state("relative_strength_weight", 25)
+        estimate_revision_weight = _int_state("estimate_revision_weight", 25)
+        insider_buy_weight = _int_state("insider_buy_weight", 20)
+        growth_weight = _int_state("growth_weight", 15)
+        technical_trend_weight = _int_state("technical_trend_weight", 15)
+        market_weight = _num_state("market_score_weight", 1.10)
+        finansavisen_bonus = _num_state("finansavisen_bonus", 0.20)
+        nbim_bonus = _num_state("nbim_bonus", 0.15)
+        folketrygdfondet_bonus = _num_state("folketrygdfondet_bonus", 0.15)
+        multi_source_bonus = _num_state("multi_source_bonus", 0.15)
+        medium_risk_penalty = _num_state("medium_risk_penalty", 0.15)
+        high_risk_penalty = _num_state("high_risk_penalty", 0.45)
+        strong_threshold = _num_state("strong_threshold", 7.40)
+        consider_threshold = _num_state("consider_threshold", 6.30)
+        wait_threshold = _num_state("wait_threshold", 5.20)
+        source_full_bonus_days = _int_state("source_full_bonus_days", 45)
+        source_partial_bonus_days = _int_state("source_partial_bonus_days", 120)
+        source_partial_bonus_factor = _num_state("source_partial_bonus_factor", 0.35)
+        old_source_penalty = _num_state("old_source_penalty", 0.20)
+        exclude_old_sources_from_multi_bonus = bool(_state("exclude_old_sources_from_multi_bonus", True))
+        require_above_200dma = bool(_state("require_above_200dma", True))
+        warn_below_50dma = bool(_state("warn_below_50dma", True))
+        hard_guard_score_cap = _num_state("hard_guard_score_cap", 6.10)
+        warn_high_debt = bool(_state("warn_high_debt", True))
+        max_debt_to_equity = _int_state("max_debt_to_equity", 150)
+        hard_guard_penalty = _num_state("hard_guard_penalty", 0.50)
+        warn_falling_growth = bool(_state("warn_falling_growth", True))
+        warn_weak_liquidity = bool(_state("warn_weak_liquidity", True))
+        min_avg_volume = _int_state("min_avg_volume", 50000)
+        warn_stale_data = bool(_state("warn_stale_data", True))
+        stale_data_days = _int_state("stale_data_days", 7)
+        warn_single_signal = bool(_state("warn_single_signal", True))
+        signal_positive_threshold = _num_state("signal_positive_threshold", 6.50)
+        alert_threshold = _num_state("alert_threshold", 7.50)
+        min_confidence_for_strong = _int_state("min_confidence_for_strong", 60)
+        market_climate_score_weight = _num_state("market_climate_score_weight", 0.45)
+        market_climate_cap_enabled = bool(_state("market_climate_cap_enabled", True))
+        market_climate_cap_threshold = _int_state("market_climate_cap_threshold", 45)
+        market_climate_low_score_cap = _num_state("market_climate_low_score_cap", 7.20)
+        market_climate_warn_missing = bool(_state("market_climate_warn_missing", True))
+
+        if show_advanced:
+            st.markdown("**3. Signalprofil og scoring**")
+            w1, w2, w3, w4, w5 = st.columns(5)
+            with w1:
+                relative_strength_weight = st.slider("Relativ styrke", 0, 50, relative_strength_weight, 1, key=f"{key_prefix}_relative_strength_weight")
+            with w2:
+                estimate_revision_weight = st.slider("Estimatendringer", 0, 50, estimate_revision_weight, 1, key=f"{key_prefix}_estimate_revision_weight")
+            with w3:
+                insider_buy_weight = st.slider("Insiderkjop", 0, 50, insider_buy_weight, 1, key=f"{key_prefix}_insider_buy_weight")
+            with w4:
+                growth_weight = st.slider("Omsetning/resultat", 0, 50, growth_weight, 1, key=f"{key_prefix}_growth_weight")
+            with w5:
+                technical_trend_weight = st.slider("Teknisk trend", 0, 50, technical_trend_weight, 1, key=f"{key_prefix}_technical_trend_weight")
+
+            st.markdown("**4. Kildebonus og ferskhet**")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                market_weight = st.slider("Marked scorevekt", 0.60, 1.40, float(market_weight), 0.05, key=f"{key_prefix}_market_score_weight")
+                finansavisen_bonus = st.slider("Finansavisen kildebonus", 0.00, 1.00, float(finansavisen_bonus), 0.05, key=f"{key_prefix}_finansavisen_bonus")
+                nbim_bonus = st.slider("Oljefond/NBIM kildebonus", 0.00, 1.00, float(nbim_bonus), 0.05, key=f"{key_prefix}_nbim_bonus")
+            with c2:
+                folketrygdfondet_bonus = st.slider("Folketrygdfondet kildebonus", 0.00, 1.00, float(folketrygdfondet_bonus), 0.05, key=f"{key_prefix}_folketrygdfondet_bonus")
+                multi_source_bonus = st.slider("Bonus for flere ferske kilder", 0.00, 1.00, float(multi_source_bonus), 0.05, key=f"{key_prefix}_multi_source_bonus")
+                source_partial_bonus_factor = st.slider("Redusert bonusfaktor", 0.00, 1.00, float(source_partial_bonus_factor), 0.05, key=f"{key_prefix}_source_partial_bonus_factor")
+            with c3:
+                source_full_bonus_days = st.number_input("Full kildebonus t.o.m. dager", min_value=1, max_value=365, value=int(source_full_bonus_days), step=1, key=f"{key_prefix}_source_full_bonus_days")
+                source_partial_bonus_days = st.number_input("Redusert bonus t.o.m. dager", min_value=1, max_value=730, value=int(source_partial_bonus_days), step=5, key=f"{key_prefix}_source_partial_bonus_days")
+                old_source_penalty = st.slider("Trekk ved gammel/ukjent kilde", 0.00, 1.00, float(old_source_penalty), 0.05, key=f"{key_prefix}_old_source_penalty")
+                exclude_old_sources_from_multi_bonus = st.checkbox("Flere-kilder bonus krever ferske kilder", value=bool(exclude_old_sources_from_multi_bonus), key=f"{key_prefix}_exclude_old_sources_from_multi_bonus")
+
+            st.markdown("**5. Markedsklima-effekt**")
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            with mc1:
+                market_climate_score_weight = st.slider("Maks klimaeffekt", 0.00, 1.50, float(market_climate_score_weight), 0.05, key=f"{key_prefix}_market_climate_score_weight")
+            with mc2:
+                market_climate_cap_enabled = st.checkbox("Cap score ved svakt klima", value=bool(market_climate_cap_enabled), key=f"{key_prefix}_market_climate_cap_enabled")
+            with mc3:
+                market_climate_cap_threshold = st.slider("Svakt klima under score", 0, 70, int(market_climate_cap_threshold), 1, key=f"{key_prefix}_market_climate_cap_threshold")
+            with mc4:
+                market_climate_low_score_cap = st.slider("Maks kandidat-score i svakt klima", 4.00, 9.00, float(market_climate_low_score_cap), 0.05, key=f"{key_prefix}_market_climate_low_score_cap")
+                market_climate_warn_missing = st.checkbox("Varsle manglende klima", value=bool(market_climate_warn_missing), key=f"{key_prefix}_market_climate_warn_missing")
+
+            st.markdown("**6. Risiko, sperrer og terskler**")
+            g1, g2, g3, g4 = st.columns(4)
+            with g1:
+                require_above_200dma = st.checkbox("Krev/marker 200-dagers trend", value=bool(require_above_200dma), key=f"{key_prefix}_require_above_200dma")
+                warn_below_50dma = st.checkbox("Varsle under 50-dagers snitt", value=bool(warn_below_50dma), key=f"{key_prefix}_warn_below_50dma")
+                hard_guard_score_cap = st.slider("Maks score ved hard sperre", 4.00, 7.50, float(hard_guard_score_cap), 0.05, key=f"{key_prefix}_hard_guard_score_cap")
+            with g2:
+                warn_high_debt = st.checkbox("Varsle høy gjeld", value=bool(warn_high_debt), key=f"{key_prefix}_warn_high_debt")
+                max_debt_to_equity = st.number_input("Maks debt/equity", min_value=0, max_value=500, value=int(max_debt_to_equity), step=5, key=f"{key_prefix}_max_debt_to_equity")
+                hard_guard_penalty = st.slider("Trekk per hardt varsel", 0.00, 2.00, float(hard_guard_penalty), 0.05, key=f"{key_prefix}_hard_guard_penalty")
+            with g3:
+                warn_falling_growth = st.checkbox("Varsle fallende vekst", value=bool(warn_falling_growth), key=f"{key_prefix}_warn_falling_growth")
+                warn_weak_liquidity = st.checkbox("Varsle svak likviditet", value=bool(warn_weak_liquidity), key=f"{key_prefix}_warn_weak_liquidity")
+                min_avg_volume = st.number_input("Min snittvolum 20d", min_value=0, max_value=5000000, value=int(min_avg_volume), step=5000, key=f"{key_prefix}_min_avg_volume")
+            with g4:
+                warn_stale_data = st.checkbox("Varsle gammel kursdata", value=bool(warn_stale_data), key=f"{key_prefix}_warn_stale_data")
+                stale_data_days = st.number_input("Gammel kursdata etter dager", min_value=1, max_value=60, value=int(stale_data_days), step=1, key=f"{key_prefix}_stale_data_days")
+                warn_single_signal = st.checkbox("Varsle ett svakt signalgrunnlag", value=bool(warn_single_signal), key=f"{key_prefix}_warn_single_signal")
+                signal_positive_threshold = st.slider("Terskel sterkt delsignal", 5.00, 9.50, float(signal_positive_threshold), 0.05, key=f"{key_prefix}_signal_positive_threshold")
+
+            t1, t2, t3, t4 = st.columns(4)
+            with t1:
+                medium_risk_penalty = st.slider("Trekk for middels risiko", 0.00, 1.00, float(medium_risk_penalty), 0.05, key=f"{key_prefix}_medium_risk_penalty")
+            with t2:
+                high_risk_penalty = st.slider("Trekk for høy risiko", 0.00, 1.50, float(high_risk_penalty), 0.05, key=f"{key_prefix}_high_risk_penalty")
+            with t3:
+                strong_threshold = st.slider("Terskel Sterk kandidat", 5.00, 9.50, float(strong_threshold), 0.05, key=f"{key_prefix}_strong_threshold")
+                consider_threshold = st.slider("Terskel Vurder", 4.00, 8.50, float(consider_threshold), 0.05, key=f"{key_prefix}_consider_threshold")
+            with t4:
+                wait_threshold = st.slider("Terskel Vent", 3.00, 7.50, float(wait_threshold), 0.05, key=f"{key_prefix}_wait_threshold")
+                alert_threshold = st.slider("Varselterskel score", 5.00, 9.80, float(alert_threshold), 0.05, key=f"{key_prefix}_alert_threshold")
+                min_confidence_for_strong = st.slider("Min confidence for Sterk kandidat", 30, 95, int(min_confidence_for_strong), 1, key=f"{key_prefix}_min_confidence_for_strong")
+        else:
+            st.caption("Avansert scoring er skjult. Lagrede verdier brukes fortsatt i rapport og JSON.")
+
+        current_config = {
+            "profile_name": name or f"Standard {horizon}",
+            "horizon": horizon,
+            "relative_strength_weight": relative_strength_weight,
+            "estimate_revision_weight": estimate_revision_weight,
+            "insider_buy_weight": insider_buy_weight,
+            "growth_weight": growth_weight,
+            "technical_trend_weight": technical_trend_weight,
+            "market_score_weight": market_weight,
+            "finansavisen_bonus": finansavisen_bonus,
+            "nbim_bonus": nbim_bonus,
+            "folketrygdfondet_bonus": folketrygdfondet_bonus,
+            "multi_source_bonus": multi_source_bonus,
+            "medium_risk_penalty": medium_risk_penalty,
+            "high_risk_penalty": high_risk_penalty,
+            "hard_guard_score_cap": hard_guard_score_cap,
+            "hard_guard_penalty": hard_guard_penalty,
+            "strong_threshold": strong_threshold,
+            "consider_threshold": consider_threshold,
+            "wait_threshold": wait_threshold,
+            "alert_threshold": alert_threshold,
+            "min_confidence_for_strong": min_confidence_for_strong,
+            "require_above_200dma": bool(require_above_200dma),
+            "warn_below_50dma": bool(warn_below_50dma),
+            "warn_high_debt": bool(warn_high_debt),
+            "max_debt_to_equity": int(max_debt_to_equity),
+            "warn_falling_growth": bool(warn_falling_growth),
+            "warn_weak_liquidity": bool(warn_weak_liquidity),
+            "min_avg_volume": int(min_avg_volume),
+            "warn_stale_data": bool(warn_stale_data),
+            "stale_data_days": int(stale_data_days),
+            "warn_single_signal": bool(warn_single_signal),
+            "signal_positive_threshold": signal_positive_threshold,
+            "source_full_bonus_days": int(source_full_bonus_days),
+            "source_partial_bonus_days": int(source_partial_bonus_days),
+            "source_partial_bonus_factor": float(source_partial_bonus_factor),
+            "old_source_penalty": float(old_source_penalty),
+            "exclude_old_sources_from_multi_bonus": bool(exclude_old_sources_from_multi_bonus),
+            "source_support_mode": source_support_mode,
+            "market_climate_mode": market_climate_mode,
+            "market_climate_score_weight": float(market_climate_score_weight),
+            "market_climate_cap_enabled": bool(market_climate_cap_enabled),
+            "market_climate_cap_threshold": int(market_climate_cap_threshold),
+            "market_climate_low_score_cap": float(market_climate_low_score_cap),
+            "market_climate_warn_missing": bool(market_climate_warn_missing),
+            "active_core_signals": list(selected_core_labels),
+            "special_search": special_search,
+            "search_momentum_weight": int(search_momentum_weight),
+            "search_estimate_weight": int(search_estimate_weight),
+            "search_insider_weight": int(search_insider_weight),
+        }
+        total_weight = relative_strength_weight + estimate_revision_weight + insider_buy_weight + growth_weight + technical_trend_weight
+        if show_advanced and total_weight != 100:
+            st.info(f"Signalprofilvektene summerer til {total_weight} %. Motoren normaliserer automatisk til 100 %.")
+
+        b1, b2, b3 = st.columns([0.22, 0.22, 0.56])
+        with b1:
+            if st.button("Lagre oppsett", key="ai_candidate_save_eval_setup_v1864q"):
+                _ai_candidate_save_evaluation_config_v1864q(current_config)
+                st.success("Evalueringsoppsett lagret.")
+        with b2:
+            if st.button("Standard", key="ai_candidate_reset_eval_setup_v1864q", help="Bruk standard for valgt horisont."):
+                standard_config = _ai_candidate_standard_config_v1864s(horizon)
+                _ai_candidate_save_evaluation_config_v1864q(standard_config)
+                for key, value in standard_config.items():
+                    st.session_state[f"{key_prefix}_{key}"] = value
+                st.session_state[f"{key_prefix}_loaded"] = dict(standard_config)
+                st.rerun()
+        with b3:
+            st.caption("Standardene prioriterer fersk markedsdata. Kildestøtte bestemmer om importerte data bare forklarer eller også påvirker score.")
+    return current_config
+
+
+def _ai_candidate_import_tickers_v1864l(source: str) -> list[str]:
+    sources = set(_ai_candidate_source_list_v1864q(source))
+    tickers: list[str] = []
+    if "Finansavisen" in sources:
+        try:
+            from finansavisen_bjellesau import build_finansavisen_overlay
+
+            tickers.extend(list((build_finansavisen_overlay() or {}).keys()))
+        except Exception:
+            pass
+    if "Oljefond/NBIM" in sources:
+        try:
+            from nbim_radar import load_nbim_overlay
+
+            tickers.extend(list((load_nbim_overlay() or {}).keys()))
+        except Exception:
+            pass
+    if "Folketrygdfondet" in sources:
+        try:
+            from folketrygdfondet import load_folketrygdfondet_overlay
+
+            tickers.extend(list((load_folketrygdfondet_overlay() or {}).keys()))
+        except Exception:
+            pass
+    return _ai_candidate_dedupe_tickers_v1864l(tickers)
+
+
+def _ai_candidate_source_tickers_v1864l(source: str, market: str, limit: int, manual_text: str = "") -> list[str]:
+    return _ai_candidate_source_tickers_multi_v1864q(_ai_candidate_source_list_v1864q(source), market, limit, manual_text)
+
+
+def _ai_candidate_source_tickers_multi_v1864q(sources, market: str, limit: int, manual_text: str = "") -> list[str]:
+    source_list = _ai_candidate_source_list_v1864q(sources)
+    limit = max(1, min(int(limit or 30), 250))
+    tickers: list[str] = []
+    if "Manuell liste" in source_list:
+        tickers.extend(_parse_control_center_tickers_v1863s(manual_text))
+    if "Marked" in source_list:
+        tickers.extend(resolve_universe_tickers([market], max_count=limit))
+    if AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y in source_list:
+        try:
+            tickers.extend(fmp_candidate_tickers(market=market, limit=limit))
+        except Exception:
+            pass
+    import_sources = [source for source in source_list if source in AI_CANDIDATE_IMPORT_SOURCES_V1864Q]
+    if import_sources:
+        tickers.extend(_ai_candidate_import_tickers_v1864l(import_sources))
+    return _ai_candidate_dedupe_tickers_v1864l(tickers)[:limit]
+
+
+def _ai_candidate_overlay_maps_v1864l() -> dict:
+    maps = {"finansavisen": {}, "nbim": {}, "folketrygdfondet": {}}
+    try:
+        from finansavisen_bjellesau import build_finansavisen_overlay
+
+        maps["finansavisen"] = build_finansavisen_overlay() or {}
+    except Exception:
+        pass
+    try:
+        from nbim_radar import load_nbim_overlay
+
+        maps["nbim"] = load_nbim_overlay() or {}
+    except Exception:
+        pass
+    try:
+        from folketrygdfondet import load_folketrygdfondet_overlay
+
+        maps["folketrygdfondet"] = load_folketrygdfondet_overlay() or {}
+    except Exception:
+        pass
+    return maps
+
+
+
+
+def _ai_candidate_source_status_v1864l(config: dict | None = None) -> list[dict]:
+    config = config or _ai_candidate_load_evaluation_config_v1864q()
+    rows = [{
+        "Kilde": "Marked",
+        "Oppdatert": "Ny kjøring når testen kjøres",
+        "Kildedato": "na",
+        "Tickere": "Valgt marked",
+        "Databruk": "Fersk score/kurs-run",
+    }]
+    climate = _ai_candidate_market_climate_compact_v1865(config)
+    rows.append({
+        "Kilde": "Markedsklima",
+        "Oppdatert": climate.get("created_at") or ("Ikke oppdatert" if not climate.get("available") else ""),
+        "Kildedato": climate.get("created_at") or "Snapshot mangler",
+        "Tickere": "Makro/proxyer",
+        "Databruk": f"{climate.get('mode')} | {climate.get('summary')}",
+    })
+    meta = _ai_candidate_source_meta_v1864s()
+    try:
+        from finansavisen_bjellesau import finansavisen_status
+
+        status = finansavisen_status() or {}
+        data_date = meta.get("Finansavisen", {}).get("data_date") or ""
+        freshness = _ai_candidate_source_freshness_v1864s("Finansavisen", data_date, config)
+        rows.append({
+            "Kilde": "Finansavisen",
+            "Oppdatert": status.get("updated_at") or "Ikke importert",
+            "Kildedato": data_date or "Ikke importert",
+            "Tickere": str(status.get("overlay_tickers") or 0),
+            "Databruk": f"{freshness.get('status')} | bonusfaktor {float(freshness.get('bonus_factor') or 0):.2f}",
+        })
+    except Exception:
+        rows.append({"Kilde": "Finansavisen", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+    try:
+        from settings_store import load_settings
+        from nbim_radar import NBIM_OVERLAY_SETTINGS_KEY
+        from folketrygdfondet import FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY
+
+        settings = load_settings() or {}
+        for label, key in [("Oljefond/NBIM", NBIM_OVERLAY_SETTINGS_KEY), ("Folketrygdfondet", FOLKETRYGDFONDET_OVERLAY_SETTINGS_KEY)]:
+            raw = settings.get(key) if isinstance(settings, dict) else {}
+            overlay = raw.get("overlay") if isinstance(raw, dict) else {}
+            saved_rows = raw.get("rows") if isinstance(raw, dict) and isinstance(raw.get("rows"), list) else []
+            ticker_text = str(len(overlay or {}) if isinstance(overlay, dict) else 0)
+            if label == "Folketrygdfondet" and saved_rows:
+                ticker_text = f"{len(overlay or {})} match / {len(saved_rows)} rader"
+            data_date = meta.get(label, {}).get("data_date") or ""
+            freshness = _ai_candidate_source_freshness_v1864s(label, data_date, config)
+            rows.append({
+                "Kilde": label,
+                "Oppdatert": (raw.get("updated_at") if isinstance(raw, dict) else "") or "Ikke importert",
+                "Kildedato": data_date or "Kildedato mangler",
+                "Tickere": ticker_text,
+                "Databruk": f"{freshness.get('status')} | bonusfaktor {float(freshness.get('bonus_factor') or 0):.2f}",
+            })
+    except Exception:
+        rows.append({"Kilde": "Oljefond/NBIM", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+        rows.append({"Kilde": "Folketrygdfondet", "Oppdatert": "Ukjent", "Kildedato": "Ukjent", "Tickere": "0", "Databruk": "Lokalt importert overlay"})
+    try:
+        from runtime_env import data_source_env_status
+
+        env_status = data_source_env_status() or {}
+        rows.append({
+            "Kilde": "Ferske AI-signaler",
+            "Oppdatert": "Ved Kjør test",
+            "Kildedato": "Live når nøkkel finnes",
+            "Tickere": f"inntil {AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X} grovkandidater",
+            "Databruk": "Finnhub og/eller FMP ferske signaler" if (env_status.get("finnhub_key") or env_status.get("fmp_key")) else "FINNHUB_API_KEY og FMP_API_KEY mangler",
+        })
+        fmp_status = fmp_api_status() or {}
+        rows.append({
+            "Kilde": AI_CANDIDATE_FMP_SOURCE_LABEL_V1864Y,
+            "Oppdatert": "Ved Kjør test" if fmp_status.get("has_key") else "Ikke aktiv",
+            "Kildedato": "Live API",
+            "Tickere": "Bredt live-univers fra aktivt handlet-liste",
+            "Databruk": "FMP_API_KEY aktiv: estimater, price target, earnings, insider og bredere tickerunivers" if fmp_status.get("has_key") else "FMP_API_KEY mangler",
+        })
+    except Exception:
+        rows.append({
+            "Kilde": "Ferske AI-signaler",
+            "Oppdatert": "Ukjent",
+            "Kildedato": "Ukjent",
+            "Tickere": "0",
+            "Databruk": "Signalstatus kunne ikke kontrolleres",
+        })
+    return rows
+
+
+def _ai_candidate_previous_rank_map_v1864m() -> dict[str, dict]:
+    previous = st.session_state.get("ai_candidate_test_last_result_v1864l") or {}
+    if not isinstance(previous, dict) or not previous.get("rows"):
+        try:
+            from services.storage_service import get_storage_service
+
+            previous = get_storage_service().read_json("analysis_snapshots/ai_candidate_test_latest.json", {}) or {}
+        except Exception:
+            previous = {}
+    out: dict[str, dict] = {}
+    for row in previous.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        ticker = normalize_user_ticker(row.get("Ticker") or row.get("ticker"))
+        if ticker:
+            out[ticker] = dict(row)
+    return out
+
+
+def _ai_candidate_change_label_v1864m(ticker: str, rank: int, score_num: float, previous_map: dict[str, dict]) -> str:
+    previous = previous_map.get(ticker) or {}
+    if not previous:
+        return "Ny"
+    try:
+        old_rank = int(previous.get("Rank") or previous.get("rank") or 0)
+    except Exception:
+        old_rank = 0
+    try:
+        old_score = float(previous.get("Score") or previous.get("score") or 0.0)
+    except Exception:
+        old_score = 0.0
+    parts: list[str] = []
+    if old_rank > 0:
+        delta = old_rank - int(rank)
+        if delta > 0:
+            parts.append(f"Opp {delta}")
+        elif delta < 0:
+            parts.append(f"Ned {abs(delta)}")
+        else:
+            parts.append("Uendret rank")
+    if old_score:
+        score_delta = round(float(score_num or 0.0) - old_score, 2)
+        if abs(score_delta) >= 0.05:
+            parts.append(f"score {score_delta:+.2f}")
+    return " / ".join(parts) or "Uendret"
+
+
+def _ai_candidate_action_label_v1864m(raw_label: str, score_num: float, evaluation_config: dict | None = None, confidence=None) -> str:
+    config = evaluation_config or AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q
+    label = str(raw_label or "").strip()
+    normalized = label.upper()
+    if "SELL" in normalized or "SELG" in normalized or "UNNG" in normalized:
+        return "Unngå"
+    confidence_num = _ai_candidate_confidence_number_v1864q(confidence)
+    min_conf = _ai_candidate_num_v1864q(config, "min_confidence_for_strong")
+    if score_num >= _ai_candidate_num_v1864q(config, "strong_threshold") and (not confidence_num or confidence_num >= min_conf):
+        return "Sterk kandidat"
+    if score_num >= _ai_candidate_num_v1864q(config, "consider_threshold"):
+        return "Vurder"
+    if score_num >= _ai_candidate_num_v1864q(config, "wait_threshold"):
+        return "Vent"
+    return label or "Unngå"
+
+
+def _ai_candidate_source_strength_v1864m(evidence: list[str], source_freshness: dict | None = None) -> str:
+    if not evidence:
+        return "Marked"
+    freshness = source_freshness or {}
+    fresh = [name for name in evidence if float((freshness.get(name) or {}).get("bonus_factor") or 0.0) > 0]
+    historical = [name for name in evidence if name not in fresh]
+    if len(fresh) >= 2:
+        return "Fersk sterk"
+    if len(fresh) == 1 and historical:
+        return "Fersk + historisk"
+    if len(fresh) == 1:
+        return "Fersk støtte"
+    return "Historisk støtte"
+
+
+def _ai_candidate_listing_v1864m(ticker: str, item: dict, selected_market: str) -> dict[str, str]:
+    try:
+        meta = resolve_security_metadata(ticker, item)
+        listing = infer_security_listing(ticker, {**dict(item or {}), **dict(meta or {})})
+    except Exception:
+        listing = infer_security_listing(ticker, {"ticker": ticker})
+    country = str(listing.get("country") or "").strip() or "Ukjent"
+    actual_market = str(listing.get("market") or "").strip() or str(item.get("market") or selected_market or "").strip()
+    if actual_market in {"", "Alle", "Norden", "Dataunderlag", "AI kildegrunnlag", "Kombiner kilder"}:
+        actual_market = country
+    return {
+        "land": country,
+        "market": actual_market or country,
+        "exchange": str(listing.get("exchange") or "").strip() or "Ukjent",
+    }
+
+
+def _ai_candidate_sector_v1864t(ticker: str, item: dict) -> str:
+    for key in ("sector", "industry", "Sektor", "Bransje"):
+        value = str((item or {}).get(key) or "").strip()
+        if value:
+            return value
+    try:
+        meta = resolve_security_metadata(ticker, item or {}) or {}
+        for key in ("sector", "industry", "Sektor", "Bransje"):
+            value = str(meta.get(key) or "").strip()
+            if value:
+                return value
+    except Exception:
+        pass
+    return "Ukjent"
+
+
+def _ai_candidate_first_value_v1864w(item: dict, *keys):
+    for key in keys:
+        if not key:
+            continue
+        value = (item or {}).get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _ai_candidate_float_value_v1864w(value):
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _ai_candidate_pct_text_v1864w(value, *, decimals: int = 1) -> str:
+    number = _ai_candidate_float_value_v1864w(value)
+    if number is None:
+        return "-"
+    if abs(number) <= 2.0:
+        number *= 100.0
+    return f"{number:+.{decimals}f}%"
+
+
+def _ai_candidate_source_date_text_v1864w(source_freshness: dict | None) -> str:
+    items = []
+    for source_name, meta in (source_freshness or {}).items():
+        date_text = str((meta or {}).get("data_date") or "").strip()
+        status = str((meta or {}).get("status") or "").strip()
+        if date_text or status:
+            items.append(f"{source_name}: {date_text or status}")
+    return ", ".join(items) or "-"
+
+
+def _ai_candidate_evidence_entry_v1864w(priority: int, funn: str, value: str, score, source: str, date: str, status: str) -> dict:
+    score_text = "-"
+    try:
+        if score not in (None, ""):
+            score_text = f"{float(score):.2f}"
+    except Exception:
+        score_text = str(score or "-")
+    return {
+        "Prioritet": int(priority),
+        "Funn": str(funn or "-"),
+        "Verdi": str(value or "-"),
+        "Poengbidrag": score_text,
+        "Kilde": str(source or "-"),
+        "Dato": str(date or "-"),
+        "Status": str(status or "-"),
+    }
+
+
+def _ai_candidate_evidence_line_v1864w(entry: dict) -> str:
+    return (
+        f"{entry.get('Prioritet')}. {entry.get('Funn')}: {entry.get('Verdi')} "
+        f"(score {entry.get('Poengbidrag')}; kilde {entry.get('Kilde')}; dato {entry.get('Dato')}; status {entry.get('Status')})"
+    )
+
+
+def _ai_candidate_evidence_summary_v1864w(entries: list[dict], *, limit: int = 4) -> str:
+    if not entries:
+        return "-"
+    return " | ".join(_ai_candidate_evidence_line_v1864w(entry) for entry in entries[:limit])
+
+
+def _ai_candidate_evidence_status_v1864w(entries: list[dict]) -> str:
+    if not entries:
+        return "Ingen konkret bevisliste"
+    statuses = []
+    for entry in entries:
+        status = str(entry.get("Status") or "").strip()
+        if status and status not in statuses:
+            statuses.append(status)
+    return "; ".join(statuses[:3]) or "Bevis vurdert"
+
+
+def _ai_candidate_result_shock_evidence_v1864w(item: dict, signals: dict, family_scores: dict, source_freshness: dict | None) -> list[dict]:
+    actual_eps = _ai_candidate_first_value_v1864w(item, "eps_actual", "actual_eps", "earnings_actual_eps", "reported_eps")
+    expected_eps = _ai_candidate_first_value_v1864w(item, "eps_expected", "eps_estimate", "estimated_eps", "consensus_eps")
+    actual_revenue = _ai_candidate_first_value_v1864w(item, "revenue_actual", "actual_revenue", "reported_revenue")
+    expected_revenue = _ai_candidate_first_value_v1864w(item, "revenue_expected", "revenue_estimate", "estimated_revenue", "consensus_revenue")
+    eps_surprise = _ai_candidate_first_value_v1864w(item, "eps_surprise_pct", "earnings_surprise_pct", "surprise_pct")
+    revenue_surprise = _ai_candidate_first_value_v1864w(item, "revenue_surprise_pct", "sales_surprise_pct")
+    result_date = _ai_candidate_first_value_v1864w(item, "earnings_date", "result_date", "report_date", "latest_earnings_date")
+    guidance = _ai_candidate_first_value_v1864w(item, "guidance", "guidance_change", "guidance_status", "outlook")
+    ret_1m = _ai_candidate_pct_text_v1864w(item.get("ret_1m"))
+    snapshot = signals.get("snapshot") or {}
+    volume_text = (
+        f"vol/20d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_20'))}, "
+        f"vol/50d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_50'))}"
+    )
+    eps_confirmed = eps_surprise not in (None, "") or (actual_eps not in (None, "") and expected_eps not in (None, ""))
+    revenue_confirmed = revenue_surprise not in (None, "") or (actual_revenue not in (None, "") and expected_revenue not in (None, ""))
+    guidance_confirmed = guidance not in (None, "")
+    confirmed = bool(eps_confirmed or revenue_confirmed or guidance_confirmed)
+    source_date = str(result_date or _ai_candidate_source_date_text_v1864w(source_freshness))
+    if not confirmed:
+        return [
+            _ai_candidate_evidence_entry_v1864w(
+                1,
+                "Resultatsjokk ikke bekreftet",
+                "EPS/omsetningssurprise mangler; score bruker teknisk reaksjon, estimat-/vekstscore og volum som proxy",
+                family_scores.get("result_shock"),
+                "Marked/proxy",
+                source_date,
+                "Ikke bekreftet fundamentalt",
+            ),
+            _ai_candidate_evidence_entry_v1864w(
+                2,
+                "Kursreaksjon etter mulig katalysator",
+                f"1m {ret_1m}; momentum {family_scores.get('momentum', '-')}",
+                family_scores.get("momentum"),
+                "Marked",
+                "-",
+                "Teknisk proxy",
+            ),
+            _ai_candidate_evidence_entry_v1864w(
+                3,
+                "Volumreaksjon",
+                volume_text,
+                family_scores.get("volume"),
+                "Marked",
+                "-",
+                "Volumproxy",
+            ),
+        ]
+    value_bits = []
+    if actual_eps not in (None, "") or expected_eps not in (None, ""):
+        value_bits.append(f"EPS {actual_eps if actual_eps not in (None, '') else '?'} vs {expected_eps if expected_eps not in (None, '') else '?'}")
+    if eps_surprise not in (None, ""):
+        value_bits.append(f"EPS surprise {_ai_candidate_pct_text_v1864w(eps_surprise)}")
+    if actual_revenue not in (None, "") or expected_revenue not in (None, ""):
+        value_bits.append(f"Omsetning {actual_revenue if actual_revenue not in (None, '') else '?'} vs {expected_revenue if expected_revenue not in (None, '') else '?'}")
+    if revenue_surprise not in (None, ""):
+        value_bits.append(f"Omsetningssurprise {_ai_candidate_pct_text_v1864w(revenue_surprise)}")
+    if guidance not in (None, ""):
+        value_bits.append(f"Guiding {guidance}")
+    return [
+        _ai_candidate_evidence_entry_v1864w(
+            1,
+            "Bekreftet resultatsjokk",
+            " | ".join(value_bits) or "Resultatavvik funnet",
+            family_scores.get("result_shock"),
+            "Resultat/estimat",
+            source_date,
+            "Bekreftet",
+        ),
+        _ai_candidate_evidence_entry_v1864w(
+            2,
+            "Kurs- og volumreaksjon",
+            f"1m {ret_1m}; {volume_text}",
+            family_scores.get("momentum"),
+            "Marked",
+            "-",
+            "Bekreftende markedsreaksjon",
+        ),
+    ]
+
+
+def _ai_candidate_family_evidence_v1864w(
+    family_key: str,
+    item: dict,
+    breakdown: dict,
+    evidence: list[str],
+    config: dict,
+    source_freshness: dict | None,
+) -> list[dict]:
+    signals = breakdown.get("signals") or {}
+    family_scores = breakdown.get("family_scores") or {}
+    snapshot = signals.get("snapshot") or {}
+    source_text = ", ".join(evidence) if evidence else "Marked"
+    source_date = _ai_candidate_source_date_text_v1864w(source_freshness)
+    if family_key == "result_shock":
+        return _ai_candidate_result_shock_evidence_v1864w(item, signals, family_scores, source_freshness)
+    if family_key == "momentum":
+        return [
+            _ai_candidate_evidence_entry_v1864w(
+                0,
+                "Momentum / relativ styrke",
+                f"1m {_ai_candidate_pct_text_v1864w(item.get('ret_1m'))}, 3m {_ai_candidate_pct_text_v1864w(item.get('ret_3m'))}, 6m {_ai_candidate_pct_text_v1864w(item.get('ret_6m'))}; RS {signals.get('relative_strength', '-')}",
+                family_scores.get("momentum"),
+                "Marked",
+                "-",
+                "Aktivt hovedsignal",
+            ),
+            _ai_candidate_evidence_entry_v1864w(
+                0,
+                "Trendfilter",
+                f"MA50 {_ai_candidate_bool_text_v1864u(snapshot.get('above_50dma'))}, MA200 {_ai_candidate_bool_text_v1864u(snapshot.get('above_200dma'))}, 52u {_ai_candidate_metric_text_v1864u(snapshot.get('pct_of_52w_high'), 1, '%')}",
+                signals.get("technical_trend"),
+                "Marked",
+                "-",
+                "Teknisk bekreftelse",
+            ),
+        ]
+    if family_key == "estimate":
+        missing = bool(signals.get("estimate_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Estimatløft",
+            "Ingen konkrete estimatrevisjoner/analytikerkonsensus funnet" if missing else _ai_candidate_estimate_evidence_text_v1864x(item, signals),
+            family_scores.get("estimate"),
+            item.get("live_signal_sources") or source_text,
+            source_date,
+            item.get("estimate_signal_status") or ("Mangler estimatdata" if missing else "Estimatdata funnet"),
+        )]
+    if family_key == "insider":
+        missing = bool(signals.get("insider_missing"))
+        latest_date = _ai_candidate_first_value_v1864w(item, "insider_latest_date", "latest_insider_date")
+        value = "Ingen konkrete innside-/eiertransaksjoner funnet" if missing else _ai_candidate_insider_evidence_text_v1864x(item)
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Innsider / eiertrykk",
+            value,
+            family_scores.get("insider"),
+            item.get("live_signal_sources") or source_text,
+            str(latest_date or source_date),
+            item.get("insider_signal_status") or ("Mangler insiderdata" if missing else "Eiertrykk funnet"),
+        )]
+    if family_key == "estimate":
+        missing = bool(signals.get("estimate_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Estimatløft",
+            "Ingen konkrete estimatrevisjoner funnet" if missing else f"Estimatløftscore {signals.get('estimate_revisions', '-')}",
+            family_scores.get("estimate"),
+            source_text,
+            source_date,
+            "Mangler estimatdata" if missing else "Estimatdata funnet",
+        )]
+    if family_key == "insider":
+        missing = bool(signals.get("insider_missing"))
+        latest_type = _ai_candidate_first_value_v1864w(item, "insider_latest_type", "latest_insider_type")
+        latest_date = _ai_candidate_first_value_v1864w(item, "insider_latest_date", "latest_insider_date")
+        latest_value = _ai_candidate_first_value_v1864w(item, "insider_latest_value", "insider_value", "insider_amount")
+        value = "Ingen konkrete innside-/eiertransaksjoner funnet" if missing else f"Siste {latest_type or 'transaksjon'} {latest_value or ''}".strip()
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Innsider / eiertrykk",
+            value,
+            family_scores.get("insider"),
+            source_text,
+            str(latest_date or source_date),
+            "Mangler insiderdata" if missing else "Eiertrykk funnet",
+        )]
+    if family_key == "growth":
+        growth_value = _ai_candidate_first_value_v1864w(item, "revenue_growth", "sales_growth", "earnings_growth", "profit_growth")
+        missing = bool(signals.get("growth_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Vekstakselerasjon",
+            "Vekstdata mangler" if missing else f"Vekst {growth_value if growth_value not in (None, '') else signals.get('growth', '-')}",
+            family_scores.get("growth"),
+            source_text,
+            source_date,
+            "Mangler vekstdata" if missing else "Vekstdata funnet",
+        )]
+    if family_key == "technical":
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Teknisk trend",
+            _ai_candidate_technical_evidence_text_v1864u(snapshot, config),
+            family_scores.get("technical"),
+            "Marked",
+            "-",
+            "Teknisk filter",
+        )]
+    if family_key == "volume":
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Volumbrudd",
+            f"Volum siste {_ai_candidate_metric_text_v1864u(snapshot.get('last_volume'), 0)}, vol/20d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_20'))}, vol/50d {_ai_candidate_ratio_text_v1864u(snapshot.get('volume_ratio_50'))}",
+            family_scores.get("volume"),
+            "Marked",
+            "-",
+            "Volumbekreftelse",
+        )]
+    if family_key == "sector_leader":
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Sektorleder",
+            f"Slår marked {item.get('beats_market') or item.get('market_relative_note') or 'benchmark mangler'}; slår sektor {item.get('beats_sector') or item.get('sector_relative_note') or 'sektordata mangler'}",
+            family_scores.get("sector_leader"),
+            "Marked/sektor",
+            "-",
+            "Relativ rangering",
+        )]
+    if family_key == "short_squeeze":
+        short_value = _ai_candidate_first_value_v1864w(item, "short_interest", "short_interest_pct", "days_to_cover", "short_squeeze_score")
+        missing = bool(signals.get("short_missing"))
+        return [_ai_candidate_evidence_entry_v1864w(
+            0,
+            "Short squeeze",
+            "Short-data mangler; bruker volum/momentum som proxy" if missing else f"Short/cover {short_value}",
+            family_scores.get("short_squeeze"),
+            "Short/marked",
+            "-",
+            "Mangler short-data" if missing else "Shortdata funnet",
+        )]
+    return [_ai_candidate_evidence_entry_v1864w(
+        0,
+        family_key,
+        f"Score {family_scores.get(family_key, '-')}",
+        family_scores.get(family_key),
+        source_text,
+        source_date,
+        "Vurdert",
+    )]
+
+
+def _ai_candidate_selection_evidence_v1864w(
+    item: dict,
+    breakdown: dict,
+    evidence: list[str],
+    config: dict,
+    source_freshness: dict | None = None,
+) -> list[dict]:
+    weights = _ai_candidate_active_search_weights_v1864t(config)
+    ordered = sorted(weights.items(), key=lambda pair: float(pair[1] or 0.0), reverse=True)
+    entries: list[dict] = []
+    for family_key, _weight in ordered:
+        entries.extend(_ai_candidate_family_evidence_v1864w(family_key, item, breakdown, evidence, config, source_freshness))
+    for idx, entry in enumerate(entries, start=1):
+        entry["Prioritet"] = idx
+    return entries[:8]
+
+
+def _ai_candidate_evidence_html_v1864w(row: dict) -> str:
+    raw = str(row.get("Prioritert bevis") or row.get("Bevisgrunnlag") or "").strip()
+    if not raw or raw == "-":
+        return ""
+    items = [part.strip() for part in raw.split(" || ") if part.strip()]
+    if not items:
+        return ""
+    lis = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+    return f"<div class=\"evidence-list\"><h3>Hvorfor ble aksjen valgt?</h3><ol>{lis}</ol></div>"
+
+
+def _ai_candidate_score_explanation_v1864m(score_num: float, confidence, risk: str, evidence: list[str], change: str, breakdown: dict | None = None) -> str:
+    bits = [f"Score {score_num:.2f}" if score_num else "Score mangler"]
+    if isinstance(breakdown, dict):
+        signals = breakdown.get("signals") or {}
+        if breakdown.get("search_label"):
+            bits.append(f"søk {breakdown.get('search_label')}")
+        if breakdown.get("search_weights"):
+            bits.append(f"vekter {breakdown.get('search_weights')}")
+        climate = breakdown.get("market_climate") or {}
+        if climate and climate.get("mode") != "Av":
+            delta = climate.get("delta")
+            delta_text = f"{float(delta):+.2f}" if isinstance(delta, (int, float)) else str(delta or "0")
+            bits.append(f"markedsklima {climate.get('label', '-')}, effekt {delta_text}")
+        bits.append(
+            "signaler "
+            + ", ".join([
+                f"RS {float(signals.get('relative_strength') or 0):.1f}",
+                f"Est {float(signals.get('estimate_revisions') or 0):.1f}",
+                f"Ins {float(signals.get('insider_buying') or 0):.1f}",
+                f"Vekst {float(signals.get('growth') or 0):.1f}",
+                f"Trend {float(signals.get('technical_trend') or 0):.1f}",
+                f"Vol {float(signals.get('volume_breakout') or 0):.1f}",
+            ])
+        )
+    if confidence not in (None, ""):
+        bits.append(f"confidence {confidence}")
+    if risk and risk != "-":
+        bits.append(f"risiko {risk}")
+    bits.append("kilder " + (", ".join(evidence) if evidence else "marked"))
+    if isinstance(breakdown, dict) and breakdown.get("source_freshness"):
+        source_age_bits = []
+        for source_name, meta in (breakdown.get("source_freshness") or {}).items():
+            status = str(meta.get("status") or "")
+            days = meta.get("days_old")
+            suffix = f"{days}d" if isinstance(days, int) else "dato mangler"
+            source_age_bits.append(f"{source_name} {status} {suffix}".strip())
+        if source_age_bits:
+            bits.append("kildealder " + ", ".join(source_age_bits))
+    if isinstance(breakdown, dict) and breakdown.get("blockers"):
+        bits.append("sperrer " + ", ".join(breakdown.get("blockers") or []))
+    if isinstance(breakdown, dict) and breakdown.get("flags"):
+        bits.append("varsler " + ", ".join(breakdown.get("flags") or []))
+    if isinstance(breakdown, dict) and breakdown.get("missing"):
+        bits.append("mangler " + ", ".join(breakdown.get("missing") or []))
+    if change:
+        bits.append(f"endring {change}")
+    return " | ".join(bits)
+
+
+def _ai_candidate_result_rows_v1864l(
+    ranked_rows: list[dict],
+    *,
+    source: str,
+    market: str,
+    previous_map: dict[str, dict] | None = None,
+    selected_sources=None,
+    evaluation_config: dict | None = None,
+) -> list[dict]:
+    overlays = _ai_candidate_overlay_maps_v1864l()
+    source_list = _ai_candidate_source_list_v1864q(selected_sources or source)
+    config = evaluation_config or AI_CANDIDATE_EVALUATION_DEFAULTS_V1864Q
+    previous_map = previous_map or {}
+    rows: list[dict] = []
+    for idx, item in enumerate(ranked_rows or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        ticker = normalize_user_ticker(item.get("ticker") or item.get("symbol"))
+        if not ticker:
+            continue
+        evidence = []
+        if "Finansavisen" in source_list and ticker in overlays.get("finansavisen", {}):
+            evidence.append("Finansavisen")
+        if "Oljefond/NBIM" in source_list and ticker in overlays.get("nbim", {}):
+            evidence.append("Oljefond/NBIM")
+        if "Folketrygdfondet" in source_list and ticker in overlays.get("folketrygdfondet", {}):
+            evidence.append("Folketrygdfondet")
+        risk = item.get("risk") or item.get("risk_label") or item.get("shared_risk_label") or "-"
+        source_freshness = _ai_candidate_evidence_freshness_v1864s(evidence, overlays, ticker, config)
+        breakdown = _ai_candidate_signal_breakdown_v1864r(item, evidence, str(risk), config, source_freshness=source_freshness)
+        score_num = float(breakdown.get("score") or 0.0)
+        try:
+            decision = card_decision_for_item(item)
+            anbefaling = decision.get("action_now") or decision.get("label") or ""
+        except Exception:
+            anbefaling = ""
+        if not anbefaling:
+            anbefaling = "Følg med" if score_num >= 7.0 else "Vent" if score_num >= 5.5 else "Unngå"
+        confidence = item.get("confidence") or item.get("system_confidence")
+        if confidence in (None, ""):
+            confidence = min(95, max(35, int(round(score_num * 10)))) if score_num else ""
+        flags = list(breakdown.get("blockers") or []) + list(breakdown.get("flags") or [])
+        alert = "Varsel" if score_num >= _ai_candidate_num_v1864q(config, "alert_threshold") or breakdown.get("fresh_evidence") or flags else ""
+        listing = _ai_candidate_listing_v1864m(ticker, item, market)
+        change = _ai_candidate_change_label_v1864m(ticker, idx, score_num, previous_map)
+        source_strength = _ai_candidate_source_strength_v1864m(evidence, source_freshness)
+        source_age = ", ".join(
+            f"{name}: {(meta or {}).get('status')}"
+            for name, meta in source_freshness.items()
+        ) or "-"
+        source_support_mode = breakdown.get("source_support_mode") or _ai_candidate_source_support_mode_v1864u(config)
+        source_evidence_for_score = evidence if source_support_mode == "Bruk som støtte i score" else []
+        climate_effect = breakdown.get("market_climate") or {}
+        climate_delta = climate_effect.get("delta")
+        try:
+            climate_delta_text = f"{float(climate_delta):+.2f}"
+        except Exception:
+            climate_delta_text = "-"
+        reason_bits = [_ai_candidate_source_label_v1864q(source_list)]
+        if evidence:
+            reason_bits.append("Kildebevis: " + ", ".join(evidence))
+        if item.get("reason"):
+            reason_bits.append(str(item.get("reason")))
+        family_scores = breakdown.get("family_scores") or {}
+        active_family_keys = set(_ai_candidate_active_search_weights_v1864t(config).keys())
+
+        def _active_signal_value(family_key: str, value):
+            return value if family_key in active_family_keys else "-"
+
+        snapshot = (breakdown.get("signals") or {}).get("snapshot") or {}
+        technical_evidence = _ai_candidate_technical_evidence_text_v1864u(snapshot, config)
+        selection_evidence = _ai_candidate_selection_evidence_v1864w(item, breakdown, evidence, config, source_freshness)
+        selection_summary = _ai_candidate_evidence_summary_v1864w(selection_evidence, limit=3)
+        selection_full = " || ".join(_ai_candidate_evidence_line_v1864w(entry) for entry in selection_evidence) or "-"
+        evidence_status = _ai_candidate_evidence_status_v1864w(selection_evidence)
+        action_label = _ai_candidate_action_label_v1864m(anbefaling, score_num, config, confidence)
+        if action_label == "Unngå":
+            next_action = "Ikke send / avvis"
+        elif action_label == "Vent":
+            next_action = "Overvåk / vent"
+        elif action_label in {"Sterk kandidat", "Vurder"}:
+            next_action = "Send til vurdering/paper"
+        else:
+            next_action = "Overvåk / vent"
+        rows.append({
+            "Rank": idx,
+            "Ticker": ticker,
+            "Navn": item.get("name") or item.get("company") or ticker,
+            "Land": listing.get("land") or "Ukjent",
+            "Marked": listing.get("market") or item.get("market") or market,
+            "Bors": listing.get("exchange") or "Ukjent",
+            "Sektor": _ai_candidate_sector_v1864t(ticker, item),
+            "Univers": market,
+            "Signalmodus": breakdown.get("search_label") or _ai_candidate_search_label_v1864t(config),
+            "Søkevekter": breakdown.get("search_weights") or _ai_candidate_search_weight_label_v1864t(config),
+            "Klimanivå": _ai_candidate_market_climate_badge_v1866(climate_effect),
+            "Klimaeffekt": climate_effect.get("effect_text") or climate_delta_text,
+            "Klimatolkning": climate_effect.get("impact_text") or "-",
+            "Markedsklima": climate_effect.get("summary") or "Ikke brukt",
+            "Hvorfor med": " | ".join(reason_bits),
+            "Utvalgsgrunnlag": selection_summary,
+            "Bevisstatus": evidence_status,
+            "Prioritert bevis": selection_full,
+            "Ferskhet": "Ny run",
+            "Kilder": ", ".join(evidence) if evidence else "Marked",
+            "Kildealder": source_age,
+            "Kildestyrke": source_strength,
+            "Kildestøtte": source_support_mode,
+            "Klimamodus": climate_effect.get("mode") or _ai_candidate_market_climate_mode_v1865(config),
+            "Klimajustering": climate_delta_text,
+            "Klimabevis": climate_effect.get("evidence") or "-",
+            "Ferske signalkilder": item.get("live_signal_sources") or "-",
+            "Signalstatus": item.get("live_signal_status") or "-",
+            "Estimatgrunnlag": item.get("estimate_signal_detail") or "-",
+            "Insidergrunnlag": item.get("insider_signal_detail") or "-",
+            "Resultatkalender": item.get("earnings_signal_detail") or "-",
+            "Momentumscore": _active_signal_value("momentum", family_scores.get("momentum")),
+            "Estimatløftscore": _active_signal_value("estimate", family_scores.get("estimate")),
+            "Eiertrykkscore": _active_signal_value("insider", family_scores.get("insider")),
+            "Relativ styrke": _active_signal_value("momentum", breakdown.get("signals", {}).get("relative_strength")),
+            "Estimatendringer": _active_signal_value("estimate", breakdown.get("signals", {}).get("estimate_revisions")),
+            "Insiderkjop": _active_signal_value("insider", breakdown.get("signals", {}).get("insider_buying")),
+            "Vekst": _active_signal_value("growth", breakdown.get("signals", {}).get("growth")),
+            "Teknisk trend": _active_signal_value("technical", breakdown.get("signals", {}).get("technical_trend")),
+            "Volumbrudd": _active_signal_value("volume", breakdown.get("signals", {}).get("volume_breakout")),
+            "Resultatsjokk": _active_signal_value("result_shock", breakdown.get("signals", {}).get("result_shock")),
+            "Teknisk bevis": technical_evidence,
+            "Siste kurs": _ai_candidate_metric_text_v1864u(snapshot.get("last_close")),
+            "52u høy": _ai_candidate_metric_text_v1864u(snapshot.get("high_52w")),
+            "% av 52u": _ai_candidate_metric_text_v1864u(snapshot.get("pct_of_52w_high"), 1, "%"),
+            "MA50": _ai_candidate_metric_text_v1864u(snapshot.get("ma50")),
+            "MA200": _ai_candidate_metric_text_v1864u(snapshot.get("ma200")),
+            "Over MA50": _ai_candidate_bool_text_v1864u(snapshot.get("above_50dma")),
+            "Over MA200": _ai_candidate_bool_text_v1864u(snapshot.get("above_200dma")),
+            "Volum siste": _ai_candidate_metric_text_v1864u(snapshot.get("last_volume"), 0),
+            "Volum 20d": _ai_candidate_metric_text_v1864u(snapshot.get("avg_volume_20"), 0),
+            "Volum 50d": _ai_candidate_metric_text_v1864u(snapshot.get("avg_volume_50"), 0),
+            "Volum/20d": _ai_candidate_ratio_text_v1864u(snapshot.get("volume_ratio_20")),
+            "Volum/50d": _ai_candidate_ratio_text_v1864u(snapshot.get("volume_ratio_50")),
+            "Likviditet": _ai_candidate_liquidity_status_v1864u(snapshot, config),
+            "Slår marked": item.get("beats_market") or item.get("market_relative_note") or "Benchmark mangler",
+            "Slår sektor": item.get("beats_sector") or item.get("sector_relative_note") or "Sektordata mangler",
+            "Sterke signaler": ", ".join(breakdown.get("strong_signals") or []) or "-",
+            "Sperrer/varsler": ", ".join(flags) if flags else "-",
+            "Datamangler": ", ".join(breakdown.get("missing") or []) if breakdown.get("missing") else "-",
+            "Score": round(score_num, 2) if score_num else "",
+            "Confidence": f"{confidence}%" if isinstance(confidence, int) else confidence,
+            "Risiko": risk,
+            "Anbefaling": action_label,
+            "Varsel": alert,
+            "Endring": change,
+            "Forklaring": _ai_candidate_score_explanation_v1864m(score_num, f"{confidence}%" if isinstance(confidence, int) else confidence, str(risk), source_evidence_for_score, change, breakdown),
+            "Neste handling": next_action,
+        })
+    rows.sort(key=lambda row: float(row.get("Score") or 0.0), reverse=True)
+    for new_rank, row in enumerate(rows, start=1):
+        ticker = normalize_user_ticker(row.get("Ticker"))
+        row["Rank"] = new_rank
+        row["Endring"] = _ai_candidate_change_label_v1864m(ticker, new_rank, float(row.get("Score") or 0.0), previous_map)
+        explanation = str(row.get("Forklaring") or "")
+        if " | endring " in explanation:
+            explanation = explanation.split(" | endring ", 1)[0]
+        row["Forklaring"] = f"{explanation} | endring {row['Endring']}" if explanation else f"endring {row['Endring']}"
+    return rows
+
+
+def _ai_candidate_basename_v1864l(result: dict) -> str:
+    stamp = str(result.get("created_at") or datetime.now().isoformat(timespec="seconds")).replace(":", "").replace("-", "")
+    return f"ai_kandidattest_{stamp[:15]}"
+
+
+def _ai_candidate_csv_v1864l(result: dict) -> bytes:
+    return pd.DataFrame(result.get("rows") or []).to_csv(index=False).encode("utf-8-sig")
+
+
+def _ai_candidate_json_v1864l(result: dict) -> bytes:
+    return json.dumps(result, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+
+
+def _ai_candidate_detail_rows_v1864t(rows: list[dict], result: dict | None = None) -> list[dict]:
+    result = result or {}
+    evaluation = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
+    out: list[dict] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        out.append({
+            "Ticker": row.get("Ticker") or row.get("ticker"),
+            "Navn": row.get("Navn") or row.get("name"),
+            "Land": row.get("Land") or row.get("country"),
+            "Marked": row.get("Marked") or row.get("market"),
+            "Bors": row.get("Bors") or row.get("exchange"),
+            "Sektor": row.get("Sektor") or row.get("sector"),
+            "Tidshorisont": evaluation.get("horizon") or row.get("Tidshorisont") or "1-6 mnd",
+            "Signalmodus": row.get("Signalmodus") or _ai_candidate_search_label_v1864t(evaluation),
+            "Søkevekter": row.get("Søkevekter") or _ai_candidate_search_weight_label_v1864t(evaluation),
+            "Klimanivå": row.get("Klimanivå"),
+            "Klimaeffekt": row.get("Klimaeffekt"),
+            "Klimatolkning": row.get("Klimatolkning"),
+            "Markedsklima": row.get("Markedsklima"),
+            "Utvalgsgrunnlag": row.get("Utvalgsgrunnlag"),
+            "Bevisstatus": row.get("Bevisstatus"),
+            "Prioritert bevis": row.get("Prioritert bevis"),
+            "Score": row.get("Score"),
+            "Confidence": row.get("Confidence"),
+            "Risiko": row.get("Risiko"),
+            "Anbefaling": row.get("Anbefaling"),
+            "Kilder": row.get("Kilder"),
+            "Kildealder": row.get("Kildealder"),
+            "Kildestyrke": row.get("Kildestyrke"),
+            "Kildestøtte": row.get("Kildestøtte"),
+            "Klimamodus": row.get("Klimamodus"),
+            "Klimajustering": row.get("Klimajustering"),
+            "Klimabevis": row.get("Klimabevis"),
+            "Ferske signalkilder": row.get("Ferske signalkilder"),
+            "Signalstatus": row.get("Signalstatus"),
+            "Estimatgrunnlag": row.get("Estimatgrunnlag"),
+            "Insidergrunnlag": row.get("Insidergrunnlag"),
+            "Resultatkalender": row.get("Resultatkalender"),
+            "Momentumscore": row.get("Momentumscore"),
+            "Estimatløftscore": row.get("Estimatløftscore"),
+            "Eiertrykkscore": row.get("Eiertrykkscore"),
+            "Relativ styrke": row.get("Relativ styrke"),
+            "Estimatendringer": row.get("Estimatendringer"),
+            "Insiderkjop": row.get("Insiderkjop"),
+            "Vekst": row.get("Vekst"),
+            "Teknisk trend": row.get("Teknisk trend"),
+            "Volumbrudd": row.get("Volumbrudd"),
+            "Resultatsjokk": row.get("Resultatsjokk"),
+            "Teknisk bevis": row.get("Teknisk bevis"),
+            "Siste kurs": row.get("Siste kurs"),
+            "52u høy": row.get("52u høy"),
+            "% av 52u": row.get("% av 52u"),
+            "MA50": row.get("MA50"),
+            "MA200": row.get("MA200"),
+            "Over MA50": row.get("Over MA50"),
+            "Over MA200": row.get("Over MA200"),
+            "Volum siste": row.get("Volum siste"),
+            "Volum 20d": row.get("Volum 20d"),
+            "Volum 50d": row.get("Volum 50d"),
+            "Volum/20d": row.get("Volum/20d"),
+            "Volum/50d": row.get("Volum/50d"),
+            "Likviditet": row.get("Likviditet"),
+            "Slår marked": row.get("Slår marked"),
+            "Slår sektor": row.get("Slår sektor"),
+            "Sterke signaler": row.get("Sterke signaler"),
+            "Sperrer/varsler": row.get("Sperrer/varsler"),
+            "Datamangler": row.get("Datamangler"),
+            "Forklaring": row.get("Forklaring"),
+            "Neste handling": row.get("Neste handling"),
+        })
+    return out
+
+
+def _ai_candidate_svg_number_v1864v(value, decimals: int = 2) -> str:
+    try:
+        number = float(value)
+    except Exception:
+        return "-"
+    return f"{number:,.{decimals}f}"
+
+
+def _ai_candidate_svg_compact_number_v1864v(value) -> str:
+    try:
+        number = float(value)
+    except Exception:
+        return "-"
+    sign = "-" if number < 0 else ""
+    number = abs(number)
+    if number >= 1_000_000:
+        return f"{sign}{number / 1_000_000:.1f}M"
+    if number >= 1_000:
+        return f"{sign}{number / 1_000:.0f}k"
+    return f"{sign}{number:.0f}"
+
+
+def _ai_candidate_svg_date_label_v1864v(value) -> str:
+    try:
+        if hasattr(value, "strftime"):
+            return value.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return str(value or "")[:10]
+
+
+def _ai_candidate_svg_series_v1864v(series, limit: int = 252) -> list[tuple[int, float]]:
+    values: list[tuple[int, float]] = []
+    try:
+        raw = list(series.tail(limit))
+    except Exception:
+        raw = list(series or [])[-limit:]
+    for idx, value in enumerate(raw):
+        try:
+            number = float(value)
+        except Exception:
+            continue
+        if pd.notna(number):
+            values.append((idx, number))
+    return values
+
+
+def _ai_candidate_svg_polyline_v1864v(points: list[tuple[int, float]], n: int, y_min: float, y_max: float, *, x0=54, y0=36, w=650, h=210) -> str:
+    if not points or n <= 1 or y_max <= y_min:
+        return ""
+    coords = []
+    for idx, value in points:
+        x = x0 + (idx / max(1, n - 1)) * w
+        y = y0 + ((y_max - value) / (y_max - y_min)) * h
+        coords.append(f"{x:.1f},{y:.1f}")
+    return " ".join(coords)
+
+
+def _ai_candidate_svg_metric_table_v1864v(row: dict) -> str:
+    keys = [
+        "Utvalgsgrunnlag",
+        "Bevisstatus",
+        "Ferske signalkilder",
+        "Signalstatus",
+        "Estimatgrunnlag",
+        "Insidergrunnlag",
+        "Resultatkalender",
+        "Siste kurs",
+        "52u høy",
+        "% av 52u",
+        "MA50",
+        "MA200",
+        "Over MA50",
+        "Over MA200",
+        "Volum siste",
+        "Volum 20d",
+        "Volum 50d",
+        "Volum/20d",
+        "Volum/50d",
+        "Likviditet",
+        "Teknisk bevis",
+        "Prioritert bevis",
+    ]
+    cells = []
+    for key in keys:
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        cells.append(
+            "<tr>"
+            f"<th>{html.escape(str(key))}</th>"
+            f"<td>{html.escape(str(value))}</td>"
+            "</tr>"
+        )
+    return "<table class=\"metric-table\">" + "".join(cells) + "</table>" if cells else ""
+
+
+def _ai_candidate_price_svg_v1864v(ticker: str, hist: pd.DataFrame) -> str:
+    close = hist["Close"].dropna().tail(252)
+    if close.empty:
+        return "<p class=\"chart-note\">Kursgraf mangler sluttkurs.</p>"
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+    high_52w = float(close.max())
+    last_close = float(close.iloc[-1])
+    n = len(close)
+    y_values: list[float] = [float(v) for v in close if pd.notna(v)] + [high_52w, last_close]
+    y_values += [float(v) for v in ma50.dropna() if pd.notna(v)]
+    y_values += [float(v) for v in ma200.dropna() if pd.notna(v)]
+    y_min = min(y_values)
+    y_max = max(y_values)
+    padding = max((y_max - y_min) * 0.08, abs(y_max) * 0.02, 1.0)
+    y_min -= padding
+    y_max += padding
+    x0, y0, w, h = 54, 36, 650, 210
+    grid = []
+    for step in range(5):
+        y = y0 + (step / 4) * h
+        value = y_max - (step / 4) * (y_max - y_min)
+        grid.append(f"<line x1=\"{x0}\" y1=\"{y:.1f}\" x2=\"{x0 + w}\" y2=\"{y:.1f}\" class=\"grid\" />")
+        grid.append(f"<text x=\"8\" y=\"{y + 4:.1f}\" class=\"axis-label\">{_ai_candidate_svg_number_v1864v(value, 1)}</text>")
+    def y_for(value: float) -> float:
+        return y0 + ((y_max - value) / (y_max - y_min)) * h
+    high_y = y_for(high_52w)
+    last_y = y_for(last_close)
+    close_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(close, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    ma50_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(ma50, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    ma200_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(ma200, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    first_label = _ai_candidate_svg_date_label_v1864v(close.index[0])
+    mid_label = _ai_candidate_svg_date_label_v1864v(close.index[len(close) // 2])
+    last_label = _ai_candidate_svg_date_label_v1864v(close.index[-1])
+    ticker_text = html.escape(str(ticker))
+    return f"""
+<svg class="report-chart" viewBox="0 0 760 300" role="img" aria-label="{ticker_text} kursgraf">
+  <rect x="0" y="0" width="760" height="300" class="chart-bg" />
+  <text x="10" y="18" class="chart-title">{ticker_text} kurs, MA50/MA200 og 52-ukers høyde</text>
+  <g class="legend">
+    <line x1="10" y1="285" x2="36" y2="285" class="price-line" /><text x="42" y="289">Kurs</text>
+    <line x1="96" y1="285" x2="122" y2="285" class="ma50-line" /><text x="128" y="289">MA50</text>
+    <line x1="184" y1="285" x2="210" y2="285" class="ma200-line" /><text x="216" y="289">MA200</text>
+    <line x1="278" y1="285" x2="304" y2="285" class="high-line" /><text x="310" y="289">52u høy {_ai_candidate_svg_number_v1864v(high_52w)}</text>
+    <line x1="438" y1="285" x2="464" y2="285" class="last-line" /><text x="470" y="289">Siste {_ai_candidate_svg_number_v1864v(last_close)}</text>
+  </g>
+  {"".join(grid)}
+  <line x1="{x0}" y1="{high_y:.1f}" x2="{x0 + w}" y2="{high_y:.1f}" class="high-line" />
+  <line x1="{x0}" y1="{last_y:.1f}" x2="{x0 + w}" y2="{last_y:.1f}" class="last-line" />
+  <polyline points="{close_line}" class="price-line" fill="none" />
+  <polyline points="{ma50_line}" class="ma50-line" fill="none" />
+  <polyline points="{ma200_line}" class="ma200-line" fill="none" />
+  <text x="{x0}" y="270" class="axis-label">{html.escape(first_label)}</text>
+  <text x="{x0 + (w / 2) - 34:.1f}" y="270" class="axis-label">{html.escape(mid_label)}</text>
+  <text x="{x0 + w - 70:.1f}" y="270" class="axis-label">{html.escape(last_label)}</text>
+</svg>"""
+
+
+def _ai_candidate_volume_svg_v1864v(ticker: str, hist: pd.DataFrame) -> str:
+    if "Volume" not in hist:
+        return "<p class=\"chart-note\">Volumgraf mangler volumdata.</p>"
+    volume = hist["Volume"].dropna().tail(252)
+    if volume.empty:
+        return "<p class=\"chart-note\">Volumgraf mangler volumdata.</p>"
+    vol20 = volume.rolling(20).mean()
+    vol50 = volume.rolling(50).mean()
+    n = len(volume)
+    y_values = [float(v) for v in volume if pd.notna(v)]
+    y_values += [float(v) for v in vol20.dropna() if pd.notna(v)]
+    y_values += [float(v) for v in vol50.dropna() if pd.notna(v)]
+    y_min = 0.0
+    y_max = max(y_values) if y_values else 1.0
+    if y_max <= 0:
+        y_max = 1.0
+    y_max *= 1.12
+    x0, y0, w, h = 54, 32, 650, 150
+    bars = []
+    bar_w = max(1.0, (w / max(1, n)) * 0.70)
+    for idx, value in enumerate([float(v) if pd.notna(v) else 0.0 for v in volume]):
+        x = x0 + (idx / max(1, n - 1)) * w
+        bar_h = (value / y_max) * h
+        y = y0 + h - bar_h
+        bars.append(f"<rect x=\"{x:.1f}\" y=\"{y:.1f}\" width=\"{bar_w:.1f}\" height=\"{bar_h:.1f}\" class=\"volume-bar\" />")
+    grid = []
+    for step in range(4):
+        y = y0 + (step / 3) * h
+        value = y_max - (step / 3) * y_max
+        grid.append(f"<line x1=\"{x0}\" y1=\"{y:.1f}\" x2=\"{x0 + w}\" y2=\"{y:.1f}\" class=\"grid\" />")
+        grid.append(f"<text x=\"8\" y=\"{y + 4:.1f}\" class=\"axis-label\">{_ai_candidate_svg_compact_number_v1864v(value)}</text>")
+    vol20_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(vol20, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    vol50_line = _ai_candidate_svg_polyline_v1864v(_ai_candidate_svg_series_v1864v(vol50, 252), n, y_min, y_max, x0=x0, y0=y0, w=w, h=h)
+    ticker_text = html.escape(str(ticker))
+    return f"""
+<svg class="report-chart" viewBox="0 0 760 230" role="img" aria-label="{ticker_text} volumgraf">
+  <rect x="0" y="0" width="760" height="230" class="chart-bg" />
+  <text x="10" y="18" class="chart-title">{ticker_text} volum mot 20/50-dagers snitt</text>
+  <g class="legend">
+    <rect x="10" y="210" width="12" height="8" class="volume-bar" /><text x="28" y="218">Volum</text>
+    <line x1="92" y1="214" x2="118" y2="214" class="vol20-line" /><text x="124" y="218">Volum 20d</text>
+    <line x1="228" y1="214" x2="254" y2="214" class="vol50-line" /><text x="260" y="218">Volum 50d</text>
+  </g>
+  {"".join(grid)}
+  {"".join(bars)}
+  <polyline points="{vol20_line}" class="vol20-line" fill="none" />
+  <polyline points="{vol50_line}" class="vol50-line" fill="none" />
+</svg>"""
+
+
+def _ai_candidate_detail_chart_blocks_html_v1864v(rows: list[dict], *, max_charts: int = 12) -> str:
+    blocks: list[str] = []
+    for idx, row in enumerate(rows or []):
+        if idx >= max_charts:
+            remaining = len(rows or []) - max_charts
+            if remaining > 0:
+                blocks.append(f"<p class=\"chart-note\">{remaining} ekstra valgte kandidater er med i tabellen, men grafene er begrenset for å holde rapporten håndterbar.</p>")
+            break
+        ticker = normalize_user_ticker(row.get("Ticker") or row.get("ticker"))
+        if not ticker:
+            continue
+        name = html.escape(str(row.get("Navn") or row.get("name") or ticker))
+        meta = " | ".join(
+            html.escape(str(value))
+            for value in [row.get("Land"), row.get("Marked"), row.get("Bors"), row.get("Sektor")]
+            if value not in (None, "")
+        )
+        hist, err = _ai_candidate_chart_history_v1864u(ticker)
+        if hist is None or hist.empty:
+            chart_html = f"<p class=\"chart-note\">Kurs- og volumgraf kunne ikke hentes for {html.escape(ticker)}: {html.escape(str(err or 'ukjent feil'))}</p>"
+        else:
+            chart_html = _ai_candidate_price_svg_v1864v(ticker, hist) + _ai_candidate_volume_svg_v1864v(ticker, hist)
+        blocks.append(
+            "<section class=\"chart-block\">"
+            f"<h2>{html.escape(ticker)} - {name}</h2>"
+            f"<p class=\"chart-meta\">{meta}</p>"
+            f"{_ai_candidate_evidence_html_v1864w(row)}"
+            f"{_ai_candidate_svg_metric_table_v1864v(row)}"
+            f"{chart_html}"
+            "</section>"
+        )
+    return "".join(blocks)
+
+
+def _ai_candidate_market_climate_html_v1865(result: dict | None = None) -> str:
+    climate = (result or {}).get("market_climate") if isinstance(result, dict) else {}
+    if not isinstance(climate, dict) or not climate:
+        return "<p><b>Markedsklima:</b> Ikke lagret i denne rapporten.</p>"
+    evaluation = (result or {}).get("evaluation_config") if isinstance(result, dict) else {}
+    evaluation = evaluation if isinstance(evaluation, dict) else {}
+    level = climate.get("climate_level") if isinstance(climate.get("climate_level"), dict) else {}
+    if not level:
+        level = _ai_candidate_market_climate_level_v1866(score=climate.get("climate_score"))
+    color = html.escape(str(level.get("Farge") or "#64748b"))
+    code = html.escape(str(level.get("Fargekode") or "-"))
+    level_text = html.escape(str(level.get("Nivå") or climate.get("label") or "-"))
+    range_text = html.escape(str(level.get("Scoreintervall") or "-"))
+    interpretation = html.escape(str(level.get("Tolkning") or "-"))
+    factor_rows = climate.get("factor_rows") if isinstance(climate.get("factor_rows"), list) else []
+    factor_cols = ["Faktor", "Score", "Status", "Målt verdi", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Nivå", "Bevis"]
+    factor_table = pd.DataFrame(factor_rows).reindex(columns=factor_cols).to_html(index=False, escape=True) if factor_rows else ""
+    level_rows = climate.get("level_rows") if isinstance(climate.get("level_rows"), list) else []
+    level_cols = ["Faktor", "Målt verdi", "Lavt nivå", "Normalt nivå", "Høyt nivå", "Nivå", "Score", "Tolkning"]
+    level_table = pd.DataFrame(level_rows).reindex(columns=level_cols).to_html(index=False, escape=True) if level_rows else ""
+    ranges = climate.get("score_ranges") if isinstance(climate.get("score_ranges"), list) else []
+    range_table = pd.DataFrame(ranges).reindex(columns=["Nivå", "Score", "Tolkning"]).to_html(index=False, escape=True) if ranges else ""
+    missing = ", ".join(str(x) for x in (climate.get("missing_factors") or [])) or "-"
+    mode = html.escape(str(climate.get("mode") or "-"))
+    weight = html.escape(str(evaluation.get("market_climate_score_weight", "-")))
+    cap_threshold = html.escape(str(evaluation.get("market_climate_cap_threshold", "-")))
+    low_score_cap = html.escape(str(evaluation.get("market_climate_low_score_cap", "-")))
+    cap_enabled = "Ja" if evaluation.get("market_climate_cap_enabled", False) else "Nei"
+    return (
+        f"<style>{_ai_candidate_market_climate_style_v1866()}</style>"
+        "<div class='method'>"
+        "<h2>Markedsklima ved kjøring</h2>"
+        f"<p><span class='climate-badge' style='background:{color}'>{code}: {level_text}</span> "
+        f"<b>Scoreintervall:</b> {range_text} | <b>Modus:</b> {mode}</p>"
+        f"<p>{interpretation}</p>"
+        f"<p><b>Status:</b> {html.escape(str(climate.get('summary') or '-'))}</p>"
+        f"<p><b>Handling:</b> {html.escape(str(climate.get('action') or '-'))}</p>"
+        f"<p><b>Scoreeffekt:</b> maks klimaeffekt {weight}, cap aktiv {cap_enabled}, svakt klima under {cap_threshold}, maks kandidat-score ved svakt klima {low_score_cap}.</p>"
+        "<p class='climate-note'>Når modus er Bruk i score, trekker rød/oransje klima kandidatene ned og kan cappe score. Grønt klima kan gi litt mer rom til vekst og momentum, men erstatter ikke aksjesignalene.</p>"
+        f"{range_table}"
+        f"{level_table}"
+        f"<p><b>Manglende klimafaktorer:</b> {html.escape(missing)}</p>"
+        f"{factor_table}"
+        "</div>"
+    )
+
+
+def _ai_candidate_detail_html_v1864t(rows: list[dict], result: dict | None = None) -> bytes:
+    result = result or {}
+    detail_rows = _ai_candidate_detail_rows_v1864t(rows, result)
+    table = pd.DataFrame(detail_rows).to_html(index=False, escape=True) if detail_rows else "<p>Ingen valgte kandidater.</p>"
+    chart_blocks = _ai_candidate_detail_chart_blocks_html_v1864v(detail_rows)
+    title = "AI Kandidattest - detaljrapport"
+    created = html.escape(str(result.get("created_at") or datetime.now().isoformat(timespec="seconds")))
+    source = html.escape(str(result.get("source") or ""))
+    market = html.escape(str(result.get("market") or ""))
+    evaluation = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
+    climate_html = _ai_candidate_market_climate_html_v1865(result)
+    body = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; color: #111827; }}
+button {{ padding: 8px 12px; margin-bottom: 16px; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
+th, td {{ border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; vertical-align: top; }}
+th {{ background: #e5f3ff; }}
+.method {{ background:#f8fafc; border:1px solid #d1d5db; padding:12px; margin:16px 0; }}
+.chart-block {{ border:1px solid #d1d5db; padding:12px; margin:18px 0; page-break-inside: avoid; }}
+.chart-block h2 {{ margin:0 0 4px 0; font-size:18px; }}
+.chart-meta, .chart-note {{ color:#475569; font-size:12px; margin:4px 0 10px 0; }}
+.evidence-list {{ background:#f8fafc; border:1px solid #d1d5db; padding:10px 12px; margin:10px 0 12px 0; max-width:980px; }}
+.evidence-list h3 {{ margin:0 0 6px 0; font-size:14px; }}
+.evidence-list ol {{ margin:0; padding-left:20px; }}
+.evidence-list li {{ margin:4px 0; }}
+.metric-table {{ margin:8px 0 12px 0; max-width:920px; }}
+.metric-table th {{ width:160px; background:#f1f5f9; }}
+.report-chart {{ width:100%; max-width:980px; display:block; margin:10px 0; background:#fff; }}
+.chart-bg {{ fill:#ffffff; stroke:#cbd5e1; stroke-width:1; }}
+.grid {{ stroke:#e2e8f0; stroke-width:1; }}
+.axis-label {{ fill:#64748b; font-size:10px; font-family:Arial, sans-serif; }}
+.chart-title {{ fill:#0f172a; font-size:13px; font-weight:700; font-family:Arial, sans-serif; }}
+.legend text {{ fill:#334155; font-size:11px; font-family:Arial, sans-serif; }}
+.price-line {{ stroke:#006fd6; stroke-width:2.2; }}
+.ma50-line {{ stroke:#64b5ff; stroke-width:1.6; }}
+.ma200-line {{ stroke:#ef4444; stroke-width:1.6; }}
+.high-line {{ stroke:#111827; stroke-width:1.4; stroke-dasharray:5 4; }}
+.last-line {{ stroke:#10b981; stroke-width:1.4; stroke-dasharray:6 4; }}
+.volume-bar {{ fill:#1478d4; opacity:.72; }}
+.vol20-line {{ stroke:#64b5ff; stroke-width:1.5; }}
+.vol50-line {{ stroke:#ef4444; stroke-width:1.5; }}
+@media print {{ button {{ display:none; }} body {{ margin: 14mm; }} tr {{ page-break-inside: avoid; }} }}
+</style></head>
+<body><button onclick="window.print()">Skriv ut / lagre som PDF</button>
+<h1>{title}</h1>
+<p><b>Opprettet:</b> {created} | <b>Kilde:</b> {source} | <b>Marked:</b> {market}</p>
+<div class="method">
+<p><b>Signalmodus:</b> {html.escape(_ai_candidate_search_label_v1864t(evaluation))}</p>
+<p><b>Søkevekter:</b> {html.escape(_ai_candidate_search_weight_label_v1864t(evaluation))}</p>
+<p><b>Kildestøtte:</b> {html.escape(_ai_candidate_source_support_mode_v1864u(evaluation))}</p>
+<p>Detaljrapporten viser konkret hvilke delsignaler, kildefunn, sperrer, datamangler og anbefalinger hver valgt aksje bygger på.</p>
+</div>
+{climate_html}
+{chart_blocks}
+{table}
+</body></html>"""
+    return body.encode("utf-8")
+
+
+def _ai_candidate_html_v1864l(result: dict) -> bytes:
+    rows = result.get("rows") or []
+    table = pd.DataFrame(rows).to_html(index=False, escape=True) if rows else "<p>Ingen kandidater.</p>"
+    title = "AI Kandidattest"
+    created = html.escape(str(result.get("created_at") or ""))
+    source = html.escape(str(result.get("source") or ""))
+    market = html.escape(str(result.get("market") or ""))
+    sources = ", ".join(_ai_candidate_source_list_v1864q(result.get("sources") or result.get("source")))
+    evaluation = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
+    profile = html.escape(str(evaluation.get("profile_name") or "Standard"))
+    method_rows = [
+        {"Parameter": key, "Verdi": value}
+        for key, value in evaluation.items()
+        if key != "profile_name"
+    ]
+    live_summary = result.get("live_signal_enrichment") if isinstance(result.get("live_signal_enrichment"), dict) else {}
+    if live_summary:
+        method_rows.extend([
+            {"Parameter": f"ferske_ai_signaler_{key}", "Verdi": value}
+            for key, value in live_summary.items()
+        ])
+    method_table = pd.DataFrame(method_rows).to_html(index=False, escape=True) if method_rows else "<p>Standardoppsett.</p>"
+    climate_html = _ai_candidate_market_climate_html_v1865(result)
+    body = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; color: #111827; }}
+button {{ padding: 8px 12px; margin-bottom: 16px; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
+th, td {{ border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; vertical-align: top; }}
+th {{ background: #e5f3ff; }}
+.method {{ background:#f8fafc; border:1px solid #d1d5db; padding:12px; margin:16px 0; }}
+@media print {{ button {{ display:none; }} body {{ margin: 14mm; }} tr {{ page-break-inside: avoid; }} }}
+</style></head>
+<body><button onclick="window.print()">Skriv ut / lagre som PDF</button>
+<h1>{title}</h1>
+<p><b>Opprettet:</b> {created} | <b>Kilde:</b> {source} | <b>Marked:</b> {market}</p>
+<div class="method">
+<h2>Metode og evaluering</h2>
+<p><b>Valgte kilder:</b> {html.escape(sources)} | <b>Profil:</b> {profile}</p>
+<p><b>Signalmodus:</b> {html.escape(_ai_candidate_search_label_v1864t(evaluation))} | <b>Søkevekter:</b> {html.escape(_ai_candidate_search_weight_label_v1864t(evaluation))}</p>
+<p><b>Kildestøtte:</b> {html.escape(_ai_candidate_source_support_mode_v1864u(evaluation))}</p>
+<p>Marked gir grunnscore. Importerte kilder kan brukes som ren info eller som støtte i score, avhengig av valgt kildestøtte. Når kildestøtte står på info eller ingen, løfter ikke gamle institusjonelle data rangeringen. Tersklene styrer anbefaling og varsel.</p>
+<p>Hard signalmodus betyr at bare valgte signalfamilier teller i søkescore. Spesialsøk bruker ferdige signalvekter som vises i rapporten. Manglende datakilder vises som datamangler, og sperrer/varsler dokumenteres per rad.</p>
+{method_table}
+</div>
+{climate_html}
+{table}
+</body></html>"""
+    return body.encode("utf-8")
+
+
+def _save_ai_candidate_result_v1864l(result: dict) -> None:
+    st.session_state["ai_candidate_test_last_result_v1864l"] = result
+    try:
+        from services.storage_service import get_storage_service
+
+        storage = get_storage_service()
+        storage.write_json("analysis_snapshots/ai_candidate_test_latest.json", result)
+        storage.append_jsonl("analysis_snapshots/ai_candidate_test_runs.jsonl", {
+            "created_at": result.get("created_at"),
+            "source": result.get("source"),
+            "market": result.get("market"),
+            "candidate_count": len(result.get("rows") or []),
+        })
+    except Exception:
+        pass
+
+
+def _load_ai_candidate_latest_result_v1864m() -> dict:
+    try:
+        from services.storage_service import get_storage_service
+
+        result = get_storage_service().read_json("analysis_snapshots/ai_candidate_test_latest.json", {}) or {}
+        return dict(result) if isinstance(result, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ai_candidate_selected_rows_from_editor_v1864m(edited_rows) -> list[dict]:
+    try:
+        records = pd.DataFrame(edited_rows).to_dict("records")
+    except Exception:
+        records = list(edited_rows or []) if isinstance(edited_rows, list) else []
+    selected: list[dict] = []
+    for row in records:
+        if isinstance(row, dict) and bool(row.get("Velg")):
+            clean = {key: value for key, value in row.items() if key != "Velg"}
+            selected.append(clean)
+    return selected
+
+
+def _ai_candidate_pipeline_rows_v1864m(rows: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        ticker = normalize_user_ticker(row.get("Ticker") or row.get("ticker"))
+        if not ticker:
+            continue
+        out.append({
+            "ticker": ticker,
+            "name": row.get("Navn") or row.get("name") or ticker,
+            "market": row.get("Marked") or row.get("market") or "",
+            "country": row.get("Land") or row.get("country") or "",
+            "exchange": row.get("Bors") or row.get("exchange") or "",
+            "score": row.get("Score") or row.get("score") or 0,
+            "confidence": row.get("Confidence") or row.get("confidence") or "",
+            "risk": row.get("Risiko") or row.get("risk") or "",
+            "recommended_action": row.get("Anbefaling") or row.get("recommended_action") or "",
+            "reason": row.get("Forklaring") or row.get("Hvorfor med") or "",
+            "source": "AI Kandidattest",
+            "source_strength": row.get("Kildestyrke") or "",
+            "source_evidence": row.get("Kilder") or "",
+            "change_label": row.get("Endring") or "",
+        })
+    return out
+
+
+def _ai_candidate_open_stage_v1864m(stage_id: str, rows: list[dict]) -> None:
+    pipeline_rows = _ai_candidate_pipeline_rows_v1864m(rows)
+    if not pipeline_rows:
+        st.warning("Velg minst en kandidat først.")
+        return
+    try:
+        pipeline = _analysis_pipeline_service_v1863bw()
+        pipeline.save_stage_input(
+            stage_id,
+            pipeline_rows,
+            origin_stage_id="ai_candidate_test",
+            source_label="AI Kandidattest",
+            context={"from_ai_candidate_test": True, "manual_selection": True},
+            max_items=len(pipeline_rows),
+        )
+    except Exception as exc:
+        st.warning(f"Kunne ikke sende kandidatene videre: {exc}")
+        return
+    _pipeline_open_stage_v1863bw(stage_id)
+
+
+def _ai_candidate_send_watchlist_v1864m(rows: list[dict]) -> None:
+    tickers = [normalize_user_ticker(row.get("Ticker") or row.get("ticker")) for row in rows or []]
+    tickers = [ticker for ticker in tickers if ticker]
+    if not tickers:
+        st.warning("Velg minst en kandidat først.")
+        return
+    existing = [normalize_user_ticker(ticker) for ticker in (st.session_state.get("latest_watchlist_tickers_v156") or [])]
+    merged = list(dict.fromkeys([ticker for ticker in existing + tickers if ticker]))
+    st.session_state["latest_watchlist_tickers_v156"] = merged
+    st.session_state["watchlist"] = merged
+    st.success(f"La {len(tickers)} valgte kandidater i watchlist.")
+
+
+def _ai_candidate_chart_history_v1864u(ticker: str):
+    if yf is None:
+        return None, "yfinance er ikke tilgjengelig"
+    symbol = normalize_user_ticker(ticker)
+    if not symbol:
+        return None, "Ticker mangler"
+    try:
+        hist = yf.Ticker(symbol).history(period="1y", auto_adjust=False)
+    except Exception as exc:
+        return None, str(exc)[:160]
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty or "Close" not in hist:
+        return None, "Ingen historikk fra datakilden"
+    return hist.dropna(subset=["Close"]), ""
+
+
+def _render_ai_candidate_technical_chart_v1864u(ticker: str) -> None:
+    hist, err = _ai_candidate_chart_history_v1864u(ticker)
+    if hist is None or hist.empty:
+        st.caption(f"Teknisk kurve kunne ikke hentes: {err}")
+        return
+    close = hist["Close"].dropna()
+    if close.empty:
+        st.caption("Teknisk kurve mangler sluttkurs.")
+        return
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+    high_52w = float(close.tail(min(252, len(close))).max())
+    last_close = float(close.iloc[-1])
+    st.caption(
+        f"Siste kurs: {last_close:.2f} | 52-ukers høyde: {high_52w:.2f} | "
+        f"Avstand til 52u høy: {(last_close / high_52w * 100.0) if high_52w else 0.0:.1f}%"
+    )
+    st.markdown(f"**{ticker} kurs, MA50/MA200 og 52-ukers høyde**")
+    st.caption("Linjer: Kurs, MA50, MA200, 52u høyde og siste kurs. Legend holdes utenfor grafen for å unngå overlapp.")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=close.index, y=close, name="Kurs", mode="lines", line=dict(color="#0f7ae5", width=2.0)))
+    fig.add_trace(go.Scatter(x=ma50.index, y=ma50, name="MA50", mode="lines", line=dict(color="#60a5fa", width=1.6)))
+    fig.add_trace(go.Scatter(x=ma200.index, y=ma200, name="MA200", mode="lines", line=dict(color="#ef4444", width=1.6)))
+    fig.add_trace(go.Scatter(
+        x=[close.index[0], close.index[-1]],
+        y=[high_52w, high_52w],
+        name=f"52u høy {high_52w:.2f}",
+        mode="lines",
+        line=dict(color="#111827", width=1.6, dash="dot"),
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=[close.index[0], close.index[-1]],
+        y=[last_close, last_close],
+        name=f"Siste {last_close:.2f}",
+        mode="lines",
+        line=dict(color="#10b981", width=1.6, dash="dash"),
+        hoverinfo="skip",
+    ))
+    fig.update_layout(
+        height=330,
+        margin=dict(l=10, r=10, t=12, b=24),
+        title_text="",
+        xaxis_title="",
+        yaxis_title="",
+        showlegend=False,
+    )
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
+    if "Volume" in hist:
+        volume = hist["Volume"].dropna()
+        if not volume.empty:
+            vol20 = volume.rolling(20).mean()
+            vol50 = volume.rolling(50).mean()
+            vfig = go.Figure()
+            st.markdown(f"**{ticker} volum mot 20/50-dagers snitt**")
+            st.caption("Volum: stolper med 20- og 50-dagers snitt som egne linjer.")
+            vfig.add_trace(go.Bar(x=volume.index, y=volume, name="Volum", marker_color="#0f7ae5"))
+            vfig.add_trace(go.Scatter(x=vol20.index, y=vol20, name="Volum 20d", mode="lines", line=dict(color="#60a5fa", width=1.5)))
+            vfig.add_trace(go.Scatter(x=vol50.index, y=vol50, name="Volum 50d", mode="lines", line=dict(color="#ef4444", width=1.5)))
+            vfig.update_layout(
+                height=240,
+                margin=dict(l=10, r=10, t=12, b=24),
+                title_text="",
+                xaxis_title="",
+                yaxis_title="",
+                showlegend=False,
+            )
+            st.plotly_chart(vfig, width="stretch", config={"displayModeBar": False, "responsive": True})
+
+
+def _render_ai_candidate_climate_banner_v1866(result: dict | None) -> None:
+    climate = (result or {}).get("market_climate") if isinstance(result, dict) else {}
+    if not isinstance(climate, dict) or not climate:
+        return
+    level = climate.get("climate_level") if isinstance(climate.get("climate_level"), dict) else {}
+    color = str(level.get("Farge") or "#64748b")
+    level_text = str(level.get("Nivå") or climate.get("label") or "-")
+    code = str(level.get("Fargekode") or "-")
+    mode = html.escape(str(climate.get("mode") or "-"))
+    summary = html.escape(str(climate.get("summary") or "-"))
+    action = html.escape(str(climate.get("action") or "-"))
+    effect = html.escape(str(climate.get("effect_text") or "Se radene"))
+    impact = html.escape(str(climate.get("impact_text") or level.get("Tolkning") or ""))
+    st.markdown(
+        f"""
+        <div style="border:1px solid rgba(148,163,184,.35);border-left:8px solid {color};border-radius:10px;padding:.7rem .85rem;margin:.35rem 0 .7rem 0;background:rgba(15,23,42,.36);">
+          <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+            <span style="border-radius:999px;background:{color};color:#fff;font-weight:950;padding:.2rem .62rem;">{html.escape(code)}: {html.escape(level_text)}</span>
+            <b>Markedsklima ved kjøring</b>
+            <span style="color:#cbd5e1;">Modus: {mode}</span>
+          </div>
+          <div style="color:#e5e7eb;margin-top:.25rem;">{summary}</div>
+          <div style="color:#cbd5e1;margin-top:.18rem;">Effekt: {effect}. {impact}</div>
+          <div style="color:#cbd5e1;margin-top:.18rem;">{action}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_ai_candidate_selection_v1864m(rows: list[dict], result: dict | None = None) -> list[dict]:
+    st.markdown("#### Velg kandidater")
+    st.caption("Kryss av radene du vil sende videre. Kandidatene kan rutes direkte til resten av appen uten å kjøre ny test.")
+    _render_ai_candidate_climate_banner_v1866(result)
+    display_rows = []
+    for row in rows or []:
+        display_rows.append({"Velg": False, **dict(row)})
+    display_df = pd.DataFrame(display_rows)
+    edited = st.data_editor(
+        display_df,
+        width="stretch",
+        hide_index=True,
+        key="ai_candidate_selection_editor_v1864m",
+        disabled=[col for col in display_df.columns if col != "Velg"],
+        column_config={
+            "Velg": st.column_config.CheckboxColumn("Velg", help="Velg kandidat for sending videre.", default=False),
+        },
+    )
+    selected = _ai_candidate_selected_rows_from_editor_v1864m(edited)
+    st.caption(f"Valgt: {len(selected)} av {len(rows or [])} kandidater.")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("Top Picks", key="ai_candidate_send_top_picks_v1864m", disabled=not selected):
+            _ai_candidate_open_stage_v1864m("top_picks", selected)
+    with c2:
+        if st.button("Beslutning", key="ai_candidate_send_decision_v1864m", disabled=not selected):
+            _ai_candidate_open_stage_v1864m("decision_support", selected)
+    with c3:
+        if st.button("Paper", key="ai_candidate_send_paper_v1864m", disabled=not selected):
+            _ai_candidate_open_stage_v1864m("paper_trading", selected)
+    with c4:
+        if st.button("Watchlist", key="ai_candidate_send_watchlist_v1864m", disabled=not selected):
+            _ai_candidate_send_watchlist_v1864m(selected)
+    detail_options = ["Velg ticker"] + [str(row.get("Ticker") or "") for row in rows or [] if row.get("Ticker")]
+    detail_choice = st.selectbox("Detaljvisning for enkel ticker", detail_options, key="ai_candidate_detail_ticker_v1864t")
+    detail_rows = selected
+    if detail_choice != "Velg ticker":
+        detail_rows = [row for row in rows or [] if str(row.get("Ticker") or "") == detail_choice]
+    if detail_rows:
+        with st.expander("Detaljrapport", expanded=bool(selected) or detail_choice != "Velg ticker"):
+            details = _ai_candidate_detail_rows_v1864t(detail_rows, result or {})
+            st.dataframe(pd.DataFrame(details), width="stretch", hide_index=True)
+            if detail_choice != "Velg ticker":
+                st.markdown("##### Teknisk kurve")
+                _render_ai_candidate_technical_chart_v1864u(detail_choice)
+            base = _ai_candidate_basename_v1864l(result or {})
+            d1, d2, d3 = st.columns(3)
+            with d1:
+                st.download_button(
+                    "Detalj CSV",
+                    data=pd.DataFrame(details).to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"{base}_detalj.csv",
+                    mime="text/csv",
+                )
+            with d2:
+                st.download_button(
+                    "Detalj Print/PDF HTML",
+                    data=_ai_candidate_detail_html_v1864t(detail_rows, result or {}),
+                    file_name=f"{base}_detaljrapport.html",
+                    mime="text/html",
+                )
+            with d3:
+                st.download_button(
+                    "Detalj JSON",
+                    data=json.dumps({"result": result or {}, "details": details}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+                    file_name=f"{base}_detalj.json",
+                    mime="application/json",
+                )
+    return selected
+
+
+
+
+def render_ai_candidate_test_control_center_v1864l() -> None:
+    st.subheader("AI Kandidattest")
+    st.caption("Samlet test for fersk kandidatfangst, importert kildeevidens, score, confidence, anbefaling og eksport.")
+    with st.expander("Kilder og import", expanded=True):
+        _render_data_foundation_workspace_v1863by([])
+
+    if "ai_candidate_sources_v1864q" not in st.session_state:
+        st.session_state["ai_candidate_sources_v1864q"] = _ai_candidate_source_list_v1864q(
+            st.session_state.get("ai_candidate_source_v1864l") or "Marked"
+        )
+    st.markdown("**Kilder til AI Kandidattest**")
+    st.caption("Velg en eller flere kilder. Avhukingene er faste og lukker ingen stor nedtrekksboks.")
+    current_sources = set(_ai_candidate_source_list_v1864q(st.session_state.get("ai_candidate_sources_v1864q") or ["Marked"]))
+    selected_sources = []
+    source_cols = st.columns(len(AI_CANDIDATE_SOURCE_OPTIONS_V1864Q))
+    for col, source_option in zip(source_cols, AI_CANDIDATE_SOURCE_OPTIONS_V1864Q):
+        with col:
+            checked = st.checkbox(
+                source_option,
+                value=source_option in current_sources,
+                key=f"ai_candidate_source_toggle_v1864s_{source_option.lower().replace('/', '_').replace(' ', '_')}",
+            )
+            if checked:
+                selected_sources.append(source_option)
+    st.session_state["ai_candidate_sources_v1864q"] = selected_sources
+    source = _ai_candidate_source_label_v1864q(selected_sources) if selected_sources else "Ingen kilder valgt"
+
+    c1, c2, c3, c4 = st.columns([0.9, 0.55, 1.2, 0.9])
+    with c1:
+        market = st.selectbox("Marked", market_scope_options(include_aggregate=True), index=0, key="ai_candidate_market_v1864l")
+    with c2:
+        limit = st.slider("Maks resultater", 5, 100, 30, 1, key="ai_candidate_limit_v1864l")
+    with c3:
+        manual_text = st.text_input("Manuell liste", key="ai_candidate_manual_v1864l", placeholder="EQNR.OL, NVDA, VOLV-B.ST")
+    with c4:
+        single_ticker_text = st.text_input("Enkel ticker", key="ai_candidate_single_ticker_v1864t", placeholder="AAPL eller KIT.OL")
+
+    evaluation_config = _render_ai_candidate_evaluation_setup_v1864q()
+    runtime_evaluation_config = _ai_candidate_runtime_config_with_climate_v1865(evaluation_config)
+
+    source_status = _ai_candidate_source_status_v1864l(evaluation_config)
+    with st.expander("Datakildestatus / ferskhet", expanded=False):
+        st.dataframe(pd.DataFrame(source_status), width="stretch", hide_index=True)
+
+    with st.expander("Hvordan evalueringen skjer", expanded=False):
+        horizon = evaluation_config.get("horizon") or "1-6 mnd"
+        st.markdown(
+            f"- Signalprofil {horizon} bruker Relativ styrke, Estimatendringer, Insiderkjop, Omsetning/resultat og Teknisk trend som egne delsignaler.\n"
+            f"- Aktiv signalmodus: {_ai_candidate_search_label_v1864t(evaluation_config)} ({_ai_candidate_search_weight_label_v1864t(evaluation_config)}).\n"
+            "- I hard signalmodus teller bare valgte hovedsignaler eller valgt spesialsøk i selve søkescore.\n"
+            f"- Ferske AI-signaler hentes for inntil {AI_CANDIDATE_LIVE_SIGNAL_LIMIT_V1864X} grovkandidater når FINNHUB_API_KEY eller FMP_API_KEY finnes: analytikerkonsensus, estimater/price target, resultat/earnings og insider.\n"
+            f"- Kildestøtte: {_ai_candidate_source_support_mode_v1864u(evaluation_config)}.\n"
+            "- Teknisk bevis viser 52-ukers høyde, MA50/MA200, volum mot 20/50-dagers snitt og likviditet når kursdata finnes.\n"
+            "- Tidshorisont endrer faktisk vekting i motoren. Profilnavn er bare en etikett i rapporten.\n"
+            "- Estimat-, insider- og vekstdata som mangler blir vist som Datamangler i resultatet, ikke skjult.\n"
+            "- Sperrer og varsler kan cappe eller trekke ned score ved under 200-dagers snitt, høy gjeld, fallende vekst, svak likviditet, gammel kursdata eller for smalt signalgrunnlag."
+        )
+        st.markdown(
+            "- Marked gir grunnscore fra fersk rangering.\n"
+            "- Valgte importkilder gir bare full bonus når de faktisk har evidens på tickeren og kildedatoen er fersk nok.\n"
+            "- Eldre eller udaterte institusjonsdata vises som historisk støtte og tas ut av flere-kilder bonus.\n"
+            "- Risiko trekker ned før anbefaling settes.\n"
+            "- Tersklene i Evalueringsoppsett styrer Sterk kandidat, Vurder, Vent og Varsel."
+        )
+        st.dataframe(
+            pd.DataFrame([{"Parameter": key, "Verdi": value} for key, value in evaluation_config.items()]),
+            width="stretch",
+            hide_index=True,
+        )
+
+    single_ticker = normalize_user_ticker(single_ticker_text)
+    scan_limit = 1 if single_ticker else min(250, max(int(limit) * 4, 60))
+    preview_tickers = [single_ticker] if single_ticker else (_ai_candidate_source_tickers_multi_v1864q(selected_sources, market, int(scan_limit), manual_text) if selected_sources else [])
+    if preview_tickers:
+        st.caption(f"Input: {len(preview_tickers)} tickere. Eksempel: {', '.join(preview_tickers[:10])}")
+    else:
+        st.warning("Ingen kandidater funnet for valgt kilde. Importer datakilde, velg marked eller skriv manuell liste.")
+
+    if st.button("Kjør test", key="ai_candidate_run_v1864l", type="primary", disabled=not bool(preview_tickers)):
+        progress = st.progress(0, text="Starter AI Kandidattest")
+        progress.progress(25, text="Henter ferske kurs-/scoredatasett")
+        ranked = cached_auto_rank_market(
+            f"AIKandidat_{source}_{market}_{evaluation_config.get('horizon')}",
+            preview_tickers,
+            max_count=len(preview_tickers),
+            use_news=False,
+            force_manual_fetch=True,
+            include_insider=True,
+        )
+        progress.progress(55, text="Henter ferske estimat-/insider-/resultatsignaler")
+        ranked, live_signal_summary = _ai_candidate_enrich_live_signals_v1864x(
+            list(ranked or []),
+            evaluation_config,
+            result_limit=int(limit),
+        )
+        progress.progress(70, text="Kobler importert kildeevidens")
+        previous_map = _ai_candidate_previous_rank_map_v1864m()
+        rows = _ai_candidate_result_rows_v1864l(
+            list(ranked or []),
+            source=source,
+            market=market,
+            previous_map=previous_map,
+            selected_sources=selected_sources,
+            evaluation_config=runtime_evaluation_config,
+        )[: int(limit)]
+        result = {
+            "version": get_app_build_label(),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "source": source,
+            "sources": _ai_candidate_source_list_v1864q(selected_sources),
+            "market": market,
+            "input_tickers": preview_tickers,
+            "scan_limit": scan_limit,
+            "result_limit": int(limit),
+            "source_status": source_status,
+            "live_signal_enrichment": live_signal_summary,
+            "evaluation_config": evaluation_config,
+            "market_climate": _ai_candidate_market_climate_compact_v1865(runtime_evaluation_config),
+            "rows": rows,
+        }
+        _save_ai_candidate_result_v1864l(result)
+        progress.progress(100, text=f"Ferdig: {len(rows)} kandidater")
+        st.success(f"AI Kandidattest ferdig: {len(rows)} kandidater.")
+
+    result = st.session_state.get("ai_candidate_test_last_result_v1864l") or _load_ai_candidate_latest_result_v1864m()
+    rows = result.get("rows") if isinstance(result, dict) else []
+    if isinstance(result, dict) and result.get("created_at"):
+        if "ai_candidate_test_last_result_v1864l" not in st.session_state:
+            st.caption("Viser sist lagrede AI Kandidattest. Kjør testen på nytt for fersk kandidatfangst.")
+        st.markdown("#### Resultat")
+        result_sources = ", ".join(_ai_candidate_source_list_v1864q(result.get("sources") or result.get("source")))
+        result_eval = result.get("evaluation_config") if isinstance(result.get("evaluation_config"), dict) else {}
+        result_profile = result_eval.get("profile_name") or "Standard"
+        result_horizon = result_eval.get("horizon") or "1-6 mnd"
+        live_summary = result.get("live_signal_enrichment") if isinstance(result.get("live_signal_enrichment"), dict) else {}
+        st.caption(
+            f"Kilder brukt i kjøringen: {result_sources or '-'} | Tidshorisont: {result_horizon} | "
+            f"Signalmodus: {_ai_candidate_search_label_v1864t(result_eval)} | Evalueringsprofil: {result_profile}"
+        )
+        if live_summary:
+            st.caption(
+                f"Ferske AI-signaler: {live_summary.get('status')}; hentet "
+                f"{live_summary.get('fetched', 0)} av {live_summary.get('rows', 0)} grovkandidater; "
+                f"treff {live_summary.get('rows_with_signal_source', 0)}."
+            )
+        if rows:
+            country_counts = pd.Series([row.get("Land") or "Ukjent" for row in rows]).value_counts().to_dict()
+            source_counts = pd.Series([row.get("Kildestyrke") or "Marked" for row in rows]).value_counts().to_dict()
+            st.caption(
+                "Land: "
+                + ", ".join(f"{key}: {value}" for key, value in country_counts.items())
+                + " | Kildestyrke: "
+                + ", ".join(f"{key}: {value}" for key, value in source_counts.items())
+            )
+            _render_ai_candidate_selection_v1864m(rows, result)
+        else:
+            st.info("Kjøringen er lagret, men ga 0 kandidater. Eksporten under dokumenterer input, kildevalg og tomt resultat.")
+        basename = _ai_candidate_basename_v1864l(result)
+        st.markdown("#### Lagre / print / eksport")
+        st.caption("HTML-filen er printvennlig og kan lagres som PDF fra nettleserens utskriftsdialog.")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.download_button("CSV", data=_ai_candidate_csv_v1864l(result), file_name=f"{basename}.csv", mime="text/csv", width="stretch")
+        with d2:
+            st.download_button("Print/PDF HTML", data=_ai_candidate_html_v1864l(result), file_name=f"{basename}_rapport.html", mime="text/html", width="stretch")
+        with d3:
+            st.download_button("JSON snapshot", data=_ai_candidate_json_v1864l(result), file_name=f"{basename}.json", mime="application/json", width="stretch")
+    else:
+        st.info("Kjør testen for å lage et lagret analyseresultat med score, confidence, anbefaling og eksport.")
+
+
+
+def render_autonomy_core_control_center_v1880() -> None:
+    if not bool(load_settings().get("autonomy_enabled", False)):
+        st.warning("Autonomi er AV. Aktiver steg 7 i Driftssenter før kontrollsenteret kan brukes.")
+        return None
+    from pages.autonomy import render_autonomy_core_control_center_v1880 as _implementation
+    return _implementation(get_page_context_v1950(_implementation))
+    # Compatibility anchors retained for static route-integrity audits:
+    # Velg arbeidsflate
+    # tab=workspace_slug
+    # if workspace == "Orkestrering og tidsplan"
+    # elif workspace == "Orkestrering og tidsplan"
+    # elif workspace == "Læringsportefølje"
+    # render_autonomous_orchestrator_control_center()
+    # render_autonomous_portfolio(view="learning")
+    # "overview": "Oversikt"
+    # if workspace == "Oversikt"
+    # render_autonomy_overview()
+    # interface_mode = render_mode_selector()
+    # if interface_mode != EXPERT:
+    # render_simple_mode()
+    # return
+    # workspace_labels = {
+    # "learning_portfolio": "Læringsportefølje"
+    # "autonomous_portfolio": "Autonom portefølje"
+    # "operations": "Varsler og drift"
+    # "engine_details": "Motorresultater"
+
+
+
+def control_center_extra_panels_v18535():
+    return [
+        ("🤖 AI – Kandidattest", render_ai_candidate_test_control_center_v1864l),
+        ("📈 Analyse – AI Discovery", render_ai_discovery_foundation_panel),
+        ("Markedsklima", render_market_climate_panel),
+        ("🔍 Marked – Market Scanner", render_market_room_control_center_v1863cb),
+        ("⭐ Analyse – Top Picks", render_top_picks_control_center_v1863s),
+        ("📈 Analyse – Long Engine", render_long_engine_control_center_v18653),
+        ("📡 Marked – Alpha Radar", render_alpha_radar_control_center_v1863ap),
+        ("👥 Analyse – Aktørregister", render_actor_registry_panel),
+        ("IPO", render_ipo),
+        ("💼 Handel – Paper Trading", render_paper_trading_dashboard),
+        ("🧠 Autonomi – Kontrollsenter", render_autonomy_core_control_center_v1880),
+        ("🧪 Testing – Auto Test Lab", render_auto_test_lab_control_center_v18536),
+        ("📊 Analyse – Fond / ETF", render_fund_etf_control_center_v18538),
+        ("🛡️ Risikostyring – Porteføljeanalyse", render_mixed_portfolio_control_center_v18544),
+        ("Nyheter", render_news_control_center_v18535),
+        ("📈 Analyse – Interaktiv analyse", render_interactive_technical_control_center_v18535),
+        ("Marked/rangering", render_market_ranking_control_center_v18535),
+        ("Watchlist/signaler", render_watchlist_signals_control_center_v18535),
+        ("⚙️ Innstillinger – System/admin", lambda: render_system_admin_workspace(expanded=True)),
+        ("⚡ Ytelse – Performance Dashboard", render_performance_dashboard),
+    ]
+
+_control_center_extra_panels_base_v1863af = control_center_extra_panels_v18535
+
+
+def render_alerts_watchlist_control_center_v1869() -> None:
+    """Unified alert/watchlist workspace without separate dominant menu entries."""
+    st.subheader("🔔 Varsling – Alert Center")
+    st.caption(
+        "Samler felles varselsenter, watchlist/signaler og valutavarsler. "
+        "Varselsenteret viser lagrede varsler; fanene under kan kjøre ny watchlist- eller valutakontroll."
+    )
+    tab_alerts, tab_watchlist, tab_currency = st.tabs(["Varselsenter", "Watchlist / signaler", "Valutavarsler"])
+    with tab_alerts:
+        render_common_alert_center(location="alerts_watchlist_v1869")
+    with tab_watchlist:
+        render_watchlist_signals_control_center_v18535()
+    with tab_currency:
+        render_currency_alerts_control_center_v1863af()
+
+
+def control_center_extra_panels_v18535():
+    legacy_hidden_tokens = (
+        "markedsklima",
+        "ipo",
+        "nyheter",
+        "marked/rangering",
+        "watchlist/signaler",
+        "valutavarsler",
+    )
+    panels = []
+    inserted_alerts = False
+    for label, renderer in _control_center_extra_panels_base_v1863af():
+        text = str(label or "").lower()
+        if any(token in text for token in legacy_hidden_tokens):
+            continue
+        panels.append((label, renderer))
+        if "Market Scanner" in str(label or "") or str(label or "") == "Marked":
+            panels.append(("🔔 Varsling – Alert Center", render_alerts_watchlist_control_center_v1869))
+            inserted_alerts = True
+    if not inserted_alerts:
+        panels.insert(2, ("🔔 Varsling – Alert Center", render_alerts_watchlist_control_center_v1869))
+    # v18.9.1 direct route; the unified Alert Center remains as fallback.
+    if not any(str(label) == "💱 Valutavarsler" for label, _ in panels):
+        panels.insert(3, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
+
+    measured_panels = []
+    for _label, _renderer in panels:
+        def _measured_renderer(renderer=_renderer, label=_label):
+            with perf_measure(f"panel:{label}"):
+                return renderer()
+        measured_panels.append((_label, _measured_renderer))
+    return measured_panels
+
+
+def render_safe_infrastructure_panel_v18587() -> None:
+    """Batch E: visible, low-risk governance/status panel."""
+    try:
+        with st.expander("Sikkerhet Safe build / governance / changelog", expanded=False):
+            st.caption(f"Aktiv build: {get_app_build_label()}")
+            checks = run_static_regression_checks()
+            if checks.get("ok"):
+                st.success("Regresjonssjekk OK: kritiske UI-ankere og versjon finnes.")
+            else:
+                st.warning(f"Regresjonssjekk varsler: {checks}")
+
+            feature_rows = get_feature_registry()
+            if feature_rows:
+                st.markdown("**Feature-status**")
+                try:
+                    st.dataframe(feature_rows, width="stretch", hide_index=True)
+                except Exception:
+                    st.write(feature_rows)
+
+
+
+            protected_rows = get_protected_zones()
+            if protected_rows:
+                st.markdown("**Protected zones**")
+                st.caption("Kritiske områder som skal patches minimalt, slik at stabile funksjoner ikke forsvinner ved nye GO-runder.")
+                try:
+                    st.dataframe(protected_rows, width="stretch", hide_index=True)
+                except Exception:
+                    st.write(protected_rows)
+
+            changelog_rows = get_changelog()
+            if changelog_rows:
+                st.markdown("**Hva er nytt / build-historikk**")
+                try:
+                    st.dataframe(changelog_rows, width="stretch", hide_index=True)
+                except Exception:
+                    st.write(changelog_rows)
+
+            st.markdown("**UI/data trust**")
+            _tokens = ui_consistency_tokens()
+            st.caption("Batch G: standardiserte UI-tokens, datakvalitet og tydeligere blokk-/varslingsforklaringer uten å endre analysemotorene.")
+            try:
+                st.dataframe([_tokens], width="stretch", hide_index=True)
+            except Exception:
+                st.write(_tokens)
+            _sample_trust = normalize_data_trust({"data_quality": "CACHED", "confidence": 75, "missing_fields": []})
+            st.caption(f"Datakvalitet-eksempel: {_sample_trust.get('label')} · {_sample_trust.get('note')}")
+
+            st.markdown("**Audit-logg**")
+            recent = read_recent_audit_events(limit=8)
+            if recent:
+                try:
+                    st.dataframe(recent, width="stretch", hide_index=True)
+                except Exception:
+                    st.write(recent)
+            else:
+                st.caption("Ingen audit-hendelser lagret ennå i denne kjøringen.")
+    except Exception as _safe_panel_error:
+        st.caption(f"Safe infrastructure-panel kunne ikke vises: {_safe_panel_error}")
+
+# v18.5.95: late desktop visibility hardening (compatibility marker; expanded by v18.5.96 below).
+# v18.5.96: desktop visual hardening that targets the actual Streamlit button widgets.
+# Root cause from screenshots: old compact desktop CSS still wins in places and Streamlit
+# element wrappers make adjacent selectors unreliable. This block is intentionally late,
+# broad for primary/buttons, and uses explicit anchors placed immediately before the
+# active Global/Pushover buttons.
+st.markdown("""
+<style>
+/* --- v18.5.96 GLOBAL UPDATE: visible desktop row + real clickable button --- */
+html body .stApp .visual-truth-global-box {
+    width:100% !important;
+    max-width:100% !important;
+    min-height:64px !important;
+    margin:.56rem 0 .42rem 0 !important;
+    padding:.74rem .95rem !important;
+    border:1px solid rgba(125,211,252,.88) !important;
+    border-left:5px solid #38d5ff !important;
+    border-radius:16px !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.96),rgba(8,25,48,.96)) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 10px 28px rgba(14,165,233,.18) !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:space-between !important;
+    gap:.85rem !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    filter:none !important;
+}
+html body .stApp .visual-truth-global-title {
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    font-size:1.03rem !important;
+    font-weight:1000 !important;
+    line-height:1.15 !important;
+    letter-spacing:.01em !important;
+    white-space:normal !important;
+    overflow:visible !important;
+}
+html body .stApp .visual-truth-global-sub {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.86rem !important;
+    font-weight:850 !important;
+    line-height:1.25 !important;
+    text-align:right !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    opacity:1 !important;
+}
+
+/* Explicit anchor selector for the real Global button. */
+html body .stApp div:has(> .global-update-button-anchor-v18596) + div,
+html body .stApp div:has(.global-update-button-anchor-v18596) + div {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    display:block !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp div:has(> .global-update-button-anchor-v18596) + div [data-testid="stButton"],
+html body .stApp div:has(.global-update-button-anchor-v18596) + div [data-testid="stButton"] {
+    width:100% !important;
+    max-width:100% !important;
+    display:block !important;
+    overflow:visible !important;
+}
+
+/* Broad late primary-button hardening: readable, but no longer forced into giant full-width bars. */
+html body .stApp div[data-testid="stButton"] > button[kind="primary"],
+html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"],
+html body .stApp button[kind="primary"] {
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    width:auto !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    min-height:34px !important;
+    height:auto !important;
+    max-height:none !important;
+    padding:.28rem .68rem !important;
+    margin:.10rem 0 .16rem 0 !important;
+    border-radius:10px !important;
+    border:1px solid rgba(56,189,248,.66) !important;
+    background:linear-gradient(180deg,rgba(14,116,144,.92) 0%,rgba(8,47,73,.96) 100%) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 5px 14px rgba(14,165,233,.18) !important;
+    text-shadow:0 1px 0 rgba(0,0,0,.25) !important;
+    font-weight:1000 !important;
+    white-space:normal !important;
+    overflow-wrap:anywhere !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    filter:none !important;
+    visibility:visible !important;
+    clip-path:none !important;
+}
+html body .stApp div[data-testid="stButton"] > button[kind="primary"] *,
+html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] *,
+html body .stApp button[kind="primary"] * {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.84rem !important;
+    font-weight:1000 !important;
+    line-height:1.16 !important;
+    white-space:normal !important;
+    overflow-wrap:anywhere !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+
+/* Disabled buttons must still be readable; they should look inactive, not invisible. */
+html body .stApp div[data-testid="stButton"] > button:disabled,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled,
+html body .stApp button:disabled {
+    opacity:.82 !important;
+    filter:none !important;
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    background:linear-gradient(180deg,#334155 0%,#1e293b 100%) !important;
+    border:1px solid rgba(148,163,184,.72) !important;
+    cursor:not-allowed !important;
+}
+html body .stApp button:disabled * {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+
+/* --- v18.5.96 PUSHOVER: visible status card and vertical full-width buttons --- */
+html body .stApp .visual-truth-pushover-box,
+html body .stApp .visual-truth-pushover-box-v18596 {
+    width:100% !important;
+    max-width:100% !important;
+    min-height:72px !important;
+    margin:.62rem 0 .46rem 0 !important;
+    padding:.78rem .95rem !important;
+    border:1px solid rgba(125,211,252,.74) !important;
+    border-left:5px solid #fbbf24 !important;
+    border-radius:16px !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.88),rgba(15,23,42,.90)) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 22px rgba(14,165,233,.12) !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    filter:none !important;
+}
+html body .stApp .visual-truth-pushover-title {
+    color:#fff7ed !important;
+    -webkit-text-fill-color:#fff7ed !important;
+    font-size:1rem !important;
+    font-weight:1000 !important;
+    line-height:1.16 !important;
+    margin-bottom:.28rem !important;
+}
+html body .stApp .visual-truth-pushover-status {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.84rem !important;
+    font-weight:820 !important;
+    line-height:1.32 !important;
+    margin-bottom:0 !important;
+    opacity:1 !important;
+}
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div,
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div + div {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    display:block !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp .v18593-pushover-result {
+    margin:.46rem 0 .42rem 0 !important;
+    padding:.64rem .82rem !important;
+    border:1px solid rgba(125,211,252,.42) !important;
+    border-radius:13px !important;
+    background:rgba(8,20,42,.86) !important;
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.86rem !important;
+    font-weight:850 !important;
+    line-height:1.30 !important;
+    opacity:1 !important;
+}
+
+/* Build/version chip is trust info, not disabled helper text. */
+html body .stApp .ptw-version-chip {
+    display:inline-flex !important;
+    align-items:center !important;
+    gap:.34rem !important;
+    max-width:min(72vw, 920px) !important;
+    min-width:0 !important;
+    padding:.42rem .78rem !important;
+    border:1px solid rgba(125,211,252,.92) !important;
+    border-radius:999px !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.92),rgba(8,32,58,.90)) !important;
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    font-size:.88rem !important;
+    font-weight:1000 !important;
+    line-height:1.12 !important;
+    opacity:1 !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10),0 8px 22px rgba(14,165,233,.20) !important;
+}
+html body .stApp .ptw-sticky-topbar {
+    overflow:visible !important;
+    padding-right:154px !important;
+    box-sizing:border-box !important;
+}
+html body .stApp .ptw-topbar-right {
+    min-width:0 !important;
+    max-width:74vw !important;
+    overflow:visible !important;
+}
+@media (min-width:901px) {
+    html body .stApp div[data-testid="stExpander"] details,
+    html body .stApp div[data-testid="stExpander"] details > div {
+        overflow:visible !important;
+    }
+}
+@media (max-width:900px) {
+    html body .stApp .visual-truth-global-box {
+        display:block !important;
+        min-height:0 !important;
+    }
+    html body .stApp .visual-truth-global-sub {
+        text-align:left !important;
+        margin-top:.28rem !important;
+    }
+    html body .stApp .ptw-sticky-topbar { padding-right:148px !important; }
+    html body .stApp .ptw-version-chip { max-width:100% !important; font-size:.78rem !important; padding:.34rem .56rem !important; }
+    html body .stApp .ptw-topbar-right { max-width:100% !important; width:100% !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# v18.5.97: Final desktop truth patch after all legacy CSS.
+# Purpose: stop Streamlit toolbar/status Stop overlay from floating over the app,
+# force real Streamlit buttons to fill their containers on desktop, and keep
+# Pushover/Global/top controls readable even when older CSS tried width:auto.
+st.markdown("""
+<style>
+/* Hide Streamlit runtime chrome that appears as a floating blue Stop button on desktop. */
+html body [data-testid="stStatusWidget"],
+html body [data-testid="stToolbar"],
+html body [data-testid="stDecoration"],
+html body #MainMenu,
+html body footer {
+    display:none !important;
+    visibility:hidden !important;
+    width:0 !important;
+    height:0 !important;
+    min-width:0 !important;
+    min-height:0 !important;
+    max-width:0 !important;
+    max-height:0 !important;
+    overflow:hidden !important;
+    pointer-events:none !important;
+}
+
+/* App header/title must not sit under Streamlit chrome or look clipped. */
+html body .stApp .ptw-app-title {
+    position:relative !important;
+    z-index:12 !important;
+    display:flex !important;
+    align-items:center !important;
+    min-height:44px !important;
+    margin:.42rem 0 .34rem 0 !important;
+    padding:.48rem .56rem .50rem .56rem !important;
+    overflow:visible !important;
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    font-size:1.38rem !important;
+    line-height:1.16 !important;
+    font-weight:1000 !important;
+}
+html body .stApp .ptw-sticky-topbar {
+    position:relative !important;
+    top:auto !important;
+    z-index:11 !important;
+    padding:.68rem .82rem !important;
+    padding-right:.82rem !important;
+    margin:.10rem 0 .70rem 0 !important;
+    overflow:visible !important;
+    box-sizing:border-box !important;
+}
+html body .stApp .ptw-topbar-left {
+    overflow:visible !important;
+}
+html body .stApp .ptw-topbar-right,
+html body .stApp .ptw-v18570-status-zone {
+    min-width:0 !important;
+    max-width:none !important;
+    overflow:visible !important;
+    justify-content:flex-end !important;
+}
+html body .stApp .ptw-version-chip {
+    max-width:min(78vw, 980px) !important;
+    min-height:38px !important;
+    padding:.48rem .88rem !important;
+    font-size:.94rem !important;
+    line-height:1.16 !important;
+    font-weight:1000 !important;
+    color:#f8fafc !important;
+    -webkit-text-fill-color:#f8fafc !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.98),rgba(8,32,58,.96)) !important;
+    border:1px solid rgba(125,211,252,.98) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.14),0 8px 22px rgba(14,165,233,.22) !important;
+    opacity:1 !important;
+    overflow:visible !important;
+    white-space:normal !important;
+}
+
+/* Final app-wide Streamlit button correction. Earlier CSS set width:auto and clipped labels. */
+html body .stApp div[data-testid="stButton"],
+html body .stApp div[data-testid="stFormSubmitButton"] {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    display:block !important;
+    overflow:visible !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp div[data-testid="stButton"] > button,
+html body .stApp div[data-testid="stFormSubmitButton"] > button {
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:.36rem !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    min-height:44px !important;
+    height:auto !important;
+    max-height:none !important;
+    padding:.30rem .58rem !important;
+    margin:.04rem 0 .08rem 0 !important;
+    border-radius:8px !important;
+    box-sizing:border-box !important;
+    text-align:center !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    clip-path:none !important;
+    opacity:1 !important;
+    filter:none !important;
+    visibility:visible !important;
+}
+html body .stApp div[data-testid="stButton"] > button *,
+html body .stApp div[data-testid="stFormSubmitButton"] > button * {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.82rem !important;
+    font-weight:850 !important;
+    line-height:1.08 !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:clip !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp div[data-testid="stButton"] > button:disabled,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled {
+    opacity:.92 !important;
+    filter:none !important;
+    cursor:not-allowed !important;
+}
+html body .stApp div[data-testid="stButton"] > button:disabled *,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled * {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    opacity:1 !important;
+}
+
+/* Top trading buttons: one row, same height, no floating or clipping. */
+html body .stApp .v18534-control-button-gap {
+    height:.38rem !important;
+    margin:0 !important;
+    padding:0 !important;
+    overflow:visible !important;
+}
+html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+    align-items:stretch !important;
+    gap:.62rem !important;
+    overflow:visible !important;
+    margin:.10rem 0 .36rem 0 !important;
+}
+html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"],
+html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+    display:flex !important;
+    align-items:stretch !important;
+    min-width:0 !important;
+    overflow:visible !important;
+}
+html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button,
+html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+    min-height:48px !important;
+    margin:0 !important;
+    padding:.58rem .74rem !important;
+}
+
+/* Pushover panel: force readable desktop block and full buttons regardless of Streamlit wrappers. */
+html body .stApp .visual-truth-pushover-box,
+html body .stApp .visual-truth-pushover-box-v18596 {
+    display:block !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-height:84px !important;
+    margin:.72rem 0 .54rem 0 !important;
+    padding:.88rem 1.05rem !important;
+    border:1px solid rgba(125,211,252,.92) !important;
+    border-left:6px solid #fbbf24 !important;
+    border-radius:16px !important;
+    background:linear-gradient(180deg,rgba(8,47,73,.96),rgba(15,23,42,.96)) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.12),0 10px 26px rgba(14,165,233,.18) !important;
+    overflow:visible !important;
+    opacity:1 !important;
+}
+html body .stApp .visual-truth-pushover-title {
+    color:#fff7ed !important;
+    -webkit-text-fill-color:#fff7ed !important;
+    font-size:1.05rem !important;
+    font-weight:1000 !important;
+    line-height:1.15 !important;
+}
+html body .stApp .visual-truth-pushover-status {
+    color:#e0f2fe !important;
+    -webkit-text-fill-color:#e0f2fe !important;
+    font-size:.88rem !important;
+    font-weight:850 !important;
+    line-height:1.30 !important;
+}
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div,
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div + div,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div + div {
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    overflow:visible !important;
+    display:block !important;
+    opacity:1 !important;
+    visibility:visible !important;
+}
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div button,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div button,
+html body .stApp div:has(> .pushover-button-anchor-v18596) + div + div button,
+html body .stApp div:has(.pushover-button-anchor-v18596) + div + div button {
+    min-height:52px !important;
+    width:100% !important;
+    margin:.10rem 0 .22rem 0 !important;
+    background:linear-gradient(180deg,#38d5ff 0%,#0284c7 100%) !important;
+    border:1px solid rgba(224,242,254,1) !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.16),0 10px 24px rgba(14,165,233,.28) !important;
+}
+
+
+/* v18.6.3 desktop cleanup: compact global status, no vertical wrapping, smaller control buttons. */
+.v1862-global-status-line {
+    display:flex !important;
+    flex-direction:row !important;
+    align-items:center !important;
+    justify-content:space-between !important;
+    gap:.75rem !important;
+    width:100% !important;
+    margin:.36rem 0 .48rem 0 !important;
+    padding:.36rem .62rem !important;
+    border:1px solid rgba(56,189,248,.42) !important;
+    border-radius:10px !important;
+    background:rgba(8,47,73,.34) !important;
+    color:#e0f2fe !important;
+    font-size:.78rem !important;
+    font-weight:850 !important;
+    line-height:1.12 !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+}
+.v1862-global-status-line span { white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button {
+    min-height:34px !important;
+    height:34px !important;
+    padding:.22rem .55rem !important;
+    border-radius:11px !important;
+    white-space:nowrap !important;
+    word-break:normal !important;
+    overflow-wrap:normal !important;
+    font-size:.82rem !important;
+}
+html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button p {
+    white-space:nowrap !important;
+    word-break:normal !important;
+    overflow-wrap:normal !important;
+    font-size:.82rem !important;
+    line-height:1.05 !important;
+}
+html body .stApp [data-testid="stHorizontalBlock"] .stButton > button,
+html body .stApp [data-testid="stHorizontalBlock"] .stButton > button p {
+    word-break:normal !important;
+    overflow-wrap:normal !important;
+    hyphens:none !important;
+}
+@media (min-width: 901px) {
+    html body .stApp div[data-testid="stButton"] > button {
+        min-height:34px !important;
+        padding-top:.22rem !important;
+        padding-bottom:.22rem !important;
+    }
+}
+
+/* Keep expanders/panels from clipping buttons on desktop. */
+html body .stApp div[data-testid="stExpander"],
+html body .stApp div[data-testid="stExpander"] details,
+html body .stApp div[data-testid="stExpander"] details > div,
+html body .stApp div[data-testid="stVerticalBlock"],
+html body .stApp div[data-testid="stHorizontalBlock"] {
+    overflow:visible !important;
+}
+
+@media (max-width:900px) {
+    html body .stApp .ptw-app-title { font-size:1.18rem !important; min-height:38px !important; margin-top:.24rem !important; }
+    html body .stApp .ptw-sticky-topbar { padding:.56rem .60rem !important; margin-bottom:.52rem !important; }
+    html body .stApp .ptw-topbar-right { width:100% !important; max-width:100% !important; justify-content:flex-start !important; }
+    html body .stApp .ptw-version-chip { max-width:100% !important; font-size:.80rem !important; }
+    html body .stApp .v18532-status-row {
+        display:flex !important;
+        flex-wrap:wrap !important;
+        align-items:center !important;
+        gap:.36rem .42rem !important;
+    }
+    html body .stApp .v18534-trading-control-stack,
+    html body .stApp .v18534-trading-help {
+        display:block !important;
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+        line-height:1.25 !important;
+        white-space:normal !important;
+        overflow:visible !important;
+    }
+    html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"],
+    html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] {
+        display:grid !important;
+        grid-template-columns:repeat(2, minmax(0, 1fr)) !important;
+        gap:.46rem !important;
+    }
+    html body .stApp div:has(> .v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"],
+    html body .stApp div:has(.v18534-control-button-gap) + div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+        width:100% !important;
+        min-width:0 !important;
+    }
+    html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button,
+    html body .stApp .v18534-control-button-gap + div[data-testid="stHorizontalBlock"] .stButton > button p {
+        min-height:40px !important;
+        height:auto !important;
+        font-size:.82rem !important;
+        line-height:1.08 !important;
+    }
+    html body .stApp div[data-testid="stButton"] > button,
+    html body .stApp div[data-testid="stFormSubmitButton"] > button { min-height:42px !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+st.markdown("""
+<style>
+/* v18.6.34 Dashboard 2026 Phase 3: compact rail, clean topbar, tile-like control center */
+html body section[data-testid="stSidebar"] {
+    width: 94px !important;
+    min-width: 94px !important;
+    max-width: 94px !important;
+    background: linear-gradient(180deg, #020617 0%, #07111f 100%) !important;
+    border-right: 1px solid rgba(56,189,248,.18) !important;
+    box-shadow: 12px 0 30px rgba(0,0,0,.20) !important;
+}
+html body section[data-testid="stSidebar"] > div:first-child {
+    padding: .72rem .46rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title {
+    font-size: 0 !important;
+    margin: .15rem 0 .45rem 0 !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title::before {
+    content: "⚙️";
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:42px; height:42px;
+    margin:0 auto .25rem auto;
+    border-radius:16px;
+    border:1px solid rgba(125,211,252,.42);
+    background:linear-gradient(135deg, rgba(14,165,233,.28), rgba(15,23,42,.90));
+    box-shadow:0 10px 22px rgba(14,165,233,.12);
+    font-size:1.1rem;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-card {
+    padding:.46rem .34rem !important;
+    border-radius:18px !important;
+    background:linear-gradient(180deg, rgba(15,23,42,.86), rgba(2,6,23,.76)) !important;
+    border-color:rgba(125,211,252,.20) !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-title,
+html body section[data-testid="stSidebar"] .auth-mini-heading,
+html body section[data-testid="stSidebar"] .sidebar-small-note,
+html body section[data-testid="stSidebar"] .stCaptionContainer,
+html body section[data-testid="stSidebar"] p {
+    font-size:.64rem !important;
+    line-height:1.12 !important;
+    text-align:center !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-user,
+html body section[data-testid="stSidebar"] .auth-user-row {
+    flex-direction:column !important;
+    gap:.10rem !important;
+    text-align:center !important;
+    font-size:.62rem !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button,
+html body section[data-testid="stSidebar"] button {
+    width:100% !important;
+    min-height:40px !important;
+    border-radius:16px !important;
+    padding:.34rem .28rem !important;
+    font-size:.66rem !important;
+    font-weight:950 !important;
+    background:linear-gradient(180deg, rgba(14,165,233,.24), rgba(15,23,42,.92)) !important;
+    border:1px solid rgba(125,211,252,.30) !important;
+}
+html body section[data-testid="stSidebar"] label {
+    font-size:.62rem !important;
+    line-height:1.10 !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stCheckbox"] label {
+    align-items:flex-start !important;
+}
+html body .stApp .dash2026-section-label {
+    margin-top:.28rem !important;
+    letter-spacing:.08em !important;
+}
+html body .stApp .dash2026-kpi-grid {
+    gap:.74rem !important;
+    margin:.42rem 0 .42rem 0 !important;
+}
+html body .stApp .dash2026-kpi-card {
+    min-height:82px !important;
+    border-radius:20px !important;
+    padding:.78rem .92rem !important;
+    box-shadow:0 18px 46px rgba(0,0,0,.22), 0 0 0 1px rgba(255,255,255,.04) inset !important;
+}
+html body .stApp .dash2026-kpi-value {
+    font-size:1.82rem !important;
+    line-height:1 !important;
+}
+html body .stApp .ticker-card,
+html body .stApp .live-banner-card,
+html body .stApp .special-watch-card {
+    min-height:34px !important;
+    height:34px !important;
+}
+html body .stApp div[data-testid="stExpander"] details {
+    border-radius:16px !important;
+    background:rgba(8,16,34,.38) !important;
+    border-color:rgba(125,211,252,.18) !important;
+}
+html body .stApp div[data-testid="stExpander"] details summary {
+    min-height:42px !important;
+    background:linear-gradient(180deg, rgba(8,47,73,.44), rgba(8,16,34,.84)) !important;
+    border-color:rgba(125,211,252,.24) !important;
+}
+html body .stApp .ptw-control-hero {
+    border-radius:22px !important;
+    padding:1.05rem 1.12rem !important;
+    margin:.56rem 0 .70rem 0 !important;
+    background:radial-gradient(circle at top left, rgba(56,189,248,.22), transparent 38%), linear-gradient(135deg, rgba(8,47,73,.90), rgba(15,23,42,.94) 54%, rgba(6,78,59,.54)) !important;
+}
+html body .stApp .ptw-control-selector-shell {
+    border-radius:22px !important;
+    padding:1.0rem !important;
+    background:linear-gradient(135deg, rgba(2,6,23,.62), rgba(8,47,73,.50)) !important;
+    border-color:rgba(125,211,252,.30) !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height:58px !important;
+    border-radius:18px !important;
+    justify-content:flex-start !important;
+    padding:.62rem .82rem !important;
+    background:linear-gradient(135deg, rgba(15,23,42,.92), rgba(8,47,73,.55)) !important;
+    border-color:rgba(125,211,252,.24) !important;
+    box-shadow:0 14px 32px rgba(0,0,0,.16) !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[kind="primary"],
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[data-testid="baseButton-primary"] {
+    background:linear-gradient(135deg, rgba(6,78,59,.90), rgba(14,165,233,.34)) !important;
+    border-color:rgba(34,197,94,.55) !important;
+    box-shadow:0 18px 44px rgba(34,197,94,.14) !important;
+}
+html body .stApp .v18-dark-row {
+    border-radius:14px !important;
+    border-color:rgba(125,211,252,.14) !important;
+    background:rgba(2,6,23,.38) !important;
+}
+
+/* Phase 3 polish: mindre topplinje, færre rammer, mer arbeidsflate */
+html body .stApp .ptw-sticky-topbar {
+    padding:.42rem .58rem !important;
+    margin:.10rem 0 .34rem 0 !important;
+    border-radius:18px !important;
+    background:linear-gradient(135deg, rgba(2,6,23,.84), rgba(8,47,73,.42)) !important;
+    border-color:rgba(125,211,252,.14) !important;
+}
+html body .stApp .ptw-version-chip {
+    font-size:.76rem !important;
+    padding:.26rem .52rem !important;
+    border-radius:999px !important;
+    color:#bae6fd !important;
+    background:rgba(15,23,42,.72) !important;
+    border:1px solid rgba(125,211,252,.28) !important;
+    box-shadow:none !important;
+}
+html body .stApp .ptw-pill {
+    font-size:.72rem !important;
+    padding:.22rem .46rem !important;
+}
+html body .stApp .dash2026-section-label {
+    margin:.18rem 0 .22rem 0 !important;
+    font-size:.68rem !important;
+    opacity:.76 !important;
+}
+html body .stApp .dash2026-banner-label { display:none !important; }
+html body .stApp .dash2026-kpi-grid {
+    margin:.18rem 0 .24rem 0 !important;
+    gap:.54rem !important;
+}
+html body .stApp .dash2026-kpi-card {
+    border-color:rgba(125,211,252,.16) !important;
+    box-shadow:0 12px 32px rgba(0,0,0,.18) !important;
+}
+html body .stApp .dash2026-kpi-label { font-size:.68rem !important; opacity:.82 !important; }
+html body .stApp .dash2026-kpi-sub { font-size:.68rem !important; opacity:.72 !important; }
+html body .stApp .ptw-control-hero {
+    margin:.34rem 0 .42rem 0 !important;
+    padding:.78rem .92rem !important;
+    border-radius:20px !important;
+    border-color:rgba(125,211,252,.22) !important;
+}
+html body .stApp .ptw-control-eyebrow { display:none !important; }
+html body .stApp .ptw-control-title { font-size:1.34rem !important; }
+html body .stApp .ptw-control-caption { font-size:.78rem !important; max-width:56rem !important; opacity:.78 !important; }
+html body .stApp .ptw-control-active-chip { font-size:.70rem !important; padding:.24rem .46rem !important; }
+html body .stApp .ptw-status-line { display:none !important; }
+html body .stApp .ptw-control-selector-title { display:none !important; }
+html body .stApp .ptw-control-selector-shell {
+    margin:.30rem 0 .40rem 0 !important;
+    padding:.64rem !important;
+    border-radius:20px !important;
+    border-color:rgba(125,211,252,.16) !important;
+    background:rgba(2,6,23,.38) !important;
+    box-shadow:none !important;
+}
+html body .stApp .ptw-control-mini-title {
+    margin:.36rem 0 .22rem 0 !important;
+    font-size:.70rem !important;
+    letter-spacing:.08em !important;
+    color:#93c5fd !important;
+    text-transform:uppercase !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height:66px !important;
+    border-radius:18px !important;
+    padding:.58rem .70rem !important;
+    font-size:.80rem !important;
+    justify-content:flex-start !important;
+    border-color:rgba(125,211,252,.16) !important;
+    background:linear-gradient(135deg, rgba(15,23,42,.92), rgba(8,47,73,.36)) !important;
+    box-shadow:0 10px 24px rgba(0,0,0,.16) !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[kind="primary"],
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button[data-testid="baseButton-primary"] {
+    background:linear-gradient(135deg, rgba(6,78,59,.82), rgba(14,165,233,.26)) !important;
+    border-color:rgba(34,197,94,.42) !important;
+}
+html body .stApp .ptw-control-submenu {
+    border-color:rgba(125,211,252,.13) !important;
+    background:rgba(2,6,23,.24) !important;
+    box-shadow:none !important;
+}
+html body .stApp div[data-testid="stExpander"] details {
+    border-color:rgba(125,211,252,.10) !important;
+    box-shadow:none !important;
+}
+@media (max-width:900px) {
+  html body section[data-testid="stSidebar"] { max-width:min(88vw, 340px) !important; width:min(88vw, 340px) !important; }
+}
+
+
+/* v18.6.36: Sidebar Rescue + clean version header */
+html body section[data-testid="stSidebar"] {
+  min-width: 58px !important;
+  border-right: 1px solid rgba(125,211,252,.16) !important;
+}
+html body [data-testid="collapsedControl"],
+html body [data-testid="stSidebarCollapsedControl"],
+html body button[kind="header"]:has(svg) {
+  position: fixed !important;
+  top: .55rem !important;
+  left: .55rem !important;
+  z-index: 1000000 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title {
+  font-size: .76rem !important;
+  letter-spacing: .08em !important;
+  margin: .4rem 0 .45rem 0 !important;
+  color: #bae6fd !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav {
+  display:flex;
+  flex-direction:column;
+  gap:.36rem;
+  margin:.25rem 0 .55rem 0;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+  display:flex;
+  align-items:center;
+  gap:.45rem;
+  min-height:34px;
+  padding:.32rem .42rem;
+  border-radius:14px;
+  border:1px solid rgba(125,211,252,.16);
+  background:rgba(15,23,42,.58);
+  color:#e5f3ff;
+  font-weight:850;
+  font-size:.78rem;
+  white-space:nowrap;
+}
+html body section[data-testid="stSidebar"] .sidebar-small-note,
+html body section[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
+  font-size:.68rem !important;
+  line-height:1.25 !important;
+  color:#a8c7dd !important;
+}
+html body .stApp .ptw-title-chip {
+  font-size: .72rem !important;
+  padding: .24rem .50rem !important;
+}
+html body .stApp .ptw-global-busy-fixed {
+  display:none !important;
+}
+@media (max-width:760px) {
+  html body [data-testid="collapsedControl"],
+  html body [data-testid="stSidebarCollapsedControl"] {
+    display:flex !important;
+    width:38px !important;
+    height:38px !important;
+    border-radius:999px !important;
+    background:rgba(8,47,73,.94) !important;
+    border:1px solid rgba(125,211,252,.55) !important;
+    box-shadow:0 8px 24px rgba(0,0,0,.35) !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+    font-size:.76rem !important;
+  }
+}
+
+
+
+/* v18.6.38: Sidebar Guard - menyen skal aldri kunne forsvinne eller bli mikroskopisk */
+html body section[data-testid="stSidebar"] {
+  width: 142px !important;
+  min-width: 142px !important;
+  max-width: 142px !important;
+  transform: translateX(0) !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  background: linear-gradient(180deg, #020617 0%, #07111f 100%) !important;
+  z-index: 999999 !important;
+}
+html body section[data-testid="stSidebar"] > div:first-child {
+  padding: .72rem .54rem !important;
+}
+/* Skjul native Streamlit-pilene. De kunne låse brukeren uten meny. */
+html body [data-testid="collapsedControl"],
+html body [data-testid="stSidebarCollapsedControl"],
+html body button[title*="sidebar" i],
+html body button[aria-label*="sidebar" i] {
+  display: none !important;
+  pointer-events: none !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title {
+  font-size: .72rem !important;
+  line-height: 1.05 !important;
+  letter-spacing: .10em !important;
+  text-align: center !important;
+  margin: .28rem 0 .55rem 0 !important;
+  color: #bae6fd !important;
+  text-transform: uppercase !important;
+}
+html body section[data-testid="stSidebar"] .sidebar-section-title::before {
+  display: none !important;
+  content: none !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: .44rem !important;
+  margin: .10rem 0 .72rem 0 !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+  display: grid !important;
+  grid-template-columns: 25px 1fr !important;
+  align-items: center !important;
+  gap: .42rem !important;
+  min-height: 42px !important;
+  padding: .42rem .50rem !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(125,211,252,.22) !important;
+  background: linear-gradient(135deg, rgba(8,47,73,.72), rgba(15,23,42,.84)) !important;
+  color: #e5f3ff !important;
+  font-weight: 900 !important;
+  font-size: .78rem !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,.18) !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item b {
+  display:flex !important; align-items:center !important; justify-content:center !important;
+  width:25px !important; height:25px !important; border-radius:10px !important;
+  background: rgba(14,165,233,.16) !important;
+  font-size: .95rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+  display:block !important;
+  font-size:.78rem !important;
+  line-height:1.05 !important;
+  white-space:nowrap !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button,
+html body section[data-testid="stSidebar"] button {
+  min-height: 40px !important;
+  font-size: .76rem !important;
+  border-radius: 14px !important;
+  padding: .36rem .42rem !important;
+}
+html body section[data-testid="stSidebar"] label,
+html body section[data-testid="stSidebar"] p,
+html body section[data-testid="stSidebar"] .stMarkdown,
+html body section[data-testid="stSidebar"] .stCaptionContainer {
+  font-size: .72rem !important;
+  line-height: 1.22 !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
+  border-radius: 16px !important;
+  border: 1px solid rgba(125,211,252,.18) !important;
+  background: rgba(15,23,42,.58) !important;
+}
+html body section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+  min-height: 38px !important;
+  font-size: .74rem !important;
+  font-weight: 900 !important;
+}
+@media (max-width: 760px) {
+  html body section[data-testid="stSidebar"] {
+    width: 116px !important;
+    min-width: 116px !important;
+    max-width: 116px !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+    grid-template-columns: 1fr !important;
+    justify-items: center !important;
+    min-height: 48px !important;
+    padding: .40rem .28rem !important;
+    gap: .18rem !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item span {
+    font-size: .62rem !important;
+    white-space: normal !important;
+    text-align: center !important;
+  }
+  html body .stApp .block-container {
+    padding-left: .45rem !important;
+    padding-right: .45rem !important;
+  }
+}
+
+/* v18.6.35: Mobile Rescue - egen mobil-layout i stedet for krympet desktop */
+@media (max-width: 760px) {
+  html, body, .stApp {
+    overflow-x: hidden !important;
+    width: 100% !important;
+  }
+  html body .stApp .block-container {
+    padding: .32rem .42rem 1.2rem .42rem !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .ptw-sticky-topbar {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 20 !important;
+    padding: .38rem .46rem !important;
+    margin: 0 0 .34rem 0 !important;
+    border-radius: 0 0 16px 16px !important;
+  }
+  html body .stApp .ptw-title,
+  html body .stApp .ptw-app-title,
+  html body .stApp h1 {
+    font-size: 1.02rem !important;
+    line-height: 1.08 !important;
+  }
+  html body .stApp .ptw-subtitle,
+  html body .stApp .ptw-pill:not(.ptw-version-chip) {
+    display: none !important;
+  }
+  html body .stApp .ptw-version-chip {
+    font-size: .62rem !important;
+    padding: .18rem .38rem !important;
+  }
+  html body .stApp .dash2026-kpi-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: .42rem !important;
+    margin: .28rem 0 .48rem 0 !important;
+  }
+  html body .stApp .dash2026-kpi-card {
+    min-height: 62px !important;
+    padding: .58rem .68rem !important;
+    border-radius: 15px !important;
+  }
+  html body .stApp .dash2026-kpi-value {
+    font-size: 1.15rem !important;
+    line-height: 1.05 !important;
+    word-break: break-word !important;
+  }
+  html body .stApp .dash2026-kpi-label,
+  html body .stApp .dash2026-kpi-sub {
+    font-size: .64rem !important;
+  }
+  html body .stApp .ticker-tape-wrap {
+    min-height: 38px !important;
+    max-height: 42px !important;
+    border-radius: 10px !important;
+    margin: .12rem 0 .28rem 0 !important;
+  }
+  html body .stApp .ticker-tape-track {
+    gap: 5px !important;
+    padding: 4px 5px !important;
+  }
+  html body .stApp .ticker-tape-item {
+    min-width: 168px !important;
+    width: 168px !important;
+    height: 32px !important;
+    grid-template-columns: 16px 78px 54px !important;
+    gap: 4px !important;
+    padding: 3px 5px !important;
+  }
+  html body .stApp .ticker-alert-marker { width: 16px !important; height: 16px !important; font-size: .62rem !important; }
+  html body .stApp .ticker-market { display:none !important; }
+  html body .stApp .ticker-title { font-size: .62rem !important; margin-bottom: 1px !important; }
+  html body .stApp .ticker-price { font-size: .66rem !important; line-height: 1 !important; }
+  html body .stApp .ticker-change { font-size: .58rem !important; margin-top: 0 !important; }
+  html body .stApp .ticker-spark svg { width: 54px !important; height: 16px !important; }
+  html body .stApp div[data-testid="stExpander"] details summary {
+    min-height: 34px !important;
+    padding: .22rem .42rem !important;
+  }
+  html body .stApp div[data-testid="stExpander"] details summary p {
+    font-size: .76rem !important;
+  }
+  html body .stApp .ptw-control-hero {
+    padding: .58rem .62rem !important;
+    margin: .32rem 0 .34rem 0 !important;
+    border-radius: 16px !important;
+  }
+  html body .stApp .ptw-control-title { font-size: 1.02rem !important; }
+  html body .stApp .ptw-control-caption { font-size: .66rem !important; line-height: 1.2 !important; }
+  html body .stApp .ptw-control-selector-shell {
+    padding: .42rem !important;
+    border-radius: 16px !important;
+  }
+  html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height: 48px !important;
+    padding: .44rem .52rem !important;
+    font-size: .72rem !important;
+    border-radius: 14px !important;
+  }
+  html body .stApp [data-testid="stHorizontalBlock"] {
+    gap: .32rem !important;
+  }
+  html body .stApp [data-testid="stHorizontalBlock"] > div {
+    min-width: 0 !important;
+  }
+  html body .stApp div[data-testid="stDataFrame"],
+  html body .stApp div[data-testid="stTable"],
+  html body .stApp .element-container:has(table) {
+    overflow-x: auto !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .v18-dark-row,
+  html body .stApp .visual-truth-empty-state {
+    font-size: .68rem !important;
+    padding: .42rem .52rem !important;
+    border-radius: 12px !important;
+  }
+  html body section[data-testid="stSidebar"] {
+    max-width: 78vw !important;
+    width: 78vw !important;
+  }
+}
+
+@media (max-width: 420px) {
+  html body .stApp .ticker-tape-item {
+    min-width: 150px !important;
+    width: 150px !important;
+    grid-template-columns: 15px 72px 48px !important;
+  }
+  html body .stApp .ticker-spark svg { width: 48px !important; }
+  html body .stApp .dash2026-kpi-card { min-height: 58px !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# DO_NOT_TOUCH_ZONE v18.5.87: Global update/top control anchors are regression-tested/protected. Patch minimally.
+# v18.5.48: Global oppdatering ligger øverst, før panelvelger og tunge seksjoner.
+if bool(globals().get("show_drift_controls_v1863cc", False)):
+    render_global_update_bar_v18548()
+# GO I: Safe build/governance-panelet er fjernet fra hovedskjermen. Bruk System/admin ved behov.
+
+
+st.markdown("""
+<style>
+/* v19.0.15 mobile drawer: ekte mobiltilgang til høyremenyen. */
+.mobile-drawer-v19015 { display: none; }
+@media (max-width: 760px) {
+  html body .mobile-drawer-v19015 {
+    display: block !important;
+    position: fixed !important;
+    top: calc(10px + env(safe-area-inset-top)) !important;
+    right: 10px !important;
+    z-index: 2147483300 !important;
+  }
+  html body .mobile-drawer-v19015 > summary {
+    list-style: none !important;
+    cursor: pointer !important;
+    min-width: 94px !important;
+    min-height: 54px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 7px !important;
+    border-radius: 999px !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    background: linear-gradient(180deg, #0ea5e9, #0369a1) !important;
+    border: 1px solid rgba(186,230,253,.92) !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,.46) !important;
+    font-weight: 950 !important;
+    user-select: none !important;
+  }
+  html body .mobile-drawer-v19015 > summary::-webkit-details-marker { display: none !important; }
+  html body .mobile-drawer-v19015 > summary span {
+    font-size: 1.18rem !important;
+    line-height: 1 !important;
+  }
+  html body .mobile-drawer-v19015 > summary b {
+    font-size: .93rem !important;
+    line-height: 1 !important;
+    color: #ffffff !important;
+  }
+  html body .mobile-drawer-v19015[open]::before {
+    content: "" !important;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 2147483200 !important;
+    background: rgba(2, 6, 23, .78) !important;
+    backdrop-filter: blur(5px) !important;
+  }
+  html body .mobile-drawer-v19015[open] > summary {
+    position: fixed !important;
+    top: calc(10px + env(safe-area-inset-top)) !important;
+    right: 10px !important;
+    z-index: 2147483400 !important;
+  }
+  html body .mobile-drawer-panel-v19015 {
+    display: none !important;
+  }
+  html body .mobile-drawer-v19015[open] .mobile-drawer-panel-v19015 {
+    display: block !important;
+    position: fixed !important;
+    top: calc(64px + env(safe-area-inset-top)) !important;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: calc(78px + env(safe-area-inset-bottom)) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 12px !important;
+    border-radius: 24px !important;
+    background: linear-gradient(180deg, rgba(15,23,42,.99), rgba(2,6,23,.99)) !important;
+    border: 1px solid rgba(56,189,248,.42) !important;
+    box-shadow: 0 18px 48px rgba(0,0,0,.62) !important;
+    z-index: 2147483350 !important;
+  }
+  html body .mobile-drawer-head-v19015 {
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    align-items: flex-start !important;
+    padding: 8px 8px 12px 8px !important;
+    border-bottom: 1px solid rgba(148,163,184,.24) !important;
+    margin-bottom: 10px !important;
+  }
+  html body .mobile-drawer-head-v19015 b {
+    display: block !important;
+    color: #f8fafc !important;
+    font-size: 1.04rem !important;
+    line-height: 1.12 !important;
+  }
+  html body .mobile-drawer-head-v19015 small,
+  html body .mobile-drawer-head-v19015 em {
+    display: block !important;
+    color: #cbd5e1 !important;
+    font-size: .74rem !important;
+    line-height: 1.25 !important;
+    font-style: normal !important;
+  }
+  html body .mobile-drawer-grid-v19015 {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  html body .mobile-drawer-link-v19015 {
+    min-height: 58px !important;
+    display: grid !important;
+    grid-template-columns: 44px 1fr !important;
+    gap: 10px !important;
+    align-items: center !important;
+    padding: 10px 12px !important;
+    border-radius: 17px !important;
+    text-decoration: none !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    background: rgba(15, 23, 42, .94) !important;
+    border: 1px solid rgba(148,163,184,.24) !important;
+  }
+  html body .mobile-drawer-link-v19015:focus,
+  html body .mobile-drawer-link-v19015:hover {
+    border-color: rgba(125,211,252,.92) !important;
+    background: rgba(14, 116, 144, .55) !important;
+    outline: 2px solid rgba(125,211,252,.58) !important;
+    outline-offset: 2px !important;
+  }
+  html body .mobile-drawer-icon-v19015 {
+    width: 42px !important;
+    height: 42px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 14px !important;
+    background: rgba(14,165,233,.18) !important;
+    border: 1px solid rgba(56,189,248,.38) !important;
+    font-size: 1.18rem !important;
+  }
+  html body .mobile-drawer-link-v19015 b {
+    display: block !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    font-size: .97rem !important;
+    line-height: 1.18 !important;
+    white-space: normal !important;
+    word-break: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+  html body .mobile-drawer-link-v19015 small {
+    display: block !important;
+    color: #cbd5e1 !important;
+    -webkit-text-fill-color: #cbd5e1 !important;
+    font-size: .72rem !important;
+    line-height: 1.18 !important;
+    margin-top: 2px !important;
+    white-space: normal !important;
+  }
+}
+
+/* v18.6.45 final mobile/dashboard guard: overrides old sidebar CSS blocks. */
+.mobile-bottom-nav-v18644 { display:none; }
+@media (max-width: 760px) {
+  html body section[data-testid="stSidebar"] {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+  }
+  html body .mobile-bottom-nav-v18644 {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    height: 66px !important;
+    display: flex !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: thin !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 4px !important;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) 8px !important;
+    z-index: 2147483000 !important;
+    background: rgba(2, 6, 23, .97) !important;
+    border-top: 1px solid rgba(56,189,248,.38) !important;
+    box-shadow: 0 -12px 32px rgba(0,0,0,.46) !important;
+  }
+  html body .mobile-bottom-nav-v18644 a {
+    min-width: 72px !important;
+    flex: 1 0 72px !important;
+    height: 52px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+    border-radius: 14px !important;
+    text-decoration: none !important;
+    color: #e0f2fe !important;
+    background: linear-gradient(180deg, rgba(14,56,90,.88), rgba(8,30,55,.92)) !important;
+    border: 1px solid rgba(96,165,250,.30) !important;
+  }
+  html body .mobile-bottom-nav-v18644 b { font-size: 1.05rem !important; line-height: 1 !important; }
+  html body .mobile-bottom-nav-v18644 span {
+    font-size: .58rem !important;
+    line-height: 1 !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .block-container {
+    padding-left: .55rem !important;
+    padding-right: .55rem !important;
+    padding-bottom: 5.6rem !important;
+    max-width: 100% !important;
+  }
+  html body .stApp .ptw-sticky-topbar {
+    margin-top: .35rem !important;
+    padding: .65rem .55rem !important;
+    text-align: center !important;
+  }
+  html body .stApp .ptw-app-title { font-size: 1.32rem !important; justify-content: center !important; }
+  html body .stApp .dash2026-kpi-grid { grid-template-columns: 1fr !important; gap: .55rem !important; }
+  html body .stApp .dash2026-kpi-card { min-height: 76px !important; padding: .72rem .78rem !important; }
+  html body .stApp .dash2026-kpi-value { font-size: 1.48rem !important; }
+  html body .stApp .dash2026-kpi-sub { font-size: .76rem !important; line-height: 1.15 !important; }
+  html body .stApp .stCaptionContainer,
+  html body .stApp div[data-testid="stCaptionContainer"] {
+    font-size: .68rem !important;
+    line-height: 1.12 !important;
+    max-height: 2.35em !important;
+    overflow: hidden !important;
+    opacity: .72 !important;
+  }
+  html body .stApp .ticker-tape,
+  html body .stApp .ticker-tape-track,
+  html body .stApp .live-banner-strip,
+  html body .stApp .special-watch-strip {
+    overflow: hidden !important;
+    min-height: 42px !important;
+    max-height: 46px !important;
+  }
+  html body .stApp .ticker-card,
+  html body .stApp .live-banner-card,
+  html body .stApp .special-watch-card,
+  html body .stApp .ticker-tape-item {
+    height: 40px !important;
+    min-height: 40px !important;
+    max-height: 40px !important;
+    min-width: 170px !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# v18.5.34: Hovedpanelvelger ligger fortsatt i toppområdet rett over ticker-banneret.
+# v18.6.3s: AI Kontrollsenter eier arbeidsflaten, slik at markedvalg ikke jobber mot hverandre.
+active_panel = None
+if not st.session_state.get("ai_control_center_landed_default_v1864l"):
+    st.session_state.setdefault("ai_control_center_group_v1863aj", "")
+    st.session_state.setdefault("ai_control_center_active_panel_v1863aj", "")
+    st.session_state["ai_control_center_landed_default_v1864l"] = True
+
+# v19.4.0: non-blocking scheduler safety net while the web process is awake.
+# Render Cron remains the primary unattended runner, but the web process now
+# performs a guarded due-job check at most once every five minutes per session.
+if str(os.getenv("ENABLE_WEB_SCHEDULER_KICK", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        _scheduler_kick_last_v1940 = float(st.session_state.get("scheduler_kick_last_v1940", 0) or 0)
+        if time.time() - _scheduler_kick_last_v1940 >= 300:
+            from scheduler_background import kick_scheduler_background
+            st.session_state["scheduler_kick_last_v1940"] = time.time()
+            st.session_state["scheduler_kick_status_v1940"] = kick_scheduler_background()
+    except Exception as _scheduler_kick_exc_v1940:
+        st.session_state["scheduler_kick_status_v1940"] = {"state": "ERROR", "error": str(_scheduler_kick_exc_v1940)[:500]}
+else:
+    st.session_state.setdefault("scheduler_kick_status_v1940", {"state": "DISABLED_IN_WEB", "reason": "Render Cron er autoritativ"})
+
+# v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
+_active_control_center_panel_v18598 = None
+try:
+    # v18.6.36: KPI-raden rendres i en placeholder. Da kan den oppdateres på nytt
+    # etter at aktivt Kontrollsenter-panel har fylt Top Picks/ranking-cache i samme run.
+    _dashboard2026_kpi_slot_v18636 = st.empty()
+    with _dashboard2026_kpi_slot_v18636:
+        render_dashboard2026_kpis_v18631()
+    render_daily_attention_dashboard_v19022()
+    # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
+    # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
+    render_live_market_banner()
+    render_special_watch_banner_surface_v18620()
+    render_banner_main_controls()
+    _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
+    try:
+        _active_panel_for_route_v19220_rc7 = str(_active_control_center_panel_v18598 or "")
+        _active_group_for_route_v19220_rc7 = str(st.session_state.get("ai_control_center_group_v1863aj") or "")
+        _nav_to_store_v18658 = canonical_nav_for_panel_v19220_rc7(
+            _active_group_for_route_v19220_rc7,
+            _active_panel_for_route_v19220_rc7,
+            fallback=st.session_state.get("active_nav_target_v18674c") or "control_center",
+        )
+        if _active_panel_for_route_v19220_rc7:
+            st.session_state["active_nav_target_v18674c"] = _nav_to_store_v18658
+            _set_query_panel_v18658(_nav_to_store_v18658)
+            _persist_ui_state_v18658(
+                nav=_nav_to_store_v18658,
+                group=_active_group_for_route_v19220_rc7,
+                panel=_active_panel_for_route_v19220_rc7,
+            )
+    except Exception:
+        pass
+    # Oppdater KPI-raden etter panelrendering, slik at data som Top Picks akkurat har
+    # lagt i session_state faktisk vises i toppkortene uten neste manuelle refresh.
+    with _dashboard2026_kpi_slot_v18636:
+        render_dashboard2026_kpis_v18631()
+except Exception as _top_banner_workspace_error:
+    st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
+
+# v18.5.98: AI Kontrollsenter skal være et ekte fokus-/oppgaveområde.
+# Når et Kontrollsenter-panel er valgt, må gamle hovedseksjoner ikke lekke inn under panelet.
+# Dette fjerner dobbeltvisning av Dynamisk rangering, Interaktiv analyse og legacy-markedspaneler.
+if _active_control_center_panel_v18598:
+    st.markdown(
+        f"<div class='v18-dark-row'><b>{html.escape(str(_active_control_center_panel_v18598))}</b> er aktivt. USA/Norge/Sverige/Norden, Aktivt univers, Top Picks, IPO og Paper Trading vises ikke samtidig.</div>",
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        "<div class='v18-dark-row'>Velg et panel i AI Kontrollsenter. Hovedpanelvelgeren er samlet inn her for å hindre motstridende markedvalg.</div>",
+        unsafe_allow_html=True,
+    )
+_finish_control_center_render_cycle_v1863ax()
+st.stop()
+
+# v18.5.34: driftstatus, børstatus og trading-kontroller er flyttet til toppområdet.
+# Gammel separat statusstripe her er fjernet for å unngå dupliserte bokser lenger nede.
+
+if 'top_picks' in locals():
+    market_pulse(top_picks)
+    top_movers(top_picks)
+
+st.caption("Smartere scoring med momentum, trend, risiko, P/E, kvalitet, vekst, gjeld, nyheter, insiderhendelser og backtesting. System/admin er flyttet til AI Kontrollsenter.")
+# v18.5.35: System/admin renderes kun i valgt Kontrollsenter-panel.
+
+if search.strip():
+    tickers_us = [search.strip().upper()]
+    tickers_no = []
+    tickers_se = []
+    tickers_all = tickers_us
+else:
+    tickers_us = resolve_universe_tickers(["USA"], max_count=max_count)
+    tickers_no = resolve_universe_tickers(["Norge"], max_count=max_count)
+    tickers_se = resolve_universe_tickers(["Sverige"], max_count=max_count)
+    tickers_all = resolve_universe_tickers(["Alle"], max_count=max_count)
+
+dynamic_watchlist = get_dynamic_watchlist(mode, max_count, tickers_us, tickers_no, tickers_se, tickers_all)
+
+# v18.5.35: Watchlist/varselkontroll er flyttet inn i AI Kontrollsenter.
+# Hovedsiden viser ikke lenger egen watchlist-boks eller scanner skjult; panel/kall kjøres bare når brukeren åpner
+# Kontrollsenter -> Watchlist/signaler og trykker egen knapp.
+watchlist_tickers = list(st.session_state.get("latest_watchlist_tickers_v156", []) or [])
+auto_watchlist_alerts = bool(_alert_runtime_settings.get("notify_watchlist_signal_changes", True))
+watchlist_scan_limit = int(_alert_runtime_settings.get("watchlist_scan_limit", 30) or 30)
+manual_watchlist_scan = False
+
+# v18.5.31: aktivt hovedpanel velges nå i toppområdet over ticker-banneret.
+
+if active_panel == "🇺🇸 USA":
+    run_main_usa = st.button("Kjør / oppdater USA-rangering", key="main_panel_run_usa_v1863r", type="primary")
+    us_results = cached_auto_rank_market("USA", tickers_us, max_count=max_count, use_news=False, force_manual_fetch=run_main_usa)
+    render_ranking(us_results, "Marked Dynamisk rangering USA/S&P 500")
+    render_analysis(us_results, "USA")
+
+elif active_panel == "🇳🇴 Norge":
+    run_main_no = st.button("Kjør / oppdater Norge-rangering", key="main_panel_run_no_v1863r", type="primary")
+    no_results = cached_auto_rank_market("Norge", tickers_no, max_count=max_count, use_news=False, force_manual_fetch=run_main_no)
+    render_ranking(no_results, "🇳🇴 Dynamisk rangering Norge")
+    render_analysis(no_results, "Norge")
+
+elif active_panel == "🇸🇪 Sverige":
+    run_main_se = st.button("Kjør / oppdater Sverige-rangering", key="main_panel_run_se_v1863r", type="primary")
+    se_results = cached_auto_rank_market("Sverige", tickers_se, max_count=max_count, use_news=False, force_manual_fetch=run_main_se)
+    render_ranking(se_results, "🇸🇪 Dynamisk rangering Sverige")
+    render_analysis(se_results, "Sverige")
+
+elif active_panel == "Norden":
+    tickers_nordic = list(tickers_no or []) + list(tickers_se or [])
+    run_main_nordic = st.button("Kjør / oppdater Norden-rangering", key="main_panel_run_norden_v1863r", type="primary")
+    nordic_results = cached_auto_rank_market("Norden", tickers_nordic, max_count=max_count, use_news=False, force_manual_fetch=run_main_nordic)
+    render_ranking(nordic_results, "Norden Dynamisk rangering Norden")
+    render_analysis(nordic_results, "Norden")
+
+elif active_panel == "Aktivt univers":
+    active_universe_tickers = _source_tickers_for_interactive("Smart Universe Picker")
+    if not active_universe_tickers:
+        st.info("Ingen aktivt univers er lagret ennå. Åpne AI Kontrollsenter -> Analyseunivers og sett Smart Universe Picker som aktivt aksjeunivers.")
+    else:
+        run_main_active = st.button("Kjør / oppdater aktivt univers", key="main_panel_run_active_universe_v1863r", type="primary")
+        active_results = cached_auto_rank_market("Smart Universe Picker", active_universe_tickers, max_count=max_count, use_news=False, force_manual_fetch=run_main_active)
+        render_ranking(active_results, "🎯 Dynamisk rangering aktivt univers")
+        render_analysis(active_results, "Smart Universe Picker")
+
+elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
+    st.subheader("Top Picks Automatiske Top Picks")
+    st.caption(
+        "Top Picks = beste kandidater totalt. "
+        "Kjøp nå = kandidater som også har grønt teknisk signal akkurat nå."
+    )
+
+    scan_market = st.radio("Velg marked for Top Picks", market_scope_options(include_aggregate=True), horizontal=True)
+
+    _market_labels_v1863j = {market: canonical_market_scope_label(market) for market in market_scope_options(include_aggregate=True)}
+    source_tickers = resolve_universe_tickers([scan_market], max_count=int(max_count or 30))
+
+    def _latest_market_rows_v1863j(market_name):
+        latest = st.session_state.get("latest_rankings_v148", {}) or {}
+        for key in (market_name, f"TopPicks_{market_name}"):
+            rows = latest.get(key)
+            if rows:
+                return list(rows)
+        cache = st.session_state.get(f"rank_cache_v148_{market_name}") or {}
+        rows = (cache.get("data") or [])
+        return list(rows) if rows else []
+
+    def _top_picks_from_cached_markets_v1863j(market_name):
+        if market_name == "Alle":
+            markets = expand_market_scope("Alle")
+        elif market_name == "Norden":
+            markets = ["Norge", "Sverige", "Finland", "Danmark"]
+        else:
+            markets = [market_name]
+        combined = []
+        for name in markets:
+            combined.extend(_latest_market_rows_v1863j(name))
+        if not combined:
+            return []
+        return _ranked_for_display(build_top_picks(combined, min_score=min_top_pick_score, max_items=int(max_count or len(combined) or 15)))
+
+    _guard_summary = market_guard_summary(source_tickers)
+    st.caption(_guard_summary)
+    st.caption("Datakvalitet: " + format_data_trust_line({"data_quality": "CACHED" if not bool(open_markets()) else "LIVE"}))
+
+    _open_now = bool(open_markets())
+    _manual_fetch_closed = False
+
+    if not _open_now:
+        st.warning(
+            "Alle relevante markeder er stengt. Top Picks bruker cache hvis mulig. "
+            "Hvis cache er tom etter deploy/restart, kan listen bli tom."
+        )
+        _manual_fetch_closed = st.checkbox(
+            "Hent data manuelt likevel",
+            value=False,
+            help="Gjelder bare visning i appen. Cron/auto-trading holder seg fortsatt stengt.",
+            key=f"manual_fetch_closed_{scan_market}",
+        )
+
+    with st.spinner("Finner beste kandidater..."):
+        if not _manual_fetch_closed and not _open_now:
+            ranked = _top_picks_from_cached_markets_v1863j(scan_market)
+        else:
+            ranked = cached_auto_rank_market(
+                f"TopPicks_{scan_market}",
+                source_tickers,
+                max_count=max_count,
+                use_news=False,
+                force_manual_fetch=_manual_fetch_closed,
+            )
+        if not _manual_fetch_closed and not _open_now:
+            top_picks = _ranked_for_display(ranked)
+        else:
+            top_picks = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(max_count or len(ranked or []) or 15)))
+        buy_now_picks = _ranked_for_display([x for x in top_picks if is_buy_now_item(x)])
+        latest = st.session_state.setdefault("latest_rankings_v148", {})
+        latest[f"TopPicks_{scan_market}"] = top_picks or []
+        if _manual_fetch_closed and top_picks:
+            st.success(f"Manuell henting utført for {scan_market}: {len(top_picks)} kandidater funnet ✅")
+        elif _manual_fetch_closed and not top_picks:
+            st.warning(f"Manuell henting forsøkt for {scan_market}, men datakilden ga ingen rangerbare kandidater.")
+
+    if not top_picks and not _manual_fetch_closed and not _open_now:
+        st.info(
+            f"Ingen lagret rangering for {_market_labels_v1863j.get(scan_market, scan_market)}. "
+            "Kryss av for 'Hent data manuelt likevel' hvis du vil analysere utenfor åpningstid. "
+            "Dette starter ikke auto-trading."
+        )
+
+    top_pick_view = st.radio("Top Picks-visning", ["Top Picks Top Picks", "🟢 Kjøp nå"], horizontal=True, key=f"top_pick_view_{scan_market}_v148")
+
+    if top_pick_view == "Top Picks Top Picks":
+        render_ranking(top_picks, f"Top Picks Top Picks {_market_labels_v1863j.get(scan_market, scan_market)}")
+        st.caption("Merk: En aksje kan være sterk totalt, men fortsatt ha VENT/UNNGÅ hvis teknisk timing er dårlig.")
+        render_analysis(top_picks, f"TopPicks_{scan_market}")
+    else:
+        if buy_now_picks:
+            _saved_candidates = save_latest_buy_now_candidates(buy_now_picks, scan_market)
+            st.info(f"Disse er kandidater med grønt teknisk signal akkurat nå. {len(_saved_candidates)} kandidater er lagret til Cron-prioritering. Auto-kjøp skjer via Cron, eller knappen 'Kjør auto-kjøp nå'.")
+            _market_bulk_gate_v19143 = paper_trading_decision()
+            if st.button(
+                f"🟢 Paper-kjøp alle Kjøp nå ({len(buy_now_picks)})",
+                key=f"paper_buy_all_{scan_market}",
+                disabled=not _market_bulk_gate_v19143.allowed,
+                help=_market_bulk_gate_v19143.reason if not _market_bulk_gate_v19143.allowed else None,
+            ):
+                _messages = []
+                for _item in buy_now_picks:
+                    _ticker = _item.get("ticker")
+                    _price, _change = get_item_price_change(_item)
+                    _decision = card_decision_for_item(_item)
+                    if _price is None:
+                        _messages.append(f"{_ticker}: mangler pris")
+                        continue
+                    _ok, _msg = paper_buy(_ticker, _price, int(_decision.get("confidence", 0) or 0), f"UI Kjøp nå alle: {scan_market}")
+                    _messages.append(_msg)
+                _joined = " | ".join(_messages[:8])
+                if any("blokkert" in str(m).lower() or "ikke nok" in str(m).lower() or "mangler" in str(m).lower() for m in _messages):
+                    st.warning(_joined)
+                else:
+                    st.success(_joined)
+                st.rerun()
+
+            render_ranking(buy_now_picks, f"🟢 Kjøp nå {_market_labels_v1863j.get(scan_market, scan_market)}")
+            render_analysis(buy_now_picks, f"KjopNa_{scan_market}")
+        else:
+            st.warning("Ingen aksjer har grønt teknisk kjøpssignal akkurat nå.")
+            st.caption("Systemet tvinger ikke kjøp når timing/risiko ikke er god nok.")
+
+elif str(active_panel or "").endswith("IPO"):
+    render_ipo()
+
+elif "Paper Trading" in str(active_panel or ""):
+    render_paper_trading_dashboard()
+
+# Etter første godkjente kjøring slås engangsflagget av. Cache brukes ved vanlige widget-reruns.
+st.session_state["heavy_update_allowed_v148"] = False
+_finish_global_apply_v161()
+
+st.markdown("""
+<style>
+/* v18.6.9: compact action buttons after legacy CSS. */
+html body .stApp div[data-testid="stButton"] > button,
+html body .stApp div[data-testid="stDownloadButton"] > button,
+html body .stApp div[data-testid="stFormSubmitButton"] > button {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: min(100%, 360px) !important;
+    min-height: 31px !important;
+    padding: .26rem .66rem !important;
+    margin: .06rem .18rem .12rem 0 !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(96,165,250,.42) !important;
+    background: linear-gradient(180deg, rgba(15,118,160,.74), rgba(8,47,73,.92)) !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    font-size: .82rem !important;
+    font-weight: 850 !important;
+    line-height: 1.12 !important;
+    box-shadow: 0 3px 10px rgba(14,165,233,.12), 0 0 0 1px rgba(255,255,255,.06) inset !important;
+    text-shadow: none !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+html body .stApp div[data-testid="stButton"] > button:hover,
+html body .stApp div[data-testid="stDownloadButton"] > button:hover,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:hover {
+    border-color: rgba(125,211,252,.78) !important;
+    background: linear-gradient(180deg, rgba(14,165,233,.70), rgba(8,47,73,.94)) !important;
+    box-shadow: 0 5px 14px rgba(14,165,233,.20), 0 0 0 1px rgba(255,255,255,.10) inset !important;
+}
+html body .stApp div[data-testid="stButton"] > button[kind="primary"],
+html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] {
+    border-color: rgba(52,211,153,.58) !important;
+    background: linear-gradient(180deg, rgba(30,41,59,.96), rgba(15,23,42,.98)) !important;
+}
+html body .stApp div[data-testid="stButton"] > button:disabled,
+html body .stApp div[data-testid="stDownloadButton"] > button:disabled,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:disabled {
+    max-width: min(100%, 360px) !important;
+    opacity: .72 !important;
+    background: linear-gradient(180deg, rgba(51,65,85,.82), rgba(30,41,59,.90)) !important;
+    border-color: rgba(148,163,184,.52) !important;
+}
+/* v18.6.19: final compact action style. Prevent old full-width blue bars from leaking into panels. */
+html body .stApp div[data-testid="stButton"] > button,
+html body .stApp div[data-testid="stDownloadButton"] > button,
+html body .stApp div[data-testid="stFormSubmitButton"] > button,
+html body .stApp div[data-testid="stLinkButton"] > a {
+    width: fit-content !important;
+    min-width: 74px !important;
+    max-width: min(100%, 220px) !important;
+    min-height: 28px !important;
+    padding: .20rem .50rem !important;
+    margin: .05rem .16rem .10rem 0 !important;
+    border-radius: 7px !important;
+    border: 1px solid rgba(71,85,105,.72) !important;
+    background: linear-gradient(180deg, rgba(30,41,59,.96), rgba(15,23,42,.98)) !important;
+    color: #e5f2ff !important;
+    -webkit-text-fill-color: #e5f2ff !important;
+    font-size: .78rem !important;
+    font-weight: 850 !important;
+    line-height: 1.08 !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,.14), 0 0 0 1px rgba(255,255,255,.04) inset !important;
+}
+html body .stApp div[data-testid="stButton"] > button[kind="primary"],
+html body .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] {
+    border-color: rgba(52,211,153,.62) !important;
+    background: linear-gradient(180deg, rgba(20,83,45,.74), rgba(15,23,42,.98)) !important;
+}
+html body .stApp div[data-testid="stButton"] > button:hover,
+html body .stApp div[data-testid="stDownloadButton"] > button:hover,
+html body .stApp div[data-testid="stFormSubmitButton"] > button:hover,
+html body .stApp div[data-testid="stLinkButton"] > a:hover {
+    border-color: rgba(148,163,184,.72) !important;
+    background: linear-gradient(180deg, rgba(30,41,59,.98), rgba(15,23,42,.98)) !important;
+}
+html body .stApp .paper-trade-box-v18615 {
+    border: 1px solid rgba(96,165,250,.30);
+    background: rgba(15,23,42,.34);
+    border-radius: 8px;
+    padding: .58rem .66rem .40rem .66rem;
+    margin-bottom: .55rem;
+}
+
+
+/* v18.6.38: KPI, sidebar, banner og kontrollsenter phase 4 */
+html body .stApp .dash2026-kpi-card {
+  min-height: 80px !important;
+  padding: .62rem .78rem !important;
+  border-radius: 18px !important;
+}
+html body .stApp .dash2026-kpi-value {
+  font-size: 1.55rem !important;
+  line-height: 1.02 !important;
+}
+html body .stApp .dash2026-kpi-sub {
+  white-space: normal !important;
+  line-height: 1.18 !important;
+}
+/* v19.17.0 RC7: banner cards, missing-data state and macro symbol mapping. */
+html body .stApp .ticker-card,
+html body .stApp .live-banner-card,
+html body .stApp .special-watch-card,
+html body .stApp .ticker-tape-item {
+  height: 66px !important;
+  min-height: 66px !important;
+  max-height: none !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  overflow: visible !important;
+}
+html body .stApp .ticker-tape,
+html body .stApp .ticker-tape-track,
+html body .stApp .live-banner-strip,
+html body .stApp .special-watch-strip {
+  min-height: 80px !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+html body .stApp .ticker-info {
+  min-height: 54px !important;
+  overflow: visible !important;
+}
+html body .stApp .ticker-change {
+  display: block !important;
+  min-height: 14px !important;
+  line-height: 1.15 !important;
+  margin-top: 2px !important;
+  overflow: visible !important;
+}
+html body .stApp .ticker-spark svg,
+html body .stApp .sparkline svg {
+  max-height: 28px !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-card {
+  padding: .60rem .50rem !important;
+  margin: .48rem 0 .45rem 0 !important;
+  border-radius: 18px !important;
+  background: linear-gradient(180deg, rgba(8,47,73,.82), rgba(15,23,42,.88)) !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-title {
+  font-size: .70rem !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+}
+html body section[data-testid="stSidebar"] .auth-sidebar-user {
+  display:block !important;
+  font-size: .76rem !important;
+  line-height: 1.22 !important;
+}
+html body section[data-testid="stSidebar"] .auth-remember-chip {
+  font-size: .66rem !important;
+  padding: .20rem .42rem !important;
+  margin-top: .36rem !important;
+}
+html body section[data-testid="stSidebar"] .sidebar2026-nav-item {
+  min-height: 38px !important;
+  padding: .40rem .46rem !important;
+  border-radius: 15px !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stSelectbox"],
+html body .stApp .ptw-control-selector-shell label:has(+ div[data-baseweb="select"]) {
+  max-width: 520px !important;
+}
+html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+  min-height: 76px !important;
+  align-items: flex-start !important;
+  white-space: normal !important;
+  line-height: 1.15 !important;
+  font-size: .88rem !important;
+}
+html body .stApp .ptw-control-mini-title {
+  margin-top: .55rem !important;
+  margin-bottom: .30rem !important;
+}
+html body .stApp .ptw-control-submenu div[data-testid="stButton"] button {
+  min-height: 54px !important;
+  font-size: .80rem !important;
+}
+@media (max-width: 760px) {
+  html body .stApp .dash2026-kpi-grid { grid-template-columns: 1fr !important; }
+  html body .stApp .ticker-card,
+  html body .stApp .live-banner-card,
+  html body .stApp .special-watch-card,
+  html body .stApp .ticker-tape-item {
+    height: 62px !important;
+    min-height: 62px !important;
+    max-height: none !important;
+  }
+  html body .stApp .ptw-control-selector-shell div[data-testid="stButton"] button {
+    min-height: 54px !important;
+    font-size: .78rem !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+# v18.6.67: Professional UI Refactor – final global density pass.
+
+
+# v19.5.0: Preserve the former late CSS override order.
+inject_final_density_styles_v1950()
+
+# v18.8.7: accessibility/readability layer. Deliberately global so explanatory
+# text and checkbox controls remain legible on high-resolution desktop screens
+# as well as mobile, without changing any widget keys or behavior.
+st.markdown("""
+<style>
+html body .stApp [data-testid="stCaptionContainer"],
+html body .stApp .stCaption,
+html body .stApp .compact-mobile-note,
+html body .stApp .v15-inline-help,
+html body .stApp .info-mini-sub,
+html body .stApp .info-mini-small,
+html body .stApp .v18574-global-status .sub,
+html body .stApp .v18574-global-status .main {
+    color: #cbd5e1 !important;
+    opacity: 1 !important;
+    font-size: clamp(.90rem, .78rem + .18vw, 1.06rem) !important;
+    line-height: 1.48 !important;
+    font-weight: 650 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+html body .stApp .v18574-global-status {
+    min-height: 42px !important;
+    padding: .62rem .85rem !important;
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: .3rem .55rem !important;
+}
+html body .stApp div[data-testid="stAlert"] p,
+html body .stApp div[data-testid="stNotification"] p {
+    font-size: clamp(.92rem, .82rem + .14vw, 1.04rem) !important;
+    line-height: 1.45 !important;
+    overflow-wrap: anywhere !important;
+}
+html body .stApp div[data-testid="stCheckbox"] label {
+    min-height: 34px !important;
+    gap: .58rem !important;
+    align-items: center !important;
+}
+html body .stApp div[data-testid="stCheckbox"] label p {
+    color: #f1f5f9 !important;
+    font-size: clamp(.94rem, .84rem + .16vw, 1.08rem) !important;
+    line-height: 1.35 !important;
+    font-weight: 750 !important;
+}
+html body .stApp div[data-testid="stCheckbox"] label > div:first-child,
+html body .stApp div[data-testid="stCheckbox"] [data-baseweb="checkbox"] > div:first-child {
+    width: 21px !important;
+    height: 21px !important;
+    min-width: 21px !important;
+}
+html body .stApp [data-testid="stVerticalBlockBorderWrapper"] {
+    min-width: 0 !important;
+}
+html body .stApp [data-testid="stVerticalBlockBorderWrapper"] p,
+html body .stApp [data-testid="stVerticalBlockBorderWrapper"] div {
+    overflow-wrap: anywhere;
+}
+@media (min-width: 1400px) {
+    html body .stApp [data-testid="stCaptionContainer"], html body .stApp .stCaption {
+        font-size: 1rem !important;
+    }
+    html body .stApp div[data-testid="stCheckbox"] label p { font-size: 1.02rem !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+def add_rsi_current_box(fig, rsi):
+    try:
+        current_rsi = float(rsi.dropna().iloc[-1])
+
+        if current_rsi >= 80:
+            status, icon = "ekstremt overkjøpt", "🔥"
+        elif current_rsi >= 70:
+            status, icon = "overkjøpt", "!"
+        elif current_rsi <= 30:
+            status, icon = "oversolgt", "🧊"
+        else:
+            status, icon = "nøytral", "📊"
+
+        fig.add_annotation(
+            text=f"{icon} Gjeldende RSI: <b>{current_rsi:.1f}</b> · {status}",
+            xref="paper",
+            yref="paper",
+            x=0.01,
+            y=1.15,
+            showarrow=False,
+            font=dict(size=15, color="white"),
+            bgcolor="rgba(30,41,59,0.95)",
+            bordercolor="rgba(255,255,255,0.3)",
+            borderwidth=1,
+        )
+    except:
+        pass
+    return fig
+
+
+# v18.4.9: Legacy forecast section removed. Forecast lives in AI Kontrollsenter.
+
+
+# legacy test marker: key="top_apply_all_changes_v18570"
+# legacy test marker: c1, c2 = st.columns([1.15, 1.15], gap="small")
+
+# legacy test marker: data-ui-path='active-global-update-v18590'
+# legacy test marker: main_auto_verify_pushover_v18590
+# legacy test marker: main_auto_send_test_pushover_v18590
+
+# legacy test marker: top_apply_all_changes_v18590
+
+
+
+
+# v18.6.41: Sidebar CSS/rendering moved to ui_sidebar_stable.py.

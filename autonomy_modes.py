@@ -20,7 +20,8 @@ from manual_job_background import get_active_status, is_running, start_manual_jo
 from market_intelligence import _load_report_archive, load_draft_job, load_jobs, load_run
 from market_universe import (
     BASE_MARKET_SCOPES, CORE_MARKET_SCOPES, EXTENDED_NORDIC_MARKET_SCOPES,
-    FULL_MARKET_SCOPE_LABEL, expand_market_scope,
+    CORE_MARKET_SCOPE_LABEL, EXTENDED_NORDIC_SCOPE_LABEL, FULL_MARKET_SCOPE_LABEL,
+    canonical_market_scope_label, expand_market_scope,
 )
 from persistent_config_store import read_persistent_json, write_persistent_json
 from scheduler_background import scheduler_audit, scheduler_status
@@ -75,8 +76,8 @@ HORIZONS = ["1–3 måneder", "3–12 måneder", "1–3 år", "3 år eller mer"]
 RISKS = ["Forsiktig", "Balansert", "Offensiv"]
 
 SIMPLE_MARKET_PROFILE_KEY = "autonomi_core/simple_market_profile.json"
-CORE_PROFILE = "Alle kjernemarkeder"
-EXTENDED_PROFILE = "Utvidet Norden"
+CORE_PROFILE = CORE_MARKET_SCOPE_LABEL
+EXTENDED_PROFILE = EXTENDED_NORDIC_SCOPE_LABEL
 BRAZIL_PROFILE = "Brasil"
 CUSTOM_PROFILE = "Egendefinert"
 SIMPLE_MARKET_PROFILES = [CORE_PROFILE, EXTENDED_PROFILE, BRAZIL_PROFILE, FULL_MARKET_SCOPE_LABEL, CUSTOM_PROFILE]
@@ -85,7 +86,7 @@ SIMPLE_MARKET_PROFILES = [CORE_PROFILE, EXTENDED_PROFILE, BRAZIL_PROFILE, FULL_M
 def load_simple_market_profile() -> dict[str, Any]:
     value = read_persistent_json(SIMPLE_MARKET_PROFILE_KEY, default={})
     row = dict(value) if isinstance(value, Mapping) else {}
-    profile = str(row.get("profile") or CORE_PROFILE)
+    profile = canonical_market_scope_label(row.get("profile") or CORE_PROFILE)
     if profile not in SIMPLE_MARKET_PROFILES:
         profile = CORE_PROFILE
     custom = [item for item in row.get("custom_markets") or [] if item in BASE_MARKET_SCOPES]
@@ -178,8 +179,8 @@ def render_simple_mode() -> None:
         market_profile = st.selectbox(
             "Markedsvalg", SIMPLE_MARKET_PROFILES,
             index=_index(SIMPLE_MARKET_PROFILES, market_profile_state.get("profile"), 0),
-            help=("Alle kjernemarkeder betyr Norge, Sverige og USA. Utvidet Norden og Brasil "
-                  "kjøres separat. Full skanning er et eksplisitt avansert valg."),
+            help=("Hvert valg viser nøyaktig hvilke land som blir skannet. "
+                  "Brasil og full seksmarkedsskanning er egne eksplisitte valg."),
         )
         custom_markets = []
         if market_profile == CUSTOM_PROFILE:

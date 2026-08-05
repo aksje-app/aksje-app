@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from market_universe import BASE_MARKET_SCOPES, expand_market_scope, market_scope_options
+from market_universe import BASE_MARKET_SCOPES, FULL_MARKET_SCOPE_LABEL, CORE_MARKET_SCOPE_LABEL, expand_market_scope, market_scope_options
 from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 
@@ -762,7 +762,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "created_at": _now_iso(),
         "config": asdict(cfg),
         "market_expansion": expand_market_scope(cfg.market_scope),
-        "all_markets": list(BASE_MARKET_SCOPES) if cfg.market_scope in {"Alle markeder - full skanning"} else [],
+        "all_markets": list(BASE_MARKET_SCOPES) if cfg.market_scope == FULL_MARKET_SCOPE_LABEL else [],
         "summary": {
             "scanned": len(sanitized_rows), "deep_analyzed": len(assessments), "proposals": len(proposals),
             "recommended": sum(1 for x in assessments if x.status == STATUS_RECOMMENDED),
@@ -988,8 +988,8 @@ def render_investment_pipeline() -> None:
         ).normalized()
 
         force_refresh = st.checkbox("Tving full ny analyse (ignorer cache)", value=False, key="ip_force_refresh_v18692e", help="Henter nye data for alle kandidater. Brukes ved kontroll og feilsøking; kjøringen kan ta lengre tid.")
-        if market == "Alle":
-            st.info("Alle kjernemarkeder: " + ", ".join(expand_market_scope("Alle")))
+        if market == CORE_MARKET_SCOPE_LABEL:
+            st.info("Valgte land: " + ", ".join(expand_market_scope(CORE_MARKET_SCOPE_LABEL)))
 
         if st.button("Kjør automatisk investeringspipeline", type="primary", width="stretch", key="ip_run_v18686"):
             with st.spinner("Skanner og rangerer kandidater..."):
