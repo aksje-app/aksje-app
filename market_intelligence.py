@@ -4992,9 +4992,13 @@ def render_market_intelligence() -> None:
             unavailable.append("nattanalyse")
         if unavailable:
             st.caption("Ikke konfigurert som aktiv jobbprofil: " + ", ".join(unavailable) + ". Opprett eller aktiver profilen under avanserte innstillinger.")
-        # RC16.1: do not silently degrade to a one-shot renderer. A fragment
-        # failure must be visible instead of masquerading as working polling.
-        _live_report_progress_fragment_v19220_rc161()
+        # RC16.2: Rapporter uses the exact same live progress fragment as
+        # Autonomi Oversikt. Do not maintain a second polling implementation.
+        from autonomy_overview import render_shared_manual_job_progress
+        render_shared_manual_job_progress(
+            allow_quick_start=False,
+            refresh_app_on_terminal=False,
+        )
 
     with st.container(border=True):
         st.markdown("##### 3. Siste rapporter")

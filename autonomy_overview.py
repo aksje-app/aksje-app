@@ -352,14 +352,14 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
             st.rerun()
 
 
-def _live_progress_panel(*, allow_quick_start: bool = True) -> None:
+def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_terminal: bool = True) -> None:
     """Poll only durable job status; never rerender the full Autonomy page."""
     status = get_active_status() or {}
     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
     if is_running(status):
         st.caption("Status og fremdrift oppdateres automatisk hvert 5. sekund mens kjøringen pågår.")
     execution_id = str(status.get("execution_id") or "")
-    if str(status.get("state") or "") in TERMINAL_STATES and execution_id:
+    if refresh_app_on_terminal and str(status.get("state") or "") in TERMINAL_STATES and execution_id:
         refresh_key = "autonomy_overview_terminal_refresh_v1902"
         if st.session_state.get(refresh_key) != execution_id:
             st.session_state[refresh_key] = execution_id
@@ -369,7 +369,11 @@ def _live_progress_panel(*, allow_quick_start: bool = True) -> None:
                 st.rerun()
 
 
-def _render_live_progress(*, allow_quick_start: bool = True) -> None:
+def _render_live_progress(
+    *,
+    allow_quick_start: bool = True,
+    refresh_app_on_terminal: bool = True,
+) -> None:
     # A periodic Streamlit fragment remains scheduled until the fragment is
     # removed from the page.  Only create it for an actually active job;
     # completed/failed/cancelled pages are rendered once and stay idle.
@@ -377,9 +381,27 @@ def _render_live_progress(*, allow_quick_start: bool = True) -> None:
     running = is_running(status)
     fragment = getattr(st, "fragment", None)
     if running and callable(fragment):
-        fragment(run_every="5s")(_live_progress_panel)(allow_quick_start=allow_quick_start)
+        fragment(run_every="5s")(_live_progress_panel)(
+            allow_quick_start=allow_quick_start,
+            refresh_app_on_terminal=refresh_app_on_terminal,
+        )
     else:
-        _live_progress_panel(allow_quick_start=allow_quick_start)
+        _live_progress_panel(
+            allow_quick_start=allow_quick_start,
+            refresh_app_on_terminal=refresh_app_on_terminal,
+        )
+
+
+def render_shared_manual_job_progress(
+    *,
+    allow_quick_start: bool = False,
+    refresh_app_on_terminal: bool = False,
+) -> None:
+    """Render the same proven progress fragment used by Autonomi Oversikt."""
+    _render_live_progress(
+        allow_quick_start=allow_quick_start,
+        refresh_app_on_terminal=refresh_app_on_terminal,
+    )
 
 
 def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:

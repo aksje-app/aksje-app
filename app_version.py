@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.1"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.1 Progress Hotfix"
+APP_VERSION = "v19.22.0-rc16.2"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.2 Shared Progress Hotfix"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.1"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.2: Avgrenset live-hotfix som fjerner den separate fremdriftsmotoren i Rapporter. Rapportsenteret bruker nå nøyaktig samme dynamiske Streamlit-fragment, samme femsekunders intervall og samme autoritative jobbstatuskilde som Autonomi Oversikt. Terminalstatus utløser ikke helsidererender i Rapporter. Ingen endring i rapportmotor, ZIP, tidssone, meny, score, scheduler, porteføljer eller handel.",
     "v19.22.0-rc16.1: Avgrenset live-hotfix for automatisk rapportfremdrift. Statusfragmentet er eksplisitt og kan ikke lenger falle stille tilbake til en ikke-pollende funksjon. Hver poll leser et skrivebeskyttet prosessminne-/atomisk lokalstatussnapshot uten PostgreSQL-tilkobling, speilskriving, navigasjonsendring eller full app-rerun. UI viser pollkilde og siste lesetid. Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel.",
     "v19.22.0-rc16: Samlet replay-, beslutnings- og presentasjonskonsolidering. Rapport- og læringsarkiv kan eksporteres skrivebeskyttet i bakgrunn med PDF/TXT/JSON/snapshots/manifest/SHA-256; enkelt­rapporter får komplette ZIP-pakker. Porteføljelaget evaluerer de lagrede produksjonsportene direkte og registrerer entydig første blocker i stedet for å vente på en sirkulær statusstreng. Evidenskontroll dekker den avgrensede dypanalysen, læringsprofilen tilbyr eksplisitt 15 000 i LEARNING_ONLY-notional, rapportfremdrift bruker et modulnivå-fragment, og siste CSS-lag låser den profesjonelle sidemenyen etter full lasting. Ekte handel forblir fail-closed; scheduler-tider, final_score og produksjonsterskler er ikke senket.",
     "v19.22.0-rc15: Bakgrunnsrapporten kjører i eksplisitt Streamlit-fri workerkontekst med separat heartbeat og reell fremdrift. Markedsdata har avgrensede tidsfrister og begrenset retry, og ikke-aksje-/kryssmarkedssymboler filtreres før Yahoo-kall. IDEX og PEXIP normaliseres til Oslo-symbol når markedet er Norge. Skanneprofilens widgetverdi og dataframekolonner normaliseres før rendering. Ingen endring i final_score, rangering, produksjonsterskel, scheduler, portefølje- eller handelsregler.",
