@@ -59,7 +59,7 @@ def render_live_market_banner(_legacy_context):
             marker_value = "neutral" if price_missing else ("green" if pct > 0 else ("red" if pct < 0 else "yellow"))
         marker_html = _banner_marker_html_v18610(marker_value)
         marker_title = html.escape(str(item.get("alert_explanation") or "Åpne tickerdetalj"))
-        href = f"?banner_ticker={quote(ticker_value)}&banner_market={quote(str(item.get('market', '')))}"
+        href = _banner_detail_href_v19220_rc9(ticker_value, item.get("market", ""))
 
         direction = "▲" if pct > 0 else ("▼" if pct < 0 else "•")
         change_html = (
