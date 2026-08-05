@@ -111,8 +111,8 @@ def _run() -> dict:
 
 
 def test_rc4_version_identity_is_current() -> None:
-    assert APP_VERSION == "v19.22.0-rc14"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc13"
+    assert APP_VERSION == "v19.22.0-rc15"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc14"
 
 
 def test_rc4_pdf_page_one_contains_decision_information_and_top3() -> None:

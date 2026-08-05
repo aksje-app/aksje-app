@@ -7,7 +7,7 @@ VERSION = (ROOT / 'app_version.py').read_text(encoding='utf-8')
 
 
 def test_rc7_version():
-    assert 'APP_VERSION = "v19.22.0-rc14"' in VERSION
+    assert 'APP_VERSION = "v19.22.0-rc15"' in VERSION
 
 
 def test_macro_aliases_are_provider_specific():
