@@ -7,7 +7,7 @@ VERSION = (ROOT / 'app_version.py').read_text(encoding='utf-8')
 
 
 def test_rc6_version():
-    assert 'APP_VERSION = "v19.22.0-rc12"' in VERSION
+    assert 'APP_VERSION = "v19.22.0-rc13"' in VERSION
 
 
 def test_provider_aliases_and_wrong_suffixes_are_normalised():

@@ -57,7 +57,7 @@ def test_advanced_job_settings_are_collapsed_and_checkbox_groups_are_framed():
 def test_investor_edition_branding_and_version():
     version = (ROOT / 'app_version.py').read_text(encoding='utf-8')
     report = (ROOT / 'market_intelligence.py').read_text(encoding='utf-8')
-    assert 'APP_VERSION = "v19.22.0-rc12"' in version
+    assert 'APP_VERSION = "v19.22.0-rc13"' in version
     assert 'Investor Edition' in report
 
 
