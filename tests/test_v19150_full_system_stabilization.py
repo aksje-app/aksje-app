@@ -89,7 +89,7 @@ def test_legacy_core_job_repairs_stale_six_market_list():
         "markets": ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"],
     })
     assert job.market_profile == "CORE"
-    assert job.markets == ["Alle kjernemarkeder"]
+    assert job.markets == ["Norge + Sverige + USA"]
     contract = market_profile_contract(job.market_profile, job.markets, name=job.name)
     assert contract["expanded_markets"] == ["Norge", "Sverige", "USA"]
 
@@ -97,7 +97,7 @@ def test_legacy_core_job_repairs_stale_six_market_list():
 def test_market_profile_mismatch_is_a_blocking_semantic_error():
     report = canonical_report_view(_run(["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]))
     assert report["report_integrity"]["ok"] is False
-    assert any("Markedsprofilen Kjernemarkeder" in error for error in report["report_integrity"]["errors"])
+    assert any("Markedsprofilen Norge + Sverige + USA" in error for error in report["report_integrity"]["errors"])
 
 
 def test_news_relevance_rejects_other_companies_and_general_big_tech():

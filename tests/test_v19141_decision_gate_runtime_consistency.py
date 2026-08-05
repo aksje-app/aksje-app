@@ -89,7 +89,7 @@ def _report(candidates: list[dict], *, buy_tickers: list[str] | None = None) -> 
 
 def test_all_exposed_autonomy_versions_follow_app_version():
     expected = app_version.APP_VERSION
-    assert expected == "v19.22.0-rc8"
+    assert expected == "v19.22.0-rc9"
     assert orchestrator.CORE_VERSION == expected
     assert full_execution.VERSION == expected
     assert layer.LAYER_VERSION == expected
@@ -265,7 +265,7 @@ def test_user_facing_report_source_has_no_legacy_followup_label_or_raw_english_f
 def test_orchestrator_allows_explicit_single_market_and_group_override_without_mutating_saved_job():
     saved = mi.JobProfile(name="Morgenanalyse", markets=["Alle markeder - full skanning"])
     norway = resolve_orchestrator_run_job(saved, "Norge")
-    core = resolve_orchestrator_run_job(saved, "Alle kjernemarkeder")
+    core = resolve_orchestrator_run_job(saved, "Norge + Sverige + USA")
     unchanged = resolve_orchestrator_run_job(saved, USE_JOB_MARKETS)
 
     assert "Norge" in ORCHESTRATOR_MARKET_CHOICES
@@ -335,13 +335,13 @@ def test_user_facing_alle_labels_do_not_claim_six_markets():
     assert '("Alle markeder" if market == "Alle"' not in app_source
     assert "Alternativet **Alle** inkluderer USA, Norge, Sverige, Finland, Danmark og Brasil" not in pipeline_source
     assert 'defaults.markets=["Alle"]' not in scheduler_source
-    assert 'defaults.markets=["Alle kjernemarkeder"]' in scheduler_source
+    assert 'defaults.markets=[CORE_MARKET_SCOPE_LABEL]' in scheduler_source
 
 
 def test_saved_scheduler_market_values_are_canonicalised_without_ambiguity():
-    assert mi.canonical_market_profile_selections(["Alle"]) == ["Alle kjernemarkeder"]
-    assert mi.canonical_market_profile_selections(["Norge", "Sverige", "USA"]) == ["Alle kjernemarkeder"]
-    assert mi.canonical_market_profile_selections(["Danmark", "Finland"]) == ["Utvidet Norden"]
+    assert mi.canonical_market_profile_selections(["Alle"]) == ["Norge + Sverige + USA"]
+    assert mi.canonical_market_profile_selections(["Norge", "Sverige", "USA"]) == ["Norge + Sverige + USA"]
+    assert mi.canonical_market_profile_selections(["Danmark", "Finland"]) == ["Danmark + Finland"]
     assert mi.canonical_market_profile_selections(["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"]) == [FULL_MARKET_SCOPE_LABEL]
     assert mi.canonical_market_profile_selections(["Norge", "Finland"]) == ["Norge", "Finland"]
 
@@ -352,7 +352,7 @@ def test_job_profile_load_migrates_legacy_market_values_to_visible_profiles():
         "name": "Gammel fulljobb",
         "markets": ["USA", "Norge", "Sverige", "Finland", "Danmark", "Brasil"],
     })
-    assert legacy_core.markets == ["Alle kjernemarkeder"]
+    assert legacy_core.markets == ["Norge + Sverige + USA"]
     assert legacy_full.markets == [FULL_MARKET_SCOPE_LABEL]
 
 
