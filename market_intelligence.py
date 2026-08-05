@@ -4709,9 +4709,9 @@ def _manual_report_status_label_v1924(state: Any) -> str:
 def _render_manual_report_progress_v1924() -> None:
     """Render durable progress for report-center jobs without blocking navigation."""
     import streamlit as st
-    from manual_job_background import get_active_status, is_running, request_cancel
+    from manual_job_background import get_active_status_snapshot, is_running, request_cancel
 
-    status = get_active_status()
+    status = get_active_status_snapshot()
     if not status:
         st.caption("Ingen manuell rapportkjøring er aktiv.")
         return
@@ -4738,6 +4738,11 @@ def _render_manual_report_progress_v1924() -> None:
             f"Kjørings-ID: {execution_id} · Siste fremdrift: "
             f"{local_display(progress_at, timezone_name) if progress_at else '-'} · "
             f"Worker-heartbeat: {local_display(heartbeat_at, timezone_name) if heartbeat_at else '-'}"
+        )
+        poll_source = str(status.get("ui_poll_source") or "UKJENT")
+        st.caption(
+            "Automatisk UI-poll: aktiv hvert 2. sekund · "
+            f"kilde {poll_source} · lest {local_display(_now_iso(), timezone_name)}"
         )
         try:
             progress_dt = datetime.fromisoformat(str(progress_at).replace("Z", "+00:00")) if progress_at else None
@@ -4775,18 +4780,31 @@ def _render_manual_report_progress_v1924() -> None:
         st.caption("Rapportarkivet oppdateres ved neste vanlige sideoppdatering. Ingen automatisk helsidererender kjøres.")
 
 
-def _live_report_progress_body_v19220_rc16() -> None:
-    """Module-level fragment body; never recreated during a normal app rerun."""
+def _live_report_progress_body_v19220_rc161() -> None:
+    """Render the small, read-only report status region on every fragment tick."""
     _render_manual_report_progress_v1924()
 
 
 try:
-    import streamlit as _st_fragment_rc16
-    _live_report_progress_fragment_v19220_rc16 = _st_fragment_rc16.fragment(run_every="3s")(
-        _live_report_progress_body_v19220_rc16
-    )
-except Exception:
-    _live_report_progress_fragment_v19220_rc16 = _live_report_progress_body_v19220_rc16
+    import streamlit as _st_fragment_rc161
+except ImportError:  # Allows non-UI unit tests to import the module.
+    _st_fragment_rc161 = None
+
+if _st_fragment_rc161 is not None:
+    _fragment_decorator_rc161 = getattr(_st_fragment_rc161, "fragment", None)
+    if callable(_fragment_decorator_rc161):
+        _live_report_progress_fragment_v19220_rc161 = _fragment_decorator_rc161(run_every=2.0)(
+            _live_report_progress_body_v19220_rc161
+        )
+    elif getattr(_st_fragment_rc161, "__file__", None):
+        # A real Streamlit runtime without fragments is a deployment error.
+        # Unit tests use a tiny module stub without __file__ and may import the
+        # non-UI report functions without installing Streamlit.
+        raise RuntimeError("Streamlit-fragment mangler; automatisk rapportfremdrift kan ikke startes")
+    else:
+        _live_report_progress_fragment_v19220_rc161 = _live_report_progress_body_v19220_rc161
+else:
+    _live_report_progress_fragment_v19220_rc161 = _live_report_progress_body_v19220_rc161
 
 
 def _render_replay_export_status_v19220_rc16() -> None:
@@ -4974,10 +4992,9 @@ def render_market_intelligence() -> None:
             unavailable.append("nattanalyse")
         if unavailable:
             st.caption("Ikke konfigurert som aktiv jobbprofil: " + ", ".join(unavailable) + ". Opprett eller aktiver profilen under avanserte innstillinger.")
-        try:
-            _live_report_progress_fragment_v19220_rc16()
-        except Exception:
-            _render_manual_report_progress_v1924()
+        # RC16.1: do not silently degrade to a one-shot renderer. A fragment
+        # failure must be visible instead of masquerading as working polling.
+        _live_report_progress_fragment_v19220_rc161()
 
     with st.container(border=True):
         st.markdown("##### 3. Siste rapporter")

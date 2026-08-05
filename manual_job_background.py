@@ -7,6 +7,7 @@ local JSON file remains a backwards-compatible diagnostic mirror.
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import traceback
@@ -26,6 +27,8 @@ ROOT = runtime_data_path("manual_background_jobs")
 ACTIVE_PATH = ROOT / "active.json"
 ACTIVE_KEY = "manual_background_jobs/active.json"
 _LOCK = threading.Lock()
+_SNAPSHOT_LOCK = threading.Lock()
+_LATEST_ACTIVE_SNAPSHOT: dict[str, Any] = {}
 _THREADS: dict[str, threading.Thread] = {}
 _TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 _STAGE_ORDER = ["MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
@@ -67,9 +70,41 @@ def _status_key(execution_id: str) -> str:
     return f"manual_background_jobs/runs/{execution_id}.json"
 
 
+def _publish_runtime_snapshot(status: Mapping[str, Any]) -> dict[str, Any]:
+    """Publish one copy-on-write status snapshot for low-latency UI polling.
+
+    The Streamlit fragment and the worker run in the same web process. Reading
+    this snapshot avoids opening two PostgreSQL connections and rewriting two
+    diagnostic mirror files every few seconds. Durable storage remains the
+    authoritative recovery source after process restarts.
+    """
+    global _LATEST_ACTIVE_SNAPSHOT
+    payload = dict(status or {})
+    with _SNAPSHOT_LOCK:
+        _LATEST_ACTIVE_SNAPSHOT = payload
+    return dict(payload)
+
+
+def _runtime_snapshot() -> dict[str, Any]:
+    with _SNAPSHOT_LOCK:
+        return dict(_LATEST_ACTIVE_SNAPSHOT)
+
+
+def _read_local_status_file(path) -> dict[str, Any]:
+    """Read an atomically replaced local JSON mirror without repository I/O."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
 def _write_status(status: Mapping[str, Any]) -> dict[str, Any]:
     payload = dict(status)
     execution_id = str(payload["execution_id"])
+    # Publish before durable I/O. A slow database must not prevent the browser
+    # from seeing the progress event that the worker has already produced.
+    _publish_runtime_snapshot(payload)
     write_json(_status_key(execution_id), _status_path(execution_id), payload)
     write_json(ACTIVE_KEY, ACTIVE_PATH, {
         "execution_id": execution_id,
@@ -202,7 +237,42 @@ def get_active_status() -> dict[str, Any]:
     if not isinstance(active, Mapping) or not active.get("execution_id"):
         return {}
     status = get_status(str(active["execution_id"]))
-    return reconcile_orphaned_status(status)
+    reconciled = reconcile_orphaned_status(status)
+    if reconciled:
+        _publish_runtime_snapshot(reconciled)
+    return reconciled
+
+
+def get_active_status_snapshot() -> dict[str, Any]:
+    """Return a read-only, low-latency status snapshot for periodic UI polls.
+
+    Poll order is deliberately memory -> atomic local mirror -> durable store.
+    The common path performs no database connection, no mirror write, no orphan
+    reconciliation and no Session State mutation. This keeps a two-second
+    Streamlit fragment rerun small and prevents the full page from appearing
+    busy while the report worker continues.
+    """
+    snapshot = _runtime_snapshot()
+    if snapshot.get("execution_id"):
+        snapshot["ui_poll_source"] = "PROCESS_MEMORY"
+        return snapshot
+
+    active = _read_local_status_file(ACTIVE_PATH)
+    execution_id = str(active.get("execution_id") or "")
+    if execution_id:
+        local_status = _read_local_status_file(_status_path(execution_id))
+        if local_status.get("execution_id"):
+            _publish_runtime_snapshot(local_status)
+            local_status["ui_poll_source"] = "LOCAL_ATOMIC_MIRROR"
+            return local_status
+
+    # Cold process or missing mirror: one authoritative recovery read. Normal
+    # fragment ticks return from memory after this point.
+    durable = get_active_status()
+    if durable:
+        durable = dict(durable)
+        durable["ui_poll_source"] = "DURABLE_RECOVERY"
+    return durable
 
 
 def progress_percent(event: Mapping[str, Any]) -> int:
