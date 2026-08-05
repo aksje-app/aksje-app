@@ -1,0 +1,159 @@
+{
+  "version": "v19.22.0-rc4",
+  "source_json": "UTKAST_Dagsrapport_20260804T132423.json",
+  "generated_pdf": "RC4_UTKAST_Dagsrapport_20260804_FINAL.pdf",
+  "pdf_sha256": "d8be2a7291f8757f02da282ea3807ea3a9f48575fc67afd0a6bcecd13aef378a",
+  "page_count": 13,
+  "report_id": "MI-20260804-132422",
+  "analysis_id": "AN-0C23B77F87C2C9FB",
+  "content_sha256": "43cdb999b8fe0c75d4ea99055dc4c9e747ded6af163398c6fd9c3f1987cb2889",
+  "top3": [
+    {
+      "rank": 1,
+      "ticker": "DANSKE.CO",
+      "final_score": 77.76,
+      "decision": "Overvåkes automatisk"
+    },
+    {
+      "rank": 2,
+      "ticker": "METSO.HE",
+      "final_score": 66.48,
+      "decision": "Automatisk avvist"
+    },
+    {
+      "rank": 3,
+      "ticker": "VAIAS.HE",
+      "final_score": 65.83,
+      "decision": "Automatisk avvist"
+    }
+  ],
+  "checks": [
+    {
+      "name": "pdf_header_valid",
+      "passed": true,
+      "details": "61064 bytes"
+    },
+    {
+      "name": "page_count",
+      "passed": true,
+      "details": "13 pages"
+    },
+    {
+      "name": "app_version",
+      "passed": true,
+      "details": "v19.22.0-rc4"
+    },
+    {
+      "name": "report_id",
+      "passed": true,
+      "details": "MI-20260804-132422"
+    },
+    {
+      "name": "separate_analysis_id",
+      "passed": true,
+      "details": "AN-0C23B77F87C2C9FB"
+    },
+    {
+      "name": "full_sha256",
+      "passed": true,
+      "details": "43cdb999b8fe0c75d4ea99055dc4c9e747ded6af163398c6fd9c3f1987cb2889"
+    },
+    {
+      "name": "top3_heading_page1",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "top3_heading_only_page1",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "top1_ticker_page1",
+      "passed": true,
+      "details": "DANSKE.CO"
+    },
+    {
+      "name": "top1_score_page1",
+      "passed": true,
+      "details": "77.76"
+    },
+    {
+      "name": "top1_decision_page1",
+      "passed": true,
+      "details": "Overvåkes automatisk"
+    },
+    {
+      "name": "top2_ticker_page1",
+      "passed": true,
+      "details": "METSO.HE"
+    },
+    {
+      "name": "top2_score_page1",
+      "passed": true,
+      "details": "66.48"
+    },
+    {
+      "name": "top2_decision_page1",
+      "passed": true,
+      "details": "Automatisk avvist"
+    },
+    {
+      "name": "top3_ticker_page1",
+      "passed": true,
+      "details": "VAIAS.HE"
+    },
+    {
+      "name": "top3_score_page1",
+      "passed": true,
+      "details": "65.83"
+    },
+    {
+      "name": "top3_decision_page1",
+      "passed": true,
+      "details": "Automatisk avvist"
+    },
+    {
+      "name": "four_quality_metrics_page1",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "aggregate_reliability_removed",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "ascii_confidence_bars_removed",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "learning_buy_wording_removed",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "technical_appendix_preserved",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "followup_priority_explained",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "name": "superseded_report_id_page1",
+      "passed": true,
+      "details": "MI-20260804-131903"
+    }
+  ],
+  "passed": true,
+  "protected_values_unchanged": {
+    "top3_order": true,
+    "final_score": true,
+    "decision": true,
+    "note": "The RC4 rendering uses the supplied report JSON and does not recalculate candidate ranking or trading decisions."
+  }
+}

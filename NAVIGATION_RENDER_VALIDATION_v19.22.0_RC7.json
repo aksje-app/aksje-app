@@ -1,0 +1,39 @@
+{
+  "version": "v19.22.0-rc7",
+  "generated_at": "2026-08-04T17:44:00+02:00",
+  "scope": "single canonical route and single main-render contract",
+  "status": "LOCAL_VALIDATION_PASSED_LIVE_RENDER_PENDING",
+  "root_cause": [
+    "Outer control-center routing wrote control_center while the inner Autonomi workspace wrote autonomy plus aa_tab.",
+    "The competing routes could trigger repeated reruns and restore different pages during manual refresh.",
+    "A one-shot Autonomi tab request could be consumed before the radio state was stabilized.",
+    "The generic aa_tab value could contaminate tab state for unrelated workspaces."
+  ],
+  "repairs": [
+    "One canonical navigation route is selected per visible panel.",
+    "Autonomi workspace state is established before the workspace radio renders.",
+    "Route tabs are restored only to the workspace that owns them.",
+    "Persistent UI state stores the active route tab instead of a stale tab from another panel.",
+    "Paper Trading uses paper_trading as its canonical route.",
+    "The early direct report-render path was removed so one selector and one renderer own the visible workspace."
+  ],
+  "automated_validation": {
+    "full_tests_passed": 652,
+    "subtests_passed": 4,
+    "tests_failed": 0,
+    "targeted_route_tests_passed": 29,
+    "compileall": "PASS",
+    "system_audit": "PASS",
+    "audit_errors": 0,
+    "audit_warnings": 0
+  },
+  "live_render_pending": [
+    "Only one main workspace is visible after repeated manual refresh.",
+    "Autonomi / Rapporter remains selected after at least five refreshes.",
+    "No duplicate Autonomi or Rapporter tree appears below the active page.",
+    "Back/forward navigation restores the same group, panel and inner tab.",
+    "Valutavarsler remains active after each action.",
+    "Paper Trading and all other control-center panels preserve their own tabs.",
+    "Normal navigation does not enter a rerun loop or become progressively slower."
+  ]
+}

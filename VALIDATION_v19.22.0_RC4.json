@@ -1,0 +1,113 @@
+{
+  "version": "v19.22.0-rc4",
+  "edition": "Investor Edition RC4",
+  "date": "2026-08-04",
+  "base_version": "v19.22.0-rc3",
+  "base_archive": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC3_FULL.zip",
+  "base_archive_sha256": "fdb20a80609dd311be9608468da66f73a72aaf09c4ad6f0442821f40afdfd085",
+  "base_archive_integrity": "passed",
+  "python_compile": "passed",
+  "pytest": {
+    "passed": 636,
+    "failed": 0,
+    "subtests_passed": 4,
+    "duration_seconds": 22.35
+  },
+  "full_release_audit": {
+    "passed": true,
+    "errors": 0,
+    "warnings": 0,
+    "mutable_file_count": 0
+  },
+  "pdf_json_validation": {
+    "status": "passed",
+    "page_count": 13,
+    "top3_page": 1,
+    "same_top3_order": true,
+    "same_final_score": true,
+    "same_decision": true,
+    "report_id": "MI-20260804-132422",
+    "analysis_id": "AN-0C23B77F87C2C9FB",
+    "content_sha256": "43cdb999b8fe0c75d4ea99055dc4c9e747ded6af163398c6fd9c3f1987cb2889"
+  },
+  "pdf_visual_validation": {
+    "status": "passed",
+    "renderer": "pdfium",
+    "dpi": 200,
+    "pages_rendered": 13,
+    "pages_visually_reviewed": 13,
+    "clipping": false,
+    "overlap": false,
+    "broken_glyphs": false,
+    "black_boxes": false,
+    "page_13_note": "Readable operational table with acceptable unused lower whitespace."
+  },
+  "functional_repairs": {
+    "reports_page_spacing": "implemented_locally",
+    "background_progress": "implemented_locally",
+    "authoritative_menu_navigation": "implemented_locally",
+    "ui_scheduler_health_no_write": "implemented_locally",
+    "scheduler_kick_throttled": "implemented_locally",
+    "safe_remember_login": "implemented_locally",
+    "top3_on_pdf_page_1": "verified",
+    "checked_no_events_penalty_zero": "verified"
+  },
+  "protected_areas": {
+    "final_score_changed": false,
+    "candidate_selection_changed": false,
+    "ranking_changed": false,
+    "trading_rules_changed": false,
+    "scheduler_times_changed": false,
+    "production_threshold_changed": false,
+    "fail_closed_trading_changed": false,
+    "paper_trading_rules_changed": false
+  },
+  "security": {
+    "password_persisted": false,
+    "raw_token_stored_server_side": false,
+    "token_in_url": false,
+    "token_in_local_storage": false,
+    "server_token_storage": "SHA-256",
+    "same_site": "Strict",
+    "secure_cookie_on_render": true,
+    "expiration_days": 30,
+    "revocable": true,
+    "session_version_validated": true,
+    "residual_limitation": "The Streamlit component cannot set HttpOnly on the cookie; live browser validation and normal XSS protection remain required."
+  },
+  "distribution_validation": {
+    "status": "passed",
+    "full_profile": "passed",
+    "delta_profile": "passed",
+    "zip_integrity": "passed",
+    "full_file_count": 479,
+    "delta_file_count": 42,
+    "delta_copy_file_count": 39,
+    "delta_delete_file_count": 0,
+    "secret_scan": "passed",
+    "mutable_runtime_scan": "passed"
+  },
+  "live_render_test": "pending",
+  "live_checks_required": [
+    "login without and with remember me, refresh, logout and token revocation",
+    "all main menus, Overview <-> Reports, Drift Center and AI Control Center navigation",
+    "desktop and mobile visual inspection of Reports and advanced settings spacing",
+    "perceived performance and scheduler-kick throttling",
+    "background progress and terminal status for draft, morning, evening, night and missed scheduled report",
+    "UI, JSON and PDF equality for a newly generated live report",
+    "scheduler 08:00 and 22:00 Europe/Oslo",
+    "unattended Pushover delivery",
+    "minimum alert score applies to next manual and next scheduled job"
+  ],
+  "production_ready": false,
+  "production_readiness_reason": "Local validation passed, but the mandatory live Render acceptance test has not been executed.",
+  "delta_safety": {
+    "delete_file_count": 0,
+    "mutable_runtime_delete_targets": 0,
+    "support_tools_forced_into_delta": [
+      "tools/audit_full_system_v19150.py",
+      "tools/validate_distribution.py",
+      "tools/build_safe_distribution.py"
+    ]
+  }
+}

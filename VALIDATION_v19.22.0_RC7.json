@@ -1,0 +1,63 @@
+{
+  "version": "v19.22.0-rc7",
+  "edition": "Investor Edition RC7",
+  "generated_at": "2026-08-04T17:44:00+02:00",
+  "baseline": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC6_FULL.zip",
+  "status": "LOCAL_VALIDATION_PASSED_LIVE_RENDER_PENDING",
+  "summary": {
+    "tests_passed": 652,
+    "subtests_passed": 4,
+    "tests_failed": 0,
+    "targeted_tests_passed": 29,
+    "compileall": true,
+    "audit_ok": true,
+    "audit_errors": [],
+    "audit_warnings": [],
+    "mutable_runtime_files": 0,
+    "startup_smoke": "BLOCKED_TEST_ENVIRONMENT_NO_STREAMLIT_DISTRIBUTION",
+    "deleted_files": 0
+  },
+  "verified": [
+    "Known panels resolve to one canonical URL route.",
+    "Autonomi report tab is applied before the workspace selector renders.",
+    "Autonomi no longer directly renders reports and returns before selector state is stable.",
+    "Route tabs are restored only to their owning workspace.",
+    "Persistent UI state reads the active route tab.",
+    "Paper Trading uses its own canonical route.",
+    "Full regression suite completed with 652 passed and 4 subtests passed.",
+    "Full system audit completed with zero errors and zero warnings."
+  ],
+  "limitations": [
+    "The local startup smoke could not run because the execution environment has no installable Streamlit distribution; package requirements still declare streamlit==1.57.0.",
+    "Actual browser rendering and refresh behavior must be verified on Render."
+  ],
+  "not_verified_live": [
+    "Single visible render tree after repeated manual refresh on Render.",
+    "Desktop and mobile route persistence.",
+    "Back and forward browser navigation.",
+    "Live performance and absence of progressive rerun slowdown.",
+    "Login, remember-me, scheduler and Pushover regression on deployed service."
+  ],
+  "production_ready": false,
+  "packages": {
+    "full": {
+      "file": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC7_FULL.zip",
+      "distribution_validation": "PASS",
+      "zip_integrity": "PASS",
+      "hash_reference": "SHA256SUMS_v19.22.0_RC7.txt"
+    },
+    "delta": {
+      "file": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC7_DELTA.zip",
+      "distribution_validation": "PASS",
+      "zip_integrity": "PASS",
+      "delete_file_count": 0,
+      "hash_reference": "SHA256SUMS_v19.22.0_RC7.txt"
+    }
+  },
+  "full_package_retest": {
+    "targeted_tests_passed": 19,
+    "targeted_tests_failed": 0,
+    "full_suite": "PENDING_FINAL_PACKAGE_BUILD",
+    "audit": "PENDING_FINAL_PACKAGE_BUILD"
+  }
+}

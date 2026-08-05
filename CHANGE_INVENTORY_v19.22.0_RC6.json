@@ -1,0 +1,57 @@
+{
+  "version": "v19.22.0-rc6",
+  "baseline": "v19.22.0-rc5",
+  "generated_at": "2026-08-04T17:25:00+02:00",
+  "scope": "Valutavarsler navigation preservation only",
+  "new": [
+    "ACCEPTANCE_v19.22.0_RC6.md",
+    "CHANGE_INVENTORY_v19.22.0_RC6.json",
+    "CURRENCY_NAVIGATION_VALIDATION_v19.22.0_RC6.json",
+    "DEPLOY_v19.22.0_RC6.md",
+    "FLYTT_TIL_NY_CHAT_v19.22.0_RC6.txt",
+    "FULL_SYSTEM_AUDIT_v19.22.0_RC6.json",
+    "RELEASE_NOTES_v19.22.0_RC6.md",
+    "VALIDATION_v19.22.0_RC6.json",
+    "control_center_route_state.py",
+    "tests/test_v19220_rc6_currency_navigation.py"
+  ],
+  "changed": [
+    "app.py",
+    "app_version.py",
+    "tests/test_v19141_decision_gate_runtime_consistency.py",
+    "tests/test_v19145_report_local_storage.py",
+    "tests/test_v19146_pdf_dependency_hotfix.py",
+    "tests/test_v1915_mobile_navigation.py",
+    "tests/test_v19166_controlled_stabilization.py",
+    "tests/test_v19170_rc5_completion.py",
+    "tests/test_v19170_rc6_banner_repair.py",
+    "tests/test_v19170_rc7_banner_integrity.py",
+    "tests/test_v1919a_safe_distribution.py",
+    "tests/test_v19220_rc4_full_repairs.py",
+    "tests/test_v19220_rc5_currency_alert_repair.py",
+    "tests/test_v1922_daily_user_experience.py",
+    "tests/test_v1922_investor_edition.py",
+    "tools/ui_sidebar_stable.py",
+    "ui_sidebar_stable.py",
+    "workspace_layout.py"
+  ],
+  "deleted": [],
+  "protected_unchanged": [
+    "currency_alert_service.py",
+    "scheduled_runner.py",
+    "render.yaml",
+    "decision_engine.py",
+    "trading_engine.py",
+    "scheduler_background.py"
+  ],
+  "behavioral_changes": [
+    "All Valutavarsler action-triggered reruns preserve the fx_alerts route.",
+    "A one-shot route lock synchronizes control-center group, panel and radio state before rendering.",
+    "Valutavarsler belongs to Marked og signaler in main and fallback navigation."
+  ],
+  "no_change_assertions": [
+    "No change to currency rate fetching or threshold evaluation.",
+    "No change to Pushover message logic from RC5.",
+    "No change to final_score, candidate selection, scheduler times or trading rules."
+  ]
+}

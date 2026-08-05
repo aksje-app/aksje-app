@@ -1,0 +1,31 @@
+{
+  "version": "v19.22.0-rc6",
+  "edition": "Investor Edition RC6",
+  "generated_at": "2026-08-04T17:20:00+02:00",
+  "baseline": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC5_FULL.zip",
+  "status": "LOCAL_VALIDATION_PASSED_LIVE_RENDER_PENDING",
+  "summary": {
+    "tests_passed": 646,
+    "subtests_passed": 4,
+    "tests_failed": 0,
+    "targeted_tests_passed": 10,
+    "compileall": true,
+    "audit_ok": true,
+    "audit_errors": [],
+    "audit_warnings": [],
+    "deleted_files": 0
+  },
+  "verified": [
+    "All five action reruns call the navigation-preserving helper.",
+    "A stale Autonomi radio state is overwritten by the one-shot route lock.",
+    "Main and fallback sidebars route fx_alerts to Marked og signaler / Valutavarsler.",
+    "Valutavarsler is included in the active Marked og signaler group in workspace_layout.",
+    "No distributable file is deleted."
+  ],
+  "not_verified_live": [
+    "Actual Streamlit behavior on Render after clicking all actions.",
+    "Mobile and desktop browser behavior after deployment.",
+    "Refresh and remember-login interaction on the live service."
+  ],
+  "production_ready": false
+}

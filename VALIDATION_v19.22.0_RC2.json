@@ -1,0 +1,69 @@
+{
+  "version": "v19.22.0-rc2",
+  "edition": "Investor Edition RC2",
+  "date": "2026-08-04",
+  "base_version": "v19.22.0-rc1",
+  "base_archive_sha256": "4f7e965631fa4db21961ea01fd4738380c78322da73d70741626fed6d683dd85",
+  "base_archive_integrity": "passed",
+  "python_compile": "passed",
+  "pytest": {
+    "passed": 624,
+    "failed": 0,
+    "subtests_passed": 4,
+    "duration_seconds": 18.32
+  },
+  "static_safety_audit": "passed",
+  "full_release_audit": {
+    "passed": true,
+    "errors": 0,
+    "warnings": 0,
+    "mutable_file_count": 0
+  },
+  "local_pdf_validation": {
+    "status": "passed",
+    "pages": 8,
+    "semantic_checks": {
+      "app_version": true,
+      "investor_edition": true,
+      "report_id": true,
+      "analysis_id": true,
+      "top3_tickers": true,
+      "top3_order": true,
+      "final_score": true,
+      "canonical_decision": true
+    },
+    "visual_review": "All 8 pages reviewed as a contact sheet; pages 1, 4 and 8 inspected at full rendered size. No obvious clipping, overlap or broken glyphs observed.",
+    "note": "Representative deterministic local data were used; this is not a live market report."
+  },
+  "distribution_validation": {
+    "status": "passed",
+    "full_profile": "passed",
+    "delta_profile": "passed",
+    "zip_integrity": "passed",
+    "full_file_count": 463,
+    "delta_file_count": 45,
+    "delta_delete_file_count": 0,
+    "secret_scan": "passed",
+    "mutable_runtime_scan": "passed"
+  },
+  "live_render_test": "pending",
+  "live_checks_required": [
+    "login and logout",
+    "all main navigation",
+    "Overview <-> Reports",
+    "Drift center navigation",
+    "AI Control Center navigation",
+    "Run new draft button",
+    "compact report button CSS",
+    "live UI/JSON/PDF equality",
+    "scheduler 08:00 and 22:00 Europe/Oslo",
+    "Pushover unattended delivery",
+    "persistent minimum alert score from next run"
+  ],
+  "production_ready": false,
+  "production_readiness_reason": "Live Render, scheduler and Pushover acceptance tests have not been executed in this environment.",
+  "delta_safety_regression": {
+    "status": "passed",
+    "assertion": "DELETE_FILES excludes mutable runtime data, caches, logs and local secrets."
+  }
+}

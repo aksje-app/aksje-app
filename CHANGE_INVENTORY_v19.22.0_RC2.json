@@ -1,0 +1,71 @@
+{
+  "version": "v19.22.0-rc2",
+  "base_version": "v19.22.0-rc1",
+  "base_archive": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC1_FULL.zip",
+  "purpose": "Validation stabilization only; no investment, scheduler, authentication or trading behavior changed.",
+  "changed_source_and_tool_files": [
+    "app_version.py",
+    "safety_audit.py",
+    "tools/audit_full_system_v19150.py",
+    "tools/build_safe_distribution.py",
+    "tools/validate_distribution.py"
+  ],
+  "changed_test_files": [
+    "tests/test_v1880_autonomy_core_foundation.py",
+    "tests/test_v19100_strategy_lab_quality_challenger.py",
+    "tests/test_v1911_evidence_integrity.py",
+    "tests/test_v19120_strategy_promotion_rollback.py",
+    "tests/test_v1912_norwegian_decision_report.py",
+    "tests/test_v19141_decision_gate_runtime_consistency.py",
+    "tests/test_v19142_runtime_safety.py",
+    "tests/test_v19144_drift_recovery.py",
+    "tests/test_v19145_report_local_storage.py",
+    "tests/test_v19146_pdf_dependency_hotfix.py",
+    "tests/test_v1915_mobile_navigation.py",
+    "tests/test_v19166_controlled_stabilization.py",
+    "tests/test_v19170_rc2_drift_center_navigation.py",
+    "tests/test_v19170_rc3_drift_center_professional.py",
+    "tests/test_v19170_rc5_completion.py",
+    "tests/test_v19170_rc6_banner_repair.py",
+    "tests/test_v19170_rc7_banner_integrity.py",
+    "tests/test_v19180_rc2_report_2_0.py",
+    "tests/test_v1918b_separate_portfolios.py",
+    "tests/test_v1919a_safe_distribution.py",
+    "tests/test_v1920_report_version_contracts.py",
+    "tests/test_v1921_decision_report.py",
+    "tests/test_v1922_daily_user_experience.py",
+    "tests/test_v1922_investor_edition.py",
+    "tests/test_v1940_operational_repairs.py",
+    "tests/test_v1950_modular_strategy_versioning.py",
+    "tests/test_v1960_market_snapshot_technical_signal.py",
+    "tests/test_v1970_parallel_strategy_interface.py",
+    "tests/test_v1980_shared_execution_accounts_export.py",
+    "tests/test_v1990_controlled_technical_contribution.py"
+  ],
+  "added_or_changed_documentation": [
+    "ACCEPTANCE_v19.22.0_RC2.md",
+    "DEPLOY_v19.22.0_RC2.md",
+    "RELEASE_NOTES_v19.22.0_RC2.md",
+    "VALIDATION_v19.22.0_RC2.json",
+    "CHANGE_INVENTORY_v19.22.0_RC2.json",
+    "FLYTT_TIL_NY_CHAT_v19.22.0_RC2.txt"
+  ],
+  "deleted_files": [],
+  "business_logic_files_changed": [],
+  "protected_areas_not_changed": [
+    "final_score",
+    "candidate selection",
+    "scheduler times",
+    "login",
+    "Husk meg",
+    "background threads",
+    "Paper Trading rules",
+    "production trading rules"
+  ],
+  "validation_stabilization_details": [
+    "Stale version contracts in tests and audits updated to active APP_VERSION.",
+    "External PDF fixture replaced by deterministic local test data.",
+    "Distribution builder and validator made release-version aware.",
+    "DELTA deletion list restricted to safe distributable repository files; mutable runtime data are never deletion targets."
+  ]
+}

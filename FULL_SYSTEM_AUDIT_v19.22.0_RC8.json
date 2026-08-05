@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "version": "v19.22.0-rc8",
+  "errors": [],
+  "warnings": [],
+  "market_profiles": {
+    "CORE": [
+      "Norge",
+      "Sverige",
+      "USA"
+    ],
+    "EXTENDED_NORDIC": [
+      "Danmark",
+      "Finland"
+    ],
+    "BRAZIL": [
+      "Brasil"
+    ],
+    "FULL": [
+      "USA",
+      "Norge",
+      "Sverige",
+      "Finland",
+      "Danmark",
+      "Brasil"
+    ]
+  },
+  "mutable_file_count": 0
+}

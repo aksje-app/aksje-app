@@ -1,0 +1,38 @@
+AI AKSJE ANALYZER PRO - OVERLEVERING TIL NY CHAT
+Versjon: v19.22.0 Investor Edition RC2
+Dato: 2026-08-04
+
+AUTORITATIV STARTBASE
+- Bruk AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC2_FULL.zip som eneste startbase videre.
+- RC2 er bygget direkte fra den autoritative v19.22.0 RC1 FULL-pakken.
+- Ikke bygg videre fra eldre v19.17-v19.21-pakker eller fra RC1 etter at RC2 er tatt i bruk.
+
+HVA SOM ER ENDRET I RC2
+- Validerings- og testgrunnlaget er stabilisert.
+- Foreldede tester som hardkodet v19.17-versjoner er oppdatert til den kanoniske versjonskontrakten.
+- En ekstern /mnt/data-testfixture er erstattet med deterministiske testdata.
+- Releaseaudit, distribusjonsbygger og distribusjonsvalidator følger nå aktiv appversjon.
+- Komplett RC2-dokumentasjon og sporbar leveranse er lagt til.
+- DELTA-generatoren kan bare slette distribuerbare repositoryfiler og berører aldri runtime-data, cache eller lokale hemmeligheter.
+- Ingen endring i final_score, kandidatvalg, scheduler, innlogging, Husk meg, Paper Trading eller produksjonshandelsregler.
+
+LOKAL VALIDERING
+- Python-kompilering: bestått.
+- Pytest: 624 bestått, 0 feilet, 4 deltester bestått.
+- Statisk sikkerhetsaudit: bestått.
+- Full releaseaudit: bestått.
+- Lokal 8-siders PDF: semantikk og visuell rendering kontrollert.
+- Top 3, rekkefølge, score og kanonisk beslutning samsvarer mellom lokal kanonisk JSON og PDF.
+
+IKKE PRODUKSJONSKLAR ENNÅ
+- Live Render-test er ikke utført i denne chatten.
+- Scheduler 08:00/22:00 og Pushover må testes uten manuell forkjøring.
+- Faktisk UI-navigasjon, rapportknapper og UI/JSON/PDF-samsvar må verifiseres etter deploy.
+
+SIKKERHETSREGLER
+- Ikke endre innlogging, Husk meg, scheduleroppstart, bakgrunnstråder eller handelsregler uten eksplisitt oppgave.
+- Ikke erklær produksjonsklar før Render-testen er dokumentert bestått.
+- Bruk alltid FULL + DELTA + deploynotat + valideringsrapport + endringsoversikt + SHA-256.
+
+ANBEFALT FØRSTE MELDING I NESTE CHAT
+"Vi fortsetter AI Aksje Analyzer Pro fra v19.22.0 Investor Edition RC2. Bruk FULL-pakken som autoritativ base. Les FLYTT_TIL_NY_CHAT_v19.22.0_RC2.txt. Ikke endre beskyttede områder uten eksplisitt oppgave."

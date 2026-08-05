@@ -1,0 +1,32 @@
+AI AKSJE ANALYZER PRO - OVERLEVERING TIL NY CHAT
+Versjon: v19.22.0 Investor Edition RC6
+Dato: 2026-08-04
+
+AUTORITATIV STARTBASE
+- Bruk AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC6_FULL.zip som eneste startbase.
+- RC6 bygger direkte paa autoritativ RC5 FULL.
+
+RETTET I RC6
+- Hent kurs naa beholder Valutavarsler som aktiv side.
+- Sjekk valutagrense naa beholder Valutavarsler som aktiv side.
+- Pushover-test, helkjedetest og lagring beholder samme side.
+- Engangs-rutelaas synkroniserer kontrollsenterets gruppe, panel og radioverdier foer rerun.
+- Valutavarsler ligger stabilt under Marked og signaler i hoved- og fallbacknavigasjon.
+
+UENDRET
+- Valutakurslogikk, terskler og Pushover-innhold fra RC5.
+- Render Cron hvert femte minutt.
+- Morgenrapport 08:00 og kveldsrapport 22:00 Europe/Oslo.
+- final_score, kandidatvalg og handelsregler.
+
+LOKAL VALIDERING
+- 646 tester + 4 deltester bestod, 0 feil.
+- 10 maalrettede RC5/RC6-valutatester bestod.
+- Python-kompilering og full systemaudit bestod uten feil eller advarsler.
+
+LIVE RESTARBEID
+- Deploy paa Render og trykk alle fem handlinger paa mobil og desktop.
+- Bekreft at statusmeldingen vises paa Valutavarsler og at siden aldri hopper til Autonomi.
+- Bekreft refresh, Husk meg, Cron og Pushover etter deploy.
+
+Ikke erklaer produksjonsklar foer live Render-testen er dokumentert.

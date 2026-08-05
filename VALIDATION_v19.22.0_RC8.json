@@ -1,0 +1,61 @@
+{
+  "version": "v19.22.0-rc8",
+  "edition": "Investor Edition RC8",
+  "date": "2026-08-04",
+  "base": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC7_FULL.zip",
+  "status": "LOCALLY_VALIDATED_NOT_PRODUCTION_APPROVED",
+  "tests": {
+    "passed": 648,
+    "failed": 0,
+    "subtests_passed": 4,
+    "execution": "All 106 test files executed in 9 complete deterministic groups; one monolithic invocation exceeded the tool display timeout without reporting failures before regrouping."
+  },
+  "compileall": {
+    "ok": true
+  },
+  "system_audit": {
+    "ok": true,
+    "errors": 0,
+    "warnings": 0,
+    "mutable_file_count": 0
+  },
+  "ui_layout": {
+    "ok": true,
+    "widths": [
+      390,
+      768,
+      1366,
+      1920
+    ],
+    "horizontal_overflow": false,
+    "disabled_banner_height": 0
+  },
+  "pdf": {
+    "ok": true,
+    "pages": 12,
+    "previous_pages": 13,
+    "dpi": 200,
+    "all_pages_reviewed": true
+  },
+  "protected_logic": {
+    "final_score_changed": false,
+    "candidate_selection_changed": false,
+    "ranking_model_changed": false,
+    "production_threshold_changed": false,
+    "trading_rules_changed": false,
+    "scheduler_times_changed": false,
+    "login_changed": false
+  },
+  "live_render_required": true,
+  "packaged_full_retest": {
+    "passed": 648,
+    "failed": 0,
+    "subtests_passed": 4,
+    "execution": "The unpacked FULL distribution was rerun across the same 9 complete test groups."
+  },
+  "distribution_validation": {
+    "full_profile_ok": true,
+    "delta_update_profile_ok": true,
+    "delete_file_count": 0
+  }
+}

@@ -1,0 +1,50 @@
+AI AKSJE ANALYZER PRO - OVERLEVERING TIL NY CHAT
+Versjon: v19.22.0 Investor Edition RC5
+Dato: 2026-08-04
+
+AUTORITATIV STARTBASE
+- Bruk AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC5_FULL.zip som eneste startbase.
+- RC5 er bygget direkte fra den autoritative RC4 FULL-pakken.
+- Ikke bygg videre fra RC1-RC4 eller DELTA når RC5 FULL er tilgjengelig.
+
+RETTET I RC5
+- Automatisk valutakontroll er lagt inn i den eksisterende Render Cron-jobben som kjører hvert femte minutt.
+- Automatisk helse leses fra varig cron-heartbeat og ikke fra deaktivert prosesslokal webtråd.
+- Hent kurs, Sjekk valutagrense og Pushover-test bruker samme autoritative kursinnhenting og runtime-status.
+- Manuell grensekontroll henter ikke lenger kurs to ganger gjennom to ulike livssyklusmodeller.
+- Pushover-test krever fersk kurs og viser kurs, status, grenser og kurstid.
+- Helkjedetesten kan ikke etterlate kunstig kurs eller falsk grensebruddstatus.
+- Kursinnhenting har intradag-, fast_info- og download-fallback i yfinance.
+- Mobilstatus bruker responsivt kortoppsett. Den brede tekniske tabellen og loggen er lukket som standard.
+- Feil fra kursleverandør vises eksplisitt.
+
+LOKAL VALIDERING
+- 642 pytest-tester bestått, 4 deltester bestått, 0 feil.
+- 12 målrettede valutavarseltester bestått.
+- Python compileall bestått.
+- Full systemaudit bestått med 0 feil, 0 advarsler og 0 mutable filer.
+- Ekstern yfinance-kurs kunne ikke live-testes i valideringscontaineren og må testes på Render.
+
+IKKE ENDRET
+- final_score, scoreformel, kandidatvalg eller rangering.
+- Produksjonsterskel eller handelsregler.
+- Rapporttidene 08:00 og 22:00 Europe/Oslo.
+- Fail-closed produksjonshandel eller Paper Trading-regler.
+- Innlogging eller Husk meg.
+
+LIVE RESTARBEID PÅ RENDER
+- Vent inntil fem minutter etter deploy og bekreft nytt automatisk cron-tidspunkt.
+- Hent fersk BRLNOK=X-kurs manuelt og bekreft kurstid.
+- Kontroller grensen og sammenlign UI, runtime og eventuell Pushover.
+- Send Pushover-test og bekreft identisk kurs/status.
+- Kjør helkjedetest og bekreft at ordinær kurs/status gjenopprettes.
+- Kontroller automatisk overvåking uten innlogget nettleser.
+- Kontroller mobilvisningen på iPhone.
+- Kontroller at rapportplanleggeren fortsatt leverer 08:00 og 22:00.
+
+PRODUKSJONSSTATUS
+- Lokalt validert.
+- Ikke produksjonsklar før live Render-akseptansen er bestått.
+
+ANBEFALT FØRSTE MELDING I NY CHAT
+"Vi fortsetter AI Aksje Analyzer Pro fra v19.22.0 Investor Edition RC5. Bruk RC5 FULL som autoritativ base. Les FLYTT_TIL_NY_CHAT_v19.22.0_RC5.txt og VALIDATION_v19.22.0_RC5.json. Ikke erklær produksjonsklar før live Render-test av valutakurs, cron og Pushover er bestått. Vent på GO før nye endringer."

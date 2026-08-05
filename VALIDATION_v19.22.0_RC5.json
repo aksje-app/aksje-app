@@ -1,0 +1,98 @@
+{
+  "version": "v19.22.0-rc5",
+  "edition": "Investor Edition RC5",
+  "date": "2026-08-04",
+  "base_version": "v19.22.0-rc4",
+  "base_archive": "AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC4_FULL.zip",
+  "base_archive_integrity": "passed",
+  "python_compile": "passed",
+  "pytest": {
+    "passed": 642,
+    "failed": 0,
+    "subtests_passed": 4,
+    "duration_seconds": 21.41
+  },
+  "currency_alert_tests": {
+    "new_tests": 6,
+    "combined_targeted_tests": 12,
+    "failed": 0,
+    "single_authoritative_chain": "verified",
+    "automatic_cron_integration": "verified_statically_and_unit_tested",
+    "diagnostic_state_restoration": "verified",
+    "fresh_quote_pushover_contract": "verified",
+    "responsive_mobile_contract": "verified_statically"
+  },
+  "full_release_audit": {
+    "passed": true,
+    "errors": 0,
+    "warnings": 0,
+    "mutable_file_count": 0
+  },
+  "functional_repairs": {
+    "manual_quote_refresh": "implemented_locally",
+    "manual_threshold_check_single_fetch": "implemented_locally",
+    "fresh_quote_pushover_test": "implemented_locally",
+    "automatic_render_cron_currency_cycle": "implemented_locally",
+    "durable_automatic_heartbeat": "implemented_locally",
+    "diagnostic_runtime_restore": "implemented_locally",
+    "mobile_status_grid": "implemented_locally",
+    "collapsed_technical_table": "implemented_locally"
+  },
+  "protected_areas": {
+    "final_score_changed": false,
+    "candidate_selection_changed": false,
+    "ranking_changed": false,
+    "trading_rules_changed": false,
+    "report_scheduler_times_changed": false,
+    "production_threshold_changed": false,
+    "authentication_changed": false,
+    "remember_login_changed": false
+  },
+  "external_provider_validation": {
+    "status": "pending_live_render",
+    "local_reason": "The validation container cannot install or contact yfinance. Provider behavior is covered with deterministic mocks, but BRLNOK=X must be fetched on Render."
+  },
+  "live_render_test": "pending",
+  "live_checks_required": [
+    "Render Cron heartbeat appears within five minutes",
+    "Hent kurs nå returns a current BRLNOK=X quote and quote time",
+    "Sjekk valutagrense nå stores and displays the same quote once",
+    "Pushover test contains exactly the same quote and status as the UI",
+    "automatic monitoring continues without a logged-in browser",
+    "diagnostic test restores the ordinary quote and status",
+    "mobile status cards do not overflow or truncate critical values",
+    "data-provider failure is visible and old data is not presented as current",
+    "report scheduler 08:00 and 22:00 remains operational"
+  ],
+  "production_ready": false,
+  "production_readiness_reason": "All local tests and static audits pass, but live Render, yfinance and Pushover acceptance remain mandatory.",
+  "package_retest": {
+    "status": "passed",
+    "pytest_passed": 642,
+    "subtests_passed": 4,
+    "failed": 0,
+    "duration_seconds": 27.78,
+    "full_release_audit": "passed"
+  },
+  "distribution_validation": {
+    "status": "passed",
+    "full_profile": "passed",
+    "delta_profile": "passed",
+    "zip_integrity": "passed",
+    "full_file_count": 488,
+    "delta_file_count": 34,
+    "delta_copy_file_count": 31,
+    "delta_delete_file_count": 0,
+    "secret_scan": "passed",
+    "mutable_runtime_scan": "passed"
+  },
+  "delta_safety": {
+    "delete_file_count": 0,
+    "mutable_runtime_delete_targets": 0,
+    "support_tools_forced_into_delta": [
+      "tools/audit_full_system_v19150.py",
+      "tools/validate_distribution.py",
+      "tools/build_safe_distribution.py"
+    ]
+  }
+}
