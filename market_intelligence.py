@@ -4726,7 +4726,30 @@ def _render_manual_report_progress_v1924() -> None:
         completed = [str(value) for value in (status.get("completed_steps") or []) if str(value).strip()]
         if completed:
             st.caption("Fullførte steg: " + " → ".join(completed))
-        st.caption(f"Kjørings-ID: {execution_id} · Sist oppdatert: {status.get('updated_at') or '-'}")
+        timezone_name = str(status.get("timezone_name") or DEFAULT_TIMEZONE)
+        progress_at = status.get("last_progress_at") or status.get("updated_at")
+        heartbeat_at = status.get("worker_heartbeat_at") or status.get("heartbeat_at")
+        st.caption(
+            f"Kjørings-ID: {execution_id} · Siste fremdrift: "
+            f"{local_display(progress_at, timezone_name) if progress_at else '-'} · "
+            f"Worker-heartbeat: {local_display(heartbeat_at, timezone_name) if heartbeat_at else '-'}"
+        )
+        try:
+            progress_dt = datetime.fromisoformat(str(progress_at).replace("Z", "+00:00")) if progress_at else None
+            heartbeat_dt = datetime.fromisoformat(str(heartbeat_at).replace("Z", "+00:00")) if heartbeat_at else None
+            if progress_dt and heartbeat_dt:
+                if progress_dt.tzinfo is None:
+                    progress_dt = progress_dt.replace(tzinfo=timezone.utc)
+                if heartbeat_dt.tzinfo is None:
+                    heartbeat_dt = heartbeat_dt.replace(tzinfo=timezone.utc)
+                stalled_seconds = max(0, int((heartbeat_dt - progress_dt).total_seconds()))
+                if stalled_seconds >= 60 and state == "RUNNING":
+                    st.warning(
+                        f"Worker-prosessen svarer, men aktivt steg har ikke meldt ny fremdrift på "
+                        f"{stalled_seconds // 60} min. Markedsfristen vil avbryte hengende datakall kontrollert."
+                    )
+        except (TypeError, ValueError):
+            pass
         if state == "FAILED":
             st.error(str(status.get("error") or "Rapportkjøringen feilet uten registrert feilmelding."))
         elif state == "CANCELLED":
@@ -4959,10 +4982,17 @@ def render_market_intelligence() -> None:
                 st.session_state["mi_scan_profile_v18693"] = default_profile
                 st.session_state["mi_scan_custom_v18693"] = current_limit
                 st.session_state["mi_scan_loaded_v18710"] = scan_state_token
-            scan_profile = st.selectbox("Skanneprofil per marked", list(SCAN_PROFILES), index=list(SCAN_PROFILES).index(default_profile), key="mi_scan_profile_v18693")
+            scan_profile_options = list(SCAN_PROFILES)
+            scan_profile_kwargs = {"key": "mi_scan_profile_v18693"}
+            if "mi_scan_profile_v18693" not in st.session_state:
+                scan_profile_kwargs["index"] = scan_profile_options.index(default_profile)
+            scan_profile = st.selectbox("Skanneprofil per marked", scan_profile_options, **scan_profile_kwargs)
             scan_limit = SCAN_PROFILES[scan_profile]
             if scan_limit is None:
-                scan_limit = st.number_input("Egendefinert antall per marked", 10, 250, current_limit, 5, key="mi_scan_custom_v18693")
+                custom_kwargs = {"key": "mi_scan_custom_v18693"}
+                if "mi_scan_custom_v18693" not in st.session_state:
+                    custom_kwargs["value"] = current_limit
+                scan_limit = st.number_input("Egendefinert antall per marked", 10, 250, step=5, **custom_kwargs)
                 st.caption("Tillatt område: 10–250 aksjer per marked. 250 er systemets maksimum.")
             st.caption(f"Planlagt maksimum: {int(scan_limit) * len(normalize_markets(markets or ['Norge']))} aksjer ({int(scan_limit)} per marked).")
             if int(scan_limit) == 250:

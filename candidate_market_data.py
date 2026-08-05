@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import queue
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -20,6 +23,56 @@ from investment_pipeline import canonical_market_ticker
 VERSION = "v18.6.93e"
 CACHE_DIR = runtime_data_path("market_intelligence") / "enrichment_cache"
 CACHE_TTL_SECONDS = 6 * 60 * 60
+
+
+def _env_float(name: str, default: float, minimum: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        value = float(default)
+    return max(float(minimum), value)
+
+
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(int(minimum), min(int(maximum), value))
+
+
+FETCH_TIMEOUT_SECONDS = _env_float("MARKET_DATA_FETCH_TIMEOUT_SECONDS", 8.0, 3.0)
+INFO_TIMEOUT_SECONDS = _env_float("MARKET_DATA_INFO_TIMEOUT_SECONDS", 4.0, 1.0)
+MARKET_ENRICH_TIMEOUT_SECONDS = _env_float("MARKET_DATA_MARKET_TIMEOUT_SECONDS", 180.0, 30.0)
+FETCH_ATTEMPTS = _env_int("MARKET_DATA_FETCH_ATTEMPTS", 2, 1, 3)
+
+
+def _call_with_timeout(func: Callable[[], Any], timeout_seconds: float) -> tuple[Any, str]:
+    """Run one optional metadata call without letting it block the market run.
+
+    The helper thread is daemonised; timed-out metadata is omitted while price
+    history and the remaining candidates continue.
+    """
+    result_queue: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+    def runner() -> None:
+        try:
+            result_queue.put((True, func()), block=False)
+        except Exception as exc:  # pragma: no cover - exercised through caller
+            try:
+                result_queue.put((False, exc), block=False)
+            except queue.Full:
+                pass
+
+    thread = threading.Thread(target=runner, name="market-data-optional-call", daemon=True)
+    thread.start()
+    try:
+        ok, value = result_queue.get(timeout=max(0.1, float(timeout_seconds)))
+    except queue.Empty:
+        return None, f"TIMEOUT_AFTER_{float(timeout_seconds):g}s"
+    if ok:
+        return value, ""
+    return None, f"{type(value).__name__}: {value}"
 
 
 def _finite(value: Any) -> float | None:
@@ -264,7 +317,10 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
     try:
         import yfinance as yf
         yf_ticker = yf.Ticker(ticker)
-        hist = yf_ticker.history(period="1y", interval="1d", auto_adjust=True, actions=False)
+        hist = yf_ticker.history(
+            period="1y", interval="1d", auto_adjust=True, actions=False,
+            timeout=FETCH_TIMEOUT_SECONDS,
+        )
         latest_trade_date = None
         latest_trade_timestamp = None
         try:
@@ -277,10 +333,12 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
         technical, technical_trace = _technical_fields(hist)
         trace.extend(technical_trace)
         info: dict[str, Any] = {}
-        try:
-            info = dict(yf_ticker.info or {})
-        except Exception as exc:
-            trace.append({"step": "company_info", "status": "ERROR", "detail": str(exc)})
+        info_value, info_error = _call_with_timeout(lambda: dict(yf_ticker.info or {}), INFO_TIMEOUT_SECONDS)
+        if isinstance(info_value, Mapping):
+            info = dict(info_value)
+        elif info_error:
+            status = "TIMEOUT" if info_error.startswith("TIMEOUT_AFTER_") else "ERROR"
+            trace.append({"step": "company_info", "status": status, "detail": info_error})
         fundamental, fundamental_trace = _fundamental_fields(info)
         trace.extend(fundamental_trace)
         enriched = dict(base)
@@ -333,11 +391,17 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
 
 
 
-def _enrich_with_retry(row: Mapping[str, Any], force_refresh: bool, attempts: int = 2) -> dict[str, Any]:
+def _enrich_with_retry(row: Mapping[str, Any], force_refresh: bool, attempts: int = FETCH_ATTEMPTS) -> dict[str, Any]:
     last: dict[str, Any] = {}
     for attempt in range(1, max(1, attempts) + 1):
         last = enrich_candidate_row(row, use_cache=True, force_refresh=force_refresh)
-        if str(last.get("data_fetch_status") or "").upper() not in {"ERROR", "NO_DATA"}:
+        fetch_status = str(last.get("data_fetch_status") or "").upper()
+        if fetch_status not in {"ERROR", "NO_DATA"}:
+            last["fetch_attempts"] = attempt
+            return last
+        # A clean Yahoo response with no usable fields is not improved by an
+        # immediate identical retry. Preserve the failure and move on.
+        if fetch_status == "NO_DATA":
             last["fetch_attempts"] = attempt
             return last
         if attempt < attempts:
@@ -361,22 +425,38 @@ def enrich_candidate_rows(rows: Sequence[Mapping[str, Any]], max_workers: int = 
     pool = ThreadPoolExecutor(max_workers=max(1, min(max_workers, total)))
     futures = {}
     try:
-        futures = {pool.submit(_enrich_with_retry, row, force_refresh, 2): str(row.get("ticker") or row.get("symbol") or "").upper() for row in unique}
+        futures = {pool.submit(_enrich_with_retry, row, force_refresh, FETCH_ATTEMPTS): str(row.get("ticker") or row.get("symbol") or "").upper() for row in unique}
         completed = 0
-        for future in as_completed(futures):
-            ticker = futures[future]
-            try:
-                output[ticker] = future.result()
-            except Exception as exc:
-                output[ticker] = {"ticker": ticker, "data_fetch_status": "ERROR", "data_fetch_error": str(exc), "analysis_trace": []}
-            completed += 1
-            if progress_callback:
-                progress_callback(completed, total, ticker)
+        try:
+            for future in as_completed(futures, timeout=MARKET_ENRICH_TIMEOUT_SECONDS):
+                ticker = futures[future]
+                try:
+                    output[ticker] = future.result()
+                except Exception as exc:
+                    output[ticker] = {"ticker": ticker, "data_fetch_status": "ERROR", "data_fetch_error": str(exc), "analysis_trace": []}
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total, ticker)
+        except FuturesTimeoutError:
+            for future, ticker in futures.items():
+                if ticker in output:
+                    continue
+                future.cancel()
+                output[ticker] = {
+                    "ticker": ticker,
+                    "data_fetch_status": "ERROR",
+                    "data_fetch_error": f"MARKET_DATA_TIMEOUT_AFTER_{MARKET_ENRICH_TIMEOUT_SECONDS:g}s",
+                    "analysis_trace": [{"step": "enrichment", "status": "TIMEOUT", "detail": "Markedsfristen ble nådd"}],
+                    "fetch_completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                }
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total, ticker)
     except Exception:
         for future in futures:
             future.cancel()
         pool.shutdown(wait=False, cancel_futures=True)
         raise
     else:
-        pool.shutdown(wait=True)
+        pool.shutdown(wait=False, cancel_futures=True)
     return [output.get(str(row.get("ticker") or row.get("symbol") or "").strip().upper(), dict(row)) for row in unique]

@@ -15,6 +15,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from functools import lru_cache
 from typing import Any, Iterable, Mapping, Sequence
 
 from market_universe import BASE_MARKET_SCOPES, FULL_MARKET_SCOPE_LABEL, CORE_MARKET_SCOPE_LABEL, expand_market_scope, market_scope_options
@@ -50,14 +51,94 @@ MARKET_TICKER_SUFFIX = {
     "Brasil": ".SA",
 }
 
+NON_EQUITY_DISCOVERY_SYMBOLS = {
+    "US10Y", "US02Y", "US05Y", "US30Y", "VIX", "DXY", "SPEMIX",
+    "XAUUSD", "UKOILUSD", "GC=F", "BZ=F", "BTC-USD",
+}
+
+
+@lru_cache(maxsize=1)
+def _packaged_symbol_markets() -> tuple[dict[str, str], set[str]]:
+    """Return known cross-market bare symbols and the packaged US universe."""
+    try:
+        from stocks import (
+            BRAZILIAN_STOCKS, DANISH_STOCKS, FINNISH_STOCKS,
+            NORWEGIAN_STOCKS, SWEDISH_STOCKS, US_FALLBACK,
+        )
+    except Exception:
+        return {}, set()
+    mapping: dict[str, str] = {}
+    for market, values, suffix in (
+        ("Norge", NORWEGIAN_STOCKS, ".OL"),
+        ("Sverige", SWEDISH_STOCKS, ".ST"),
+        ("Finland", FINNISH_STOCKS, ".HE"),
+        ("Danmark", DANISH_STOCKS, ".CO"),
+        ("Brasil", BRAZILIAN_STOCKS, ".SA"),
+    ):
+        for value in values:
+            symbol = str(value or "").strip().upper()
+            if symbol.endswith(suffix):
+                mapping.setdefault(symbol[: -len(suffix)], market)
+    return mapping, {str(value or "").strip().upper() for value in US_FALLBACK}
+
 
 def canonical_market_ticker(ticker: str, market: str = "") -> str:
     """Return the Yahoo-compatible symbol without rewriting explicit symbols."""
     symbol = str(ticker or "").strip().upper()
     if not symbol or "." in symbol:
         return symbol
-    suffix = MARKET_TICKER_SUFFIX.get(str(market or "").strip())
+    declared_market = str(market or "").strip()
+    if not declared_market:
+        packaged_markets, _ = _packaged_symbol_markets()
+        declared_market = packaged_markets.get(symbol, "")
+    suffix = MARKET_TICKER_SUFFIX.get(declared_market)
     return f"{symbol}{suffix}" if suffix else symbol
+
+
+def filter_candidate_rows_for_market(
+    rows: Sequence[Mapping[str, Any]], expected_market: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Reject cross-market and non-equity contamination before live requests.
+
+    Explicit row metadata remains authoritative. Plain USA symbols without
+    exchange/market metadata must be present in the packaged liquid universe;
+    fallback rows then refill any removed capacity.
+    """
+    expected = str(expected_market or "").strip()
+    packaged_markets, packaged_us = _packaged_symbol_markets()
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for raw in rows or []:
+        row = dict(raw)
+        original = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
+        declared = str(row.get("market") or row.get("country") or row.get("source_market") or "").strip()
+        inferred_packaged = packaged_markets.get(original, "") if original and "." not in original else ""
+        effective_market = declared or inferred_packaged or expected
+        row = normalize_candidate_identity(row, effective_market)
+        ticker = str(row.get("ticker") or "").upper()
+        actual = infer_market_from_ticker(ticker, effective_market)
+        reason = ""
+        if original in NON_EQUITY_DISCOVERY_SYMBOLS:
+            reason = "NON_EQUITY_SYMBOL"
+        elif expected and expected != "Alle" and actual != expected:
+            reason = f"CROSS_MARKET_{actual or 'UNKNOWN'}"
+        elif expected == "USA" and "." not in original:
+            has_market_proof = bool(declared) or original in packaged_us
+            if not has_market_proof:
+                reason = "UNVERIFIED_PLAIN_US_SYMBOL"
+        if reason:
+            rejected.append({
+                "ticker": original or ticker,
+                "canonical_ticker": ticker,
+                "expected_market": expected,
+                "actual_market": actual,
+                "reason": reason,
+            })
+            continue
+        row["market"] = actual
+        row["market_identity_valid"] = True
+        accepted.append(row)
+    return accepted, rejected
 
 def infer_market_from_ticker(ticker: str, fallback: str = "") -> str:
     symbol = str(ticker or "").strip().upper()
@@ -969,11 +1050,24 @@ def _load_candidate_rows_from_app(config: PipelineConfig, *, return_discovery: b
         fallback_rows = _market_rows_from_tickers(US_FALLBACK[:cfg.scan_limit], "USA", "Packaged USA reserve")
         source_parts.append("Packaged USA reserve")
 
+    primary, primary_rejected = filter_candidate_rows_for_market(primary, cfg.market_scope)
+    fallback_rows, fallback_rejected = filter_candidate_rows_for_market(fallback_rows, cfg.market_scope)
+    rejected_rows = [*primary_rejected, *fallback_rejected]
+    if rejected_rows:
+        source_parts.append(f"{len(rejected_rows)} ugyldige/kryssmarkeds-symboler filtrert")
+
     from autonomi_core.discovery_data.layer import select_discovery_candidates
     rows, discovery = select_discovery_candidates(
         primary, fallback_rows, market=cfg.market_scope, limit=cfg.scan_limit,
         mission_id=cfg.mission_id, configuration_version=cfg.configuration_version,
     )
+    discovery = dict(discovery or {})
+    discovery["symbol_filter"] = {
+        "accepted_primary": len(primary),
+        "accepted_fallback": len(fallback_rows),
+        "rejected_count": len(rejected_rows),
+        "rejected": rejected_rows[:50],
+    }
     if rows:
         result = (rows, " + ".join(source_parts or ["Market universe"]) + " + Discovery Data Layer + yfinance enrichment")
         return (*result, discovery) if return_discovery else result

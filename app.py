@@ -15,6 +15,8 @@ import io
 from pathlib import Path
 from urllib.parse import urlencode
 import streamlit as st
+from ui_dataframe_guard import install_streamlit_dataframe_guard
+install_streamlit_dataframe_guard(st)
 from sticky_topbar import render_sticky_topbar
 from workspace_layout import inject_workspace_css, render_workspace_title, render_ai_control_center
 from macro_rates_breadth_ui import render_macro_rates_breadth_panel

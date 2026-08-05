@@ -19,6 +19,7 @@ from durable_runtime import read_json, write_json
 from execution_control import ExecutionCancelled
 from local_time import as_local, local_display
 from storage_architecture import runtime_data_path
+from background_execution import background_execution
 
 
 ROOT = runtime_data_path("manual_background_jobs")
@@ -282,6 +283,34 @@ def _worker(
     if cancelled_before_start:
         return
 
+    heartbeat_stop = threading.Event()
+
+    def _heartbeat_loop() -> None:
+        sequence = 0
+        while not heartbeat_stop.wait(10.0):
+            sequence += 1
+            with _LOCK:
+                current = get_status(execution_id)
+                if not current or str(current.get("state") or "").upper() in _TERMINAL:
+                    return
+                current["heartbeat_at"] = _now()
+                current["worker_heartbeat_at"] = current["heartbeat_at"]
+                current["heartbeat_sequence"] = sequence
+                current["worker_process_identity"] = _PROCESS_IDENTITY
+                current["worker_pid"] = os.getpid()
+                current["heartbeat_thread_name"] = threading.current_thread().name
+                # Do not touch ``updated_at`` here. It remains the timestamp of
+                # the latest real progress event, making a live-but-stalled
+                # worker distinguishable from genuine progress in the UI.
+                _write_progress_status(current)
+
+    heartbeat_thread = threading.Thread(
+        target=_heartbeat_loop,
+        name=f"manual-heartbeat-{execution_id}",
+        daemon=True,
+    )
+    heartbeat_thread.start()
+
     def progress(event: Mapping[str, Any]) -> None:
         with _LOCK:
             current = get_status(execution_id) or status
@@ -301,6 +330,7 @@ def _worker(
                 completed_steps = list(_STAGE_ORDER)
             current.update({
                 "state": "RUNNING", "updated_at": _now(), "heartbeat_at": _now(),
+                "last_progress_at": _now(),
                 "worker_process_identity": _PROCESS_IDENTITY, "worker_pid": os.getpid(),
                 "worker_thread_name": threading.current_thread().name,
                 "phase": phase, "active_stage": active_stage,
@@ -318,7 +348,8 @@ def _worker(
         }
         if str(scheduled_for or "").strip():
             run_kwargs["scheduled_for"] = str(scheduled_for)
-        result = run_job(JobProfile.from_dict(job_payload), **run_kwargs)
+        with background_execution(execution_id):
+            result = run_job(JobProfile.from_dict(job_payload), **run_kwargs)
         # run_job performs the authoritative read-after-write check.  Keep
         # compatibility with injected/legacy runners that predate this field.
         persistence = result.get("persistence")
@@ -378,6 +409,7 @@ def _worker(
         })
         _write_status(failed)
     finally:
+        heartbeat_stop.set()
         with _LOCK:
             _THREADS.pop(execution_id, None)
 
