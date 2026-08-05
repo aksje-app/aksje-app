@@ -185,7 +185,7 @@ def _migrate(doc: dict[str, Any]) -> dict[str, Any]:
             "portfolio.paper_trading": ("max_open_positions", "max_trades_per_day", "position_size_pct"),
             "runtime.scanner": ("scan_interval_minutes", "background_scanning_enabled", "vacation_mode_enabled"),
             "notifications": ("pushover_enabled", "notify_paper_trades", "notify_watchlist_signal_changes", "notify_min_confidence"),
-            "reporting.ui": ("ui_refresh_minutes", "ui_auto_refresh_enabled"),
+            "reporting.ui": ("ui_refresh_minutes", "ui_auto_refresh_enabled", "display_timezone"),
         }
         for section, keys in groups.items():
             for key in keys:
