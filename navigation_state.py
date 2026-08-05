@@ -239,23 +239,31 @@ def set_global_navigation_state(
 
 
 
-def pin_autonomy_workspace_route_v19220_rc9(
+def pin_autonomy_workspace_route_v19220_rc11(
     st,
     *,
     workspace_slug: str = "reports",
     public_nav: str = "reports",
 ) -> None:
-    """Pin one Autonomy workspace before a Streamlit action reruns the app.
+    """Queue an Autonomy route safely for the next Streamlit rerun.
 
-    Report-center buttons previously started work and then called ``st.rerun``
-    while stale control-center radio values still pointed at AI Kandidattest.
-    RC9 writes one complete route snapshot before the rerun so the action stays
-    on the page where it was initiated.  This helper only changes UI routing.
+    Streamlit forbids changing a widget-owned Session State key after that
+    widget has been instantiated in the current run.  Report actions execute
+    inside the already-rendered control center, so writing directly to the
+    group/panel radio keys raised ``StreamlitAPIException`` and prevented the
+    draft panel from starting.  RC11 stores an explicit one-shot route lock and
+    only writes widget keys when ``workspace_layout`` consumes that lock before
+    the radios render on the next run.
+
+    This helper changes UI routing only.  It does not touch report, scoring,
+    scheduler, portfolio or trading state.
     """
     slug = str(workspace_slug or "reports").strip() or "reports"
     nav = str(public_nav or "reports").strip().lower() or "reports"
     label = AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7.get(slug, "Rapporter")
     state = st.session_state
+
+    # These are application-owned values, not Streamlit widget keys.
     updates = {
         "active_nav_target_v18674c": nav,
         "ai_control_center_force_nav_v18663": nav,
@@ -265,17 +273,24 @@ def pin_autonomy_workspace_route_v19220_rc9(
         "ai_control_center_active_real_panel_v18598": AUTONOMY_PANEL,
         "ai_control_center_group_v1863aj": AUTONOMY_GROUP,
         "ai_control_center_active_panel_v1863aj": AUTONOMY_PANEL,
-        "ai_control_center_group_radio_v1863aj": "Autonomi (1)",
-        "ai_control_center_panel_radio_v1863aj_Autonomi": AUTONOMY_PANEL,
         "autonomy_core_workspace_slug_v1882": slug,
         "autonomy_core_workspace_v1880": label,
         "autonomy_core_workspace_active_slug_v19220_rc7": slug,
         "mobile_nav_last_choice_v19015": nav,
         "ai_control_center_menu_open_v1863ag": False,
-        "navigation_last_source_v19143": "REPORT_ACTION_PIN_RC9",
+        "navigation_last_source_v19143": "REPORT_ACTION_PENDING_ROUTE_RC11",
+        "ai_control_center_route_lock_v19220_rc6": {
+            "nav": AUTONOMY_NAV,
+            "group": AUTONOMY_GROUP,
+            "panel": AUTONOMY_PANEL,
+            "tab": slug,
+            "public_nav": nav,
+            "source": "REPORT_ACTION_PENDING_ROUTE_RC11",
+        },
     }
     for key, value in updates.items():
         state[key] = value
+
     set_global_navigation_state(
         st,
         nav=AUTONOMY_NAV,
@@ -283,6 +298,18 @@ def pin_autonomy_workspace_route_v19220_rc9(
         panel=AUTONOMY_PANEL,
         tab=slug,
         subtab="",
+    )
+
+
+def pin_autonomy_workspace_route_v19220_rc9(
+    st,
+    *,
+    workspace_slug: str = "reports",
+    public_nav: str = "reports",
+) -> None:
+    """Backward-compatible alias for the RC11 widget-safe route pin."""
+    pin_autonomy_workspace_route_v19220_rc11(
+        st, workspace_slug=workspace_slug, public_nav=public_nav,
     )
 
 def clear_global_navigation_state(st, *, keep_nav: bool = False) -> None:

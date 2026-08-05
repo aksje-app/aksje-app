@@ -38,7 +38,7 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
-from navigation_state import pin_autonomy_workspace_route_v19220_rc9
+from navigation_state import pin_autonomy_workspace_route_v19220_rc11
 from report_integrity import apply_report_integrity, canonical_report_view, compact_candidate_reference, validate_pdf_semantics
 from report_contracts import (
     build_report_identity as build_report_identity_contract,
@@ -55,10 +55,15 @@ from norwegian_report_language import (
 VERSION = APP_VERSION
 
 
-def _rerun_reports_v19220_rc9(st) -> None:
-    """Rerun without allowing stale control-center state to leave Rapporter."""
-    pin_autonomy_workspace_route_v19220_rc9(st, workspace_slug="reports", public_nav="reports")
+def _rerun_reports_v19220_rc11(st) -> None:
+    """Queue Rapporter before rerun without mutating instantiated widgets."""
+    pin_autonomy_workspace_route_v19220_rc11(st, workspace_slug="reports", public_nav="reports")
     st.rerun()
+
+
+def _rerun_reports_v19220_rc9(st) -> None:
+    """Backward-compatible alias for the RC11 report rerun helper."""
+    _rerun_reports_v19220_rc11(st)
 
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
@@ -4535,12 +4540,12 @@ def _render_manual_report_progress_v1924() -> None:
         elif is_running(status):
             if st.button("Stopp kjøringen kontrollert", key=f"mi_stop_{execution_id}", width="content"):
                 request_cancel(execution_id, requested_by="RAPPORTSENTER")
-                _rerun_reports_v19220_rc9(st)
+                _rerun_reports_v19220_rc11(st)
 
     terminal_token = f"{execution_id}:{state}"
     if state in {"COMPLETED", "FAILED", "CANCELLED"} and st.session_state.get("mi_terminal_refresh_v1924") != terminal_token:
         st.session_state["mi_terminal_refresh_v1924"] = terminal_token
-        _rerun_reports_v19220_rc9(st)
+        _rerun_reports_v19220_rc11(st)
 
 def render_market_intelligence() -> None:
     import pandas as pd
@@ -4621,7 +4626,7 @@ def render_market_intelligence() -> None:
                     force_refresh=False,
                     scheduled_for=str(missed.get("previous_planned_utc") or ""),
                 ).get("execution_id")
-                _rerun_reports_v19220_rc9(st)
+                _rerun_reports_v19220_rc11(st)
 
     with st.container(border=True):
         st.markdown("##### 2. Handlinger")
@@ -4634,22 +4639,22 @@ def render_market_intelligence() -> None:
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 draft, trigger="MANUAL_DRAFT_TEST", force_refresh=False,
             ).get("execution_id")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         if q2.button("🌅 Kjør morgenanalyse", key="mi_quick_morning_v1924", width="content", disabled=manual_job_running or morning_job is None):
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 morning_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             ).get("execution_id")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         if q3.button("🌇 Kjør kveldsanalyse", key="mi_quick_evening_v1924", width="content", disabled=manual_job_running or evening_job is None):
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 evening_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             ).get("execution_id")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         if q4.button("🌙 Kjør nattanalyse", key="mi_quick_night_v1924", width="content", disabled=manual_job_running or night_job is None):
             st.session_state["mi_active_execution_v1924"] = start_manual_job(
                 night_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             ).get("execution_id")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         unavailable = []
         if morning_job is None:
             unavailable.append("morgenanalyse")
@@ -4798,14 +4803,14 @@ def render_market_intelligence() -> None:
         if reset_alerts:
             for key, value in {"mi_push_v1924": True, "mi_notification_mode_v1924": mode_labels["ALWAYS"], "mi_pdf_v1924": True, "mi_min_score_v2000": 80, "mi_report_link_v1924": True, "mi_top3_push_v1924": True}.items(): st.session_state[key] = value
             save_global_alert_score(DEFAULT_GLOBAL_ALERT_SCORE)
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         if reset_all:
             defaults = load_draft_job()
             defaults.name = "Morgenanalyse"; defaults.markets=[CORE_MARKET_SCOPE_LABEL]; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
             write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
             for key in list(st.session_state):
                 if str(key).startswith("mi_"): del st.session_state[key]
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         st.markdown("##### Etter skanningen")
         o1,o2,o3 = st.columns(3)
         run_auto = o1.checkbox("Kjør teoretisk portefølje", value=current.run_autonomous_portfolio if current else True, key="mi_auto_port_v18690")
@@ -4854,12 +4859,12 @@ def render_market_intelligence() -> None:
             with st.spinner("Kjører test fra automatisk lagret utkast uten å sende Pushover..."):
                 _run_visible_test(False)
             st.success("Testkjøringen er fullført. Pushover ble ikke sendt. Oppsettet er fortsatt bare et utkast.")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         if b2.button("🧪 Test med Pushover", width="stretch", key="mi_test_draft_push_v1914"):
             with st.spinner("Kjører test og sender tydelig merket testvarsel..."):
                 _run_visible_test(True)
             st.success("Testkjøringen er fullført. Eventuelt varsel er merket som TESTVARSEL.")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         if b3.button("Lagre og aktiver tidsplan", width="stretch", key="mi_save_activate_v18692a"):
             same_name = next((x for x in jobs if x.name.strip().casefold() == draft_job.name.strip().casefold()), None)
             target = editing_job or same_name
@@ -4871,9 +4876,9 @@ def render_market_intelligence() -> None:
                               "enabled": bool(enabled)})
             upsert_job(job)
             st.success("Jobben er lagret. Tidsplanen er aktivert dersom «Aktiv jobb» er valgt.")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         if current and b4.button("Slett lagret jobb", width="stretch", key="mi_delete_v18692a"):
-            delete_job(current.job_id); st.success("Jobben er slettet. Det automatisk lagrede utkastet beholdes."); _rerun_reports_v19220_rc9(st)
+            delete_job(current.job_id); st.success("Jobben er slettet. Det automatisk lagrede utkastet beholdes."); _rerun_reports_v19220_rc11(st)
         if jobs:
             st.markdown("##### Lagrede jobbprofiler")
             rows = []
@@ -5191,10 +5196,10 @@ def render_market_intelligence() -> None:
                     c.download_button("Last ned tekst", data=build_text_report(saved_run), file_name=safe_ascii_report_filename(saved_run, "txt"), mime="text/plain", key=f"mi_dl_txt_{row.get('run_id')}", width="stretch")
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
                 if d.button(fav_label, key=f"mi_fav_{row.get('run_id')}", width="stretch"):
-                    set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); _rerun_reports_v19220_rc9(st)
+                    set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); _rerun_reports_v19220_rc11(st)
                 confirm = st.checkbox("Bekreft permanent sletting", key=f"mi_confirm_delete_{row.get('run_id')}")
                 if st.button("🗑 Slett rapport", key=f"mi_delete_report_{row.get('run_id')}", disabled=not confirm, width="stretch"):
-                    delete_archived_report(str(row.get("run_id"))); _rerun_reports_v19220_rc9(st)
+                    delete_archived_report(str(row.get("run_id"))); _rerun_reports_v19220_rc11(st)
 
     with tab_accuracy:
         from historical_learning import render_accuracy_analytics
@@ -5256,7 +5261,7 @@ def render_market_intelligence() -> None:
             from scheduler_background import run_scheduler_cycle
             result = run_scheduler_cycle()
             st.success(f"Planleggersjekk fullført. Kjøringer startet: {result.get('runs', 0)}")
-            _rerun_reports_v19220_rc9(st)
+            _rerun_reports_v19220_rc11(st)
         with st.expander("Planleggerdetaljer", expanded=False):
             st.json({"unattended": unattended, "health": health})
         latest_run = _read(LATEST_PATH, {})

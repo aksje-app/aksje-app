@@ -9150,7 +9150,7 @@ def _persist_ui_state_v18658(nav: str = "", panel: str = "", group: str = "", ta
             "tab": str(tab or route_tab_v19220_rc7),
             "subtab": str(subtab or route_subtab_v19220_rc7),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
-            "version": "v19.22.0-rc10",
+            "version": APP_VERSION,
         }
         signature = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         if st.session_state.get("ui_state_last_signature_v19016") == signature:

@@ -7,6 +7,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
+from app_version import APP_VERSION
+
 
 CRITICAL_STATES = {
     "SECONDARY_FACTS_FOUND", "PARTIAL_SOURCE_FAILURE", "NOT_CONFIGURED", "RATE_LIMITED",
@@ -126,7 +128,7 @@ def build_evidence_passport(candidate: Mapping[str, Any]) -> dict[str, Any]:
         json.dumps(areas, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
     return {
-        "version": "v19.22.0-rc10",
+        "version": APP_VERSION,
         "ticker": candidate.get("ticker") or "",
         "generated_at": _now_iso(),
         "areas": areas,
