@@ -10,7 +10,7 @@ from market_universe import (
     expand_market_scope,
     market_profile_contract,
 )
-from navigation_state import AUTONOMY_PANEL, pin_autonomy_workspace_route_v19220_rc9
+from navigation_state import AUTONOMY_PANEL, pin_autonomy_workspace_route_v19220_rc11
 from autonomi_core.portfolio_decisions.decision_funnel import build_decision_funnel
 from market_intelligence import build_market_coverage_v19220_rc9
 
@@ -36,10 +36,13 @@ def test_market_choices_name_the_exact_countries_and_keep_legacy_aliases():
 
 def test_report_action_route_pin_stays_on_reports_and_removes_tokens():
     st = FakeStreamlit()
-    pin_autonomy_workspace_route_v19220_rc9(st, workspace_slug="reports", public_nav="reports")
+    pin_autonomy_workspace_route_v19220_rc11(st, workspace_slug="reports", public_nav="reports")
     assert st.session_state["active_nav_target_v18674c"] == "reports"
     assert st.session_state["ai_control_center_active_panel_v1863aj"] == AUTONOMY_PANEL
     assert st.session_state["autonomy_core_workspace_slug_v1882"] == "reports"
+    assert st.session_state["ai_control_center_route_lock_v19220_rc6"]["panel"] == AUTONOMY_PANEL
+    assert "ai_control_center_group_radio_v1863aj" not in st.session_state
+    assert "ai_control_center_panel_radio_v1863aj_Autonomi" not in st.session_state
     assert st.query_params["aa_nav"] == "autonomy"
     assert st.query_params["aa_tab"] == "reports"
     assert "remember_token" not in st.query_params
@@ -59,9 +62,9 @@ def test_banner_components_are_independent_in_runtime_source():
 
 def test_report_center_reruns_pin_the_reports_route():
     source = Path("market_intelligence.py").read_text(encoding="utf-8")
-    assert "def _rerun_reports_v19220_rc9" in source
+    assert "def _rerun_reports_v19220_rc11" in source
     quick = source[source.index('if q1.button("📄 Nytt utkast"'):source.index("unavailable = []")]
-    assert "_rerun_reports_v19220_rc9(st)" in quick
+    assert "_rerun_reports_v19220_rc11(st)" in quick
     assert "st.rerun()" not in quick
 
 
@@ -119,3 +122,23 @@ def test_market_coverage_reports_planned_actual_and_failed_countries():
     assert result["completed_markets"] == ["Norge", "Sverige"]
     assert result["partial_markets"] == ["Finland"]
     assert result["failed_or_skipped_markets"] == ["Danmark"]
+
+
+class WidgetProtectedState(dict):
+    def __setitem__(self, key, value):
+        if key in {
+            "ai_control_center_group_radio_v1863aj",
+            "ai_control_center_panel_radio_v1863aj_Autonomi",
+        }:
+            raise RuntimeError(f"widget key was modified after instantiation: {key}")
+        super().__setitem__(key, value)
+
+
+def test_report_route_pin_never_mutates_instantiated_widget_keys():
+    st = FakeStreamlit()
+    st.session_state = WidgetProtectedState()
+    pin_autonomy_workspace_route_v19220_rc11(
+        st, workspace_slug="reports", public_nav="reports",
+    )
+    assert st.session_state["ai_control_center_route_lock_v19220_rc6"]["tab"] == "reports"
+    assert st.query_params["aa_tab"] == "reports"
