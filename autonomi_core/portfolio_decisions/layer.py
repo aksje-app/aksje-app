@@ -47,6 +47,9 @@ def _exposure(rows: Sequence[Mapping[str, Any]], key: str) -> dict[str, float]:
 def build_portfolio_context(portfolio: Mapping[str, Any], *, limits: PortfolioLimits | None = None) -> dict[str, Any]:
     max_country_pct, max_currency_pct, min_liquidity = 45.0, 55.0, 40.0
     max_candidate_risk = 75.0
+    minimum_investment_score = 78.0
+    minimum_data_quality = 55.0
+    allow_additions = False
     if limits is None:
         limits = load_settings()
         try:
@@ -62,6 +65,9 @@ def build_portfolio_context(portfolio: Mapping[str, Any], *, limits: PortfolioLi
                 var_confidence=limits.var_confidence,
             )
             max_candidate_risk = autonomous.maximum_risk_score
+            minimum_investment_score = autonomous.minimum_investment_score
+            minimum_data_quality = autonomous.minimum_data_quality
+            allow_additions = autonomous.allow_additions
         except Exception:
             pass
         try:
@@ -90,6 +96,9 @@ def build_portfolio_context(portfolio: Mapping[str, Any], *, limits: PortfolioLi
         "currency_exposure": _exposure(rows, "currency"), "limits": asdict(limits),
         "max_country_pct": max_country_pct, "max_currency_pct": max_currency_pct,
         "minimum_liquidity_score": min_liquidity, "maximum_candidate_risk_score": max_candidate_risk,
+        "minimum_investment_score": minimum_investment_score,
+        "minimum_data_quality": minimum_data_quality,
+        "allow_additions": allow_additions,
         "source": "Autonomous Learning Portfolio + Portfolio Optimizer",
     }
 
@@ -113,6 +122,14 @@ def _correlation_evidence(candidate: Mapping[str, Any], positions: Sequence[Mapp
 
 
 def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, Any]) -> dict[str, Any]:
+    """Assess one candidate against the persisted production gates.
+
+    RC16 removes the former circular dependency where the portfolio layer waited
+    for a presentation status string while the final Autonomy classification
+    waited for ``portfolio_action == BUY``.  No threshold is relaxed: the
+    persisted score, data, evidence, risk, liquidity and portfolio limits are
+    evaluated directly and every stop receives a stable blocker code.
+    """
     ticker, sector, country, currency = _identity(candidate)
     positions = list(context.get("positions") or [])
     existing = next((row for row in positions if str(row.get("ticker")) == ticker), None)
@@ -123,52 +140,145 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
     currency_now = _num((context.get("currency_exposure") or {}).get(currency))
     max_position = _num(limits.get("max_position_pct"), 10)
     max_sector = _num(limits.get("max_sector_pct"), 25)
+    max_positions = max(1, int(_num(limits.get("max_positions"), 12)))
     max_country = _num(context.get("max_country_pct"), 45)
     max_currency = _num(context.get("max_currency_pct"), 55)
     reserve = _num(limits.get("min_cash_pct"), 15)
     raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+    data_contract = candidate.get("data_contract") if isinstance(candidate.get("data_contract"), Mapping) else {}
     price = _num(candidate.get("price") or raw.get("current_price") or raw.get("regularMarketPrice"))
-    liquidity = _num(candidate.get("liquidity_score"), 0); risk = _num(candidate.get("risk_score"), 100)
+    liquidity = _num(candidate.get("liquidity_score"), 0)
+    risk = _num(candidate.get("risk_score"), 100)
     score = _num(candidate.get("investment_score"), 0)
+    data_quality = _num(
+        candidate.get("data_quality")
+        or candidate.get("data_quality_score")
+        or data_contract.get("quality_score")
+        or data_contract.get("data_quality"),
+        0,
+    )
+    minimum_score = _num(context.get("minimum_investment_score"), 78)
+    minimum_data_quality = _num(context.get("minimum_data_quality"), 55)
+    min_liquidity = _num(context.get("minimum_liquidity_score"), 40)
+    max_candidate_risk = _num(context.get("maximum_candidate_risk_score"), 75)
+    evidence_valid = bool(candidate.get("evidence_valid_for_decision", False))
+    valid_for_decision = bool(candidate.get("valid_for_decision", True))
+    mission_eligible = bool(candidate.get("mission_eligible", True))
+    strategy_matches = bool(candidate.get("strategy_matches"))
+    technical_entry_wait = bool(candidate.get("technical_entry_wait"))
     correlation = _correlation_evidence(candidate, positions, sector, country)
     available_cash = max(0.0, cash - total * reserve / 100)
-    rooms = {"position_pct": max_position, "sector_pct": max(0.0, max_sector - sector_now),
-             "country_pct": max(0.0, max_country - country_now), "currency_pct": max(0.0, max_currency - currency_now),
-             "cash_amount": available_cash}
+    rooms = {
+        "position_pct": max_position,
+        "sector_pct": max(0.0, max_sector - sector_now),
+        "country_pct": max(0.0, max_country - country_now),
+        "currency_pct": max(0.0, max_currency - currency_now),
+        "cash_amount": available_cash,
+    }
     requested_pct = max(.5, _num(candidate.get("proposed_position_pct"), max_position))
     allowed_pct = min(requested_pct, rooms["position_pct"], rooms["sector_pct"], rooms["country_pct"], rooms["currency_pct"])
     sizing = position_size(total, price, "prosent", portfolio_pct=max(0.0, allowed_pct), max_amount=available_cash) if total and price else {"amount": 0.0, "shares": 0.0, "portfolio_pct": 0.0}
-    blockers = []
-    if not candidate.get("valid_for_decision", True): blockers.append("Datakontrakten tillater ikke beslutning")
-    if not candidate.get("mission_eligible", True): blockers.append("Kandidaten er utenfor oppdraget")
-    min_liquidity = _num(context.get("minimum_liquidity_score"), 40)
-    max_candidate_risk = _num(context.get("maximum_candidate_risk_score"), 75)
-    if liquidity < min_liquidity: blockers.append(f"Likviditet {liquidity:.1f}/100 er under minimum {min_liquidity:.0f}")
-    if risk > max_candidate_risk: blockers.append(f"Risiko {risk:.1f}/100 er over maksimum {max_candidate_risk:.0f}")
-    if correlation["maximum"] > _num(limits.get("max_pair_correlation"), .85): blockers.append("Korrelasjonsgrensen overskrides")
-    if allowed_pct < .5 or sizing["amount"] <= 0: blockers.append("Ikke tilstrekkelig porteføljerom eller disponibel kontantandel")
+
+    blocker_rows: list[dict[str, str]] = []
+    def block(code: str, message: str) -> None:
+        blocker_rows.append({"code": code, "message": message})
+
+    if not valid_for_decision:
+        block("DATA_CONTRACT_INVALID", "Datakontrakten tillater ikke beslutning")
+    if not evidence_valid:
+        block("EVIDENCE_NOT_READY", "Evidensgrunnlaget er ikke gyldig for produksjonsbeslutning")
+    if not mission_eligible:
+        block("MISSION_INELIGIBLE", "Kandidaten er utenfor oppdraget")
+    if not strategy_matches:
+        block("STRATEGY_NOT_MATCHED", "Kandidaten mangler dokumentert strategitreff")
+    if score < minimum_score:
+        block("SCORE_BELOW_THRESHOLD", f"Investeringsscore {score:.2f} er under minimum {minimum_score:.2f}")
+    if data_quality < minimum_data_quality:
+        block("DATA_QUALITY_BELOW_THRESHOLD", f"Datakvalitet {data_quality:.1f}/100 er under minimum {minimum_data_quality:.1f}")
+    if liquidity < min_liquidity:
+        block("LIQUIDITY_BELOW_THRESHOLD", f"Likviditet {liquidity:.1f}/100 er under minimum {min_liquidity:.0f}")
+    if risk > max_candidate_risk:
+        block("RISK_ABOVE_THRESHOLD", f"Risiko {risk:.1f}/100 er over maksimum {max_candidate_risk:.0f}")
+    if price <= 0:
+        block("PRICE_INVALID", "Gyldig markedskurs mangler")
+    if technical_entry_wait:
+        block("TECHNICAL_ENTRY_WAIT", "Teknisk inngangsvakt krever venting")
+    if correlation["maximum"] > _num(limits.get("max_pair_correlation"), .85):
+        block("CORRELATION_LIMIT", "Korrelasjonsgrensen overskrides")
+    if not existing and len(positions) >= max_positions:
+        block("MAX_OPEN_POSITIONS", f"Maksimalt antall åpne posisjoner ({max_positions}) er nådd")
+    if allowed_pct < .5 or sizing["amount"] <= 0:
+        block("PORTFOLIO_ROOM", "Ikke tilstrekkelig porteføljerom eller disponibel kontantandel")
 
     status = str(candidate.get("status") or "")
     if existing:
-        action = "SELL" if risk > max_candidate_risk or status in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"} else "HOLD"
-        reason = "Eksisterende posisjon bryter risiko-/datavakt" if action == "SELL" else "Eksisterende posisjon beholdes; ingen exitvakt er utløst i porteføljelaget"
-    elif blockers:
-        hard = any(token in item for item in blockers for token in ("Datakontrakten", "utenfor oppdraget", "Likviditet", "Risiko"))
-        action = "SKIP" if hard else "REVIEW"; reason = "; ".join(blockers)
-    elif status == "ANBEFALT FOR VURDERING" and candidate.get("strategy_matches"):
-        action, reason = "BUY", "Kandidaten passer oppdrag og strategi og har rom innen alle porteføljegrenser"
-    elif score >= 60:
-        action, reason = "REVIEW", "Porteføljen har rom, men kandidaten krever manuell vurdering før kjøp"
+        if risk > max_candidate_risk or not valid_for_decision:
+            action = "SELL"
+            reason = "Eksisterende posisjon bryter risiko-/datavakt"
+        else:
+            action = "HOLD"
+            reason = "Eksisterende posisjon beholdes; ingen exitvakt er utløst i porteføljelaget"
+        if not bool(context.get("allow_additions", False)):
+            blocker_rows = [row for row in blocker_rows if row["code"] not in {"MAX_OPEN_POSITIONS", "PORTFOLIO_ROOM"}]
+    elif blocker_rows:
+        hard_codes = {
+            "DATA_CONTRACT_INVALID", "EVIDENCE_NOT_READY", "MISSION_INELIGIBLE", "STRATEGY_NOT_MATCHED",
+            "SCORE_BELOW_THRESHOLD", "DATA_QUALITY_BELOW_THRESHOLD", "LIQUIDITY_BELOW_THRESHOLD",
+            "RISK_ABOVE_THRESHOLD", "PRICE_INVALID", "TECHNICAL_ENTRY_WAIT", "MAX_OPEN_POSITIONS",
+        }
+        action = "SKIP" if any(row["code"] in hard_codes for row in blocker_rows) else "REVIEW"
+        reason = "; ".join(row["message"] for row in blocker_rows)
     else:
-        action, reason = "SKIP", "Kandidatscore eller strategibevis er ikke sterkt nok"
-    decision = {"version": LAYER_VERSION, "ticker": ticker, "action": action, "reason": reason,
-                "existing_position": bool(existing), "portfolio_assessed": True, "sector": sector, "country": country, "currency": currency,
-                "exposure_before": {"sector_pct": sector_now, "country_pct": country_now, "currency_pct": currency_now},
-                "room": {key: round(value, 2) for key, value in rooms.items()}, "correlation": correlation,
-                "liquidity_score": liquidity, "risk_score": risk,
-                "position_size": {key: round(_num(value), 4) for key, value in sizing.items()},
-                "blockers": blockers, "portfolio_source": context.get("source")}
-    candidate["portfolio_decision"] = decision; candidate["portfolio_action"] = action
+        action = "BUY"
+        reason = "Alle konfigurerte data-, evidens-, score-, risiko-, strategi- og porteføljeporter er bestått"
+
+    blockers = [row["message"] for row in blocker_rows]
+    decision = {
+        "version": LAYER_VERSION,
+        "ticker": ticker,
+        "action": action,
+        "reason": reason,
+        "first_blocker_code": blocker_rows[0]["code"] if blocker_rows else "",
+        "blocker_codes": [row["code"] for row in blocker_rows],
+        "blocker_details": blocker_rows,
+        "existing_position": bool(existing),
+        "portfolio_assessed": True,
+        "sector": sector,
+        "country": country,
+        "currency": currency,
+        "exposure_before": {"sector_pct": sector_now, "country_pct": country_now, "currency_pct": currency_now},
+        "room": {key: round(value, 2) for key, value in rooms.items()},
+        "correlation": correlation,
+        "liquidity_score": liquidity,
+        "risk_score": risk,
+        "investment_score": score,
+        "data_quality": data_quality,
+        "thresholds": {
+            "minimum_investment_score": minimum_score,
+            "minimum_data_quality": minimum_data_quality,
+            "minimum_liquidity_score": min_liquidity,
+            "maximum_risk_score": max_candidate_risk,
+        },
+        "gates": {
+            "valid_for_decision": valid_for_decision,
+            "evidence_valid_for_decision": evidence_valid,
+            "mission_eligible": mission_eligible,
+            "strategy_matches": strategy_matches,
+            "score_pass": score >= minimum_score,
+            "data_quality_pass": data_quality >= minimum_data_quality,
+            "liquidity_pass": liquidity >= min_liquidity,
+            "risk_pass": risk <= max_candidate_risk,
+            "price_valid": price > 0,
+            "technical_entry_ready": not technical_entry_wait,
+            "portfolio_room": allowed_pct >= .5 and sizing["amount"] > 0,
+        },
+        "position_size": {key: round(_num(value), 4) for key, value in sizing.items()},
+        "blockers": blockers,
+        "portfolio_source": context.get("source"),
+        "legacy_status_observed": status,
+    }
+    candidate["portfolio_decision"] = decision
+    candidate["portfolio_action"] = action
     return decision
 
 
