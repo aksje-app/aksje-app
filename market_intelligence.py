@@ -4738,10 +4738,13 @@ def _render_manual_report_progress_v1924() -> None:
                 request_cancel(execution_id, requested_by="RAPPORTSENTER")
                 _rerun_reports_v19220_rc11(st)
 
-    terminal_token = f"{execution_id}:{state}"
-    if state in {"COMPLETED", "FAILED", "CANCELLED"} and st.session_state.get("mi_terminal_refresh_v1924") != terminal_token:
-        st.session_state["mi_terminal_refresh_v1924"] = terminal_token
-        _rerun_reports_v19220_rc11(st)
+    # RC14: a fragment must never trigger an automatic full-app rerun when a
+    # job reaches terminal state. Streamlit kept the old fragment DOM while the
+    # complete app was appended below it on some browser/Render combinations,
+    # which duplicated the whole page. The fragment now owns only its progress
+    # area; the report archive updates on the next normal user/page refresh.
+    if state in {"COMPLETED", "FAILED", "CANCELLED"}:
+        st.caption("Rapportarkivet oppdateres ved neste vanlige sideoppdatering. Ingen automatisk helsidererender kjøres.")
 
 def render_market_intelligence() -> None:
     import pandas as pd

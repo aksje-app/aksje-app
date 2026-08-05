@@ -170,12 +170,15 @@ from navigation_state import (
     get_global_navigation_state, set_global_navigation_state, clear_global_navigation_state,
     normalize_navigation_values, canonical_nav_for_panel_v19220_rc7,
     apply_route_tab_to_session_state_v19220_rc7, current_route_tab_from_session_v19220_rc7,
+    consume_global_navigation_route_v19220_rc14,
+    install_navigation_rerun_guard_v19220_rc14,
 )
 from runtime_safety import paper_trading_decision, runtime_safety_snapshot
 from drift_center import render_drift_center
 from runtime_dependencies import check_runtime_dependencies
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+install_navigation_rerun_guard_v19220_rc14(st)
 
 _runtime_dependencies_v19146 = check_runtime_dependencies()
 if not _runtime_dependencies_v19146.get("ok"):
@@ -6016,7 +6019,15 @@ def _render_display_time_settings_v19220_rc8() -> None:
     if saved not in options:
         options.append(saved)
     label_by_value = {value: TIMEZONE_LABELS.get(value, value) for value in options}
-    with st.expander("Visning og tid", expanded=False):
+    expanded_after_save = bool(st.session_state.get("display_time_settings_expanded_v19220_rc14"))
+    with st.expander("Visning og tid", expanded=expanded_after_save):
+        flash = st.session_state.pop("display_timezone_flash_v19220_rc14", None)
+        if isinstance(flash, dict):
+            message = str(flash.get("message") or "")
+            if flash.get("ok"):
+                st.success(message)
+            else:
+                st.error(message or "Visningstidssonen kunne ikke lagres varig.")
         st.caption(
             "Styrer bare klokkeslett som vises i programmet. Morgen- og kveldsrapportene "
             "forblir 08:00 og 22:00 Europe/Oslo til en separat schedulerinnstilling endres."
@@ -6042,7 +6053,16 @@ def _render_display_time_settings_v19220_rc8() -> None:
         if st.button("Lagre visningstidssone", key="save_display_timezone_v19220_rc8", width="content"):
             settings["display_timezone"] = selected
             save_settings(settings)
-            st.success(f"Visningstidssone lagret: {label_by_value[selected]}. Scheduler er ikke endret.")
+            persisted = str((load_settings() or {}).get("display_timezone") or AUTO_TIMEZONE) == selected
+            st.session_state["display_time_settings_expanded_v19220_rc14"] = True
+            st.session_state["display_timezone_flash_v19220_rc14"] = {
+                "ok": persisted,
+                "message": (
+                    f"Visningstidssone lagret varig: {label_by_value[selected]}. Scheduler er ikke endret."
+                    if persisted else
+                    "Visningstidssonen ble ikke bekreftet i varig lagring. Ingen schedulerinnstilling ble endret."
+                ),
+            }
             st.rerun()
 
 
@@ -9452,6 +9472,7 @@ def _apply_mobile_nav_query_v18646() -> None:
             pass
 
 
+consume_global_navigation_route_v19220_rc14(st)
 _apply_mobile_nav_query_v18646()
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 
@@ -19462,21 +19483,11 @@ def add_rsi_current_box(fig, rsi):
     except:
         pass
     return fig
-
-
 # v18.4.9: Legacy forecast section removed. Forecast lives in AI Kontrollsenter.
-
-
 # legacy test marker: key="top_apply_all_changes_v18570"
 # legacy test marker: c1, c2 = st.columns([1.15, 1.15], gap="small")
-
 # legacy test marker: data-ui-path='active-global-update-v18590'
 # legacy test marker: main_auto_verify_pushover_v18590
 # legacy test marker: main_auto_send_test_pushover_v18590
-
 # legacy test marker: top_apply_all_changes_v18590
-
-
-
-
 # v18.6.41: Sidebar CSS/rendering moved to ui_sidebar_stable.py.

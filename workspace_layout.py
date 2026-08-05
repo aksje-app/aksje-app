@@ -1640,6 +1640,15 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             unsafe_allow_html=True,
         )
 
+        # RC14: button actions below must not mutate the already-instantiated
+        # group selectbox key. Consume the application-owned request before the
+        # widget is created, then let the widget own its key for the full run.
+        pending_simple_group_v19220_rc14 = str(
+            st.session_state.pop("ai_control_center_group_pending_v19220_rc14", "") or ""
+        ).strip()
+        if pending_simple_group_v19220_rc14 in group_map:
+            st.session_state["ai_control_center_group_v1863m"] = pending_simple_group_v19220_rc14
+
         # v18.6.3ag: quick navigation replaces the two selectboxes below.
         c_group, c_panel = st.columns([0.9, 1.35])
         with c_group:
@@ -1684,7 +1693,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             with mode_cols[idx]:
                 if st.button(mode, key=f"ai_cc_mode_v1863ag_{idx}", type="primary" if mode == current_mode else "secondary", width="stretch"):
                     st.session_state["ai_control_center_work_mode_v1863ag"] = mode
-                    st.session_state["ai_control_center_group_v1863m"] = mode_map[mode]
+                    st.session_state["ai_control_center_group_pending_v19220_rc14"] = mode_map[mode]
                     st.session_state["ai_control_center_menu_open_v1863ag"] = True
                     st.rerun()
 
@@ -1696,7 +1705,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
             prefix = "🔴" if active else "🔵"
             with group_cols[idx]:
                 if st.button(f"{prefix} {group_name} · {len(labels)}", key=f"ai_cc_group_v1863ag_{idx}", type="primary" if active else "secondary", width="stretch"):
-                    st.session_state["ai_control_center_group_v1863m"] = group_name
+                    st.session_state["ai_control_center_group_pending_v19220_rc14"] = group_name
                     st.session_state["ai_control_center_menu_open_v1863ag"] = True
                     st.rerun()
 
@@ -1717,7 +1726,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                         st.session_state["ai_control_center_menu_open_v1863ag"] = False
                         for g_name, g_labels in group_map.items():
                             if label in g_labels:
-                                st.session_state["ai_control_center_group_v1863m"] = g_name
+                                st.session_state["ai_control_center_group_pending_v19220_rc14"] = g_name
                                 break
                         st.rerun()
 
@@ -1733,7 +1742,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                         st.session_state["ai_control_center_menu_open_v1863ag"] = False
                         for g_name, g_labels in group_map.items():
                             if label in g_labels:
-                                st.session_state["ai_control_center_group_v1863m"] = g_name
+                                st.session_state["ai_control_center_group_pending_v19220_rc14"] = g_name
                                 break
                         st.rerun()
 
@@ -1764,7 +1773,7 @@ def render_ai_control_center(extra_panels: Optional[Sequence[Tuple[str, Callable
                             st.session_state["ai_control_center_recent_panels_v1863ag"] = recent_next[:4]
                             for g_name, g_labels in group_map.items():
                                 if label in g_labels:
-                                    st.session_state["ai_control_center_group_v1863m"] = g_name
+                                    st.session_state["ai_control_center_group_pending_v19220_rc14"] = g_name
                                     break
                             st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)

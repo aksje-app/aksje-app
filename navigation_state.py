@@ -15,6 +15,7 @@ AUTONOMY_NAV = "autonomy"
 AUTONOMY_GROUP = "Autonomi"
 AUTONOMY_PANEL = "🧠 Autonomi – Kontrollsenter"
 AUTONOMY_WORKSPACE_ROUTE_LEASE_KEY_V19220_RC12 = "autonomy_workspace_route_lease_v19220_rc12"
+GLOBAL_NAVIGATION_ROUTE_LEASE_KEY_V19220_RC14 = "global_navigation_route_lease_v19220_rc14"
 AUTONOMY_NAV_ALIASES = {"autonomy", "autonomous", "autonomi"}
 AUTONOMY_PANEL_ALIASES = {
     AUTONOMY_PANEL: "overview",
@@ -237,6 +238,144 @@ def set_global_navigation_state(
     except Exception:
         # Do not let navigation state break the app on older Streamlit builds.
         pass
+
+
+def current_navigation_snapshot_v19220_rc14(st) -> dict[str, str]:
+    """Return the best available visible route without touching widget keys.
+
+    The URL is authoritative on browser refresh, while session state is the
+    most recent source during an action-triggered rerun.  The snapshot is
+    application-owned and can therefore be queued safely after widgets have
+    already been instantiated.
+    """
+    url_state = get_global_navigation_state(st)
+    state = st.session_state
+    nav = str(
+        state.get("active_nav_target_v18674c")
+        or state.get("ai_control_center_force_nav_v18663")
+        or url_state.get("nav")
+        or ""
+    ).strip().lower()
+    group = str(
+        state.get("ai_control_center_group_v1863aj")
+        or state.get("ai_control_center_group_v1863m")
+        or url_state.get("group")
+        or ""
+    ).strip()
+    panel = str(
+        state.get("ai_control_center_active_panel_v1863aj")
+        or state.get("ai_control_center_active_panel_v1863m")
+        or state.get("ai_control_center_active_real_panel_v18598")
+        or url_state.get("panel")
+        or ""
+    ).strip()
+    tab, subtab = current_route_tab_from_session_v19220_rc7(
+        state, nav=nav, panel=panel,
+    )
+    tab = str(tab or url_state.get("tab") or "").strip()
+    subtab = str(subtab or url_state.get("subtab") or "").strip()
+    return normalize_navigation_values(nav, group, panel, tab, subtab)
+
+
+def queue_global_navigation_route_v19220_rc14(
+    st,
+    *,
+    source: str = "ACTION_RERUN_RC14",
+    route: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Queue the visible route for the next full application run.
+
+    This function intentionally does not write Streamlit widget keys.  It is
+    safe to call from any button handler, including handlers rendered after
+    the navigation radios/selectboxes.
+    """
+    raw = route or current_navigation_snapshot_v19220_rc14(st)
+    snapshot = normalize_navigation_values(
+        raw.get("nav"), raw.get("group"), raw.get("panel"),
+        raw.get("tab"), raw.get("subtab"),
+    )
+    if not any(snapshot.values()):
+        return snapshot
+    payload = {**snapshot, "source": str(source or "ACTION_RERUN_RC14")}
+    st.session_state[GLOBAL_NAVIGATION_ROUTE_LEASE_KEY_V19220_RC14] = payload
+    return snapshot
+
+
+def consume_global_navigation_route_v19220_rc14(st) -> bool:
+    """Apply a queued global route before navigation widgets are created."""
+    route = st.session_state.pop(GLOBAL_NAVIGATION_ROUTE_LEASE_KEY_V19220_RC14, None)
+    if not isinstance(route, dict):
+        return False
+    normalized = normalize_navigation_values(
+        route.get("nav"), route.get("group"), route.get("panel"),
+        route.get("tab"), route.get("subtab"),
+    )
+    nav = normalized["nav"]
+    group = normalized["group"]
+    panel = normalized["panel"]
+    tab = normalized["tab"]
+    subtab = normalized["subtab"]
+    state = st.session_state
+    if nav:
+        state["active_nav_target_v18674c"] = nav
+        state["ai_control_center_force_nav_v18663"] = nav
+        state["ai_control_center_last_applied_nav_v19016"] = nav
+        state["mobile_nav_last_choice_v19015"] = nav
+    if group:
+        state["ai_control_center_group_v1863m"] = group
+        state["ai_control_center_group_v1863aj"] = group
+    if panel:
+        state["ai_control_center_active_panel_v1863m"] = panel
+        state["ai_control_center_active_panel_v1863aj"] = panel
+        state["ai_control_center_active_real_panel_v18598"] = panel
+        state["ai_control_center_route_lock_v19220_rc6"] = {
+            "nav": nav,
+            "group": group,
+            "panel": panel,
+            "tab": tab,
+            "subtab": subtab,
+            "source": str(route.get("source") or "ACTION_RERUN_RC14"),
+        }
+    apply_route_tab_to_session_state_v19220_rc7(
+        state, nav=nav, panel=panel, tab=tab, subtab=subtab,
+    )
+    set_global_navigation_state(
+        st, nav=nav, group=group, panel=panel, tab=tab, subtab=subtab,
+    )
+    state["navigation_last_source_v19143"] = str(route.get("source") or "ACTION_RERUN_RC14")
+    return True
+
+
+def install_navigation_rerun_guard_v19220_rc14(st) -> bool:
+    """Wrap full-app ``st.rerun`` calls with one route-preservation lease.
+
+    The guard covers existing menus without requiring 190+ individual button
+    handlers to implement their own route code. Fragment-only reruns remain
+    untouched. Explicit route helpers still win because they update the route
+    before invoking ``st.rerun``.
+    """
+    marker = "_ai_aksje_navigation_rerun_guard_v19220_rc14"
+    original_marker = "_ai_aksje_original_rerun_v19220_rc14"
+    if bool(getattr(st, marker, False)):
+        return False
+    original = getattr(st, "rerun", None)
+    if not callable(original):
+        return False
+
+    def guarded_rerun(*args, **kwargs):
+        if str(kwargs.get("scope") or "app").strip().lower() != "fragment":
+            try:
+                queue_global_navigation_route_v19220_rc14(
+                    st, source="GLOBAL_ST_RERUN_GUARD_RC14",
+                )
+            except Exception:
+                pass
+        return original(*args, **kwargs)
+
+    setattr(st, original_marker, original)
+    setattr(st, "rerun", guarded_rerun)
+    setattr(st, marker, True)
+    return True
 
 
 
