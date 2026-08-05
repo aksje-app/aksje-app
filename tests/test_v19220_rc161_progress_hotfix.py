@@ -63,20 +63,23 @@ def test_status_publish_happens_before_slow_durable_write(monkeypatch, tmp_path)
     assert observed == [33, 33]
 
 
-def test_report_progress_fragment_is_explicit_fast_and_never_silent():
+def test_report_center_reuses_overview_progress_fragment():
     source = Path("market_intelligence.py").read_text(encoding="utf-8")
-    section = source[source.index("def _render_manual_report_progress_v1924"):source.index("def _render_replay_export_status_v19220_rc16")]
-    assert "get_active_status_snapshot()" in section
-    assert "run_every=2.0" in section
-    assert "Automatisk UI-poll: aktiv hvert 2. sekund" in section
-    assert "except Exception" not in section
     render_section = source[source.index("def render_market_intelligence"):]
-    call = render_section[render_section.index("_live_report_progress_fragment_v19220_rc161()") - 200:render_section.index("_live_report_progress_fragment_v19220_rc161()") + 100]
-    assert "try:" not in call
-    assert "except" not in call
+    action = render_section[render_section.index("##### 2. Handlinger"):render_section.index("##### 3. Siste rapporter")]
+    assert "from autonomy_overview import render_shared_manual_job_progress" in action
+    assert "render_shared_manual_job_progress(" in action
+    assert "refresh_app_on_terminal=False" in action
+    assert "_live_report_progress_fragment_v19220_rc161()" not in action
+
+    overview = Path("autonomy_overview.py").read_text(encoding="utf-8")
+    shared = overview[overview.index("def _live_progress_panel"):overview.index("def render_autonomy_overview")]
+    assert 'fragment(run_every="5s")(_live_progress_panel)' in shared
+    assert "get_active_status()" in shared
+    assert "render_shared_manual_job_progress" in shared
 
 
 def test_hotfix_scope_does_not_touch_report_or_trading_engines():
     version = Path("app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.22.0-rc16.1"' in version
+    assert 'APP_VERSION = "v19.22.0-rc16.2"' in version
     assert "Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel" in version

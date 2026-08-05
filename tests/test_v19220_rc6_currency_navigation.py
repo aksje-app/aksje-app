@@ -71,5 +71,5 @@ def test_currency_route_has_one_stable_group_in_all_navigation_sources():
 def test_version_identity_is_rc6():
     from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 
-    assert APP_VERSION == "v19.22.0-rc16.1"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16"
+    assert APP_VERSION == "v19.22.0-rc16.2"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"

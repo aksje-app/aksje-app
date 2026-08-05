@@ -177,7 +177,7 @@ def test_rc16_fragment_and_sidebar_are_final_static_contracts():
     sidebar_source = Path("ui_sidebar_stable.py").read_text(encoding="utf-8")
     render_section = market_source[market_source.index("def render_market_intelligence"):]
     assert "@st.fragment(run_every=\"3s\")" not in render_section
-    assert "_live_report_progress_fragment_v19220_rc161()" in render_section
+    assert "render_shared_manual_job_progress(" in render_section
     assert "_replay_export_status_fragment_v19220_rc16()" in render_section
     assert app_source.rstrip().endswith("inject_rc16_final_sidebar_lock(st)")
     assert "width: 224px !important" in sidebar_source

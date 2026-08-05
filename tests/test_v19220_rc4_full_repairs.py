@@ -111,8 +111,8 @@ def _run() -> dict:
 
 
 def test_rc4_version_identity_is_current() -> None:
-    assert APP_VERSION == "v19.22.0-rc16.1"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16"
+    assert APP_VERSION == "v19.22.0-rc16.2"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
 
 
 def test_rc4_pdf_page_one_contains_decision_information_and_top3() -> None:
@@ -173,7 +173,7 @@ def test_report_center_uses_background_progress_and_non_persisting_health_reads(
     source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
     action = source[source.index('##### 2. Handlinger'):source.index('##### 3. Siste rapporter')]
     assert "st.progress(percent" in source
-    assert "_live_report_progress_fragment_v19220_rc161()" in action
+    assert "render_shared_manual_job_progress(" in action
     assert "@st.fragment(run_every=\"3s\")" not in action
     assert action.count("start_manual_job(") >= 4
     status = source[source.index('##### 1. Status for planlagte rapporter'):source.index('##### 2. Handlinger')]
