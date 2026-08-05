@@ -1681,6 +1681,8 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     try:
         from notifier import send_pushover_alert
         identity = resolve_report_identity(run)
+        from report_channel_consistency import projection_from_run
+        channel_projection = projection_from_run(run)
         is_test = bool(run.get("test_run")) or "TEST" in str(run.get("trigger") or "").upper()
         origin = "Planlagt" if str(run.get("trigger") or "").upper() == "SCHEDULED" else ("Test" if is_test else "Manuell")
         top = (run.get("proposals") or run.get("candidates") or [{}])[0]
@@ -1691,6 +1693,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             lines.append(f"Planlagt tidspunkt: {run.get('scheduled_for')}")
         lines.extend([
             f"Rapport: {identity.get('label') or 'Rapport'} · {origin}",
+            f"Rapport-ID: {channel_projection.get('report_id') or run_id}",
             f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
             f"Jobb: {job.name}", f"Markeder: {', '.join(run.get('markets', []))}",
             f"Analysert: {run.get('summary', {}).get('deep_analyzed', 0)}",
@@ -1698,9 +1701,11 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
         ])
         if job.include_top3_in_notification:
-            medals = run.get("diverse_top3") or select_diverse_candidates(run.get("candidates") or [], 3)
+            medals = list(channel_projection.get("ranking") or [])[:3]
             for idx, item in enumerate(medals):
-                lines.append(f"{('🥇','🥈','🥉')[idx]} {item.get('ticker','-')} {float(item.get('investment_score',0)):.2f}")
+                score = item.get("score")
+                score_text = "-" if score is None else f"{float(score):.2f}"
+                lines.append(f"{('🥇','🥈','🥉')[idx]} {item.get('ticker','-')} {score_text} · {item.get('decision_label') or item.get('decision') or '-'}")
         else:
             lines.append(f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})")
         url = report_public_url(run) if job.include_report_link else ""
@@ -2251,7 +2256,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     report_revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
     meta = Table([
         [_p("Rapporttype", "Small"), _p(identity.get("type", "-"), "Small"), _p("Jobb", "Small"), _p(run.get("job_name", "-"), "Small")],
-        [_p("Rapport-ID", "Small"), _p(run.get("run_id", "-"), "Small"), _p("Generert", "Small"),
+        [_p("Rapport-ID", "Small"), _rawp(report_metadata.get("report_id") or run.get("report_id") or run.get("run_id") or "-", "Small"), _p("Generert", "Small"),
          _p(local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)), "Small")],
         [_p("Markeder", "Small"), _p(markets_text, "Small"), "", ""],
         [_p("Rapportstatus", "Small"), _p(report_status.get("label") or "Eldre rapportformat", "Small"),
@@ -5326,9 +5331,17 @@ def render_market_intelligence() -> None:
                     st.warning("Beslutningsdelen er stoppet for: " + ", ".join(contract_summary.get("blocked") or []))
             candidates = [] if latest.get("analysis_aborted") else list(latest.get("candidates") or [])
             if candidates:
-                displayed_candidates = list(latest.get("priority_top3") or (latest.get("autonomous_decision_reduction") or {}).get("priority_top3") or [])
-                if not displayed_candidates:
-                    displayed_candidates = list(latest.get("raw_top3") or select_diverse_candidates(candidates, 3))
+                from report_channel_consistency import projection_from_run
+                channel_projection = projection_from_run(latest)
+                by_ticker = {str(row.get("ticker") or "").upper(): dict(row) for row in candidates}
+                displayed_candidates = []
+                for projected in list(channel_projection.get("ranking") or [])[:3]:
+                    row = dict(by_ticker.get(str(projected.get("ticker") or "").upper()) or projected)
+                    row["rank"] = projected.get("rank")
+                    row["investment_score"] = projected.get("score")
+                    row["portfolio_action"] = projected.get("decision")
+                    row["autonomy_outcome_label"] = projected.get("decision_label")
+                    displayed_candidates.append(row)
                 heading = f"#### Prioritert vurderingsrekkefølge 1–3 ({len(displayed_candidates)})"
                 labels = [f"PRIORITET {i}" for i in range(1, len(displayed_candidates) + 1)]
                 st.info("Rangeringen viser hvilke kandidater som bør vurderes først og nærmere. Den er ikke en kjøpsanbefaling.")
@@ -5410,6 +5423,7 @@ def render_market_intelligence() -> None:
                 e1.caption("På mobil: bruk nedlastingsknappen for å beholde appøkten og navigasjonen.")
             else:
                 e1.error(str(delivery.get("error") or "PDF-rapporten er ikke tilgjengelig."))
+            ensure_report_document(latest)
             e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", width="stretch", key="mi_download_json_v19132")
             st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", width="stretch", key="mi_download_txt_v1914")
             latest_package_key = "mi_latest_report_package_bytes_v19220_rc16"

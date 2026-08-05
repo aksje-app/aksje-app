@@ -520,6 +520,8 @@ def ensure_report_document(
             revision_payload["content_sha256"] = str(document["metadata"].get("content_sha256") or "")
         run["version_contract"] = dict(document["versions"])
         run["report_document"] = document
+        from report_channel_consistency import attach_channel_projection
+        attach_channel_projection(run, document)
         run["report_contract_validation"] = validate_report_document(document)
     return document
 
