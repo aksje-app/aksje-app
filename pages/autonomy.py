@@ -27,7 +27,8 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     a3.metric("Kjøremodus", "Kun teoretisk")
     a4.metric("Domener", len(manifest.get("domains") or []))
 
-    # RC7: never render a requested workspace through a separate early-return
+    # RC13: all requested workspaces are applied before the radio is created;
+    # never render a requested workspace through a separate early-return
     # path. The old path rendered the requested page once without establishing
     # the radio state; the next rerun then defaulted to Oversikt. All requests
     # now flow through one selector and one renderer below.
