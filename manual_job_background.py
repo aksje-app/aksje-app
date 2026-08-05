@@ -7,6 +7,7 @@ local JSON file remains a backwards-compatible diagnostic mirror.
 """
 from __future__ import annotations
 
+import os
 import threading
 import traceback
 import uuid
@@ -27,6 +28,30 @@ _LOCK = threading.Lock()
 _THREADS: dict[str, threading.Thread] = {}
 _TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 _STAGE_ORDER = ["MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
+
+
+def _process_identity() -> str:
+    """Stable identity for the current OS process, including PID reuse safety."""
+    start_ticks = "unknown"
+    try:
+        fields = open("/proc/self/stat", "r", encoding="utf-8").read().split()
+        if len(fields) > 21:
+            start_ticks = fields[21]
+    except Exception:
+        pass
+    return f"{os.getpid()}:{start_ticks}"
+
+
+_PROCESS_IDENTITY = _process_identity()
+
+
+def _explicit_job_name(job: Any) -> str:
+    name = str(getattr(job, "name", "") or "").strip()
+    if name and name.casefold() != "uten navn":
+        return name
+    markets = [str(value).strip() for value in list(getattr(job, "markets", []) or []) if str(value).strip()]
+    market_label = " + ".join(markets) if markets else "valgte markeder"
+    return f"Utkast – {market_label}"
 
 
 def _now() -> str:
@@ -89,13 +114,19 @@ def _thread_is_alive(execution_id: str) -> bool:
     return bool(thread and thread.is_alive())
 
 
-def reconcile_orphaned_status(status: Mapping[str, Any], *, stale_seconds: int = 90, force: bool = False) -> dict[str, Any]:
-    """Close a persisted non-terminal job when its worker no longer exists.
+def reconcile_orphaned_status(
+    status: Mapping[str, Any],
+    *,
+    stale_seconds: int = 90,
+    same_process_stale_seconds: int = 900,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Reconcile durable status without mistaking a Streamlit rerun for restart.
 
-    Render restarts terminate daemon threads, while PostgreSQL/persistent storage
-    retains RUNNING or STOP_REQUESTED.  With one web worker, the in-process
-    thread registry is authoritative for manually started jobs.  A short grace
-    period avoids touching a job during its initial hand-off.
+    RC12 records an OS-process identity on acceptance.  A different identity is
+    positive evidence of a real service restart.  A missing thread in the same
+    process is not labelled as restart; it receives a longer heartbeat grace and
+    becomes FAILED with a precise worker-lifecycle reason if it remains stale.
     """
     current = dict(status or {})
     execution_id = str(current.get("execution_id") or "")
@@ -105,21 +136,61 @@ def reconcile_orphaned_status(status: Mapping[str, Any], *, stale_seconds: int =
     if _thread_is_alive(execution_id):
         return current
 
-    updated = _parse_timestamp(current.get("updated_at") or current.get("accepted_at"))
-    if not force and updated is not None and datetime.now(timezone.utc) - updated < timedelta(seconds=max(15, int(stale_seconds))):
-        return current
+    updated = _parse_timestamp(
+        current.get("heartbeat_at") or current.get("updated_at") or current.get("accepted_at")
+    )
+    age = datetime.now(timezone.utc) - updated if updated is not None else None
+    worker_identity = str(current.get("worker_process_identity") or "").strip()
+    actual_restart = bool(worker_identity and worker_identity != _PROCESS_IDENTITY)
 
+    if actual_restart:
+        now = _now()
+        current.update({
+            "state": "CANCELLED",
+            "message": "Kjøringen ble avsluttet ved en faktisk serverprosess-restart",
+            "updated_at": now, "completed_at": now, "error": "",
+            "cancel_requested": True,
+            "cancel_reason": "Worker-prosessen tilhører en tidligere serverprosess",
+            "partial_results_published": False, "recovered_orphan": True,
+            "orphan_reason_code": "SERVER_PROCESS_RESTART",
+            "recovered_at": now, "current_process_identity": _PROCESS_IDENTITY,
+        })
+        return _write_status(current)
+
+    if worker_identity == _PROCESS_IDENTITY:
+        grace = max(60, int(same_process_stale_seconds))
+        if not force and age is not None and age < timedelta(seconds=grace):
+            return current
+        now = _now()
+        current.update({
+            "state": "FAILED",
+            "message": "Bakgrunnsarbeideren sluttet å svare i samme serverprosess",
+            "updated_at": now, "completed_at": now,
+            "error": "Workertråden finnes ikke og ingen fersk heartbeat er registrert",
+            "error_type": "WorkerLifecycleError",
+            "error_stage": str(current.get("active_stage") or "PREFLIGHT"),
+            "error_code": "WORKER_LOST_SAME_PROCESS",
+            "cancel_requested": False, "partial_results_published": False,
+            "recovered_orphan": True, "orphan_reason_code": "WORKER_LOST_SAME_PROCESS",
+            "recovered_at": now,
+        })
+        return _write_status(current)
+
+    # Legacy RC11-and-older records have no process identity.  Keep the previous
+    # short grace but label the uncertainty explicitly rather than asserting a
+    # server restart as fact.
+    grace = max(15, int(stale_seconds))
+    if not force and age is not None and age < timedelta(seconds=grace):
+        return current
     now = _now()
     current.update({
         "state": "CANCELLED",
-        "message": "Kjøringen ble avsluttet etter serverrestart; foreldet kjørelås er frigitt",
-        "updated_at": now,
-        "completed_at": now,
-        "error": "",
+        "message": "Eldre kjøring uten worker-identitet er frigitt",
+        "updated_at": now, "completed_at": now, "error": "",
         "cancel_requested": True,
-        "cancel_reason": "Worker-prosessen finnes ikke lenger etter serverrestart",
-        "partial_results_published": False,
-        "recovered_orphan": True,
+        "cancel_reason": "Legacy-status manglet worker-identitet etter oppstart/deploy",
+        "partial_results_published": False, "recovered_orphan": True,
+        "orphan_reason_code": "LEGACY_WORKER_IDENTITY_MISSING",
         "recovered_at": now,
     })
     return _write_status(current)
@@ -202,7 +273,10 @@ def _worker(
             _THREADS.pop(execution_id, None)
             cancelled_before_start = True
         else:
-            status.update({"state": "RUNNING", "started_at": _now(), "updated_at": _now(),
+            now = _now()
+            status.update({"state": "RUNNING", "started_at": now, "updated_at": now,
+                           "heartbeat_at": now, "worker_process_identity": _PROCESS_IDENTITY,
+                           "worker_pid": os.getpid(), "worker_thread_name": threading.current_thread().name,
                            "message": "Starter markedsskanning", "percent": 1})
             _write_status(status)
     if cancelled_before_start:
@@ -226,7 +300,9 @@ def _worker(
             if phase == "COMPLETE":
                 completed_steps = list(_STAGE_ORDER)
             current.update({
-                "state": "RUNNING", "updated_at": _now(),
+                "state": "RUNNING", "updated_at": _now(), "heartbeat_at": _now(),
+                "worker_process_identity": _PROCESS_IDENTITY, "worker_pid": os.getpid(),
+                "worker_thread_name": threading.current_thread().name,
                 "phase": phase, "active_stage": active_stage,
                 "completed_steps": completed_steps,
                 "percent": max(int(current.get("percent") or 0), progress_percent(event)), "message": message,
@@ -323,10 +399,14 @@ def start_manual_job(
         selected_markets = list(getattr(job, "markets", []) or [])
         market_count = 6 if "Alle" in selected_markets else max(1, len(selected_markets))
         per_market = int(getattr(job, "scan_limit", 25))
+        previous_execution_id = str((active or {}).get("execution_id") or "")
+        accepted_at = _now()
         status = _write_status({
             "execution_id": execution_id, "state": "QUEUED", "phase": "START",
             "percent": 0, "message": "Klargjør bakgrunnskjøring", "trigger": trigger,
-            "job_id": getattr(job, "job_id", ""), "job_name": getattr(job, "name", ""),
+            "job_id": getattr(job, "job_id", ""), "job_name": _explicit_job_name(job),
+            "supersedes_execution_id": previous_execution_id,
+            "worker_process_identity": _PROCESS_IDENTITY, "worker_pid": os.getpid(),
             "mission_id": getattr(job, "investment_mission_id", ""),
             "configuration_version": getattr(job, "configuration_version", ""),
             "scan_configuration": {
@@ -334,9 +414,10 @@ def start_manual_job(
                 "planned_maximum": per_market * market_count,
                 "markets": selected_markets,
             },
-            "force_refresh": bool(force_refresh), "scheduled_for": str(scheduled_for or ""), "accepted_at": _now(),
+            "force_refresh": bool(force_refresh), "scheduled_for": str(scheduled_for or ""), "accepted_at": accepted_at,
             "timezone_name": timezone_name,
-            "started_at": None, "completed_at": None, "updated_at": _now(), "error": "",
+            "started_at": None, "completed_at": None, "updated_at": accepted_at,
+            "heartbeat_at": accepted_at, "error": "",
             "cancel_requested": False, "completed_steps": [], "active_stage": "PREFLIGHT",
         })
         thread = threading.Thread(

@@ -37,8 +37,8 @@ MORE_NAVIGATION = (
 )
 ADVANCED_NAVIGATION = (
     ("🏠", "Oversikt", "dashboard"),
-    ("📚", "Rapporter", "reports"),
     ("🧠", "Autonomi", "autonomy"),
+    ("📚", "Rapporter", "reports"),
     ("⏱️", "Jobber / Planlegger", "jobs"),
     ("✅", "Godkjenninger", "approvals"),
     ("💼", "Portefølje", "portfolio"),

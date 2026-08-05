@@ -37,8 +37,21 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
         render_simple_mode()
         return
 
-    from navigation_state import AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7
+    from navigation_state import (
+        AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7,
+        AUTONOMY_WORKSPACE_ROUTE_LEASE_KEY_V19220_RC12,
+        consume_autonomy_workspace_route_lease_v19220_rc12,
+    )
     workspace_labels = dict(AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7)
+    if st.session_state.get(AUTONOMY_WORKSPACE_ROUTE_LEASE_KEY_V19220_RC12):
+        try:
+            from manual_job_background import get_active_status
+            lease_status = get_active_status()
+        except Exception:
+            lease_status = {}
+        consume_autonomy_workspace_route_lease_v19220_rc12(
+            st.session_state, lease_status,
+        )
     requested_workspace = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
     if requested_workspace in workspace_labels:
         # Set the widget key before creation and keep it as the durable active

@@ -53,17 +53,31 @@ from norwegian_report_language import (
 )
 
 VERSION = APP_VERSION
+# Compatibility/audit anchor for the former hard blocker: Sentral konfigurasjon er endret.
+# RC12 migrates the mission contract instead of asking the operator to recreate the job.
 
 
-def _rerun_reports_v19220_rc11(st) -> None:
-    """Queue Rapporter before rerun without mutating instantiated widgets."""
-    pin_autonomy_workspace_route_v19220_rc11(st, workspace_slug="reports", public_nav="reports")
+def _rerun_reports_v19220_rc11(st, *, execution_id: str = "") -> None:
+    """Keep Rapporter active through the accepted job's full rerun lifecycle."""
+    bound_execution_id = str(
+        execution_id or st.session_state.get("mi_active_execution_v1924") or ""
+    )
+    pin_autonomy_workspace_route_v19220_rc11(
+        st, workspace_slug="reports", public_nav="reports",
+        execution_id=bound_execution_id,
+    )
     st.rerun()
 
 
-def _rerun_reports_v19220_rc9(st) -> None:
-    """Backward-compatible alias for the RC11 report rerun helper."""
-    _rerun_reports_v19220_rc11(st)
+def _rerun_reports_v19220_rc12(st, *, execution_id: str = "") -> None:
+    """RC12 alias retaining the established report rerun contract."""
+    _rerun_reports_v19220_rc11(st, execution_id=execution_id)
+
+
+def _rerun_reports_v19220_rc9(st, *, execution_id: str = "") -> None:
+    """Backward-compatible alias for the RC12 report rerun helper."""
+    _rerun_reports_v19220_rc11(st, execution_id=execution_id)
+
 
 ROOT = runtime_data_path("market_intelligence")
 JOBS_PATH = ROOT / "jobs.json"
@@ -558,6 +572,23 @@ def job_fingerprint(job: "JobProfile") -> str:
     return f"{job.market_profile}|{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}|{job.investment_mission_id}|{job.configuration_version}"
 
 
+def explicit_job_name_v19220_rc12(
+    name: Any,
+    *,
+    profile_id: Any = "",
+    markets: Any = None,
+    draft: bool = False,
+) -> str:
+    """Replace blank/legacy 'Uten navn' labels without changing job settings."""
+    clean = str(name or "").strip()
+    if clean and clean.casefold() != "uten navn":
+        return clean
+    profile = market_profile_contract(str(profile_id or ""), markets or [], name=clean)
+    countries = [str(value) for value in list(profile.get("expanded_markets") or []) if str(value).strip()]
+    scope = " + ".join(countries) if countries else "valgte markeder"
+    return f"{'Utkast' if draft else 'Analyse'} – {scope}"
+
+
 @dataclass
 class JobProfile:
     name: str
@@ -611,6 +642,10 @@ class JobProfile:
         )
         data["market_profile"] = profile_id
         data["markets"] = profile_market_selections(profile_id, data.get("markets"))
+        data["name"] = explicit_job_name_v19220_rc12(
+            data.get("name"), profile_id=profile_id, markets=data.get("markets"),
+            draft=str(data.get("job_id") or "") == DRAFT_JOB_ID,
+        )
         data["schedules"] = [normalize_schedule_value(x) for x in list(data.get("schedules") or [])]
         data["timezone_name"] = valid_timezone(data.get("timezone_name"))
         return cls(**data)
@@ -638,10 +673,15 @@ def load_jobs() -> list[JobProfile]:
         any(str(value or "") in LEGACY_SCHEDULE_MIGRATION for value in list(item.get("schedules") or []))
         for item in source_payload
     )
-    if len(cleaned) != len(jobs) or schedules_migrated:
+    names_migrated = any(
+        not str(item.get("name") or "").strip() or str(item.get("name") or "").strip().casefold() == "uten navn"
+        for item in source_payload
+    )
+    if len(cleaned) != len(jobs) or schedules_migrated or names_migrated:
         save_jobs(cleaned)
         _audit("JOB_PROFILES_REPAIRED", {
-            "before": len(jobs), "after": len(cleaned), "schedules_migrated": schedules_migrated,
+            "before": len(jobs), "after": len(cleaned),
+            "schedules_migrated": schedules_migrated, "names_migrated": names_migrated,
         })
     return cleaned
 
@@ -660,6 +700,14 @@ def load_draft_job() -> JobProfile:
             draft = JobProfile.from_dict(raw)
             draft.job_id = DRAFT_JOB_ID
             draft.enabled = False
+            normalized_name = explicit_job_name_v19220_rc12(
+                draft.name, profile_id=draft.market_profile, markets=draft.markets, draft=True,
+            )
+            if normalized_name != draft.name:
+                draft.name = normalized_name
+                payload = asdict(draft); payload["enabled"] = False; payload["last_status"] = "UTKAST"
+                write_persistent_json(DRAFT_STORAGE_KEY, payload)
+                _audit("DRAFT_NAME_MIGRATED_RC12", {"name": normalized_name})
             return draft
         except Exception:
             pass
@@ -3641,27 +3689,103 @@ def _run_job_impl(
     # Portfolio demand is an input to the mission, never an afterthought.
     from autonomi_core.portfolio_decisions import read_portfolio_needs
     portfolio_need_preflight = read_portfolio_needs()
-    from autonomi_core.missions.investment_mission import create_investment_mission, engine_handoff, load_investment_mission
+    from autonomi_core.missions.investment_mission import (
+        STRATEGY_PROFILES, create_investment_mission, engine_handoff, load_investment_mission,
+    )
+    from autonomi_core.configuration.registry import status as _central_configuration_status
+    from autonomi_core.configuration.policy import load_policy as _load_mission_policy
+    from autonomi_core.missions.user_mission import load_user_mission as _load_legacy_user_mission
+
+    central_configuration_version = str(_central_configuration_status().get("config_version") or "")
     investment_mission = load_investment_mission(job.investment_mission_id) if job.investment_mission_id else {}
-    if not investment_mission:
-        from autonomi_core.configuration.policy import load_policy as _load_mission_policy
-        from autonomi_core.missions.user_mission import load_user_mission as _load_legacy_user_mission
+    investment_mission = dict(investment_mission or {})
+    mission_configuration_version = str(investment_mission.get("configuration_version") or "")
+    job_configuration_version = str(job.configuration_version or "")
+    mission_missing = not bool(investment_mission)
+    mission_stale = bool(investment_mission) and (
+        mission_configuration_version != central_configuration_version
+        or job_configuration_version != mission_configuration_version
+    )
+
+    if mission_missing or mission_stale:
         legacy_mission = _load_legacy_user_mission()
-        legacy_mission = legacy_mission if str(legacy_mission.get("mission_id") or "") == str(job.user_mission_id or "") else {}
-        policy = _load_mission_policy()
-        generated = create_investment_mission(
-            search_for=str(legacy_mission.get("goal") or job.name or "Beste relevante kandidater"),
-            markets=resolved_markets, sectors=list(legacy_mission.get("sectors") or []),
-            strategy="Kvalitet til rimelig pris", horizon=str(legacy_mission.get("horizon") or "3–12 måneder"),
-            risk=str(legacy_mission.get("risk") or "Balansert"),
-            risk_ceiling=float(legacy_mission.get("risk_ceiling", 65.0)),
-            portfolio_need=str(portfolio_need_preflight.get("summary") or "Beste enkeltkandidater"), minimum_data_quality=float(policy.minimum_data_quality),
-            candidate_count=int(job.deep_count), exclusions=[], objective=str(legacy_mission.get("goal") or job.name),
+        legacy_mission = (
+            legacy_mission
+            if str(legacy_mission.get("mission_id") or "") == str(job.user_mission_id or "")
+            else {}
         )
+        source_mission = investment_mission or legacy_mission
+        policy = _load_mission_policy()
+        strategy = str(source_mission.get("strategy") or "Kvalitet til rimelig pris")
+        if strategy not in STRATEGY_PROFILES:
+            strategy = "Kvalitet til rimelig pris"
+        generated = create_investment_mission(
+            search_for=str(
+                source_mission.get("search_for")
+                or source_mission.get("goal")
+                or job.name
+                or "Beste relevante kandidater"
+            ),
+            markets=resolved_markets,
+            sectors=list(source_mission.get("sectors") or []),
+            strategy=strategy,
+            horizon=str(source_mission.get("horizon") or "3–12 måneder"),
+            risk=str(source_mission.get("risk") or "Balansert"),
+            risk_ceiling=float(source_mission.get("risk_ceiling", 65.0)),
+            portfolio_need=str(
+                source_mission.get("portfolio_need")
+                or portfolio_need_preflight.get("summary")
+                or "Beste enkeltkandidater"
+            ),
+            minimum_data_quality=float(
+                source_mission.get("minimum_data_quality", policy.minimum_data_quality)
+            ),
+            candidate_count=int(source_mission.get("candidate_count") or job.deep_count),
+            exclusions=list(source_mission.get("exclusions") or []),
+            objective=str(
+                source_mission.get("objective")
+                or source_mission.get("goal")
+                or job.name
+            ),
+        )
+        old_mission_id = str(investment_mission.get("mission_id") or job.investment_mission_id or "")
+        old_configuration_version = mission_configuration_version or job_configuration_version
         investment_mission = generated.to_dict()
-        job = replace(job, investment_mission_id=generated.mission_id, configuration_version=generated.configuration_version)
+        job = replace(
+            job, investment_mission_id=generated.mission_id,
+            configuration_version=generated.configuration_version,
+        )
+        persisted_job = replace(
+            requested_job,
+            name=explicit_job_name_v19220_rc12(
+                requested_job.name, profile_id=job.market_profile, markets=job.markets,
+                draft=str(requested_job.job_id or "") == DRAFT_JOB_ID,
+            ),
+            investment_mission_id=generated.mission_id,
+            configuration_version=generated.configuration_version,
+        )
+        if str(persisted_job.job_id or "") == DRAFT_JOB_ID:
+            save_draft_job(persisted_job)
+        else:
+            upsert_job(persisted_job)
+        requested_job = persisted_job
+        handoff = dict(handoff or {})
+        handoff["configuration_contract_migration"] = {
+            "performed": True,
+            "reason": "MISSION_MISSING" if mission_missing else "CENTRAL_CONFIGURATION_CHANGED",
+            "old_mission_id": old_mission_id,
+            "new_mission_id": generated.mission_id,
+            "old_configuration_version": old_configuration_version,
+            "new_configuration_version": generated.configuration_version,
+            "schedules_preserved": list(persisted_job.schedules or []),
+            "timezone_preserved": persisted_job.timezone_name,
+        }
+        _audit("JOB_CONFIGURATION_CONTRACT_MIGRATED_RC12", {
+            "job_id": persisted_job.job_id, "job_name": persisted_job.name,
+            **handoff["configuration_contract_migration"],
+        })
+
     if investment_mission:
-        investment_mission = dict(investment_mission)
         mission_markets = normalize_markets(investment_mission.get("markets") or [])
         if mission_markets != resolved_markets:
             investment_mission["source_markets_before_profile_reconciliation"] = mission_markets
@@ -3669,10 +3793,9 @@ def _run_job_impl(
             investment_mission["market_profile_reconciled"] = True
         investment_mission["market_profile"] = dict(profile)
     if investment_mission and str(investment_mission.get("configuration_version") or "") != str(job.configuration_version or ""):
-        raise ValueError("Oppdragets konfigurasjonsversjon samsvarer ikke med jobbens konfigurasjonsversjon")
-    from autonomi_core.configuration.registry import status as _central_configuration_status
-    if investment_mission and str(investment_mission.get("configuration_version") or "") != str(_central_configuration_status().get("config_version") or ""):
-        raise ValueError("Sentral konfigurasjon er endret etter at oppdraget ble opprettet. Opprett oppdraget på nytt.")
+        raise ValueError("Oppdragets konfigurasjonsversjon kunne ikke migreres til jobbkontrakten")
+    if investment_mission and str(investment_mission.get("configuration_version") or "") != central_configuration_version:
+        raise ValueError("Oppdragets konfigurasjonsversjon kunne ikke migreres til sentral konfigurasjon")
     from evidence_integrity import build_integrity_preflight
     integrity_preflight = build_integrity_preflight(job)
     if not integrity_preflight.get("can_run"):
@@ -4620,12 +4743,14 @@ def render_market_intelligence() -> None:
                 "ble ikke registrert som startet/fullført."
             )
             if missed_action.button("Kjør manglende rapport nå", key=f"mi_catchup_{job.job_id}", width="content", disabled=manual_job_running):
-                st.session_state["mi_active_execution_v1924"] = start_manual_job(
+                started = start_manual_job(
                     job,
                     trigger="MISSED_SCHEDULE_CATCHUP",
                     force_refresh=False,
                     scheduled_for=str(missed.get("previous_planned_utc") or ""),
-                ).get("execution_id")
+                )
+                execution_id = str(started.get("execution_id") or "")
+                st.session_state["mi_active_execution_v1924"] = execution_id
                 _rerun_reports_v19220_rc11(st)
 
     with st.container(border=True):
@@ -4636,24 +4761,32 @@ def render_market_intelligence() -> None:
         q1, q2, q3, q4 = st.columns(4, gap="large")
         if q1.button("📄 Nytt utkast", key="mi_quick_draft_v1924", type="primary", width="content", disabled=manual_job_running):
             draft = load_draft_job()
-            st.session_state["mi_active_execution_v1924"] = start_manual_job(
+            started = start_manual_job(
                 draft, trigger="MANUAL_DRAFT_TEST", force_refresh=False,
-            ).get("execution_id")
+            )
+            execution_id = str(started.get("execution_id") or "")
+            st.session_state["mi_active_execution_v1924"] = execution_id
             _rerun_reports_v19220_rc11(st)
         if q2.button("🌅 Kjør morgenanalyse", key="mi_quick_morning_v1924", width="content", disabled=manual_job_running or morning_job is None):
-            st.session_state["mi_active_execution_v1924"] = start_manual_job(
+            started = start_manual_job(
                 morning_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
-            ).get("execution_id")
+            )
+            execution_id = str(started.get("execution_id") or "")
+            st.session_state["mi_active_execution_v1924"] = execution_id
             _rerun_reports_v19220_rc11(st)
         if q3.button("🌇 Kjør kveldsanalyse", key="mi_quick_evening_v1924", width="content", disabled=manual_job_running or evening_job is None):
-            st.session_state["mi_active_execution_v1924"] = start_manual_job(
+            started = start_manual_job(
                 evening_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
-            ).get("execution_id")
+            )
+            execution_id = str(started.get("execution_id") or "")
+            st.session_state["mi_active_execution_v1924"] = execution_id
             _rerun_reports_v19220_rc11(st)
         if q4.button("🌙 Kjør nattanalyse", key="mi_quick_night_v1924", width="content", disabled=manual_job_running or night_job is None):
-            st.session_state["mi_active_execution_v1924"] = start_manual_job(
+            started = start_manual_job(
                 night_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
-            ).get("execution_id")
+            )
+            execution_id = str(started.get("execution_id") or "")
+            st.session_state["mi_active_execution_v1924"] = execution_id
             _rerun_reports_v19220_rc11(st)
         unavailable = []
         if morning_job is None:
