@@ -23,6 +23,15 @@ class StateService:
     def _state(self) -> Any:
         if self.session_state is not None:
             return self.session_state
+        # RC15: report/scheduler workers are intentionally UI-free. Importing
+        # Streamlit from those threads creates ``missing ScriptRunContext``
+        # warnings and can accidentally couple analysis to a browser session.
+        try:
+            from background_execution import is_background_execution
+            if is_background_execution():
+                return {}
+        except Exception:
+            pass
         try:
             import streamlit as st  # type: ignore
             return st.session_state
