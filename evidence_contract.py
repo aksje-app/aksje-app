@@ -63,19 +63,30 @@ def canonical_status(payload: Mapping[str, Any], facts: Sequence[Mapping[str, An
 
 
 def source_budget(payload: Mapping[str, Any]) -> dict[str, int]:
-    logs = [row for row in payload.get("search_log") or [] if isinstance(row, Mapping)]
-    statuses = [str(row.get("status") or "").upper() for row in logs]
-    return {
-        "planned": len(logs),
-        "attempted": sum(bool(row.get("attempted")) for row in logs),
-        "successful": sum(status in {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"} for status in statuses),
-        "with_facts": sum(status == "SUCCESS_WITH_RESULTS" for status in statuses),
-        "no_events": sum(status == "SUCCESS_NO_RESULTS" for status in statuses),
-        "rate_limited": sum(status == "RATE_LIMITED" for status in statuses),
-        "daily_quota_exceeded": sum(status == "DAILY_QUOTA_EXCEEDED" for status in statuses),
-        "not_configured": sum(status == "NOT_CONFIGURED" for status in statuses),
-        "errors": sum(status in {"ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE"} for status in statuses),
-    }
+    """Return normalized source-search counters while preserving legacy callers."""
+    from evidence_search_status import source_budget as normalized_source_budget
+
+    return normalized_source_budget(payload)
+
+
+def normalize_search_payload(
+    payload: Mapping[str, Any] | None,
+    *,
+    area: str,
+    enabled: bool = True,
+    default_reason_code: str = "",
+    default_reason: str = "",
+) -> dict[str, Any]:
+    """Expose the RC10 search-status contract through the evidence module."""
+    from evidence_search_status import normalize_evidence_payload
+
+    return normalize_evidence_payload(
+        payload,
+        area=area,
+        enabled=enabled,
+        default_reason_code=default_reason_code,
+        default_reason=default_reason,
+    )
 
 
 def evidence_conflicts(facts: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

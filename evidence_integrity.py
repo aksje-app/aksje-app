@@ -79,8 +79,10 @@ def build_evidence_passport(candidate: Mapping[str, Any]) -> dict[str, Any]:
     formula = raw.get("score_formula") if isinstance(raw.get("score_formula"), Mapping) else {}
     contributions = formula.get("weighted_contributions") if isinstance(formula.get("weighted_contributions"), Mapping) else {}
     areas: dict[str, Any] = {}
+    from evidence_contract import normalize_search_payload
+
     for area, key in (("insider", "insider_intelligence"), ("news", "news_intelligence")):
-        payload = _candidate_payload(candidate, key)
+        payload = normalize_search_payload(_candidate_payload(candidate, key), area=area)
         status = _coverage(candidate, area, payload)
         facts = _fact_rows(payload, area)
         source_attempts = []
@@ -92,6 +94,9 @@ def build_evidence_passport(candidate: Mapping[str, Any]) -> dict[str, Any]:
                 "source_type": item.get("source_type") or "",
                 "attempted": bool(item.get("attempted")),
                 "status": str(item.get("status") or "NOT_SEARCHED").upper(),
+                "legacy_status": str(item.get("legacy_status") or item.get("status") or "NOT_SEARCHED").upper(),
+                "search_status": str(item.get("search_status") or "NOT_SEARCHED_POLICY").upper(),
+                "reason_code": str(item.get("reason_code") or "UNKNOWN_REASON").upper(),
                 "results": int(item.get("results") or 0),
                 "checked_at": item.get("checked_at") or item.get("retrieved_at") or "",
                 "url": item.get("url") or "",
@@ -105,6 +110,9 @@ def build_evidence_passport(candidate: Mapping[str, Any]) -> dict[str, Any]:
         contribution = contributions.get(area)
         areas[area] = {
             "status": status,
+            "search_status": payload.get("search_status") or "NOT_SEARCHED_POLICY",
+            "search_reason_counts": dict(payload.get("search_reason_counts") or {}),
+            "search_unknown_reason_count": int(payload.get("search_unknown_reason_count") or 0),
             "quality_score": STATUS_QUALITY.get(status, 15.0),
             "facts": facts,
             "fact_count": len(facts),
@@ -118,7 +126,7 @@ def build_evidence_passport(candidate: Mapping[str, Any]) -> dict[str, Any]:
         json.dumps(areas, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
     return {
-        "version": "v19.0.11",
+        "version": "v19.22.0-rc10",
         "ticker": candidate.get("ticker") or "",
         "generated_at": _now_iso(),
         "areas": areas,
@@ -162,26 +170,29 @@ def build_source_health(candidates: Sequence[Mapping[str, Any]]) -> dict[str, An
                 item = sources.setdefault(source, {
                     "source": source, "areas": set(), "attempts": 0, "successes": 0,
                     "with_results": 0, "rate_limited": 0, "quota_exceeded": 0,
-                    "errors": 0, "last_status": "NOT_SEARCHED", "last_checked_at": "",
+                    "errors": 0, "last_status": "NOT_SEARCHED_POLICY", "last_checked_at": "",
                 })
                 item["areas"].add(area)
                 if row.get("attempted"):
                     item["attempts"] += 1
                 status = str(row.get("status") or "").upper()
-                if status in {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"}:
+                search_status = str(row.get("search_status") or "").upper()
+                reason_code = str(row.get("reason_code") or "").upper()
+                if search_status in {"SEARCHED_RESULTS_FOUND", "SEARCHED_NO_RESULTS"}:
                     item["successes"] += 1
-                if status == "SUCCESS_WITH_RESULTS":
+                if search_status == "SEARCHED_RESULTS_FOUND":
                     item["with_results"] += 1
-                if status == "RATE_LIMITED":
+                if reason_code == "RATE_LIMITED":
                     item["rate_limited"] += 1
-                if status == "DAILY_QUOTA_EXCEEDED":
+                if reason_code == "DAILY_QUOTA_EXCEEDED":
                     item["quota_exceeded"] += 1
-                if status in {"ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE"}:
+                if search_status == "SEARCH_FAILED":
                     item["errors"] += 1
                 checked = str(row.get("checked_at") or "")
                 if checked >= str(item.get("last_checked_at") or ""):
                     item["last_checked_at"] = checked
-                    item["last_status"] = status or "NOT_SEARCHED"
+                    item["last_status"] = search_status or status or "NOT_SEARCHED_POLICY"
+                    item["last_reason_code"] = reason_code or "UNKNOWN_REASON"
     rows = []
     for item in sources.values():
         clean = dict(item)

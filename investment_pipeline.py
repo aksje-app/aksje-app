@@ -539,16 +539,31 @@ def _prefilter_score(row: Mapping[str, Any]) -> float:
     return round(_clamp(scanner * 0.35 + momentum * 0.25 + liquidity * 0.18 + data_quality * 0.17 + (100.0 - risk) * 0.05), 2)
 
 
-def _mark_intelligence_not_searched(row: dict[str, Any], area: str, reason: str) -> None:
+def _mark_intelligence_not_searched(
+    row: dict[str, Any],
+    area: str,
+    reason: str,
+    *,
+    reason_code: str,
+    enabled: bool = True,
+) -> None:
+    """Record a reasoned non-search without changing evidence gate semantics."""
+    from evidence_contract import normalize_search_payload
+
     key = f"{area}_intelligence"
     payload = dict(row.get(key) or {}) if isinstance(row.get(key), Mapping) else {}
     payload.update({
         "coverage": "NOT_SEARCHED",
         "status": "NOT_SEARCHED",
         "reason": reason,
-        "search_log": list(payload.get("search_log") or []),
-        "source_budget": {"planned": 0, "attempted": 0, "successful": 0, "with_facts": 0, "errors": 0},
     })
+    payload = normalize_search_payload(
+        payload,
+        area=area,
+        enabled=enabled,
+        default_reason_code=reason_code,
+        default_reason=reason,
+    )
     row[key] = payload
 
 
@@ -637,6 +652,18 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     for row in evidence_rows:
         row["analysis_stage"] = "EVIDENCE_CONTROLLED"
         row["evidence_budget"] = {"max_source_areas": 2, "candidate_rank_budget": cfg.proposal_count, "strict_refresh": intelligence_force_refresh}
+        if not cfg.use_insider_intelligence:
+            _mark_intelligence_not_searched(
+                row, "insider",
+                "Innsiderevidens er deaktivert i denne kjøringskonfigurasjonen.",
+                reason_code="MODULE_DISABLED", enabled=False,
+            )
+        if not cfg.use_news_intelligence:
+            _mark_intelligence_not_searched(
+                row, "news",
+                "Nyhetsevidens er deaktivert i denne kjøringskonfigurasjonen.",
+                reason_code="MODULE_DISABLED", enabled=False,
+            )
     for row in extended_source_rows:
         ticker = str(row.get("ticker") or "").upper()
         quarantined = bool(row.get("analysis_quarantine"))
@@ -647,10 +674,23 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
                 if quarantined and ticker in evidence_tickers
                 else "Ikke prioritert til full evidenskontroll etter rask og utvidet rangering; programmet vurderer kandidaten på nytt senere."
             )
+            reason_code = "DATA_QUARANTINE" if quarantined and ticker in evidence_tickers else "RANK_LIMIT"
             if cfg.use_insider_intelligence:
-                _mark_intelligence_not_searched(row, "insider", reason)
+                _mark_intelligence_not_searched(row, "insider", reason, reason_code=reason_code)
+            else:
+                _mark_intelligence_not_searched(
+                    row, "insider",
+                    "Innsiderevidens er deaktivert i denne kjøringskonfigurasjonen.",
+                    reason_code="MODULE_DISABLED", enabled=False,
+                )
             if cfg.use_news_intelligence:
-                _mark_intelligence_not_searched(row, "news", reason)
+                _mark_intelligence_not_searched(row, "news", reason, reason_code=reason_code)
+            else:
+                _mark_intelligence_not_searched(
+                    row, "news",
+                    "Nyhetsevidens er deaktivert i denne kjøringskonfigurasjonen.",
+                    reason_code="MODULE_DISABLED", enabled=False,
+                )
 
     if progress_callback:
         progress_callback({

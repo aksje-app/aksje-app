@@ -1686,16 +1686,20 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
     summary = {
         "evaluated": 0, "reduced": 0, "decision_downgraded": 0,
         "manual_review_required": 0, "statuses": {}, "verified_facts": 0,
-        "sources_attempted": 0,
+        "sources_attempted": 0, "search_statuses": {},
+        "search_unknown_reason_count": 0,
     }
     for candidate in candidates:
-        from evidence_contract import canonical_status, evidence_conflicts, source_budget
+        from evidence_contract import canonical_status, evidence_conflicts, normalize_search_payload, source_budget
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
         records: dict[str, Any] = {}
         total_penalty = 0.0
         critical_failures = 0
         for label, key in (("insider", "insider_intelligence"), ("news", "news_intelligence")):
             payload = raw.get(key) if isinstance(raw.get(key), Mapping) else {}
+            payload = normalize_search_payload(payload, area=label)
+            if isinstance(raw, dict):
+                raw[key] = payload
             evidence_rows = payload.get("evidence") if label == "insider" else payload.get("events")
             evidence_rows = list(evidence_rows or [])
             search_log = [dict(row) for row in (payload.get("search_log") or []) if isinstance(row, Mapping)]
@@ -1719,11 +1723,17 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
                 "sources_attempted": sum(1 for row in search_log if row.get("attempted")),
                 "search_log": search_log,
                 "source_budget": source_budget(payload),
+                "search_status": payload.get("search_status") or "NOT_SEARCHED_POLICY",
+                "search_reason_counts": dict(payload.get("search_reason_counts") or {}),
+                "search_unknown_reason_count": int(payload.get("search_unknown_reason_count") or 0),
                 "conflicts": conflicts,
             }
             summary["verified_facts"] += int(records[label]["verified_facts"])
             summary["sources_attempted"] += records[label]["sources_attempted"]
             summary["statuses"][status] = int(summary["statuses"].get(status, 0)) + 1
+            search_status = str(records[label].get("search_status") or "NOT_SEARCHED_POLICY")
+            summary["search_statuses"][search_status] = int(summary["search_statuses"].get(search_status, 0)) + 1
+            summary["search_unknown_reason_count"] += int(records[label].get("search_unknown_reason_count") or 0)
         before = float(candidate.get("confidence_score") or 0)
         insider_status = records["insider"]["status"]
         news_status = records["news"]["status"]
@@ -1992,29 +2002,39 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         return _short(_loc(value), 100)
 
     def _source_log_rows(insider: Mapping[str, Any], news: Mapping[str, Any]) -> list[list[Any]]:
-        rows: list[list[Any]] = [["Område", "Kilde", "Forsøkt", "Resultat", "Treff", "Kontrollert", "Adresse / feil"]]
+        rows: list[list[Any]] = [["Område", "Kilde", "Forsøkt", "Søkestatus", "Treff", "Kontrollert", "Årsak / adresse"]]
+        from evidence_search_status import normalize_search_attempt
         for area, payload in (("Insider", insider), ("Nyheter", news)):
-            for item in payload.get("search_log") or []:
-                if not isinstance(item, Mapping):
+            for raw_item in payload.get("search_log") or []:
+                if not isinstance(raw_item, Mapping):
                     continue
-                status = str(item.get("status") or "-").upper()
-                if status == "RATE_LIMITED":
-                    detail = "HTTP 429 – kapasitetsgrense; øvrige kilder brukes"
-                elif status == "DAILY_QUOTA_EXCEEDED":
-                    detail = "NewsAPI-døgnbudsjettet er brukt; øvrige kilder brukes"
-                elif status in {"ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE"}:
-                    detail = f"Teknisk kildefeil: {_short(item.get('error') or item.get('reason') or '-', 90)}"
-                else:
-                    detail = item.get("url") or item.get("reason") or "-"
+                item = normalize_search_attempt(raw_item)
+                status = str(item.get("search_status") or "NOT_SEARCHED_POLICY").upper()
+                reason_code = str(item.get("reason_code") or "UNKNOWN_REASON").upper()
+                # Keep the PDF compact: the normalized search status already carries the
+                # main outcome. Show the address when available, otherwise the concrete
+                # reason/error. The machine-readable reason code remains in JSON and UI.
+                detail_base = item.get("error") or item.get("url") or item.get("reason") or reason_code or "-"
+                detail = _short(detail_base, 120)
+                compact_search_label = {
+                    "SEARCHED_RESULTS_FOUND": "SØKT - TREFF",
+                    "SEARCHED_NO_RESULTS": "SØKT - INGEN TREFF",
+                    "SEARCH_FAILED": "SØK FEILET",
+                    "NOT_SEARCHED_BUDGET": "IKKE SØKT - BUDSJETT",
+                    "NOT_SEARCHED_DISABLED": "IKKE SØKT - AV",
+                    "NOT_SEARCHED_UNSUPPORTED": "IKKE SØKT - IKKE STØTTET",
+                    "NOT_SEARCHED_POLICY": "IKKE SØKT - POLICY",
+                    "NOT_APPLICABLE": "IKKE AKTUELT",
+                }.get(status, _status_label(status))
                 rows.append([
                     _p(area), _rawp(label_for(item.get("source") or item.get("source_type") or "-")),
                     _p("Ja" if item.get("attempted") else "Nei"),
-                    _p(_status_label(status)), _p(item.get("results", 0)),
+                    _p(compact_search_label), _p(item.get("results", 0)),
                     _p(_short_datetime(item.get("checked_at") or item.get("retrieved_at") or "-")),
                     _rawp(_breakable(detail, 180)),
                 ])
         if len(rows) == 1:
-            rows.append(["Begge", "Ingen registrert søkelogg", "Nei", _status_label("NOT_SEARCHED"), 0, "-", "-"])
+            rows.append(["Begge", "Ingen registrert søkelogg", "Nei", _status_label("NOT_SEARCHED_POLICY"), 0, "-", "UNKNOWN_REASON"])
         return rows
 
     def _candidate_evidence(candidate: Mapping[str, Any], next_candidate: Mapping[str, Any] | None = None) -> dict[str, str]:
@@ -3806,6 +3826,8 @@ def _run_job_impl(
         row["rank"] = idx
         row["raw_rank"] = idx
     evidence_coverage_summary = apply_evidence_coverage_policy(all_candidates)
+    from evidence_search_status import build_run_search_summary
+    evidence_search_summary = build_run_search_summary(all_candidates)
     from autonomi_core.discovery_data.freshness import apply_data_contracts
     from autonomi_core.configuration.policy import load_policy
     freshness_policy = load_policy()
@@ -3926,6 +3948,7 @@ def _run_job_impl(
            "data_refresh": refresh_summary, "market_status": market_status, "data_quality": data_quality,
            "data_contract": data_contract_summary,
            "evidence_coverage": evidence_coverage_summary,
+           "evidence_search_summary": evidence_search_summary,
            "combined_data_quality": combined_quality,
            "integrity_preflight": integrity_preflight,
            "portfolio_need_preflight": portfolio_need_preflight,
@@ -5248,6 +5271,66 @@ def render_market_intelligence() -> None:
             h4.metric("Cachetreff", budget.get("cache_hits", 0))
             if source_health.get("sources"):
                 st.dataframe(pd.DataFrame(source_health.get("sources")), width="stretch", hide_index=True)
+
+        st.markdown("#### Evidenssøksdiagnostikk")
+        evidence_summary = latest_run.get("evidence_search_summary") if isinstance(latest_run.get("evidence_search_summary"), Mapping) else {}
+        if not evidence_summary and isinstance(latest_run.get("candidates"), list):
+            try:
+                from evidence_search_status import build_run_search_summary
+                evidence_summary = build_run_search_summary(latest_run.get("candidates") or [])
+            except Exception as exc:
+                evidence_summary = {"diagnostic_error": str(exc)}
+        if evidence_summary:
+            evidence_budget = evidence_summary.get("source_budget") if isinstance(evidence_summary.get("source_budget"), Mapping) else {}
+            e1, e2, e3 = st.columns(3)
+            e1.metric("Planlagte kildesøk", evidence_budget.get("planned", 0))
+            e2.metric("Forsøkte kildesøk", evidence_budget.get("attempted", 0))
+            e3.metric("Fullførte kildesøk", evidence_budget.get("successful", 0))
+            e4, e5, e6 = st.columns(3)
+            e4.metric("Med resultater", evidence_budget.get("with_results", 0))
+            e5.metric("Ikke søkt", evidence_budget.get("not_searched", 0))
+            e6.metric("Søkefeil", evidence_budget.get("failed", 0))
+            unknown_reasons = int(evidence_summary.get("unknown_reason_count") or 0)
+            if unknown_reasons:
+                st.error(f"{unknown_reasons} evidenssøk mangler en entydig årsakskode.")
+            else:
+                st.caption("Alle registrerte evidenssøk har en entydig status og årsakskode.")
+            status_counts = evidence_summary.get("status_counts") if isinstance(evidence_summary.get("status_counts"), Mapping) else {}
+            reason_counts = evidence_summary.get("reason_counts") if isinstance(evidence_summary.get("reason_counts"), Mapping) else {}
+            if status_counts or reason_counts:
+                diagnostics_rows = []
+                diagnostics_rows.extend({"Type": "Søkestatus", "Kode": key, "Antall": value} for key, value in sorted(status_counts.items()))
+                diagnostics_rows.extend({"Type": "Årsak", "Kode": key, "Antall": value} for key, value in sorted(reason_counts.items()))
+                st.dataframe(pd.DataFrame(diagnostics_rows), width="stretch", hide_index=True)
+            with st.expander("Kandidatdetaljer for evidenssøk", expanded=False):
+                candidate_rows = []
+                for candidate in evidence_summary.get("candidates") or []:
+                    if not isinstance(candidate, Mapping):
+                        continue
+                    for area, area_data in (candidate.get("areas") or {}).items():
+                        if not isinstance(area_data, Mapping):
+                            continue
+                        area_budget = area_data.get("source_budget") if isinstance(area_data.get("source_budget"), Mapping) else {}
+                        candidate_rows.append({
+                            "Kandidat": candidate.get("ticker") or "-",
+                            "Marked": candidate.get("market") or "-",
+                            "Område": area,
+                            "Søkestatus": area_data.get("search_status") or "-",
+                            "Planlagt": area_budget.get("planned", 0),
+                            "Forsøkt": area_budget.get("attempted", 0),
+                            "Feil": area_budget.get("failed", 0),
+                            "Ikke søkt": area_budget.get("not_searched", 0),
+                        })
+                if candidate_rows:
+                    st.dataframe(pd.DataFrame(candidate_rows), width="stretch", hide_index=True)
+                else:
+                    st.caption("Ingen kandidatdetaljer er tilgjengelige for siste kjøring.")
+        else:
+            st.caption("Ingen evidenssøksdiagnostikk er tilgjengelig før første rapportkjøring.")
+        if evidence_summary.get("diagnostic_error"):
+            st.warning("Evidenssøksdiagnostikken kunne ikke bygges. Teknisk detalj vises under.")
+            st.code(str(evidence_summary.get("diagnostic_error")))
+
         st.code("Uavhengig kjøring: python scheduled_runner.py", language="bash")
         st.caption(f"Runtime-katalog: {ROOT}")
 

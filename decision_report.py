@@ -226,11 +226,13 @@ def candidate_source_consensus(candidate: Mapping[str, Any]) -> dict[str, Any]:
     areas: dict[str, Any] = {}
     conflicts = _safe_int(readiness.get("conflicts"), 0)
 
+    from evidence_contract import normalize_search_payload
+
     for area, key, evidence_key in (
         ("news", "news_intelligence", "events"),
         ("insider", "insider_intelligence", "evidence"),
     ):
-        payload = _mapping(raw.get(key))
+        payload = normalize_search_payload(_mapping(raw.get(key)), area=area)
         evidence = _rows(payload.get(evidence_key))
         search_log = _rows(payload.get("search_log"))
         names = _source_names(payload, evidence)
@@ -245,6 +247,9 @@ def candidate_source_consensus(candidate: Mapping[str, Any]) -> dict[str, Any]:
         conflicts += area_conflicts
         areas[area] = {
             "status": area_status,
+            "search_status": payload.get("search_status") or "NOT_SEARCHED_POLICY",
+            "search_reason_counts": dict(payload.get("search_reason_counts") or {}),
+            "search_unknown_reason_count": int(payload.get("search_unknown_reason_count") or 0),
             "verified_facts": len(evidence),
             "sources": sorted(names),
             "attempted": sum(1 for row in search_log if row.get("attempted")),

@@ -408,7 +408,8 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     key = f"{VERSION}|{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}"
     cached = _cache_get(key)
     if cached and not force_refresh and time.time() - _f(cached.get("cached_at")) < CACHE_TTL_SECONDS and (cached.get("result") or {}).get("search_log"):
-        return dict(cached.get("result") or {})
+        from evidence_contract import normalize_search_payload
+        return normalize_search_payload(dict(cached.get("result") or {}), area="news")
     sources: list[str] = []
     search_log: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
@@ -564,9 +565,9 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     result["search_log"] = search_log
     result["sources_checked"] = sum(1 for row in search_log if row.get("attempted"))
     result["verified_fact_count"] = len(result.get("events") or [])
-    from evidence_contract import canonical_status, source_budget
+    from evidence_contract import canonical_status, normalize_search_payload
     result["canonical_evidence_status"] = canonical_status(result, result.get("events") or [])
-    result["source_budget"] = source_budget(result)
+    result = normalize_search_payload(result, area="news")
     successful_checks = [row for row in search_log if row.get("status") in {"SUCCESS_WITH_RESULTS", "SUCCESS_NO_RESULTS"}]
     if not sources and errors and not successful_checks:
         result["coverage"] = "ERROR"

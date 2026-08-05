@@ -902,6 +902,20 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(raw, MutableMapping):
                 raw["portfolio_decision"] = deepcopy(decision)
 
+    # Normalize source-search diagnostics in archived and newly generated reports.
+    # This is additive metadata only; legacy evidence coverage and all decision fields
+    # remain unchanged. It also makes regenerated JSON/PDF use counters derived from
+    # the actual source log instead of stale legacy budget fields.
+    from evidence_search_status import normalize_evidence_payload
+    for candidate in canonical_candidates:
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), MutableMapping) else None
+        if not isinstance(raw, MutableMapping):
+            continue
+        for area in ("news", "insider"):
+            key = f"{area}_intelligence"
+            payload = raw.get(key) if isinstance(raw.get(key), Mapping) else {}
+            raw[key] = normalize_evidence_payload(payload, area=area)
+
     _synchronise_derived_views(result, canonical_candidates)
     # Ranking explanation is regenerated after evidence filtering and all final outcomes.
     try:
@@ -915,6 +929,8 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "registered": len(result["autonomous_decisions"]),
         "counts": dict(reduction.get("counts") or {}),
     }
+    from evidence_search_status import build_run_search_summary
+    result["evidence_search_summary"] = build_run_search_summary(canonical_candidates)
     combined_quality = _mapping(result.get("combined_data_quality"))
     evaluated_quality = int(combined_quality.get("evaluated") or len(canonical_candidates) or 0)
     market_valid_quality = int(combined_quality.get("market_data_valid") or 0)

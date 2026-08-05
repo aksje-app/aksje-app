@@ -253,7 +253,8 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 "error": str(discovery.get("error") or "")[:240],
             })
             _store_cached_result(ticker, result)
-        return result
+        from evidence_contract import normalize_search_payload
+        return normalize_search_payload(result, area="insider")
     search_log: list[dict[str, Any]] = []
     verified_rows: list[dict[str, Any]] = []
     official_result: dict[str, Any] = {"status": "NOT_SUPPORTED", "attempts": [], "transactions": []}
@@ -441,9 +442,9 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
     result["secondary_fact_count"] = sum(
         row.get("primary_source_verified") is not True for row in (result.get("evidence") or []) if isinstance(row, Mapping)
     )
-    from evidence_contract import canonical_status, source_budget
+    from evidence_contract import canonical_status, normalize_search_payload
     result["canonical_evidence_status"] = canonical_status(result, result.get("evidence") or [])
-    result["source_budget"] = source_budget(result)
+    result = normalize_search_payload(result, area="insider")
     _store_cached_result(ticker, result)
     return result
 
