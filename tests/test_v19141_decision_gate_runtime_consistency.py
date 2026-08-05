@@ -89,7 +89,7 @@ def _report(candidates: list[dict], *, buy_tickers: list[str] | None = None) -> 
 
 def test_all_exposed_autonomy_versions_follow_app_version():
     expected = app_version.APP_VERSION
-    assert expected == "v19.22.0-rc13"
+    assert expected == "v19.22.0-rc14"
     assert orchestrator.CORE_VERSION == expected
     assert full_execution.VERSION == expected
     assert layer.LAYER_VERSION == expected

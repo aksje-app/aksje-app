@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_rc8_version_and_protected_engine_versions_are_unchanged():
-    assert APP_VERSION == "v19.22.0-rc13"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc12"
+    assert APP_VERSION == "v19.22.0-rc14"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc13"
     assert RANKING_MODEL_VERSION == "v19.16.0"
     assert AUTONOMY_POLICY_VERSION == "v19.16.0"
 
