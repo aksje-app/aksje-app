@@ -348,8 +348,8 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
             st.rerun()
     elif allow_quick_start:
         if st.button("▶ Start utkastkjøring", type="primary", key="autonomy_overview_start_v1883"):
-            start_manual_job(load_draft_job(), trigger="MANUAL_DRAFT_TEST", force_refresh=False)
-            st.rerun()
+            start_shared_manual_draft_job(trigger="MANUAL_DRAFT_TEST")
+            st.success("Utkastkjøringen er startet. Fremdriften oppdateres automatisk i panelet.")
 
 
 def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_terminal: bool = True) -> None:
@@ -390,6 +390,19 @@ def _render_live_progress(
             allow_quick_start=allow_quick_start,
             refresh_app_on_terminal=refresh_app_on_terminal,
         )
+
+
+def start_shared_manual_draft_job(*, trigger: str = "MANUAL_DRAFT_TEST") -> dict[str, Any]:
+    """Start the one authoritative draft engine used by Overview and Reports.
+
+    This function deliberately owns both draft loading and worker acceptance so
+    report-center buttons cannot drift into a second execution path.
+    """
+    return start_manual_job(
+        load_draft_job(),
+        trigger=str(trigger or "MANUAL_DRAFT_TEST"),
+        force_refresh=False,
+    )
 
 
 def render_shared_manual_job_progress(

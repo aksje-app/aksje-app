@@ -204,7 +204,14 @@ def classify_replay_case(run: Mapping[str, Any]) -> tuple[str, list[str]]:
     return "REPORT_ONLY", missing
 
 
-def _finalize_zip(files: Mapping[str, bytes], *, manifest_name: str = "MANIFEST.json") -> bytes:
+def _finalize_zip(
+    files: Mapping[str, bytes],
+    *,
+    manifest_name: str = "MANIFEST.json",
+    progress_callback: Callable[[int, int, str], None] | None = None,
+    progress_offset: int = 0,
+    progress_total: int | None = None,
+) -> bytes:
     clean_files = {str(name): bytes(data) for name, data in files.items()}
     hashes = {
         name: {"sha256": _sha256(data), "bytes": len(data)}
@@ -223,10 +230,20 @@ def _finalize_zip(files: Mapping[str, bytes], *, manifest_name: str = "MANIFEST.
         hashes[manifest_name] = {"sha256": _sha256(clean_files[manifest_name]), "bytes": len(clean_files[manifest_name])}
     clean_files["SHA256SUMS.txt"] = ("\n".join(f"{row['sha256']}  {name}" for name, row in sorted(hashes.items())) + "\n").encode("utf-8")
     buffer = io.BytesIO()
+    ordered_files = sorted(clean_files.items())
+    total_units = max(1, int(progress_total or (progress_offset + len(ordered_files) + 1)))
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for name, data in sorted(clean_files.items()):
+        for index, (name, data) in enumerate(ordered_files, start=1):
             archive.writestr(name, data)
-    return buffer.getvalue()
+            if progress_callback:
+                progress_callback(progress_offset + index, total_units, f"Komprimerer: {name}")
+    payload = buffer.getvalue()
+    if progress_callback:
+        progress_callback(min(total_units - 1, progress_offset + len(ordered_files) + 1), total_units, "Kontrollerer ZIP-integritet")
+    with zipfile.ZipFile(io.BytesIO(payload), "r") as verify_archive:
+        if verify_archive.testzip() is not None or not verify_archive.namelist():
+            raise RuntimeError("ZIP-integritetskontrollen feilet")
+    return payload
 
 
 def build_single_report_package(
@@ -412,7 +429,14 @@ def build_complete_replay_export(
     replay_counts = {"FULL_REPLAY": 0, "DECISION_REPLAY": 0, "REPORT_ONLY": 0}
     report_records: list[dict[str, Any]] = []
     replay_reports: list[dict[str, Any]] = []
-    total = len(selected)
+    report_units = max(1, len(selected))
+    base_units = 5 + report_units
+    # The final total is refined after all payload files have been collected.
+    total = base_units
+    completed_units = 0
+    if progress_callback:
+        progress_callback(completed_units, total, "Samler rapportarkiv")
+    completed_units += 1
 
     for index, entry in enumerate(selected, start=1):
         run = mi.load_archived_run(entry)
@@ -430,7 +454,7 @@ def build_complete_replay_export(
         seen_identity[identity_key] = identity["run_id"]
         seen_content[content_hash] = identity["run_id"]
         if progress_callback:
-            progress_callback(index - 1, max(total, 1), f"Pakker {identity_key}")
+            progress_callback(completed_units, total, f"Pakker rapport: {identity_key}")
         clean_run = sanitize_for_export(run)
         replay_level, missing = classify_replay_case(clean_run)
         replay_counts[replay_level] += 1
@@ -466,6 +490,9 @@ def build_complete_replay_export(
         if str(clean_run.get("report_id") or identity_key) != identity_key:
             conflicts.append({"report_id": identity_key, "field": "report_id", "run_value": clean_run.get("report_id")})
         report_records.append({**identity, "replay_level": replay_level, "missing": sorted(set(missing)), "content_sha256": content_hash})
+        completed_units += 1
+        if progress_callback:
+            progress_callback(completed_units, total, f"Pakker rapport ferdig: {identity_key}")
 
     try:
         from replay_engine import summarize_replays
@@ -485,9 +512,12 @@ def build_complete_replay_export(
         ("report_id", "run_id", "ticker", "market", "investment_score", "original_action", "rc16_action", "first_blocker_code", "reason"),
     )
 
+    if progress_callback:
+        progress_callback(completed_units, total, "Legger til runtime-data")
     runtime = _collect_runtime_exports()
     for name, payload in runtime.items():
         files[name] = _json_bytes(payload)
+    completed_units += 1
     learning_summary = _learning_summary(runtime)
     files["learning_portfolio/LEARNING_SUMMARY.json"] = _json_bytes(learning_summary)
     files["replay/REPLAY_LEARNING_SUMMARY.md"] = (
@@ -541,9 +571,20 @@ def build_complete_replay_export(
         "dataset_manifest": "REPLAY_DATASET_MANIFEST.json",
         "read_only": True,
     })
+    completed_units += 1
+    file_count = len(files) + 2  # SHA256SUMS plus potential finalized manifest rewrite
+    final_total = max(completed_units + file_count + 2, total)
     if progress_callback:
-        progress_callback(max(total, 1), max(total, 1), "Ferdigstiller manifest og kontrollsummer")
-    return _finalize_zip(files), summary
+        progress_callback(completed_units, final_total, "Ferdigstiller manifest og kontrollsummer")
+    payload = _finalize_zip(
+        files,
+        progress_callback=progress_callback,
+        progress_offset=completed_units,
+        progress_total=final_total,
+    )
+    if progress_callback:
+        progress_callback(final_total, final_total, "Kontrollerer ferdig ZIP og klargjør nedlasting")
+    return payload, summary
 
 
 def complete_export_filename() -> str:

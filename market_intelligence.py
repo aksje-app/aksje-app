@@ -4847,6 +4847,12 @@ def _render_replay_export_status_v19220_rc16() -> None:
         e2.metric("Fremdrift", f"{percent} %")
         e3.metric("Eksport-ID", status.get("execution_id") or "-")
         st.progress(percent, text=str(status.get("message") or "Bygger replay-arkiv"))
+        stage = str(status.get("stage") or "KLARGJØRING")
+        completed = int(status.get("completed") or 0)
+        total = max(1, int(status.get("total") or 1))
+        st.caption(f"Aktivt pakkesteg: {stage} · arbeidsenheter {completed}/{total} · automatisk oppdatering hvert 3. sekund")
+        if status.get("current_file"):
+            st.caption("Behandler: " + str(status.get("current_file")))
         if status.get("worker_heartbeat_at"):
             st.caption("Worker-heartbeat: " + local_display(status.get("worker_heartbeat_at"), DEFAULT_TIMEZONE))
         if state == "FAILED":
@@ -4981,13 +4987,11 @@ def render_market_intelligence() -> None:
         night_job = next((j for j in quick_jobs if any(x in str(j.name).casefold() for x in ["natt", "night"])), None)
         q1, q2, q3, q4 = st.columns(4, gap="large")
         if q1.button("📄 Nytt utkast", key="mi_quick_draft_v1924", type="primary", width="content", disabled=manual_job_running):
-            draft = load_draft_job()
-            started = start_manual_job(
-                draft, trigger="MANUAL_DRAFT_TEST", force_refresh=False,
-            )
+            from autonomy_overview import start_shared_manual_draft_job
+            started = start_shared_manual_draft_job(trigger="MANUAL_DRAFT_TEST")
             execution_id = str(started.get("execution_id") or "")
             st.session_state["mi_active_execution_v1924"] = execution_id
-            _rerun_reports_v19220_rc11(st)
+            st.success("Utkastkjøringen er startet i samme motor som Autonomi Oversikt. Fremdriften oppdateres automatisk under.")
         if q2.button("🌅 Kjør morgenanalyse", key="mi_quick_morning_v1924", width="content", disabled=manual_job_running or morning_job is None):
             started = start_manual_job(
                 morning_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,

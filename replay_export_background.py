@@ -25,6 +25,7 @@ STATUS_KEY = "replay_exports/status.json"
 EXPORT_DIR = ROOT / "files"
 _LOCK = threading.RLock()
 _WORKERS: dict[str, threading.Thread] = {}
+_STATUS_SNAPSHOT: dict[str, Any] = {}
 
 
 
@@ -61,13 +62,24 @@ def _now() -> str:
 
 
 def _read_status() -> dict[str, Any]:
+    with _LOCK:
+        if _STATUS_SNAPSHOT.get("execution_id"):
+            return dict(_STATUS_SNAPSHOT)
     value = durable_read_json(STATUS_KEY, STATUS_PATH, {})
-    return dict(value) if isinstance(value, Mapping) else {}
+    payload = dict(value) if isinstance(value, Mapping) else {}
+    if payload:
+        with _LOCK:
+            _STATUS_SNAPSHOT.clear()
+            _STATUS_SNAPSHOT.update(payload)
+    return payload
 
 
 def _write_status(value: Mapping[str, Any]) -> dict[str, Any]:
     payload = dict(value)
     payload["updated_at"] = _now()
+    with _LOCK:
+        _STATUS_SNAPSHOT.clear()
+        _STATUS_SNAPSHOT.update(payload)
     durable_write_json(STATUS_KEY, STATUS_PATH, payload)
     return payload
 
@@ -99,16 +111,32 @@ def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
         from report_replay_export import build_complete_replay_export, complete_export_filename
 
         def progress(done: int, total: int, message: str) -> None:
+            text = str(message or "Bygger replay-arkiv")
+            if text.startswith("Samler"):
+                stage = "INNSAMLING"
+            elif text.startswith("Pakker rapport"):
+                stage = "RAPPORTER"
+            elif text.startswith("Legger til runtime"):
+                stage = "RUNTIME-DATA"
+            elif text.startswith("Komprimerer"):
+                stage = "KOMPRIMERING"
+            elif text.startswith("Kontrollerer"):
+                stage = "INTEGRITET"
+            else:
+                stage = "KLARGJØRING"
+            current_file = text.split(":", 1)[1].strip() if ":" in text else ""
             with _LOCK:
                 current = _read_status()
                 if str(current.get("execution_id") or "") != execution_id:
                     return
                 current.update({
                     "state": "RUNNING",
+                    "stage": stage,
                     "completed": int(done),
                     "total": max(1, int(total)),
-                    "percent": max(0, min(99, int(int(done) / max(1, int(total)) * 100))),
-                    "message": str(message),
+                    "percent": max(int(current.get("percent") or 0), max(0, min(99, int(int(done) / max(1, int(total)) * 100)))),
+                    "message": text,
+                    "current_file": current_file,
                     "worker_heartbeat_at": _now(),
                 })
                 _write_status(current)
@@ -137,6 +165,8 @@ def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
                     "percent": 100,
                     "completed": int(current.get("total") or 1),
                     "message": "Komplett rapport- og læringsarkiv er klart",
+                    "stage": "FULLFØRT",
+                    "current_file": filename,
                     "completed_at": _now(),
                     "worker_heartbeat_at": _now(),
                     "file_path": str(target),
@@ -178,6 +208,8 @@ def start_export(*, date_from: str = "", date_to: str = "", versions: Sequence[s
             "completed": 0,
             "total": 1,
             "message": "Replay-eksporten står i kø",
+            "stage": "KØ",
+            "current_file": "",
             "created_at": _now(),
             "worker_heartbeat_at": _now(),
             "filters": filters,
