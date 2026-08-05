@@ -657,9 +657,9 @@ html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary sp
 
 _RC16_FINAL_SIDEBAR_LOCK_CSS = """
 <style>
-/* v19.22.0 RC16 final cascade lock. This is intentionally injected after all
-   legacy app styles so the loaded desktop menu matches the polished loading
-   state and cannot collapse into the former 94/116 px rail. */
+/* v19.22.0 RC16.4: one visual contract for the sidebar before, during and
+   after Streamlit finishes rendering. The widget DOM may change, but every
+   visible menu surface keeps the same dimensions, spacing and card styling. */
 @media (min-width: 761px) {
   html body .stApp section[data-testid="stSidebar"],
   html body section[data-testid="stSidebar"] {
@@ -671,72 +671,114 @@ _RC16_FINAL_SIDEBAR_LOCK_CSS = """
     overflow-y: auto !important;
     opacity: 1 !important;
     filter: none !important;
+    background: linear-gradient(180deg, rgba(2,20,38,.99), rgba(2,12,27,.99)) !important;
+    border-right: 1px solid rgba(56,189,248,.24) !important;
+    box-shadow: 10px 0 30px rgba(0,0,0,.24) !important;
   }
   html body section[data-testid="stSidebar"] > div:first-child,
   html body section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
     width: 224px !important;
     min-width: 224px !important;
     max-width: 224px !important;
-    padding: .70rem .70rem !important;
+    padding: .70rem !important;
+    background: transparent !important;
   }
-  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+
+  /* Loading placeholders, completed Streamlit buttons and HTML nav cards use
+     the exact same card geometry and finish. */
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item,
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659,
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button,
+  html body section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] > button {
     width: 100% !important;
     max-width: 100% !important;
     min-height: 40px !important;
-    padding: .42rem .55rem !important;
+    height: 40px !important;
+    margin: 0 !important;
+    padding: .34rem .48rem !important;
+    display: flex !important;
+    align-items: center !important;
     justify-content: flex-start !important;
+    gap: .46rem !important;
     border-radius: 15px !important;
+    color: #f8fafc !important;
+    background: linear-gradient(180deg, rgba(14,56,90,.96), rgba(8,30,55,.96)) !important;
+    border: 1px solid rgba(96,165,250,.36) !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 8px 18px rgba(0,0,0,.18) !important;
     font-size: .84rem !important;
     font-weight: 900 !important;
-    line-height: 1.12 !important;
+    line-height: 1.05 !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
-    background: linear-gradient(180deg, rgba(14,56,90,.96), rgba(8,30,55,.96)) !important;
-    border: 1px solid rgba(96,165,250,.38) !important;
+    opacity: 1 !important;
+    filter: none !important;
+    transition: border-color .12s ease, background .12s ease, transform .12s ease !important;
+  }
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-item:hover,
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659:hover,
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659.active,
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover,
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button:focus-visible {
+    border-color: rgba(56,189,248,.70) !important;
+    background: linear-gradient(180deg, rgba(14,116,144,.84), rgba(8,47,73,.96)) !important;
+    transform: translateY(-1px) !important;
   }
   html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button p,
-  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button span {
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"] > button span,
+  html body section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] > button p,
+  html body section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] > button span,
+  html body section[data-testid="stSidebar"] .sidebar2026-nav-link-v18659 .nav-label {
+    margin: 0 !important;
+    color: #f8fafc !important;
     font-size: .84rem !important;
-    line-height: 1.12 !important;
+    font-weight: 900 !important;
+    line-height: 1.05 !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
+    opacity: 1 !important;
+  }
+  html body section[data-testid="stSidebar"] div[data-testid="stButton"],
+  html body section[data-testid="stSidebar"] .element-container:has(> div[data-testid="stButton"]) {
+    width: 100% !important;
+    margin: 0 0 .38rem 0 !important;
   }
   html body section[data-testid="stSidebar"] .sidebar-section-title {
     display: block !important;
+    color: #bfdbfe !important;
     font-size: .69rem !important;
     line-height: 1.05 !important;
     letter-spacing: .12em !important;
     text-align: left !important;
-    margin: .62rem .18rem .38rem .18rem !important;
+    text-transform: uppercase !important;
+    font-weight: 950 !important;
+    margin: .62rem .18rem .38rem !important;
     white-space: nowrap !important;
+    opacity: 1 !important;
   }
   html body section[data-testid="stSidebar"] .auth-sidebar-card {
     width: 100% !important;
     max-width: 100% !important;
     padding: .58rem !important;
-    margin: 0 0 .48rem 0 !important;
+    margin: 0 0 .48rem !important;
     border-radius: 16px !important;
-  }
-  html body section[data-testid="stSidebar"] .auth-sidebar-user,
-  html body section[data-testid="stSidebar"] .auth-sidebar-user span,
-  html body section[data-testid="stSidebar"] .auth-remember-chip {
-    white-space: normal !important;
-    overflow-wrap: anywhere !important;
-    text-align: left !important;
-    opacity: 1 !important;
+    background: rgba(15,23,42,.72) !important;
+    border: 1px solid rgba(148,163,184,.24) !important;
   }
   html body section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
     min-width: 0 !important;
     width: 100% !important;
     min-height: 40px !important;
+    border-radius: 15px !important;
   }
 }
-/* Fragment reruns must not dim or disable the complete application shell. */
+/* Reruns and completed loading must never dim, shrink or restyle the shell. */
 html body .stApp [data-stale="true"],
 html body .stApp[data-stale="true"],
-html body [data-testid="stAppViewContainer"][data-stale="true"] {
+html body [data-testid="stAppViewContainer"][data-stale="true"],
+html body section[data-testid="stSidebar"] [aria-busy="true"],
+html body section[data-testid="stSidebar"] [aria-busy="false"] {
   opacity: 1 !important;
   filter: none !important;
 }
