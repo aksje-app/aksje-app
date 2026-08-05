@@ -25,6 +25,7 @@ FORBIDDEN_NAMES = {".env", "secrets.toml", "paper_portfolio.json", "app_users.js
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz"}
 DELTA_SUPPORT_FILES = {
     "tools/audit_full_system_v19150.py",
+    "tools/audit_evidence_search_v19220_rc10.py",
     "tools/validate_distribution.py",
     "tools/build_safe_distribution.py",
 }
