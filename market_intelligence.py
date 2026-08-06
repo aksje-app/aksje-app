@@ -4901,11 +4901,17 @@ def _render_replay_export_status_v19220_rc16() -> None:
             st.error(str(status.get("error") or "Replay-eksporten feilet uten registrert detalj."))
         elif state == "COMPLETED":
             summary = status.get("summary") if isinstance(status.get("summary"), Mapping) else {}
-            a, b, c, d = st.columns(4)
+            a, b, c, d, e = st.columns(5)
             a.metric("Rapporter", summary.get("unique_reports_exported", 0))
             b.metric("Full replay", (summary.get("replay_levels") or {}).get("FULL_REPLAY", 0))
             c.metric("Delvis replay", (summary.get("replay_levels") or {}).get("DECISION_REPLAY", 0))
             d.metric("Kun rapport", (summary.get("replay_levels") or {}).get("REPORT_ONLY", 0))
+            e.metric("Karantene", summary.get("reports_quarantined", 0))
+            if int(summary.get("reports_quarantined") or 0):
+                st.warning(
+                    f"{int(summary.get('reports_quarantined') or 0)} historiske rapport(er) besto ikke dagens "
+                    "offentlige eksportport. De er bevart som saniterte karantenevedlegg; resten av arkivet er komplett."
+                )
             payload = read_export_bytes(status)
             if payload and bool(status.get("zip_verified", True)):
                 if status.get("file_sha256"):
@@ -5542,8 +5548,10 @@ def render_market_intelligence() -> None:
                 width="stretch",
                 disabled=replay_export_running(replay_status),
             ):
-                start_replay_export()
-                st.success("ZIP-eksporten er startet. Fremdriften oppdateres automatisk.")
+                started_export = start_replay_export()
+                st.session_state["mi_started_replay_export_id_v19220_rc1612"] = str(started_export.get("execution_id") or "")
+                st.success("ZIP-eksporten er startet. Fremdriften vises straks og oppdateres automatisk.")
+                _rerun_reports_v19220_rc11(st)
             _replay_export_status_fragment_v19220_rc16()
         except Exception as exc:
             st.error(f"Samlet ZIP kunne ikke startes: {exc}")

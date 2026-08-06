@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.11"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.11 Visible Report Package Progress"
+APP_VERSION = "v19.22.0-rc16.12"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.12 Resilient Archive Progress"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.10"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.11"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.12: Samlet ZIP viser den nye eksportjobben umiddelbart etter start. Historiske rapporter som ikke består dagens harde offentlige eksportport isoleres i saniterte karantenevedlegg i stedet for å stoppe resten av arkivet; offentlig PDF/TXT/JSON genereres fortsatt bare etter bestått audit. Markedsrekkefølge normaliseres uten å endre markedsutvalget. Ingen analyse-, score-, scheduler-, portefølje- eller handelsregler er endret.",
     "v19.22.0-rc16.11: Enkelt­rapportens komplette ZIP-pakke publiserer nå reell fremdrift for canonicalisering, replay-spor, JSON, TXT, PDF, konsistensaudit, komprimering og sluttkontroll. Både siste rapport og arkiverte rapporter viser prosent, aktivt steg, arbeidsenheter og kjøretid mens knappen arbeider; samlet arkiv beholder sin separate bakgrunnsprogress. Ingen analyse-, score-, scheduler-, portefølje- eller handelsregler er endret.",
     "v19.22.0-rc16.10: Fullfører rapporteksportporten med medfølgende Noto Sans-fonter, bevarte og verifiserte PDF-bokmerker, ny canonical PDF-rendering fra samme objekt som TXT/JSON og hard per-rapport konsistensaudit også i samlet rapport- og replay-ZIP. Rapportarkivet tåler tom offentlig kjøpsrangering og tilbyr samlet ZIP direkte. Ingen analyse-, score-, scheduler-, portefølje- eller handelsregler er endret.",
     "v19.22.0-rc16.4: Høyremenyens ferdiglastede Streamlit-widgets er låst til samme visuelle kontrakt som den polerte innlastingstilstanden. Bredde, kortgeometri, spacing, typografi, bakgrunn, hover og konto-/seksjonskort forblir stabile gjennom full lasting og reruns. Navigasjonslogikk, ruter, tidssone, scheduler, rapportmotor, score, porteføljer og handel er uendret.",

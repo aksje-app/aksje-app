@@ -466,6 +466,7 @@ def build_complete_replay_export(
     missing_files: list[dict[str, Any]] = []
     incomplete: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
+    quarantined: list[dict[str, Any]] = []
     seen_identity: dict[str, str] = {}
     seen_content: dict[str, str] = {}
     replay_counts = {"FULL_REPLAY": 0, "DECISION_REPLAY": 0, "REPORT_ONLY": 0}
@@ -489,33 +490,66 @@ def build_complete_replay_export(
         content_hash = _sha256(_json_bytes(sanitize_for_export(run)))
         if identity_key in seen_identity:
             duplicates.append({"identity": identity_key, "kept": seen_identity[identity_key], "skipped_run_id": identity["run_id"], "reason": "DUPLICATE_IDENTITY"})
+            completed_units += 1
+            if progress_callback:
+                progress_callback(completed_units, total, f"Pakker rapport ferdig (duplikat): {identity_key}")
             continue
         if content_hash in seen_content:
             duplicates.append({"identity": identity_key, "kept": seen_content[content_hash], "skipped_run_id": identity["run_id"], "reason": "DUPLICATE_CONTENT"})
+            completed_units += 1
+            if progress_callback:
+                progress_callback(completed_units, total, f"Pakker rapport ferdig (duplikat): {identity_key}")
             continue
         seen_identity[identity_key] = identity["run_id"]
         seen_content[content_hash] = identity["run_id"]
         if progress_callback:
             progress_callback(completed_units, total, f"Pakker rapport: {identity_key}")
-        canonical_run = canonical_public_run(run)
-        clean_run = sanitize_for_export(canonical_run)
-        replay_level, missing = classify_replay_case(clean_run)
-        replay_counts[replay_level] += 1
         folder = f"reports/{_safe_component(identity_key)}"
-        report_json = _json_bytes(clean_run)
-        report_txt = _build_text(clean_run).encode("utf-8")
-        report_pdf = _build_canonical_pdf(clean_run)
-        audit = validate_artifacts(
-            run=clean_run,
-            pdf=report_pdf,
-            txt=report_txt,
-            json_bytes=report_json,
-        )
-        if not audit.get("ok"):
-            raise RuntimeError(
-                f"Report Consistency Audit feilet for {identity_key}: "
-                + "; ".join(audit.get("errors") or [])
+        try:
+            canonical_run = canonical_public_run(run)
+            clean_run = sanitize_for_export(canonical_run)
+            replay_level, missing = classify_replay_case(clean_run)
+            report_json = _json_bytes(clean_run)
+            report_txt = _build_text(clean_run).encode("utf-8")
+            report_pdf = _build_canonical_pdf(clean_run)
+            audit = validate_artifacts(
+                run=clean_run,
+                pdf=report_pdf,
+                txt=report_txt,
+                json_bytes=report_json,
             )
+            if not audit.get("ok"):
+                raise RuntimeError(
+                    "Report Consistency Audit feilet: " + "; ".join(audit.get("errors") or [])
+                )
+        except Exception as exc:
+            quarantine_record = {
+                **identity,
+                "status": "QUARANTINED",
+                "reason_code": "LEGACY_REPORT_FAILED_PUBLIC_EXPORT_GATE",
+                "reason": str(exc),
+                "public_pdf_txt_json_generated": False,
+                "content_sha256": content_hash,
+            }
+            quarantined.append(quarantine_record)
+            quarantine_folder = f"{folder}/quarantine"
+            files.update({
+                f"{quarantine_folder}/QUARANTINE_AUDIT.json": _json_bytes(quarantine_record),
+                f"{quarantine_folder}/report_raw_sanitized.json": _json_bytes(sanitize_for_export(run)),
+                f"{quarantine_folder}/archive_entry.json": _json_bytes(sanitize_for_export(entry)),
+                f"{quarantine_folder}/README.txt": (
+                    "Denne historiske rapporten besto ikke dagens harde offentlige eksportport.\n"
+                    "Det er derfor ikke opprettet PDF, TXT eller offentlig report.json for rapporten.\n"
+                    "Den saniterte originalen bevares kun som et kontrollert karantenevedlegg.\n\n"
+                    f"Årsak: {exc}\n"
+                ).encode("utf-8"),
+            })
+            completed_units += 1
+            if progress_callback:
+                progress_callback(completed_units, total, f"Pakker rapport ferdig (karantene): {identity_key}")
+            continue
+
+        replay_counts[replay_level] += 1
         report_files = {
             f"{folder}/report.json": report_json,
             f"{folder}/report.txt": report_txt,
@@ -587,6 +621,7 @@ def build_complete_replay_export(
     files["audit/missing_files.json"] = _json_bytes(missing_files)
     files["audit/incomplete_replay_cases.json"] = _json_bytes(incomplete)
     files["audit/conflicts.json"] = _json_bytes(conflicts)
+    files["audit/quarantined_reports.json"] = _json_bytes(quarantined)
 
     summary = {
         "schema_version": EXPORT_SCHEMA_VERSION,
@@ -596,6 +631,8 @@ def build_complete_replay_export(
         "archive_entries_found": len(archive_rows),
         "archive_entries_selected": len(selected),
         "unique_reports_exported": len(report_records),
+        "reports_quarantined": len(quarantined),
+        "reports_accounted_for": len(report_records) + len(quarantined),
         "duplicates": len(duplicates),
         "missing_files": len(missing_files),
         "incomplete_replay_cases": len(incomplete),
@@ -614,7 +651,7 @@ def build_complete_replay_export(
         "production_data_mutated": False,
     }
     files["EXPORT_SUMMARY.json"] = _json_bytes(summary)
-    files["REPLAY_DATASET_MANIFEST.json"] = _json_bytes({"summary": summary, "reports": report_records})
+    files["REPLAY_DATASET_MANIFEST.json"] = _json_bytes({"summary": summary, "reports": report_records, "quarantined_reports": quarantined})
     files["MANIFEST.json"] = _json_bytes({
         "schema_version": EXPORT_SCHEMA_VERSION,
         "export_type": "COMPLETE_REPLAY_ARCHIVE",

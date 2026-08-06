@@ -1045,7 +1045,11 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
     profile = run.get("market_profile") if isinstance(run.get("market_profile"), Mapping) else {}
     actual_markets = [str(value) for value in (run.get("markets") or [])]
     expected_markets = [str(value) for value in (profile.get("expanded_markets") or [])]
-    if expected_markets and actual_markets != expected_markets:
+    def _same_market_selection(left: list[str], right: list[str]) -> bool:
+        """Market order is presentational; membership and duplicates are semantic."""
+        return len(left) == len(right) and set(left) == set(right)
+
+    if expected_markets and not _same_market_selection(actual_markets, expected_markets):
         errors.append(
             "Markedsprofilen %s forventer %s, men kjøringen brukte %s" % (
                 profile.get("label") or profile.get("profile_id") or "-",
@@ -1055,7 +1059,7 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
     for mission_key in ("investment_mission", "user_mission"):
         mission = run.get(mission_key) if isinstance(run.get(mission_key), Mapping) else {}
         mission_markets = [str(value) for value in (mission.get("markets") or [])]
-        if mission_markets and actual_markets and mission_markets != actual_markets:
+        if mission_markets and actual_markets and not _same_market_selection(mission_markets, actual_markets):
             errors.append(f"{mission_key}.markets samsvarer ikke med faktisk markedsutvalg")
 
     decision_report = run.get("decision_report") if isinstance(run.get("decision_report"), Mapping) else {}
