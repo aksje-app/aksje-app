@@ -24,7 +24,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.11")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.12")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
@@ -103,6 +103,56 @@ class VerifiedExportClosureTests(unittest.TestCase):
         panel = source[source.index("with tab_reports:"):source.index("with tab_accuracy:")]
         self.assertIn("Bygg samlet ZIP av alle rapporter", panel)
         self.assertIn("_replay_export_status_fragment_v19220_rc16()", panel)
+
+    def test_13_invalid_legacy_report_is_quarantined_without_stopping_archive(self):
+        import market_intelligence as mi
+        good = dict(self.canonical_run)
+        good_id = str(good["report_id"])
+        bad = dict(self.canonical_run)
+        bad["run_id"] = bad["report_id"] = "MI-BAD"
+        entries = [
+            {"run_id": good_id, "report_id": good_id, "created_at": good["created_at"]},
+            {"run_id": "MI-BAD", "report_id": "MI-BAD", "created_at": bad["created_at"]},
+        ]
+
+        def canonicalize(run):
+            if run.get("report_id") == "MI-BAD":
+                raise RuntimeError("udokumentert selskapsrelevans")
+            return run
+
+        with patch.object(mi, "_load_report_archive", return_value=entries), \
+             patch.object(mi, "load_archived_run", side_effect=[good, bad]), \
+             patch("report_export_audit.canonical_public_run", side_effect=canonicalize), \
+             patch("report_replay_export._collect_runtime_exports", return_value={}):
+            payload, summary = build_complete_replay_export()
+
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            names = set(archive.namelist())
+            self.assertIn(f"reports/{good_id}/report.pdf", names)
+            self.assertIn("reports/MI-BAD/quarantine/QUARANTINE_AUDIT.json", names)
+            self.assertNotIn("reports/MI-BAD/report.pdf", names)
+            self.assertIsNone(archive.testzip())
+        self.assertEqual(summary["unique_reports_exported"], 1)
+        self.assertEqual(summary["reports_quarantined"], 1)
+        self.assertEqual(summary["reports_accounted_for"], 2)
+
+    def test_14_all_reports_start_forces_fresh_status_render(self):
+        source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
+        start = source.index('if st.button(\n                "Bygg samlet ZIP av alle rapporter"')
+        panel = source[start:start + 1300]
+        self.assertIn("started_export = start_replay_export()", panel)
+        self.assertIn("_rerun_reports_v19220_rc11(st)", panel)
+
+    def test_15_market_membership_is_order_independent(self):
+        from report_integrity import validate_report_integrity
+        run = dict(self.canonical_run)
+        run["market_profile"] = {
+            "label": "Testprofil",
+            "expanded_markets": ["USA", "Norge", "Sverige"],
+        }
+        run["markets"] = ["Norge", "Sverige", "USA"]
+        errors = validate_report_integrity(run)
+        self.assertFalse(any("Markedsprofilen" in error for error in errors), errors)
 
 
 if __name__ == "__main__":
