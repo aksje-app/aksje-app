@@ -20,7 +20,7 @@ def sample_run():
 
 def test_canonical_public_run_removes_legacy_rankings_and_bumps_version():
     run=canonical_public_run(sample_run())
-    assert run["app_version"] == APP_VERSION == "v19.22.0-rc16.10"
+    assert run["app_version"] == APP_VERSION == "v19.22.0-rc16.11"
     assert "priority_top3" not in run and "raw_top3" not in run
     assert run["public_report_contract"]["ranking"] == []
     appendix = next(x for x in run["report_document"]["sections"] if x["key"] == "rejected_control_appendix")

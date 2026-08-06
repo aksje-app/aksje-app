@@ -24,7 +24,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.10")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.11")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
