@@ -1296,9 +1296,10 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
 def validate_pdf_semantics(pdf_bytes: bytes, run: Mapping[str, Any]) -> dict[str, Any]:
     """Compare load-bearing PDF text with the canonical JSON report model.
 
-    This is deliberately narrower than a visual layout test. It verifies the
-    semantic stamp, complete ranking count, report state, priority outcomes and
-    evidence labels that previously diverged between PDF sections and JSON.
+    RC16.11 validates only the public buy-only projection. Historical reports
+    may contain many analysed candidates while legitimately publishing zero
+    buy candidates; requiring a full candidate ranking here would contradict
+    the public report contract and make the combined archive impossible.
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -1320,16 +1321,21 @@ def validate_pdf_semantics(pdf_bytes: bytes, run: Mapping[str, Any]) -> dict[str
     )
     if candidates and stamp not in normalized:
         errors.append("PDF mangler eller motsier kanonisk integritetsstempel")
-    ranking_stamp = f"Rangering omfatter {len(candidates)} av {len(candidates)} kandidater."
-    if candidates and not bool(run.get("analysis_aborted")) and ranking_stamp not in normalized:
-        errors.append("PDF dokumenterer ikke full kandidatrangering")
+    projection = run.get("public_report_contract") if isinstance(run.get("public_report_contract"), Mapping) else {}
+    public_ranking = list(projection.get("ranking") or [])
+    # RC16.9: the investor report must not publish a ranking of rejected, watched or manual cases.
+    # Only real buy recommendations are ranked; zero recommendations is a valid result.
+    for item in public_ranking:
+        ticker = str(item.get("ticker") or "").upper()
+        if ticker and ticker not in normalized:
+            errors.append(f"PDF mangler offentlig kjøpsrangering for {ticker}")
     identity = run.get("report_identity") if isinstance(run.get("report_identity"), Mapping) else {}
     if str(identity.get("type") or "").upper() == "UTKAST" or str(run.get("job_id") or "").upper() == "MI-DRAFT-AUTOSAVE":
         if "UTKAST – IKKE ENDELIG" not in normalized.upper():
             errors.append("PDF viser ikke at utkastet er ikke-endelig")
         if "RAPPORTSTATUS ENDELIG" in normalized.upper():
             errors.append("PDF merker utkast som ENDELIG")
-    priorities = list(run.get("priority_top3") or [])[:3]
+    priorities = list(public_ranking)[:3]
     proposal_tickers = {str(row.get("ticker") or "").upper() for row in (run.get("proposals") or []) if isinstance(row, Mapping)}
     by_ticker = {str(row.get("ticker") or "").upper(): row for row in candidates}
     for item in priorities:

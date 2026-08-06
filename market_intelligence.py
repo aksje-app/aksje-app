@@ -4932,6 +4932,38 @@ except Exception:
     _replay_export_status_fragment_v19220_rc16 = _render_replay_export_status_v19220_rc16
 
 
+def _build_report_package_with_visible_progress_v19220_rc1611(
+    st: Any,
+    run: Mapping[str, Any],
+    *,
+    archive_entry: Mapping[str, Any] | None = None,
+) -> tuple[bytes, str]:
+    """Build one package synchronously while publishing every real work stage."""
+    import time
+    from report_replay_export import build_single_report_package, single_report_package_filename
+
+    started = time.monotonic()
+    progress = st.progress(0, text="Starter rapportpakken …")
+    detail = st.empty()
+
+    def update(done: int, total: int, message: str) -> None:
+        percent = max(0, min(100, int(int(done) / max(1, int(total)) * 100)))
+        progress.progress(percent, text=f"{percent} % · {message}")
+        detail.caption(
+            f"Aktivt steg: {message} · arbeidsenheter {int(done)}/{max(1, int(total))} "
+            f"· kjørt i {time.monotonic() - started:.1f} sekunder"
+        )
+
+    payload, _manifest = build_single_report_package(
+        run,
+        archive_entry=archive_entry,
+        progress_callback=update,
+    )
+    update(12, 12, "Rapportpakken er ferdig og verifisert")
+    detail.success(f"ZIP klar etter {time.monotonic() - started:.1f} sekunder.")
+    return payload, single_report_package_filename(run)
+
+
 def render_market_intelligence() -> None:
     import pandas as pd
     import streamlit as st
@@ -5478,12 +5510,11 @@ def render_market_intelligence() -> None:
             latest_package_name_key = "mi_latest_report_package_name_v19220_rc16"
             if st.button("Bygg komplett rapportpakke (ZIP)", key="mi_build_latest_package_v19220_rc16", width="stretch"):
                 try:
-                    from report_replay_export import build_single_report_package, single_report_package_filename
-                    package_bytes, _package_manifest = build_single_report_package(
-                        latest, pdf_bytes=delivery.get("data") if delivery.get("ok") else None,
+                    package_bytes, package_name = _build_report_package_with_visible_progress_v19220_rc1611(
+                        st, latest,
                     )
                     st.session_state[latest_package_key] = package_bytes
-                    st.session_state[latest_package_name_key] = single_report_package_filename(latest)
+                    st.session_state[latest_package_name_key] = package_name
                 except Exception as exc:
                     st.error(f"Rapportpakken kunne ikke bygges: {exc}")
             if st.session_state.get(latest_package_key):
@@ -5660,17 +5691,15 @@ def render_market_intelligence() -> None:
                 p1, p2 = st.columns(2)
                 if p1.button("Bygg komplett rapportpakke", key=f"mi_build_package_{archive_run_id}_v19220_rc16", width="stretch", disabled=not bool(saved_run)):
                     try:
-                        from report_replay_export import build_single_report_package, single_report_package_filename
-                        package_bytes, _manifest = build_single_report_package(
-                            saved_run, archive_entry=row,
-                            pdf_bytes=delivery.get("data") if delivery.get("ok") else None,
+                        package_bytes, package_name = _build_report_package_with_visible_progress_v19220_rc1611(
+                            st, saved_run, archive_entry=row,
                         )
                         import io as _io_rc165, zipfile as _zipfile_rc165
                         with _zipfile_rc165.ZipFile(_io_rc165.BytesIO(package_bytes), "r") as _archive_rc165:
                             if _archive_rc165.testzip() is not None or not _archive_rc165.namelist():
                                 raise RuntimeError("Rapportpakken feilet integritetskontrollen")
                         st.session_state[package_state_key] = package_bytes
-                        st.session_state[package_name_key] = single_report_package_filename(saved_run)
+                        st.session_state[package_name_key] = package_name
                     except Exception as exc:
                         st.error(f"Rapportpakken kunne ikke bygges: {exc}")
                 if st.session_state.get(package_state_key):

@@ -256,21 +256,30 @@ def _finalize_zip(
 
 
 def build_single_report_package(
-    run: Mapping[str, Any], *, archive_entry: Mapping[str, Any] | None = None, pdf_bytes: bytes | None = None
+    run: Mapping[str, Any], *, archive_entry: Mapping[str, Any] | None = None, pdf_bytes: bytes | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     from report_export_audit import canonical_public_run, validate_artifacts, validate_zip
+    if progress_callback:
+        progress_callback(0, 12, "Canonicaliserer rapportdata")
     canonical_run = canonical_public_run(run)
     clean_run = sanitize_for_export(canonical_run)
     identity = _report_identity(clean_run, archive_entry)
     replay_level, missing = classify_replay_case(clean_run)
     report_dir = "report"
+    if progress_callback:
+        progress_callback(1, 12, "Bygger replay- og beslutningsspor")
     try:
         from replay_engine import replay_report
         replay_result = sanitize_for_export(replay_report(clean_run))
     except Exception as exc:
         replay_result = {"report_id": identity["report_id"], "status": "ERROR", "reason": str(exc), "results": []}
     report_json = _json_bytes(clean_run)
+    if progress_callback:
+        progress_callback(2, 12, "Bygger JSON fra canonical rapport")
     report_txt = _build_text(clean_run).encode("utf-8")
+    if progress_callback:
+        progress_callback(3, 12, "Bygger TXT fra canonical rapport")
     files: dict[str, bytes] = {
         f"{report_dir}/report.json": report_json,
         f"{report_dir}/report.txt": report_txt,
@@ -285,10 +294,14 @@ def build_single_report_package(
     }
     # Always rebuild from clean_run. Reusing an archived/UI PDF can silently
     # mix an older identity or ranking with the current TXT/JSON contract.
+    if progress_callback:
+        progress_callback(4, 12, "Bygger PDF med Noto Sans og bokmerker")
     pdf = _build_canonical_pdf(clean_run)
     files[f"{report_dir}/report.pdf"] = pdf
     if missing and any(item in {"report.pdf", "report.txt", "report.json"} for item in missing):
         raise RuntimeError("Rapportpakken mangler obligatoriske artefakter: " + ", ".join(sorted(set(missing))))
+    if progress_callback:
+        progress_callback(6, 12, "Kjører Report Consistency Audit")
     audit = validate_artifacts(run=clean_run, pdf=bytes(pdf or b""), txt=report_txt, json_bytes=report_json)
     if not audit.get("ok"):
         raise RuntimeError("Report Consistency Audit feilet: " + "; ".join(audit.get("errors") or []))
@@ -307,10 +320,16 @@ def build_single_report_package(
         "production_data_mutated": False,
     }
     files["MANIFEST.json"] = _json_bytes(manifest)
+    if progress_callback:
+        progress_callback(7, 12, "Komprimerer rapportpakken")
     payload = _finalize_zip(files)
+    if progress_callback:
+        progress_callback(10, 12, "Kontrollerer ferdig ZIP")
     zip_audit = validate_zip(payload)
     if not zip_audit.get("ok"):
         raise RuntimeError("Ferdig ZIP feilet sluttkontroll: " + "; ".join(zip_audit.get("errors") or []))
+    if progress_callback:
+        progress_callback(12, 12, "Rapportpakken er ferdig og verifisert")
     return payload, manifest
 
 
