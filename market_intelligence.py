@@ -5657,7 +5657,32 @@ def render_market_intelligence() -> None:
             filtered.append(row)
         if not filtered:
             st.info("Ingen rapporter matcher filteret.")
-        for row in filtered[:200]:
+        archive_page_size_v19220_rc1617 = 20
+        archive_page_count_v19220_rc1617 = max(
+            1, (len(filtered) + archive_page_size_v19220_rc1617 - 1) // archive_page_size_v19220_rc1617
+        )
+        archive_page_key_v19220_rc1617 = "mi_archive_page_v19220_rc1617"
+        current_archive_page_v19220_rc1617 = int(st.session_state.get(archive_page_key_v19220_rc1617, 1) or 1)
+        if current_archive_page_v19220_rc1617 > archive_page_count_v19220_rc1617:
+            st.session_state[archive_page_key_v19220_rc1617] = 1
+        archive_page_v19220_rc1617 = st.selectbox(
+            "Arkivside",
+            options=list(range(1, archive_page_count_v19220_rc1617 + 1)),
+            format_func=lambda value: f"Side {value} av {archive_page_count_v19220_rc1617}",
+            key=archive_page_key_v19220_rc1617,
+            disabled=not bool(filtered),
+        )
+        archive_start_v19220_rc1617 = (int(archive_page_v19220_rc1617) - 1) * archive_page_size_v19220_rc1617
+        visible_archive_rows_v19220_rc1617 = filtered[
+            archive_start_v19220_rc1617:archive_start_v19220_rc1617 + archive_page_size_v19220_rc1617
+        ]
+        if filtered:
+            st.caption(
+                f"Viser {archive_start_v19220_rc1617 + 1}–"
+                f"{archive_start_v19220_rc1617 + len(visible_archive_rows_v19220_rc1617)} av {len(filtered)} rapporter. "
+                "Rapportfiler lastes bare når «Last rapportdetaljer» aktiveres."
+            )
+        for row in visible_archive_rows_v19220_rc1617:
             shown_time = row.get("created_at_local") or local_display(row.get("created_at"), str(row.get("timezone_name") or DEFAULT_TIMEZONE))
             label = f"{'⭐ ' if row.get('favorite') else ''}{row.get('report_label','Rapport')} · {row.get('job_name','-')} · {shown_time}"
             with st.expander(label, expanded=False):
@@ -5680,6 +5705,14 @@ def render_market_intelligence() -> None:
                 if row.get("low_reliability"): flags.append("Lav beslutningsstyrke")
                 if flags:
                     st.caption(" · ".join(flags))
+                load_details_v19220_rc1617 = st.toggle(
+                    "Last rapportdetaljer",
+                    key=f"mi_load_archive_details_v19220_rc1617_{row.get('run_id')}",
+                    help="Laster JSON, PDF, tekst, kjøringsspor og nedlastingshandlinger bare for denne rapporten.",
+                )
+                if not load_details_v19220_rc1617:
+                    st.caption("Detaljer og rapportfiler er ikke lastet.")
+                    continue
                 saved_run = load_archived_run(row)
                 trace_id = str((saved_run or {}).get("operations_trace_id") or row.get("operations_trace_id") or "")
                 if trace_id and st.toggle("Vis komplett kjøringsspor", key=f"mi_trace_toggle_{row.get('run_id')}"):
