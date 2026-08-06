@@ -31,7 +31,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.14")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.15")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
@@ -109,6 +109,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
         panel = source[source.index("with tab_reports:"):source.index("with tab_accuracy:")]
         self.assertIn("Komplett rapport-, replay- og læringsarkiv", panel)
+        self.assertIn("_replay_export_start_fragment_v19220_rc1615()", panel)
         self.assertIn("_replay_export_status_fragment_v19220_rc16()", panel)
 
     def test_13_invalid_legacy_report_is_quarantined_without_stopping_archive(self):
@@ -140,12 +141,16 @@ class VerifiedExportClosureTests(unittest.TestCase):
         self.assertEqual(summary["reports_quarantined"], 1)
         self.assertEqual(summary["reports_accounted_for"], 2)
 
-    def test_14_all_reports_start_is_owned_by_live_fragment(self):
+    def test_14_start_action_is_separate_from_periodic_status_fragment(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        start = source.index("def _replay_export_panel_body_v19220_rc1613")
+        start = source.index("def _replay_export_start_body_v19220_rc1615")
         panel = source[start:source.index("def _build_report_package_with_visible_progress", start)]
-        self.assertIn("status = start_export()", panel)
-        self.assertIn("_render_replay_export_status_v19220_rc16(status)", panel)
+        self.assertIn("st.form_submit_button", panel)
+        self.assertIn("started = start_export()", panel)
+        self.assertIn("_replay_export_start_fragment_v19220_rc1615", panel)
+        self.assertIn('fragment(run_every="3s")', panel)
+        start_block = panel[:panel.index("def _replay_export_status_body_v19220_rc1615")]
+        self.assertNotIn("run_every", start_block)
         self.assertNotIn("st.rerun()", panel)
 
     def test_15_market_membership_is_order_independent(self):
