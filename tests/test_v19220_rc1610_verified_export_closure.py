@@ -33,7 +33,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.17")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.18")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
@@ -234,6 +234,24 @@ class VerifiedExportClosureTests(unittest.TestCase):
         between = archive[toggle_pos:load_pos]
         self.assertIn("if not load_details_v19220_rc1617", between)
         self.assertIn("continue", between)
+
+    def test_22_quick_archive_returns_before_heavy_report_center_work(self):
+        source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
+        render_start = source.index("def render_market_intelligence()")
+        render = source[render_start:]
+        quick_call = render.index("_render_quick_report_archive_v19220_rc1618(st)")
+        early_return = render.index("return", quick_call)
+        scheduler = render.index("from scheduler_background import kick_scheduler_background")
+        jobs = render.index("quick_jobs = load_jobs()")
+        self.assertLess(quick_call, early_return)
+        self.assertLess(early_return, scheduler)
+        self.assertLess(early_return, jobs)
+        quick_fn = source[source.index("def _render_quick_report_archive_v19220_rc1618"):render_start]
+        self.assertIn("_replay_export_start_fragment_v19220_rc1616()", quick_fn)
+        self.assertIn("archive[:20]", quick_fn)
+        self.assertNotIn("load_archived_run", quick_fn)
+        self.assertNotIn("resolve_report_delivery", quick_fn)
+        self.assertNotIn("render_accuracy_analytics", quick_fn)
 
 
 if __name__ == "__main__":
