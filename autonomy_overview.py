@@ -22,7 +22,10 @@ from autonomous_portfolio import (
 from controlled_parameter_learning import APPROVALS_PATH
 from durable_runtime import read_json
 from local_time import local_display
-from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
+from manual_job_background import (
+    diagnostic_bundle, force_release, get_active_status, get_active_status_snapshot,
+    is_running, request_cancel, start_manual_job,
+)
 from market_intelligence import (
     _load_report_archive, load_draft_job, load_jobs, load_run,
     load_archived_run, resolve_report_delivery, safe_report_filename,
@@ -34,7 +37,7 @@ from app_version import get_app_version
 
 
 VERSION = get_app_version()
-TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED"}
+TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELLED", "STALLED"}
 
 
 def _number(value: Any, default: float = 0.0) -> float:
@@ -304,6 +307,33 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     p2.metric("Aktivt steg", status.get("active_stage") or "-")
     p3.metric("Oppdatert", local_display(status.get("updated_at"), str(status.get("timezone_name") or "Europe/Oslo")))
     p4.metric("Kjørings-ID", status.get("execution_id") or "-")
+    now = datetime.now(timezone.utc)
+    progress_at = status.get("last_progress_at") or status.get("updated_at")
+    heartbeat_at = status.get("worker_heartbeat_at") or status.get("heartbeat_at")
+    def _age_seconds(value: Any) -> int | None:
+        try:
+            parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return max(0, int((now - parsed.astimezone(timezone.utc)).total_seconds()))
+        except (TypeError, ValueError):
+            return None
+    progress_age = _age_seconds(progress_at)
+    heartbeat_age = _age_seconds(heartbeat_at)
+    t1, t2, t3, t4 = st.columns(4)
+    t1.metric("Siste reelle fremdrift", f"{progress_age} sek siden" if progress_age is not None else "-")
+    t2.metric("Worker-heartbeat", f"{heartbeat_age} sek siden" if heartbeat_age is not None else "-")
+    work_completed, work_total = status.get("work_completed"), status.get("work_total")
+    t3.metric("Arbeidsenheter", f"{work_completed}/{work_total}" if work_total not in (None, "", 0) else "-")
+    context = status.get("active_ticker") or status.get("active_market") or "-"
+    t4.metric("Arbeider med", context)
+    limit = int(status.get("stage_progress_limit_seconds") or 0)
+    if state == "RUNNING" and progress_age is not None and progress_age >= 60:
+        remaining = max(0, limit - progress_age) if limit else 0
+        st.warning(
+            f"Worker lever, men steget har ikke meldt reell fremdrift på {progress_age} sekunder. "
+            + (f"Automatisk frigivelse skjer senest om ca. {remaining} sekunder." if limit else "Fremdriftsvakten følger jobben.")
+        )
     labels = {
         "PREFLIGHT": "Oppstartskontroll", "MARKET_DATA": "Markedsdata", "INSIDER": "Insider", "NEWS": "Nyheter",
         "SCORING": "Rangering", "PORTFOLIO_PROPOSAL": "Portefølje",
@@ -329,7 +359,7 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
             stage_columns[index % 4].warning(f"⏳ {label}")
         else:
             stage_columns[index % 4].caption(f"⬜ {label}")
-    if state == "FAILED":
+    if state in {"FAILED", "STALLED"}:
         st.error(
             f"{status.get('error_type') or 'Feil'} i {status.get('error_stage') or active or 'ukjent steg'}: "
             f"{status.get('error') or 'Ingen feildetalj ble lagret.'}"
@@ -340,12 +370,25 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
                 "kjørings_id": status.get("execution_id"), "steg": status.get("error_stage") or active,
                 "tidspunkt": status.get("updated_at"), "hendelse": event,
             })
+    execution_id = str(status.get("execution_id") or "")
+    if execution_id and state in TERMINAL_STATES:
+        bundle, filename = diagnostic_bundle(execution_id)
+        st.download_button(
+            "🩺 Last ned diagnosepakke", data=bundle, file_name=filename,
+            mime="application/zip", key=f"manual_job_diag_{execution_id}",
+        )
     if snapshot.get("running"):
         confirm = st.checkbox("Bekreft kontrollert avbrudd", key="autonomy_overview_cancel_confirm_v1883")
         if st.button("⛔ Avbryt pågående kjøring", disabled=not confirm, key="autonomy_overview_cancel_v1883"):
             request_cancel(str(status.get("execution_id") or ""), requested_by="AUTONOMY_OVERVIEW")
             st.warning("Stoppforespørselen er lagret. Kjøringen stopper ved neste sikre kontrollpunkt.")
             st.rerun()
+        if progress_age is not None and progress_age >= 60:
+            release_confirm = st.checkbox("Bekreft sikker frigivelse av fastlåst jobb", key=f"manual_release_confirm_{execution_id}")
+            if st.button("🔓 Frigi fastlåst jobb", disabled=not release_confirm, key=f"manual_release_{execution_id}"):
+                force_release(execution_id, requested_by="AUTONOMY_OVERVIEW")
+                st.warning("Jobblåsen er frigitt. Den gamle workeren kan ikke publisere resultater, og en ny kjøring kan startes.")
+                st.rerun()
     elif allow_quick_start:
         if st.button("▶ Start utkastkjøring", type="primary", key="autonomy_overview_start_v1883"):
             start_shared_manual_draft_job(trigger="MANUAL_DRAFT_TEST")
@@ -354,7 +397,7 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
 
 def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_terminal: bool = True) -> None:
     """Poll only durable job status; never rerender the full Autonomy page."""
-    status = get_active_status() or {}
+    status = get_active_status_snapshot() or {}
     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
     if is_running(status):
         st.caption("Status og fremdrift oppdateres automatisk hvert 5. sekund mens kjøringen pågår.")

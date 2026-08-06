@@ -8,10 +8,12 @@ local JSON file remains a backwards-compatible diagnostic mirror.
 from __future__ import annotations
 
 import json
+import io
 import os
 import threading
 import traceback
 import uuid
+import zipfile
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
@@ -30,8 +32,36 @@ _LOCK = threading.Lock()
 _SNAPSHOT_LOCK = threading.Lock()
 _LATEST_ACTIVE_SNAPSHOT: dict[str, Any] = {}
 _THREADS: dict[str, threading.Thread] = {}
-_TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
+_TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "STALLED"}
 _STAGE_ORDER = ["MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
+_STAGE_PROGRESS_LIMIT_SECONDS = {
+    "PREFLIGHT": 150,
+    "MARKET_DATA": 600,
+    "INSIDER": 360,
+    "NEWS": 360,
+    "SCORING": 360,
+    "PORTFOLIO_PROPOSAL": 300,
+    "AUTONOMOUS": 300,
+    "REPORT": 420,
+}
+
+
+def _stage_progress_limit(stage: str) -> int:
+    """Maximum silence between real progress events, never heartbeats."""
+    stage_name = str(stage or "PREFLIGHT").upper()
+    default = _STAGE_PROGRESS_LIMIT_SECONDS.get(stage_name, 600)
+    raw = os.environ.get(f"MANUAL_JOB_{stage_name}_PROGRESS_TIMEOUT_SECONDS", "")
+    try:
+        return max(60, int(raw)) if raw else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _seconds_since(value: Any) -> int | None:
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return None
+    return max(0, int((datetime.now(timezone.utc) - parsed).total_seconds()))
 
 
 def _process_identity() -> str:
@@ -169,7 +199,50 @@ def reconcile_orphaned_status(
     state = str(current.get("state") or "").upper()
     if not execution_id or state not in {"QUEUED", "RUNNING", "STOP_REQUESTED"}:
         return current
-    if _thread_is_alive(execution_id):
+
+    thread_alive = _thread_is_alive(execution_id)
+    # A heartbeat is emitted by a dedicated thread.  It proves that the process
+    # lives, but not that the analysis worker advances.  Reconcile against the
+    # last *real* progress event so a blocked network call cannot own the job
+    # lease forever while its heartbeat keeps moving.
+    if thread_alive and state == "RUNNING":
+        progress_reference = (
+            current.get("last_progress_at")
+            or current.get("updated_at")
+            or current.get("started_at")
+            or current.get("accepted_at")
+        )
+        silence = _seconds_since(progress_reference)
+        stage = str(current.get("active_stage") or "PREFLIGHT").upper()
+        limit = _stage_progress_limit(stage)
+        if not force and silence is not None and silence <= limit:
+            return current
+        if force or (silence is not None and silence > limit):
+            now = _now()
+            current.update({
+                "state": "STALLED",
+                "message": f"Kjøringen er frigitt: ingen reell fremdrift i {stage}",
+                "updated_at": now,
+                "completed_at": now,
+                "stalled_at": now,
+                "lease_revoked": True,
+                "cancel_requested": True,
+                "cancel_reason": "Fremdriftsvakten frigjorde en fastlåst worker",
+                "partial_results_published": False,
+                "error": f"Ingen fremdriftshendelse på {silence if silence is not None else 'ukjent antall'} sekunder (grense {limit})",
+                "error_type": "WorkerProgressTimeout",
+                "error_stage": stage,
+                "error_code": "STAGE_PROGRESS_TIMEOUT",
+                "progress_silence_seconds": silence,
+                "stage_progress_limit_seconds": limit,
+                "recovered_orphan": True,
+                "orphan_reason_code": "LIVE_WORKER_PROGRESS_STALLED",
+                "recovered_at": now,
+            })
+            return _write_status(current)
+        return current
+
+    if thread_alive:
         return current
 
     updated = _parse_timestamp(
@@ -254,6 +327,8 @@ def get_active_status_snapshot() -> dict[str, Any]:
     """
     snapshot = _runtime_snapshot()
     if snapshot.get("execution_id"):
+        if snapshot.get("last_progress_at") or snapshot.get("worker_process_identity"):
+            snapshot = reconcile_orphaned_status(snapshot)
         snapshot["ui_poll_source"] = "PROCESS_MEMORY"
         return snapshot
 
@@ -262,6 +337,8 @@ def get_active_status_snapshot() -> dict[str, Any]:
     if execution_id:
         local_status = _read_local_status_file(_status_path(execution_id))
         if local_status.get("execution_id"):
+            if local_status.get("last_progress_at") or local_status.get("worker_process_identity"):
+                local_status = reconcile_orphaned_status(local_status)
             _publish_runtime_snapshot(local_status)
             local_status["ui_poll_source"] = "LOCAL_ATOMIC_MIRROR"
             return local_status
@@ -325,6 +402,62 @@ def request_cancel(execution_id: str, requested_by: str = "UI") -> dict[str, Any
         return written
 
 
+def force_release(execution_id: str, requested_by: str = "UI") -> dict[str, Any]:
+    """Revoke a stuck worker lease without deleting reports or runtime data."""
+    with _LOCK:
+        status = get_status(execution_id)
+        if not status or str(status.get("state") or "").upper() in _TERMINAL:
+            return status
+        now = _now()
+        status.update({
+            "state": "STALLED",
+            "message": "Jobblåsen er frigitt manuelt; en ny kjøring kan startes",
+            "updated_at": now,
+            "completed_at": now,
+            "stalled_at": now,
+            "lease_revoked": True,
+            "cancel_requested": True,
+            "cancel_requested_at": now,
+            "cancel_requested_by": requested_by,
+            "cancel_reason": "Manuell sikker frigivelse av fastlåst jobb",
+            "partial_results_published": False,
+            "error": "Workerens publiseringsrett er tilbakekalt",
+            "error_type": "WorkerLeaseRevoked",
+            "error_stage": str(status.get("active_stage") or "PREFLIGHT"),
+            "error_code": "MANUAL_STALE_LEASE_RELEASE",
+        })
+        return _write_status(status)
+
+
+def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
+    """Create a small, secret-free support bundle for one background job."""
+    status = dict(get_status(execution_id) or {})
+    allowed = {
+        "execution_id", "state", "phase", "active_stage", "completed_steps",
+        "percent", "message", "accepted_at", "started_at", "updated_at",
+        "last_progress_at", "heartbeat_at", "worker_heartbeat_at",
+        "completed_at", "stalled_at", "error", "error_type", "error_stage",
+        "error_code", "progress_event", "stage_history", "stage_started_at",
+        "stage_progress_limit_seconds", "progress_silence_seconds",
+        "heartbeat_sequence", "worker_process_identity", "worker_pid",
+        "worker_thread_name", "heartbeat_thread_name", "job_id", "job_name",
+        "trigger", "scan_configuration", "cancel_requested", "cancel_reason",
+        "lease_revoked", "partial_results_published", "ui_poll_source",
+    }
+    sanitized = {key: status.get(key) for key in sorted(allowed) if key in status}
+    readme = (
+        "Diagnosepakke for manuell bakgrunnskjøring.\n"
+        "Pakken inneholder bare status- og fremdriftsmetadata, ingen API-nøkler, "
+        "porteføljedata eller rapportinnhold.\n"
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("README.txt", readme)
+        archive.writestr("status.json", json.dumps(sanitized, ensure_ascii=False, indent=2, default=str))
+    safe_id = "".join(character for character in execution_id if character.isalnum() or character in "-_") or "ukjent"
+    return buffer.getvalue(), f"Bakgrunnsjobb_diagnose_{safe_id}.zip"
+
+
 def _worker(
     execution_id: str,
     job_payload: Mapping[str, Any],
@@ -348,7 +481,10 @@ def _worker(
             status.update({"state": "RUNNING", "started_at": now, "updated_at": now,
                            "heartbeat_at": now, "worker_process_identity": _PROCESS_IDENTITY,
                            "worker_pid": os.getpid(), "worker_thread_name": threading.current_thread().name,
-                           "message": "Starter markedsskanning", "percent": 1})
+                           "message": "Oppstartskontroll: klargjør sikker kjøring", "percent": 1,
+                           "last_progress_at": now, "stage_started_at": now,
+                           "stage_progress_limit_seconds": _stage_progress_limit("PREFLIGHT"),
+                           "stage_history": [{"stage": "PREFLIGHT", "entered_at": now}]})
             _write_status(status)
     if cancelled_before_start:
         return
@@ -361,7 +497,7 @@ def _worker(
             sequence += 1
             with _LOCK:
                 current = get_status(execution_id)
-                if not current or str(current.get("state") or "").upper() in _TERMINAL:
+                if not current or str(current.get("state") or "").upper() in _TERMINAL or current.get("lease_revoked"):
                     return
                 current["heartbeat_at"] = _now()
                 current["worker_heartbeat_at"] = current["heartbeat_at"]
@@ -385,6 +521,8 @@ def _worker(
         with _LOCK:
             current = get_status(execution_id) or status
             phase = str(event.get("phase") or "START")
+            if current.get("lease_revoked") or str(current.get("state") or "").upper() in {"STALLED", "FAILED", "CANCELLED"}:
+                raise ExecutionCancelled("Workerens publiseringsrett er tilbakekalt")
             if phase != "COMPLETE" and (current.get("cancel_requested") or current.get("state") == "STOP_REQUESTED"):
                 raise ExecutionCancelled("Stopp forespurt av bruker")
             message = str(event.get("message") or event.get("phase") or "Kjører")
@@ -394,19 +532,30 @@ def _worker(
             active_stage = display_stage(phase)
             completed_steps = list(current.get("completed_steps") or [])
             previous_stage = str(current.get("active_stage") or "")
+            now = _now()
+            stage_history = list(current.get("stage_history") or [])
             if previous_stage and previous_stage != active_stage and previous_stage not in completed_steps:
                 completed_steps.append(previous_stage)
+            if previous_stage != active_stage:
+                if stage_history and not stage_history[-1].get("left_at"):
+                    stage_history[-1] = {**dict(stage_history[-1]), "left_at": now}
+                stage_history.append({"stage": active_stage, "entered_at": now})
             if phase == "COMPLETE":
                 completed_steps = list(_STAGE_ORDER)
             current.update({
-                "state": "RUNNING", "updated_at": _now(), "heartbeat_at": _now(),
+                "state": "RUNNING", "updated_at": now, "heartbeat_at": now,
                 "last_progress_at": _now(),
                 "worker_process_identity": _PROCESS_IDENTITY, "worker_pid": os.getpid(),
                 "worker_thread_name": threading.current_thread().name,
                 "phase": phase, "active_stage": active_stage,
                 "completed_steps": completed_steps,
+                "stage_started_at": now if previous_stage != active_stage else current.get("stage_started_at"),
+                "stage_progress_limit_seconds": _stage_progress_limit(active_stage),
+                "stage_history": stage_history,
                 "percent": max(int(current.get("percent") or 0), progress_percent(event)), "message": message,
                 "progress_event": dict(event),
+                "work_completed": event.get("completed"), "work_total": event.get("total"),
+                "active_ticker": ticker, "active_market": event.get("market") or event.get("market_name") or "",
             })
             _write_progress_status(current)
 
@@ -420,6 +569,9 @@ def _worker(
             run_kwargs["scheduled_for"] = str(scheduled_for)
         with background_execution(execution_id):
             result = run_job(JobProfile.from_dict(job_payload), **run_kwargs)
+        lease = get_status(execution_id) or status
+        if lease.get("lease_revoked") or str(lease.get("state") or "").upper() in {"STALLED", "FAILED", "CANCELLED"}:
+            raise ExecutionCancelled("Resultatet ble avvist fordi jobblåsen var tilbakekalt")
         # run_job performs the authoritative read-after-write check.  Keep
         # compatibility with injected/legacy runners that predate this field.
         persistence = result.get("persistence")
@@ -453,6 +605,14 @@ def _worker(
         _write_status(final)
     except ExecutionCancelled as exc:
         cancelled = get_status(execution_id) or status
+        if cancelled.get("lease_revoked") or str(cancelled.get("state") or "").upper() == "STALLED":
+            cancelled.update({
+                "state": "STALLED", "message": cancelled.get("message") or "Fastlåst jobb ble frigitt",
+                "updated_at": _now(), "completed_at": cancelled.get("completed_at") or _now(),
+                "cancel_reason": str(exc), "partial_results_published": False,
+            })
+            _write_status(cancelled)
+            return
         cancelled.update({
             "state": "CANCELLED", "message": "Kjøringen ble kontrollert avbrutt",
             "updated_at": _now(), "completed_at": _now(), "error": "",
@@ -520,7 +680,12 @@ def start_manual_job(
             "timezone_name": timezone_name,
             "started_at": None, "completed_at": None, "updated_at": accepted_at,
             "heartbeat_at": accepted_at, "error": "",
-            "cancel_requested": False, "completed_steps": [], "active_stage": "PREFLIGHT",
+            "last_progress_at": accepted_at,
+            "cancel_requested": False, "lease_revoked": False,
+            "completed_steps": [], "active_stage": "PREFLIGHT",
+            "stage_started_at": accepted_at,
+            "stage_progress_limit_seconds": _stage_progress_limit("PREFLIGHT"),
+            "stage_history": [{"stage": "PREFLIGHT", "entered_at": accepted_at}],
         })
         thread = threading.Thread(
             target=_worker,

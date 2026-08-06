@@ -4542,6 +4542,12 @@ def run_job(
     trace_id = str(trace.get("trace_id") or "")
     mark_run_stage(trace_id, "PREFLIGHT", status="RUNNING", message="Starter forhåndskontroll og klargjøring")
     try:
+        if progress_callback:
+            progress_callback({
+                "phase": "START", "completed": 0, "total": 4,
+                "message": "Oppstartskontroll: validerer jobb, oppdrag og konfigurasjon",
+                "substep": "JOB_AND_MISSION_CONTRACT",
+            })
         result = _run_job_impl(
             job, trigger=trigger, progress_callback=progress_callback, force_refresh=force_refresh,
             revision_parent=revision_parent, send_notifications=send_notifications, scheduled_for=scheduled_for,
@@ -4769,13 +4775,14 @@ def _manual_report_status_label_v1924(state: Any) -> str:
         "COMPLETED": "Fullført",
         "FAILED": "Feilet",
         "CANCELLED": "Avbrutt",
+        "STALLED": "Fastlåst – frigitt",
     }.get(str(state or "").upper(), str(state or "Ikke startet"))
 
 
 def _render_manual_report_progress_v1924() -> None:
     """Render durable progress for report-center jobs without blocking navigation."""
     import streamlit as st
-    from manual_job_background import get_active_status_snapshot, is_running, request_cancel
+    from manual_job_background import diagnostic_bundle, force_release, get_active_status_snapshot, is_running, request_cancel
 
     status = get_active_status_snapshot()
     if not status:
@@ -4810,6 +4817,7 @@ def _render_manual_report_progress_v1924() -> None:
             "Automatisk UI-poll: aktiv hvert 2. sekund · "
             f"kilde {poll_source} · lest {local_display(_now_iso(), timezone_name)}"
         )
+        stalled_seconds = 0
         try:
             progress_dt = datetime.fromisoformat(str(progress_at).replace("Z", "+00:00")) if progress_at else None
             heartbeat_dt = datetime.fromisoformat(str(heartbeat_at).replace("Z", "+00:00")) if heartbeat_at else None
@@ -4826,7 +4834,7 @@ def _render_manual_report_progress_v1924() -> None:
                     )
         except (TypeError, ValueError):
             pass
-        if state == "FAILED":
+        if state in {"FAILED", "STALLED"}:
             st.error(str(status.get("error") or "Rapportkjøringen feilet uten registrert feilmelding."))
         elif state == "CANCELLED":
             st.warning(str(status.get("cancel_reason") or message))
@@ -4836,13 +4844,21 @@ def _render_manual_report_progress_v1924() -> None:
             if st.button("Stopp kjøringen kontrollert", key=f"mi_stop_{execution_id}", width="content"):
                 request_cancel(execution_id, requested_by="RAPPORTSENTER")
                 _rerun_reports_v19220_rc11(st)
+            if stalled_seconds >= 60:
+                confirm_release = st.checkbox("Bekreft sikker frigivelse", key=f"mi_release_confirm_{execution_id}")
+                if st.button("Frigi fastlåst jobb", disabled=not confirm_release, key=f"mi_release_{execution_id}"):
+                    force_release(execution_id, requested_by="RAPPORTSENTER")
+                    _rerun_reports_v19220_rc11(st)
+        if state in {"FAILED", "STALLED", "CANCELLED"}:
+            bundle, filename = diagnostic_bundle(execution_id)
+            st.download_button("Last ned diagnosepakke", data=bundle, file_name=filename, mime="application/zip", key=f"mi_diag_{execution_id}")
 
     # RC14: a fragment must never trigger an automatic full-app rerun when a
     # job reaches terminal state. Streamlit kept the old fragment DOM while the
     # complete app was appended below it on some browser/Render combinations,
     # which duplicated the whole page. The fragment now owns only its progress
     # area; the report archive updates on the next normal user/page refresh.
-    if state in {"COMPLETED", "FAILED", "CANCELLED"}:
+    if state in {"COMPLETED", "FAILED", "CANCELLED"} or state == "STALLED":
         st.caption("Rapportarkivet oppdateres ved neste vanlige sideoppdatering. Ingen automatisk helsidererender kjøres.")
 
 
@@ -5075,6 +5091,13 @@ def render_market_intelligence() -> None:
     if report_workspace_v19220_rc1618 == "Hurtigarkiv og komplett ZIP":
         _render_quick_report_archive_v19220_rc1618(st)
         return
+    full_center_surface_v19220_rc1620 = st.radio(
+        "Del av fullt rapportsenter",
+        ["Kjøring og fremdrift", "Rapporter, historikk og avansert"],
+        horizontal=True,
+        key="mi_full_center_surface_v19220_rc1620",
+        help="Kjøring og fremdrift laster ikke rapportkropper, historikk, Accuracy Analytics eller avanserte jobbinnstillinger.",
+    )
     st.caption("Kjør utkast og manglende faste rapporter fra ett kompakt handlingsområde. Planlegging, historikk og avanserte valg ligger lenger ned.")
     try:
         from scheduler_background import kick_scheduler_background, scheduler_status
@@ -5186,6 +5209,10 @@ def render_market_intelligence() -> None:
             allow_quick_start=False,
             refresh_app_on_terminal=False,
         )
+
+    if full_center_surface_v19220_rc1620 == "Kjøring og fremdrift":
+        st.info("Lett fremdriftsvisning er aktiv. Velg «Rapporter, historikk og avansert» over når du faktisk trenger de tunge panelene.")
+        return
 
     with st.container(border=True):
         st.markdown("##### 3. Siste rapporter")
