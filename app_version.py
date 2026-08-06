@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.15"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.15 Reliable Archive Start Action"
+APP_VERSION = "v19.22.0-rc16.16"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.16 Callback-First Archive Start"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.14"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.15"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.16: Skjemainnsendingen som kolliderte med fragmentlivssyklusen er fjernet. En vanlig knapp i et ikke-periodisk fragment bruker nå on_click-callback som oppretter eksportworkeren før fragmentets rerendering, med egen ny widgetidentitet og eksport-ID-kvittering. Statuspolling forblir separat; RC16.14-sikkerhetsmekanismene beholdes.",
     "v19.22.0-rc16.15: Eksportstart er flyttet til et eget ikke-periodisk Streamlit-fragment med eksplisitt skjemainnsending og umiddelbar eksport-ID-kvittering. Tresekunders polling ligger i et separat skrivebeskyttet statusfragment og kan ikke lenger erstatte startknappen under klikk. RC16.14-timeout, watchdog og karantene er beholdt.",
     "v19.22.0-rc16.14: Hver rapport bygges og replayes offline i en isolert, avsluttbar underprosess med hard tidsgrense. Timeout gir kontrollert karantene og eksporten fortsetter. En separat watchdog oppdaterer heartbeat under lange steg, og foreldet RUNNING-status uten levende worker gjenopprettes automatisk. Ingen eksportport, analyse-, score-, scheduler-, portefølje- eller handelsregel er svekket.",
     "v19.22.0-rc16.13: Startknapp og livestatus for komplett rapport-, replay- og læringsarkiv eies nå av samme statiske Streamlit-fragment. Knappetrykk starter worker og viser ny eksport-ID uten full app-rerendering; fragmentet poller videre hvert tredje sekund. Ingen eksport-, analyse-, score-, scheduler-, portefølje- eller handelsregler er svekket.",

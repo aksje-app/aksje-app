@@ -4931,24 +4931,34 @@ def _render_replay_export_status_v19220_rc16(status_override: Mapping[str, Any] 
             st.caption("Eksporten kjører i en separat worker. Rapportvisningen kan brukes mens arkivet bygges.")
 
 
-def _replay_export_start_body_v19220_rc1615() -> None:
+def _start_replay_export_callback_v19220_rc1616() -> None:
+    """Create the worker before Streamlit processes the fragment rerun."""
+    import streamlit as st
+    from replay_export_background import start_export
+
+    started = start_export()
+    st.session_state["mi_replay_export_start_ack_v19220_rc1616"] = str(started.get("execution_id") or "")
+
+
+def _replay_export_start_body_v19220_rc1616() -> None:
     """Stable, non-periodic action surface; polling can never replace its click."""
     import streamlit as st
-    from replay_export_background import get_status, is_running, start_export
+    from replay_export_background import get_status, is_running
 
     status = get_status()
-    with st.form("mi_start_complete_replay_archive_form_v19220_rc1615", clear_on_submit=False):
-        submitted = st.form_submit_button(
-            "Bygg komplett rapport-, replay- og læringsarkiv (ZIP)",
-            type="primary",
-            width="stretch",
-            disabled=is_running(status),
-        )
-    if submitted:
-        started = start_export()
-        execution_id = str(started.get("execution_id") or "")
-        st.session_state["mi_replay_export_start_ack_v19220_rc1615"] = execution_id
-        st.success(f"Eksporten er startet · eksport-ID {execution_id or '-'}")
+    st.button(
+        "Bygg komplett rapport-, replay- og læringsarkiv (ZIP)",
+        key="mi_start_complete_replay_archive_button_v19220_rc1616",
+        type="primary",
+        width="stretch",
+        disabled=is_running(status),
+        on_click=_start_replay_export_callback_v19220_rc1616,
+    )
+    acknowledged_id = str(st.session_state.get("mi_replay_export_start_ack_v19220_rc1616") or "")
+    if acknowledged_id and acknowledged_id != str(status.get("execution_id") or ""):
+        st.success(f"Start registrert · eksport-ID {acknowledged_id}")
+    elif acknowledged_id and is_running(status):
+        st.success(f"Eksporten kjører · eksport-ID {acknowledged_id}")
 
 
 def _replay_export_status_body_v19220_rc1615() -> None:
@@ -4957,14 +4967,14 @@ def _replay_export_status_body_v19220_rc1615() -> None:
 
 
 try:
-    _replay_export_start_fragment_v19220_rc1615 = _st_fragment_rc161.fragment()(
-        _replay_export_start_body_v19220_rc1615
+    _replay_export_start_fragment_v19220_rc1616 = _st_fragment_rc161.fragment(
+        _replay_export_start_body_v19220_rc1616
     )
     _replay_export_status_fragment_v19220_rc16 = _st_fragment_rc161.fragment(run_every="3s")(
         _replay_export_status_body_v19220_rc1615
     )
 except Exception:
-    _replay_export_start_fragment_v19220_rc1615 = _replay_export_start_body_v19220_rc1615
+    _replay_export_start_fragment_v19220_rc1616 = _replay_export_start_body_v19220_rc1616
     _replay_export_status_fragment_v19220_rc16 = _replay_export_status_body_v19220_rc1615
 
 
@@ -5569,7 +5579,7 @@ def render_market_intelligence() -> None:
         st.markdown("#### Komplett rapport-, replay- og læringsarkiv")
         st.caption("Skrivebeskyttet offline-eksport med rapporter, replaydata, Autonomi-/læringsdata, manifest, avvik og SHA-256.")
         try:
-            _replay_export_start_fragment_v19220_rc1615()
+            _replay_export_start_fragment_v19220_rc1616()
             _replay_export_status_fragment_v19220_rc16()
         except Exception as exc:
             st.error(f"Samlet ZIP kunne ikke startes: {exc}")
