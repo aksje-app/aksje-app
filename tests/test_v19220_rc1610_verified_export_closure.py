@@ -1,5 +1,6 @@
 import io
 import json
+import subprocess
 import unittest
 import zipfile
 from pathlib import Path
@@ -8,7 +9,13 @@ from unittest.mock import patch
 from app_version import APP_VERSION
 from market_intelligence import build_pdf, build_text_report
 from report_export_audit import canonical_public_run, validate_artifacts, validate_zip
-from report_replay_export import build_complete_replay_export, build_single_report_package
+from report_replay_export import (
+    ReportExportTimeout,
+    _build_public_report_artifacts_inline,
+    _build_public_report_artifacts_with_timeout,
+    build_complete_replay_export,
+    build_single_report_package,
+)
 from tests.test_v19220_rc169_export_consistency import sample_run
 
 
@@ -24,7 +31,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.13")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.14")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
@@ -115,14 +122,11 @@ class VerifiedExportClosureTests(unittest.TestCase):
             {"run_id": "MI-BAD", "report_id": "MI-BAD", "created_at": bad["created_at"]},
         ]
 
-        def canonicalize(run):
-            if run.get("report_id") == "MI-BAD":
-                raise RuntimeError("udokumentert selskapsrelevans")
-            return run
+        good_build = _build_public_report_artifacts_inline(good)
 
         with patch.object(mi, "_load_report_archive", return_value=entries), \
              patch.object(mi, "load_archived_run", side_effect=[good, bad]), \
-             patch("report_export_audit.canonical_public_run", side_effect=canonicalize), \
+             patch("report_replay_export._build_public_report_artifacts_with_timeout", side_effect=[good_build, RuntimeError("udokumentert selskapsrelevans")]), \
              patch("report_replay_export._collect_runtime_exports", return_value={}):
             payload, summary = build_complete_replay_export()
 
@@ -154,6 +158,49 @@ class VerifiedExportClosureTests(unittest.TestCase):
         run["markets"] = ["Norge", "Sverige", "USA"]
         errors = validate_report_integrity(run)
         self.assertFalse(any("Markedsprofilen" in error for error in errors), errors)
+
+    def test_16_hung_report_process_is_hard_timed_out(self):
+        with patch("report_replay_export.subprocess.run", side_effect=subprocess.TimeoutExpired(["worker"], 1)):
+            with self.assertRaises(ReportExportTimeout):
+                _build_public_report_artifacts_with_timeout(self.canonical_run, timeout_seconds=1)
+
+    def test_17_stale_worker_status_is_recoverable(self):
+        import replay_export_background as background
+        stale = {
+            "execution_id": "REPLAY-STALE",
+            "state": "RUNNING",
+            "worker_heartbeat_at": "2020-01-01T00:00:00+00:00",
+        }
+        with patch.object(background, "_write_status", side_effect=lambda value: dict(value)):
+            recovered = background._recover_stale_status(stale)
+        self.assertEqual(recovered["state"], "FAILED")
+        self.assertTrue(recovered["stale_worker_recovered"])
+        self.assertFalse(background.is_running(recovered))
+
+    def test_18_watchdog_heartbeat_is_independent(self):
+        source = (ROOT / "replay_export_background.py").read_text(encoding="utf-8")
+        self.assertIn("def watchdog()", source)
+        self.assertIn('current["watchdog_alive"] = True', source)
+        self.assertIn("watchdog_thread.start()", source)
+
+    def test_19_timeout_is_counted_and_written_to_quarantine_audit(self):
+        import market_intelligence as mi
+        entry = {
+            "run_id": self.canonical_run["run_id"],
+            "report_id": self.canonical_run["report_id"],
+            "created_at": self.canonical_run["created_at"],
+        }
+        with patch.object(mi, "_load_report_archive", return_value=[entry]), \
+             patch.object(mi, "load_archived_run", return_value=self.canonical_run), \
+             patch("report_replay_export._build_public_report_artifacts_with_timeout", side_effect=ReportExportTimeout("120 sekunder")), \
+             patch("report_replay_export._collect_runtime_exports", return_value={}):
+            payload, summary = build_complete_replay_export()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            audit_name = next(name for name in archive.namelist() if name.endswith("QUARANTINE_AUDIT.json"))
+            audit = json.loads(archive.read(audit_name))
+        self.assertEqual(audit["reason_code"], "REPORT_EXPORT_TIMEOUT")
+        self.assertEqual(summary["reports_timed_out"], 1)
+        self.assertEqual(summary["reports_quarantined"], 1)
 
 
 if __name__ == "__main__":
