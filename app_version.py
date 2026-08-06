@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.9"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.9 Report Archive ZIP Hotfix"
+APP_VERSION = "v19.22.0-rc16.10"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.10 Verified Report Export Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.8"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.9"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,7 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
-    "v19.22.0-rc16.9: Rapportarkivet tåler nå rapporter med kandidater, men uten projisert Top 3, uten å kalle st.columns(0) og avbryte panelet. En synlig ettklikksfunksjon i Rapportarkiv og nedlastinger bygger og tilbyr en integritetskontrollert samlet ZIP av alle tilgjengelige rapporter og replay-data. Ingen endring i rapportanalyse, score, scheduler, porteføljer eller handel.",
+    "v19.22.0-rc16.10: Fullfører rapporteksportporten med medfølgende Noto Sans-fonter, bevarte og verifiserte PDF-bokmerker, ny canonical PDF-rendering fra samme objekt som TXT/JSON og hard per-rapport konsistensaudit også i samlet rapport- og replay-ZIP. Rapportarkivet tåler tom offentlig kjøpsrangering og tilbyr samlet ZIP direkte. Ingen analyse-, score-, scheduler-, portefølje- eller handelsregler er endret.",
     "v19.22.0-rc16.4: Høyremenyens ferdiglastede Streamlit-widgets er låst til samme visuelle kontrakt som den polerte innlastingstilstanden. Bredde, kortgeometri, spacing, typografi, bakgrunn, hover og konto-/seksjonskort forblir stabile gjennom full lasting og reruns. Navigasjonslogikk, ruter, tidssone, scheduler, rapportmotor, score, porteføljer og handel er uendret.",
     "v19.22.0-rc16.3: Visningstidssonen lagres varig i sentralt innstillingslager uten ekstra helsidererender, slik at aktiv navigasjon og panel beholdes. En passiv live-klokke viser både PC-/nettlesertid og apptid i valgt tidssone. Scheduler-tidene 08:00 og 22:00 Europe/Oslo, rapportmotor, score, porteføljer og handel er uendret.",
     "v19.22.0-rc16.2: Avgrenset live-hotfix som fjerner den separate fremdriftsmotoren i Rapporter. Rapportsenteret bruker nå nøyaktig samme dynamiske Streamlit-fragment, samme femsekunders intervall og samme autoritative jobbstatuskilde som Autonomi Oversikt. Terminalstatus utløser ikke helsidererender i Rapporter. Ingen endring i rapportmotor, ZIP, tidssone, meny, score, scheduler, porteføljer eller handel.",

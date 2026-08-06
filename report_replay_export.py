@@ -130,6 +130,15 @@ def _read_pdf_without_side_effects(run: Mapping[str, Any], archive_entry: Mappin
     return None
 
 
+def _build_canonical_pdf(run: Mapping[str, Any]) -> bytes:
+    """Render a fresh PDF from the same canonical object as TXT and JSON."""
+    from market_intelligence import build_pdf
+    payload = bytes(build_pdf(copy.deepcopy(dict(run))))
+    if not payload.startswith(b"%PDF-"):
+        raise RuntimeError("Canonical PDF-rendering returnerte ikke en gyldig PDF")
+    return payload
+
+
 def _build_text(run: Mapping[str, Any]) -> str:
     try:
         from market_intelligence import build_text_report
@@ -249,7 +258,9 @@ def _finalize_zip(
 def build_single_report_package(
     run: Mapping[str, Any], *, archive_entry: Mapping[str, Any] | None = None, pdf_bytes: bytes | None = None
 ) -> tuple[bytes, dict[str, Any]]:
-    clean_run = sanitize_for_export(copy.deepcopy(dict(run or {})))
+    from report_export_audit import canonical_public_run, validate_artifacts, validate_zip
+    canonical_run = canonical_public_run(run)
+    clean_run = sanitize_for_export(canonical_run)
     identity = _report_identity(clean_run, archive_entry)
     replay_level, missing = classify_replay_case(clean_run)
     report_dir = "report"
@@ -258,9 +269,11 @@ def build_single_report_package(
         replay_result = sanitize_for_export(replay_report(clean_run))
     except Exception as exc:
         replay_result = {"report_id": identity["report_id"], "status": "ERROR", "reason": str(exc), "results": []}
+    report_json = _json_bytes(clean_run)
+    report_txt = _build_text(clean_run).encode("utf-8")
     files: dict[str, bytes] = {
-        f"{report_dir}/report.json": _json_bytes(clean_run),
-        f"{report_dir}/report.txt": _build_text(clean_run).encode("utf-8"),
+        f"{report_dir}/report.json": report_json,
+        f"{report_dir}/report.txt": report_txt,
         f"{report_dir}/input_snapshot.json": _json_bytes(_input_snapshot(clean_run)),
         f"{report_dir}/decision_trace.json": _json_bytes(_candidate_trace(clean_run)),
         f"{report_dir}/replay_result_rc16.json": _json_bytes(replay_result),
@@ -270,11 +283,16 @@ def build_single_report_package(
             "source_audit": clean_run.get("source_audit") or [],
         })),
     }
-    pdf = pdf_bytes if pdf_bytes and bytes(pdf_bytes).startswith(b"%PDF-") else _read_pdf_without_side_effects(clean_run, archive_entry)
-    if pdf:
-        files[f"{report_dir}/report.pdf"] = bytes(pdf)
-    else:
-        missing = list(missing) + ["report.pdf"]
+    # Always rebuild from clean_run. Reusing an archived/UI PDF can silently
+    # mix an older identity or ranking with the current TXT/JSON contract.
+    pdf = _build_canonical_pdf(clean_run)
+    files[f"{report_dir}/report.pdf"] = pdf
+    if missing and any(item in {"report.pdf", "report.txt", "report.json"} for item in missing):
+        raise RuntimeError("Rapportpakken mangler obligatoriske artefakter: " + ", ".join(sorted(set(missing))))
+    audit = validate_artifacts(run=clean_run, pdf=bytes(pdf or b""), txt=report_txt, json_bytes=report_json)
+    if not audit.get("ok"):
+        raise RuntimeError("Report Consistency Audit feilet: " + "; ".join(audit.get("errors") or []))
+    files["REPORT_CONSISTENCY_AUDIT.json"] = _json_bytes(audit)
     manifest = {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "export_type": "SINGLE_REPORT_PACKAGE",
@@ -289,7 +307,11 @@ def build_single_report_package(
         "production_data_mutated": False,
     }
     files["MANIFEST.json"] = _json_bytes(manifest)
-    return _finalize_zip(files), manifest
+    payload = _finalize_zip(files)
+    zip_audit = validate_zip(payload)
+    if not zip_audit.get("ok"):
+        raise RuntimeError("Ferdig ZIP feilet sluttkontroll: " + "; ".join(zip_audit.get("errors") or []))
+    return payload, manifest
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -406,6 +428,7 @@ def build_complete_replay_export(
 ) -> tuple[bytes, dict[str, Any]]:
     """Build one read-only ZIP from every still-available report and learning store."""
     import market_intelligence as mi
+    from report_export_audit import canonical_public_run, validate_artifacts
 
     version_filter = {str(item).strip() for item in (versions or []) if str(item).strip()}
     archive_rows = [dict(item) for item in mi._load_report_archive() if isinstance(item, Mapping)]
@@ -455,13 +478,30 @@ def build_complete_replay_export(
         seen_content[content_hash] = identity["run_id"]
         if progress_callback:
             progress_callback(completed_units, total, f"Pakker rapport: {identity_key}")
-        clean_run = sanitize_for_export(run)
+        canonical_run = canonical_public_run(run)
+        clean_run = sanitize_for_export(canonical_run)
         replay_level, missing = classify_replay_case(clean_run)
         replay_counts[replay_level] += 1
         folder = f"reports/{_safe_component(identity_key)}"
+        report_json = _json_bytes(clean_run)
+        report_txt = _build_text(clean_run).encode("utf-8")
+        report_pdf = _build_canonical_pdf(clean_run)
+        audit = validate_artifacts(
+            run=clean_run,
+            pdf=report_pdf,
+            txt=report_txt,
+            json_bytes=report_json,
+        )
+        if not audit.get("ok"):
+            raise RuntimeError(
+                f"Report Consistency Audit feilet for {identity_key}: "
+                + "; ".join(audit.get("errors") or [])
+            )
         report_files = {
-            f"{folder}/report.json": _json_bytes(clean_run),
-            f"{folder}/report.txt": _build_text(clean_run).encode("utf-8"),
+            f"{folder}/report.json": report_json,
+            f"{folder}/report.txt": report_txt,
+            f"{folder}/report.pdf": report_pdf,
+            f"{folder}/REPORT_CONSISTENCY_AUDIT.json": _json_bytes(audit),
             f"{folder}/input_snapshot.json": _json_bytes(_input_snapshot(clean_run)),
             f"{folder}/decision_trace.json": _json_bytes(_candidate_trace(clean_run)),
             f"{folder}/archive_entry.json": _json_bytes(sanitize_for_export(entry)),
@@ -478,12 +518,6 @@ def build_complete_replay_export(
             replay_result = {"report_id": identity_key, "status": "ERROR", "reason": str(exc), "results": []}
         replay_reports.append(replay_result)
         report_files[f"{folder}/replay_result_rc16.json"] = _json_bytes(replay_result)
-        pdf = _read_pdf_without_side_effects(clean_run, entry)
-        if pdf:
-            report_files[f"{folder}/report.pdf"] = pdf
-        else:
-            missing = list(missing) + ["report.pdf"]
-            missing_files.append({"report_id": identity_key, "file": "report.pdf"})
         files.update(report_files)
         if missing:
             incomplete.append({"report_id": identity_key, "run_id": identity["run_id"], "replay_level": replay_level, "missing": sorted(set(missing))})

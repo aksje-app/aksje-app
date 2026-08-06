@@ -1017,6 +1017,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     for candidate in list(candidates)[:10]:
         raw_action = str(candidate.get("action") or candidate.get("status") or "REVIEW")
         action = decision_label(raw_action)
+        lines.append(f"#{int(candidate.get('rank') or 0)} {candidate.get('ticker') or '-'} · Beslutning: {candidate.get('decision_label') or action}")
         consensus = candidate.get("source_consensus") if isinstance(candidate.get("source_consensus"), Mapping) else {}
         profile = candidate.get("confidence") if isinstance(candidate.get("confidence"), Mapping) else {}
         validity = candidate.get("validity") if isinstance(candidate.get("validity"), Mapping) else {}
@@ -1990,23 +1991,57 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import CondPageBreak, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
 
     report_document = ensure_report_document(run)
     report_metadata = report_document.get("metadata") if isinstance(report_document.get("metadata"), Mapping) else {}
     identity = resolve_report_identity(run)
     report_type = report_type or f"Investor Edition · {report_metadata.get('report_label') or identity.get('label', 'Rapport')} – Markedsanalyse"
+    # RC16.10 ships the exact font files used by the PDF renderer.  Do not
+    # silently fall back to a host-dependent font: an exported report must be
+    # visually reproducible on every deployment.
+    font_dir = Path(__file__).resolve().parent / "assets" / "fonts"
+    regular_path = font_dir / "NotoSans-Regular.ttf"
+    bold_path = font_dir / "NotoSans-Bold.ttf"
+    if not regular_path.is_file() or not bold_path.is_file():
+        raise RuntimeError("Medfølgende Noto Sans-fonter mangler; PDF kan ikke bygges reproducerbart")
+    pdfmetrics.registerFont(TTFont("ReportSans", str(regular_path)))
+    pdfmetrics.registerFont(TTFont("ReportSans-Bold", str(bold_path)))
+    regular_font, bold_font = "ReportSans", "ReportSans-Bold"
+
+    class ReportDocTemplate(SimpleDocTemplate):
+        def afterFlowable(self, flowable):
+            if not isinstance(flowable, Paragraph):
+                return
+            style_name = getattr(getattr(flowable, "style", None), "name", "")
+            if style_name not in {"ReportTitle", "Section", "Subsection"}:
+                return
+            level = {"ReportTitle": 0, "Section": 0, "Subsection": 1}[style_name]
+            title = flowable.getPlainText().strip()
+            if not title:
+                return
+            keys = getattr(self, "_outline_keys", [])
+            key = f"outline-{self.page}-{len(keys)}"
+            self._outline_keys = keys + [key]
+            self.canv.bookmarkPage(key)
+            try:
+                self.canv.addOutlineEntry(title, key, level=level, closed=False)
+            except Exception:
+                pass
+
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=13*mm, leftMargin=13*mm, topMargin=15*mm, bottomMargin=14*mm,
+    doc = ReportDocTemplate(buf, pagesize=A4, rightMargin=13*mm, leftMargin=13*mm, topMargin=15*mm, bottomMargin=14*mm,
                             title=report_type, author="AI Aksje Analyzer Pro")
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="ReportTitle", parent=styles["Title"], alignment=TA_LEFT, fontName="Helvetica-Bold", fontSize=17, leading=20, textColor=colors.HexColor("#102A43"), spaceAfter=2*mm))
-    styles.add(ParagraphStyle(name="Section", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=12, leading=14, textColor=colors.HexColor("#102A43"), spaceBefore=3*mm, spaceAfter=1.5*mm, keepWithNext=True))
-    styles.add(ParagraphStyle(name="Subsection", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=9.5, leading=11, textColor=colors.HexColor("#243B53"), spaceBefore=2.2*mm, spaceAfter=1*mm, keepWithNext=True))
-    styles.add(ParagraphStyle(name="BodyCompact", parent=styles["BodyText"], fontName="Helvetica", fontSize=8, leading=10, spaceAfter=.8*mm))
-    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontName="Helvetica", fontSize=7.2, leading=8.7, spaceAfter=.6*mm))
-    styles.add(ParagraphStyle(name="MetricCard", parent=styles["BodyText"], fontName="Helvetica", fontSize=7.1, leading=13.2, spaceAfter=0))
-    styles.add(ParagraphStyle(name="Tiny", parent=styles["BodyText"], fontName="Helvetica", fontSize=6.4, leading=7.5))
-    styles.add(ParagraphStyle(name="Footer", parent=styles["BodyText"], fontName="Helvetica", fontSize=6.5, leading=8, textColor=colors.HexColor("#627D98")))
+    styles.add(ParagraphStyle(name="ReportTitle", parent=styles["Title"], alignment=TA_LEFT, fontName=bold_font, fontSize=17, leading=20, textColor=colors.HexColor("#102A43"), spaceAfter=2*mm))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading1"], fontName=bold_font, fontSize=12, leading=14, textColor=colors.HexColor("#102A43"), spaceBefore=3*mm, spaceAfter=1.5*mm, keepWithNext=True))
+    styles.add(ParagraphStyle(name="Subsection", parent=styles["Heading2"], fontName=bold_font, fontSize=9.5, leading=11, textColor=colors.HexColor("#243B53"), spaceBefore=2.2*mm, spaceAfter=1*mm, keepWithNext=True))
+    styles.add(ParagraphStyle(name="BodyCompact", parent=styles["BodyText"], fontName=regular_font, fontSize=8, leading=10, spaceAfter=.8*mm))
+    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontName=regular_font, fontSize=7.2, leading=8.7, spaceAfter=.6*mm))
+    styles.add(ParagraphStyle(name="MetricCard", parent=styles["BodyText"], fontName=regular_font, fontSize=7.1, leading=13.2, spaceAfter=0))
+    styles.add(ParagraphStyle(name="Tiny", parent=styles["BodyText"], fontName=regular_font, fontSize=6.4, leading=7.5))
+    styles.add(ParagraphStyle(name="Footer", parent=styles["BodyText"], fontName=regular_font, fontSize=6.5, leading=8, textColor=colors.HexColor("#627D98")))
 
     header_bg = colors.HexColor("#D9EAF7")
     grid = colors.HexColor("#9FB3C8")
@@ -2016,7 +2051,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         commands = [
             ("GRID", (0, 0), (-1, -1), .3, grid),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("FONTNAME", (0, 0), (-1, -1), regular_font),
             ("FONTSIZE", (0, 0), (-1, -1), font_size),
             ("LEADING", (0, 0), (-1, -1), font_size + 1.3),
             ("LEFTPADDING", (0, 0), (-1, -1), padding),
@@ -2026,7 +2061,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             ("ROWBACKGROUNDS", (0, 1 if header else 0), (-1, -1), [colors.white, stripe]),
         ]
         if header:
-            commands += [("BACKGROUND", (0, 0), (-1, 0), header_bg), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold")]
+            commands += [("BACKGROUND", (0, 0), (-1, 0), header_bg), ("FONTNAME", (0, 0), (-1, 0), bold_font)]
         return TableStyle(commands)
 
     def _p(value: Any, style: str = "Tiny") -> Paragraph:
@@ -2229,12 +2264,19 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         }
 
     def _page(canvas: Any, document: Any) -> None:
+        page_key = f"page-{document.page}"
+        canvas.bookmarkPage(page_key)
+        try:
+            canvas.addOutlineEntry(f"Side {document.page}", page_key, level=0, closed=False)
+            canvas.showOutline()
+        except Exception:
+            pass
         canvas.saveState()
         width, height = A4
         canvas.setStrokeColor(colors.HexColor("#BCCCDC"))
         canvas.setLineWidth(.35)
         canvas.line(13*mm, height-10*mm, width-13*mm, height-10*mm)
-        canvas.setFont("Helvetica", 6.5)
+        canvas.setFont(regular_font, 6.5)
         canvas.setFillColor(colors.HexColor("#627D98"))
         canvas.drawString(13*mm, height-8*mm, f"AI Aksje Analyzer Pro · {APP_VERSION}")
         canvas.drawRightString(width-13*mm, height-8*mm, "Investor Edition · " + str(identity.get("label") or "Rapport"))
@@ -3360,19 +3402,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
                 Paragraph(f"<b>Positive drivere:</b> {escape(_loc(positives))}", styles["Small"]),
                 Paragraph(f"<b>Risikofaktorer og manglende data:</b> {escape(_loc(risks))}; {escape(_clean_sentence(_loc(evidence['cautions'])))}", styles["Small"]),
             ]
-        data = [["#", "Ticker", "Marked", "Score", "Besl.konf.", "Scoretrend", "Risiko (0-100)", "Status"]]
-        for r in candidates:
-            data.append([
-                r.get("rank"), r.get("ticker"), r.get("market"), _fmt(r.get("investment_score")),
-                _fmt(r.get("decision_confidence") or _mapping(r.get("confidence_profile")).get("decision_confidence")), _p(r.get("score_trend") or r.get("trend") or "NY"),
-                format_risk(r.get("risk_score")), _p(r.get("autonomy_outcome_label") or _loc(r.get("status", ""))),
-            ])
-        table = Table(data, repeatRows=1, colWidths=[7*mm, 18*mm, 18*mm, 14*mm, 14*mm, 20*mm, 24*mm, 53*mm])
-        table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9EEF5")), ("GRID", (0,0), (-1,-1), .35, colors.grey),
-                                   ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 7), ("VALIGN", (0,0), (-1,-1), "TOP")]))
-        story += [Paragraph("Full rangering – scoretrend", styles["Section"]),
-                  Paragraph(f"Rangering omfatter {len(candidates)} av {len(candidates)} kandidater. Risiko vises på en referanseskala fra 0 til 100; lavere verdi er bedre.", styles["Small"]),
-                  table]
+        # RC16.9: Never rank rejected/watched/manual candidates in the investor report.
+        # The only public ranking is the buy-only candidate_decisions section.
+        story += [Paragraph("Analysegrunnlag – ikke kandidatrangering", styles["Subsection"]),
+                  Paragraph("Ikke-kjøpsgodkjente aksjer vises kun kort i kontrollvedlegget. Tekniske scorer brukes internt og er ikke en offentlig rangering.", styles["Small"])]
         strategy_data = [["Ticker", "Bransje", "Parallelle strategitreff", "Forklaring"]]
         for candidate in candidates:
             analysis_layer = candidate.get("analysis_ranking") or {}
@@ -3568,8 +3601,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         pdf_date = f"D:{local_created:%Y%m%d%H%M%S}{offset[:3]}'{offset[3:]}'"
         reader = PdfReader(io.BytesIO(pdf_bytes))
         writer = PdfWriter()
-        for page in reader.pages:
-            writer.add_page(page)
+        # add_page() discarded the outline tree created by ReportLab. Clone the
+        # whole document and add a deterministic page outline only if the
+        # runtime did not preserve the semantic heading outline.
+        writer.clone_document_from_reader(reader)
+        try:
+            if not list(reader.outline or []):
+                for page_index in range(len(reader.pages)):
+                    writer.add_outline_item(f"Side {page_index + 1}", page_index)
+        except Exception:
+            for page_index in range(len(reader.pages)):
+                writer.add_outline_item(f"Side {page_index + 1}", page_index)
         metadata = {str(k): str(v) for k, v in dict(reader.metadata or {}).items() if v is not None}
         metadata.update({"/CreationDate": pdf_date, "/ModDate": pdf_date,
                          "/Title": report_type, "/Author": "AI Aksje Analyzer Pro"})
@@ -5352,10 +5394,6 @@ def render_market_intelligence() -> None:
                 if not latest.get("evidence_ready_top3"):
                     st.caption("Ingen kandidat bestod data- og evidensporten; prioriteringen vises for å styre automatisk oppfølging og eventuell konkret manuell undersøkelse.")
                 st.markdown(heading)
-                # A run may contain candidates even when the channel projection
-                # deliberately returns no ranked rows. Streamlit rejects
-                # st.columns(0), which previously aborted the entire report
-                # archive and hid every download action below this point.
                 cols = st.columns(min(3, len(displayed_candidates))) if displayed_candidates else []
                 if not displayed_candidates:
                     st.caption("Ingen kandidater er rangert for prioritert oppfølging i denne rapporten.")
@@ -5462,13 +5500,13 @@ def render_market_intelligence() -> None:
         st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
         archive = _load_report_archive()
         st.markdown("#### Last ned alle rapporter samlet")
-        st.caption("Bygger én verifisert ZIP med alle tilgjengelige rapporter, PDF/TXT/JSON, snapshots, manifest og SHA-256. Eksporten er skrivebeskyttet.")
+        st.caption("Bygger én verifisert ZIP. Hver rapport må bestå samme harde PDF/TXT/JSON-konsistensaudit før arkivet tilbys.")
         try:
             from replay_export_background import get_status as get_replay_export_status, is_running as replay_export_running, start_export as start_replay_export
             replay_status = get_replay_export_status()
             if st.button(
                 "Bygg samlet ZIP av alle rapporter",
-                key="mi_start_all_reports_zip_v19220_rc169",
+                key="mi_start_all_reports_zip_v19220_rc1610",
                 type="primary",
                 width="stretch",
                 disabled=replay_export_running(replay_status),
