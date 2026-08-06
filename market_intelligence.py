@@ -4910,7 +4910,8 @@ def _render_replay_export_status_v19220_rc16(status_override: Mapping[str, Any] 
             if int(summary.get("reports_quarantined") or 0):
                 st.warning(
                     f"{int(summary.get('reports_quarantined') or 0)} historiske rapport(er) besto ikke dagens "
-                    "offentlige eksportport. De er bevart som saniterte karantenevedlegg; resten av arkivet er komplett."
+                    "offentlige eksportport eller tidsgrense. De er bevart som saniterte karantenevedlegg; "
+                    f"{int(summary.get('reports_timed_out') or 0)} ble tidsavbrutt. Resten av arkivet er komplett."
                 )
             payload = read_export_bytes(status)
             if payload and bool(status.get("zip_verified", True)):

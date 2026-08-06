@@ -12,7 +12,7 @@ import tempfile
 import threading
 import zipfile
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -26,6 +26,8 @@ EXPORT_DIR = ROOT / "files"
 _LOCK = threading.RLock()
 _WORKERS: dict[str, threading.Thread] = {}
 _STATUS_SNAPSHOT: dict[str, Any] = {}
+STALE_HEARTBEAT_SECONDS = max(30, int(os.environ.get("REPLAY_EXPORT_STALE_HEARTBEAT_SECONDS", "45")))
+WATCHDOG_INTERVAL_SECONDS = max(2, int(os.environ.get("REPLAY_EXPORT_WATCHDOG_INTERVAL_SECONDS", "5")))
 
 
 
@@ -61,6 +63,45 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _parse_stamp(value: Any) -> datetime | None:
+    try:
+        stamp = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        return stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _local_worker_alive(execution_id: str) -> bool:
+    worker = _WORKERS.get(str(execution_id or ""))
+    return bool(worker and worker.is_alive())
+
+
+def _status_is_stale(status: Mapping[str, Any]) -> bool:
+    state = str(status.get("state") or "").upper()
+    if state not in {"QUEUED", "RUNNING"}:
+        return False
+    execution_id = str(status.get("execution_id") or "")
+    if _local_worker_alive(execution_id):
+        return False
+    heartbeat = _parse_stamp(status.get("worker_heartbeat_at") or status.get("updated_at"))
+    return heartbeat is None or datetime.now(timezone.utc) - heartbeat > timedelta(seconds=STALE_HEARTBEAT_SECONDS)
+
+
+def _recover_stale_status(status: Mapping[str, Any]) -> dict[str, Any]:
+    current = dict(status)
+    if not _status_is_stale(current):
+        return current
+    current.update({
+        "state": "FAILED",
+        "stage": "AVBRUTT",
+        "message": "Foreldet eksportjobb er avsluttet",
+        "error": "Worker mangler eller heartbeat har stoppet. En ny eksport kan startes.",
+        "completed_at": _now(),
+        "stale_worker_recovered": True,
+    })
+    return _write_status(current)
+
+
 def _read_status() -> dict[str, Any]:
     with _LOCK:
         if _STATUS_SNAPSHOT.get("execution_id"):
@@ -85,11 +126,15 @@ def _write_status(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def get_status() -> dict[str, Any]:
-    return _read_status()
+    with _LOCK:
+        return _recover_stale_status(_read_status())
 
 
 def is_running(status: Mapping[str, Any] | None = None) -> bool:
-    return str((status or get_status()).get("state") or "").upper() in {"QUEUED", "RUNNING"}
+    current = dict(status) if status is not None else get_status()
+    if _status_is_stale(current):
+        return False
+    return str(current.get("state") or "").upper() in {"QUEUED", "RUNNING"}
 
 
 def _parse_date(value: str | None, *, end: bool = False) -> datetime | None:
@@ -107,6 +152,26 @@ def _parse_date(value: str | None, *, end: bool = False) -> datetime | None:
 
 
 def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
+    watchdog_stop = threading.Event()
+
+    def watchdog() -> None:
+        while not watchdog_stop.wait(WATCHDOG_INTERVAL_SECONDS):
+            with _LOCK:
+                current = _read_status()
+                if str(current.get("execution_id") or "") != execution_id:
+                    return
+                if str(current.get("state") or "").upper() not in {"QUEUED", "RUNNING"}:
+                    return
+                current["worker_heartbeat_at"] = _now()
+                current["watchdog_alive"] = True
+                _write_status(current)
+
+    watchdog_thread = threading.Thread(
+        target=watchdog,
+        name=f"replay-watchdog-{execution_id}",
+        daemon=True,
+    )
+    watchdog_thread.start()
     try:
         from report_replay_export import build_complete_replay_export, complete_export_filename
 
@@ -190,13 +255,15 @@ def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
                 })
                 _write_status(current)
     finally:
+        watchdog_stop.set()
+        watchdog_thread.join(timeout=1.0)
         with _LOCK:
             _WORKERS.pop(execution_id, None)
 
 
 def start_export(*, date_from: str = "", date_to: str = "", versions: Sequence[str] | None = None) -> dict[str, Any]:
     with _LOCK:
-        current = _read_status()
+        current = _recover_stale_status(_read_status())
         if is_running(current):
             return current
         execution_id = "REPLAY-" + datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6].upper()

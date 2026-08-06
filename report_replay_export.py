@@ -11,7 +11,11 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
+import subprocess
+import sys
+import tempfile
 import zipfile
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
@@ -22,6 +26,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from app_version import APP_VERSION
 
 EXPORT_SCHEMA_VERSION = "1.0"
+REPORT_EXPORT_TIMEOUT_SECONDS = max(30, int(os.environ.get("REPORT_EXPORT_TIMEOUT_SECONDS", "120")))
 _SECRET_KEY = re.compile(
     r"(^|_)(api[_-]?key|secret|password|passwd|token|remember[_-]?token|authorization|cookie|database[_-]?url|dsn)($|_)",
     re.IGNORECASE,
@@ -145,6 +150,105 @@ def _build_text(run: Mapping[str, Any]) -> str:
         return str(build_text_report(copy.deepcopy(dict(run))))
     except Exception:
         return json.dumps(sanitize_for_export(run), ensure_ascii=False, indent=2, default=str)
+
+
+class ReportExportTimeout(RuntimeError):
+    """One report exceeded the hard offline export deadline."""
+
+
+def _build_public_report_artifacts_inline(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Build and audit one report; called only inside the isolated worker."""
+    from report_export_audit import canonical_public_run, validate_artifacts
+
+    canonical_run = canonical_public_run(run)
+    clean_run = sanitize_for_export(canonical_run)
+    replay_level, missing = classify_replay_case(clean_run)
+    report_json = _json_bytes(clean_run)
+    report_txt = _build_text(clean_run).encode("utf-8")
+    report_pdf = _build_canonical_pdf(clean_run)
+    audit = validate_artifacts(
+        run=clean_run,
+        pdf=report_pdf,
+        txt=report_txt,
+        json_bytes=report_json,
+    )
+    if not audit.get("ok"):
+        raise RuntimeError("Report Consistency Audit feilet: " + "; ".join(audit.get("errors") or []))
+    try:
+        from replay_engine import replay_report
+        replay_result = sanitize_for_export(replay_report(clean_run))
+    except Exception as exc:
+        replay_result = {
+            "report_id": clean_run.get("report_id"),
+            "status": "ERROR",
+            "reason": str(exc),
+            "results": [],
+        }
+    return {
+        "clean_run": clean_run,
+        "replay_level": replay_level,
+        "missing": sorted(set(missing)),
+        "report_json": report_json,
+        "report_txt": report_txt,
+        "report_pdf": report_pdf,
+        "audit": audit,
+        "replay_result": replay_result,
+    }
+
+
+def _build_public_report_artifacts_with_timeout(
+    run: Mapping[str, Any],
+    *,
+    timeout_seconds: int = REPORT_EXPORT_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Run all potentially expensive per-report work in a killable process."""
+    worker = Path(__file__).with_name("report_export_isolated_worker.py")
+    if not worker.is_file():
+        raise RuntimeError("Isolert rapportworker mangler")
+    with tempfile.TemporaryDirectory(prefix="report-export-") as raw_tmp:
+        tmp = Path(raw_tmp)
+        input_path = tmp / "input.json"
+        output_path = tmp / "output.zip"
+        error_path = tmp / "error.json"
+        input_path.write_bytes(_json_bytes(sanitize_for_export(run)))
+        env = dict(os.environ)
+        env["AI_REPORT_EXPORT_OFFLINE"] = "1"
+        try:
+            result = subprocess.run(
+                [sys.executable, str(worker), str(input_path), str(output_path), str(error_path)],
+                cwd=str(worker.parent),
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=max(1, int(timeout_seconds)),
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ReportExportTimeout(
+                f"Rapportbygging overskred tidsgrensen på {int(timeout_seconds)} sekunder"
+            ) from exc
+        if result.returncode != 0 or not output_path.is_file():
+            detail = ""
+            try:
+                detail = str(json.loads(error_path.read_text(encoding="utf-8")).get("error") or "")
+            except Exception:
+                detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(detail or f"Isolert rapportworker feilet med kode {result.returncode}")
+        with zipfile.ZipFile(output_path, "r") as archive:
+            if archive.testzip() is not None:
+                raise RuntimeError("Isolert rapportworker produserte en skadet resultatpakke")
+            meta = json.loads(archive.read("meta.json"))
+            return {
+                "clean_run": json.loads(archive.read("clean_run.json")),
+                "replay_level": str(meta.get("replay_level") or "REPORT_ONLY"),
+                "missing": list(meta.get("missing") or []),
+                "report_json": archive.read("report.json"),
+                "report_txt": archive.read("report.txt"),
+                "report_pdf": archive.read("report.pdf"),
+                "audit": json.loads(archive.read("audit.json")),
+                "replay_result": json.loads(archive.read("replay_result.json")),
+            }
 
 
 def _candidate_trace(run: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -447,8 +551,6 @@ def build_complete_replay_export(
 ) -> tuple[bytes, dict[str, Any]]:
     """Build one read-only ZIP from every still-available report and learning store."""
     import market_intelligence as mi
-    from report_export_audit import canonical_public_run, validate_artifacts
-
     version_filter = {str(item).strip() for item in (versions or []) if str(item).strip()}
     archive_rows = [dict(item) for item in mi._load_report_archive() if isinstance(item, Mapping)]
     selected = []
@@ -506,27 +608,21 @@ def build_complete_replay_export(
             progress_callback(completed_units, total, f"Pakker rapport: {identity_key}")
         folder = f"reports/{_safe_component(identity_key)}"
         try:
-            canonical_run = canonical_public_run(run)
-            clean_run = sanitize_for_export(canonical_run)
-            replay_level, missing = classify_replay_case(clean_run)
-            report_json = _json_bytes(clean_run)
-            report_txt = _build_text(clean_run).encode("utf-8")
-            report_pdf = _build_canonical_pdf(clean_run)
-            audit = validate_artifacts(
-                run=clean_run,
-                pdf=report_pdf,
-                txt=report_txt,
-                json_bytes=report_json,
-            )
-            if not audit.get("ok"):
-                raise RuntimeError(
-                    "Report Consistency Audit feilet: " + "; ".join(audit.get("errors") or [])
-                )
+            built = _build_public_report_artifacts_with_timeout(run)
+            clean_run = built["clean_run"]
+            replay_level = str(built["replay_level"])
+            missing = list(built["missing"])
+            report_json = bytes(built["report_json"])
+            report_txt = bytes(built["report_txt"])
+            report_pdf = bytes(built["report_pdf"])
+            audit = dict(built["audit"])
+            replay_result = dict(built["replay_result"])
         except Exception as exc:
+            timed_out = isinstance(exc, ReportExportTimeout)
             quarantine_record = {
                 **identity,
                 "status": "QUARANTINED",
-                "reason_code": "LEGACY_REPORT_FAILED_PUBLIC_EXPORT_GATE",
+                "reason_code": "REPORT_EXPORT_TIMEOUT" if timed_out else "LEGACY_REPORT_FAILED_PUBLIC_EXPORT_GATE",
                 "reason": str(exc),
                 "public_pdf_txt_json_generated": False,
                 "content_sha256": content_hash,
@@ -538,7 +634,7 @@ def build_complete_replay_export(
                 f"{quarantine_folder}/report_raw_sanitized.json": _json_bytes(sanitize_for_export(run)),
                 f"{quarantine_folder}/archive_entry.json": _json_bytes(sanitize_for_export(entry)),
                 f"{quarantine_folder}/README.txt": (
-                    "Denne historiske rapporten besto ikke dagens harde offentlige eksportport.\n"
+                    "Denne historiske rapporten besto ikke dagens harde offentlige eksportport eller tidsgrense.\n"
                     "Det er derfor ikke opprettet PDF, TXT eller offentlig report.json for rapporten.\n"
                     "Den saniterte originalen bevares kun som et kontrollert karantenevedlegg.\n\n"
                     f"Årsak: {exc}\n"
@@ -546,7 +642,8 @@ def build_complete_replay_export(
             })
             completed_units += 1
             if progress_callback:
-                progress_callback(completed_units, total, f"Pakker rapport ferdig (karantene): {identity_key}")
+                outcome = "tidsavbrutt – karantene" if timed_out else "karantene"
+                progress_callback(completed_units, total, f"Pakker rapport ferdig ({outcome}): {identity_key}")
             continue
 
         replay_counts[replay_level] += 1
@@ -564,11 +661,6 @@ def build_complete_replay_export(
                 "source_audit": clean_run.get("source_audit") or [],
             })),
         }
-        try:
-            from replay_engine import replay_report
-            replay_result = sanitize_for_export(replay_report(clean_run))
-        except Exception as exc:
-            replay_result = {"report_id": identity_key, "status": "ERROR", "reason": str(exc), "results": []}
         replay_reports.append(replay_result)
         report_files[f"{folder}/replay_result_rc16.json"] = _json_bytes(replay_result)
         files.update(report_files)
@@ -632,6 +724,7 @@ def build_complete_replay_export(
         "archive_entries_selected": len(selected),
         "unique_reports_exported": len(report_records),
         "reports_quarantined": len(quarantined),
+        "reports_timed_out": sum(1 for row in quarantined if row.get("reason_code") == "REPORT_EXPORT_TIMEOUT"),
         "reports_accounted_for": len(report_records) + len(quarantined),
         "duplicates": len(duplicates),
         "missing_files": len(missing_files),

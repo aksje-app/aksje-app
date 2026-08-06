@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.13"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.13 Fragment-Owned Archive Progress"
+APP_VERSION = "v19.22.0-rc16.14"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.14 Bounded Archive Worker"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.12"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.13"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.14: Hver rapport bygges og replayes offline i en isolert, avsluttbar underprosess med hard tidsgrense. Timeout gir kontrollert karantene og eksporten fortsetter. En separat watchdog oppdaterer heartbeat under lange steg, og foreldet RUNNING-status uten levende worker gjenopprettes automatisk. Ingen eksportport, analyse-, score-, scheduler-, portefølje- eller handelsregel er svekket.",
     "v19.22.0-rc16.13: Startknapp og livestatus for komplett rapport-, replay- og læringsarkiv eies nå av samme statiske Streamlit-fragment. Knappetrykk starter worker og viser ny eksport-ID uten full app-rerendering; fragmentet poller videre hvert tredje sekund. Ingen eksport-, analyse-, score-, scheduler-, portefølje- eller handelsregler er svekket.",
     "v19.22.0-rc16.12: Samlet ZIP viser den nye eksportjobben umiddelbart etter start. Historiske rapporter som ikke består dagens harde offentlige eksportport isoleres i saniterte karantenevedlegg i stedet for å stoppe resten av arkivet; offentlig PDF/TXT/JSON genereres fortsatt bare etter bestått audit. Markedsrekkefølge normaliseres uten å endre markedsutvalget. Ingen analyse-, score-, scheduler-, portefølje- eller handelsregler er endret.",
     "v19.22.0-rc16.11: Enkelt­rapportens komplette ZIP-pakke publiserer nå reell fremdrift for canonicalisering, replay-spor, JSON, TXT, PDF, konsistensaudit, komprimering og sluttkontroll. Både siste rapport og arkiverte rapporter viser prosent, aktivt steg, arbeidsenheter og kjøretid mens knappen arbeider; samlet arkiv beholder sin separate bakgrunnsprogress. Ingen analyse-, score-, scheduler-, portefølje- eller handelsregler er endret.",
