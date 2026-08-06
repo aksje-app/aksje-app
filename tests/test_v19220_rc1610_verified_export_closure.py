@@ -1,6 +1,8 @@
 import io
 import json
 import subprocess
+import sys
+import types
 import unittest
 import zipfile
 from pathlib import Path
@@ -31,7 +33,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.15")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.16")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
@@ -109,7 +111,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
         panel = source[source.index("with tab_reports:"):source.index("with tab_accuracy:")]
         self.assertIn("Komplett rapport-, replay- og læringsarkiv", panel)
-        self.assertIn("_replay_export_start_fragment_v19220_rc1615()", panel)
+        self.assertIn("_replay_export_start_fragment_v19220_rc1616()", panel)
         self.assertIn("_replay_export_status_fragment_v19220_rc16()", panel)
 
     def test_13_invalid_legacy_report_is_quarantined_without_stopping_archive(self):
@@ -143,11 +145,12 @@ class VerifiedExportClosureTests(unittest.TestCase):
 
     def test_14_start_action_is_separate_from_periodic_status_fragment(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        start = source.index("def _replay_export_start_body_v19220_rc1615")
+        start = source.index("def _start_replay_export_callback_v19220_rc1616")
         panel = source[start:source.index("def _build_report_package_with_visible_progress", start)]
-        self.assertIn("st.form_submit_button", panel)
+        self.assertIn("on_click=_start_replay_export_callback_v19220_rc1616", panel)
         self.assertIn("started = start_export()", panel)
-        self.assertIn("_replay_export_start_fragment_v19220_rc1615", panel)
+        self.assertIn("_replay_export_start_fragment_v19220_rc1616", panel)
+        self.assertNotIn("st.form_submit_button", panel)
         self.assertIn('fragment(run_every="3s")', panel)
         start_block = panel[:panel.index("def _replay_export_status_body_v19220_rc1615")]
         self.assertNotIn("run_every", start_block)
@@ -206,6 +209,18 @@ class VerifiedExportClosureTests(unittest.TestCase):
         self.assertEqual(audit["reason_code"], "REPORT_EXPORT_TIMEOUT")
         self.assertEqual(summary["reports_timed_out"], 1)
         self.assertEqual(summary["reports_quarantined"], 1)
+
+    def test_20_click_callback_starts_worker_and_records_acknowledgement(self):
+        import market_intelligence as mi
+        fake_streamlit = types.SimpleNamespace(session_state={})
+        with patch.dict(sys.modules, {"streamlit": fake_streamlit}), \
+             patch("replay_export_background.start_export", return_value={"execution_id": "REPLAY-NEW"}) as starter:
+            mi._start_replay_export_callback_v19220_rc1616()
+        starter.assert_called_once_with()
+        self.assertEqual(
+            fake_streamlit.session_state["mi_replay_export_start_ack_v19220_rc1616"],
+            "REPLAY-NEW",
+        )
 
 
 if __name__ == "__main__":
