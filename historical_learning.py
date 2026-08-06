@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import median
+from statistics import median, pstdev
 from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
@@ -18,7 +18,7 @@ from persistent_config_store import read_persistent_json, write_persistent_json
 VERSION = "v18.7.4"
 ROOT = runtime_data_path("historical_learning")
 SNAPSHOTS_PATH = ROOT / "recommendation_snapshots.json"
-HORIZONS = (1, 5, 30, 90)
+HORIZONS = (1, 5, 20, 30, 60, 90)
 
 
 def _now_iso() -> str:
@@ -213,6 +213,10 @@ def analytics(rows: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]
         "signals": sorted(signal_stats, key=lambda x: x["high_average"] - x["baseline_average"], reverse=True),
         "best_return": round(max(all_returns), 3) if all_returns else None,
         "worst_return": round(min(all_returns), 3) if all_returns else None,
+        "max_drawdown_proxy": round(min(all_returns), 3) if all_returns else None,
+        "sharpe_proxy": round((sum(all_returns) / len(all_returns)) / pstdev(all_returns), 4) if len(all_returns) > 1 and pstdev(all_returns) > 0 else None,
+        "learning_state": "ACTIVE" if len(all_returns) >= 30 else "OBSERVE",
+        "production_parameters_changed": False,
     }
 
 

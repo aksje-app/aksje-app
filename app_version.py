@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.18"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.18 Fast Archive Workspace"
+APP_VERSION = "v19.22.0-rc16.19"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.19 Verified Full Replay"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.17"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.18"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.19: Verifisert Full Replay og inkrementelt læringsarkiv: nye Autonomi-kjøringer fryser kandidatgrunnlag, evidens, markedsdata, konfigurasjon, portefølje før/etter, beslutningsspor og faktiske handlinger i en uforanderlig v2-kontrakt. FULL_REPLAY gis bare etter SHA-256-kontroll, offline reproduksjon gjennom produksjonens beslutningsport, handlingsintegritet og porteføljeavstemming. Mangler og manipulering nedklassifiseres fail-closed. Arkiveksporten oppretter grunnpakke én gang og refererer senere uendrede rapporter via innholdshash. Læringsutfall måles også etter 20 og 60 handelsdager og forblir OBSERVE uten automatisk parameterendring. Ingen kjøps-, salgs-, risiko- eller porteføljeterskler er endret.",
     "v19.22.0-rc16.18: Rapporter åpner nå som standard i et eget Hurtigarkiv som returnerer før scheduler, historikk, Accuracy Analytics, Drift, jobbprofiler og rapportkropper kjøres. ZIP-start og status står alene med kun lett metadata for 20 rapporter. Fullt rapportsenter er fortsatt tilgjengelig som eksplisitt arbeidsområde.",
     "v19.22.0-rc16.17: Rapportarkivet rendrer nå maksimalt 20 lette sammendrag per side. JSON, PDF, tekst, spor og nedlastingshandlinger lastes bare etter eksplisitt Last rapportdetaljer for én rapport. ZIP-starten blir dermed interaktiv uten å vente på hele arkivet. RC16.14–16.16-sikkerhetsmekanismene beholdes.",
     "v19.22.0-rc16.16: Skjemainnsendingen som kolliderte med fragmentlivssyklusen er fjernet. En vanlig knapp i et ikke-periodisk fragment bruker nå on_click-callback som oppretter eksportworkeren før fragmentets rerendering, med egen ny widgetidentitet og eksport-ID-kvittering. Statuspolling forblir separat; RC16.14-sikkerhetsmekanismene beholdes.",

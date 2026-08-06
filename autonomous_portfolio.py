@@ -696,6 +696,8 @@ def portfolio_status_summary(latest_chain: Mapping[str, Any] | None = None) -> d
         "Minimum ordinær score": params.minimum_investment_score,
         "Minimum læringsscore": params.learning_probe_minimum_score,
         "Læringskjøp aktivert": bool(params.enable_learning_probe_buys),
+        "Replaystatus siste kjøring": str(auto_detail.get("replay_level") or "Ikke registrert"),
+        "Replaymangler": list(auto_detail.get("full_replay_missing") or []),
     }
 
 
@@ -845,6 +847,10 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     learning_trades: list[dict[str, Any]] = []
     exited_this_cycle: set[str] = set()
     entry_tickers_seen: set[str] = set()
+    replay_snapshot_result: dict[str, Any] = {
+        "replay_level": "DECISION_REPLAY",
+        "missing": ["FULL_REPLAY_SNAPSHOT_NOT_FINALIZED"],
+    }
 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
     market_snapshot_row: dict[str, Any] = {}
@@ -1271,6 +1277,53 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     except Exception as shared_exc:
         _append_audit("SHARED_STRATEGY_ACCOUNTS_FAILED", {"run_id": run_id, "error": f"{type(shared_exc).__name__}: {str(shared_exc)[:500]}"})
 
+    # Persist the immutable replay contract only after the ordinary portfolio
+    # cycle is finalized.  Failure never fabricates FULL_REPLAY and never
+    # changes the already evaluated trading rules or parameters.
+    try:
+        from autonomi_core.portfolio_decisions.layer import build_portfolio_context
+        from replay_contract import build_snapshot, persist_snapshot
+
+        frozen_context = build_portfolio_context(starting_portfolio)
+        replay_bundle = build_snapshot(
+            run_id=run_id,
+            candidates=candidates,
+            portfolio_before=starting_portfolio,
+            portfolio_after=portfolio,
+            portfolio_context=frozen_context,
+            parameters=asdict(params),
+            market_snapshot=market_snapshot_row,
+            actions=trades,
+        )
+        persisted_replay = persist_snapshot(replay_bundle)
+        replay_manifest = dict(persisted_replay.get("manifest") or {})
+        replay_audit = dict(persisted_replay.get("audit") or replay_manifest.get("audit") or {})
+        replay_snapshot_result = {
+            "replay_level": str(replay_manifest.get("replay_level") or "DECISION_REPLAY"),
+            "schema_version": replay_manifest.get("schema_version"),
+            "contract": replay_manifest.get("contract"),
+            "stored": bool(persisted_replay.get("stored")),
+            "reused": bool(persisted_replay.get("reused")),
+            "audit": replay_audit,
+            "missing": list(replay_audit.get("errors") or []),
+        }
+        _append_audit("FULL_REPLAY_SNAPSHOT_FINALIZED", {
+            "run_id": run_id,
+            "replay_level": replay_snapshot_result["replay_level"],
+            "audit_ok": bool(replay_audit.get("ok")),
+            "errors": replay_snapshot_result["missing"],
+        })
+    except Exception as replay_exc:
+        replay_snapshot_result = {
+            "replay_level": "DECISION_REPLAY",
+            "missing": [f"FULL_REPLAY_SNAPSHOT_FAILED:{type(replay_exc).__name__}"],
+            "error": str(replay_exc),
+        }
+        _append_audit("FULL_REPLAY_SNAPSHOT_FAILED", {
+            "run_id": run_id,
+            "error": f"{type(replay_exc).__name__}: {str(replay_exc)[:500]}",
+        })
+
     _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "ordinary_trades": len(trades), "learning_decisions": len(learning_decisions), "learning_trades": len(learning_trades), "equity": equity, "status": portfolio.get("status"), "execution_integrity": execution_integrity, "shared_learning_buys": learning_account_result.get("buy_count", 0), "activation_analysis_id": activation_analysis.get("analysis_id")})
     learning_result = None
     try:
@@ -1278,7 +1331,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity}
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity, "full_replay": replay_snapshot_result, "replay_level": replay_snapshot_result.get("replay_level", "DECISION_REPLAY")}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:

@@ -24,8 +24,12 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app_version import APP_VERSION
+from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
+from storage_architecture import runtime_data_path
 
-EXPORT_SCHEMA_VERSION = "1.0"
+EXPORT_SCHEMA_VERSION = "2.0"
+EXPORT_INVENTORY_PATH = runtime_data_path("replay_exports") / "content_inventory.json"
+EXPORT_INVENTORY_KEY = "replay_exports/content_inventory.json"
 REPORT_EXPORT_TIMEOUT_SECONDS = max(30, int(os.environ.get("REPORT_EXPORT_TIMEOUT_SECONDS", "120")))
 _SECRET_KEY = re.compile(
     r"(^|_)(api[_-]?key|secret|password|passwd|token|remember[_-]?token|authorization|cookie|database[_-]?url|dsn)($|_)",
@@ -311,7 +315,18 @@ def classify_replay_case(run: Mapping[str, Any]) -> tuple[str, list[str]]:
     if not has_evidence: missing.append("candidate_evidence")
     if not has_portfolio: missing.append("portfolio_snapshot")
     if has_scores and has_decisions and has_evidence and has_portfolio:
-        return "FULL_REPLAY", []
+        # Presence of report fields proves only decision replay. FULL_REPLAY is
+        # reserved for a separately persisted v2 contract whose checksums,
+        # offline rerun and portfolio reconciliation all pass.
+        try:
+            from replay_contract import classify_snapshot
+            level, contract_missing = classify_snapshot(str(run.get("run_id") or run.get("report_id") or ""))
+            if level == "FULL_REPLAY":
+                return level, []
+            missing.extend(contract_missing)
+        except Exception as exc:
+            missing.append(f"FULL_REPLAY_CLASSIFICATION_ERROR:{type(exc).__name__}")
+        return "DECISION_REPLAY", sorted(set(missing))
     if has_scores and has_decisions:
         return "DECISION_REPLAY", missing
     return "REPORT_ONLY", missing
@@ -466,6 +481,44 @@ def _read_json_path(path: Any, default: Any) -> Any:
     return default
 
 
+def _load_export_inventory() -> dict[str, Any]:
+    value = durable_read_json(EXPORT_INVENTORY_KEY, EXPORT_INVENTORY_PATH, {})
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def commit_export_inventory(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Commit content references only after the caller verified and stored ZIP."""
+    updates = summary.get("inventory_updates") if isinstance(summary.get("inventory_updates"), Mapping) else {}
+    if not updates:
+        return _load_export_inventory()
+    current = _load_export_inventory()
+    reports = dict(current.get("reports") or {})
+    reports.update({str(key): dict(value) for key, value in updates.items() if isinstance(value, Mapping)})
+    payload = {
+        "schema_version": EXPORT_SCHEMA_VERSION,
+        "updated_at": summary.get("exported_at"),
+        "last_export_type": summary.get("export_type"),
+        "reports": reports,
+    }
+    durable_write_json(EXPORT_INVENTORY_KEY, EXPORT_INVENTORY_PATH, payload)
+    return payload
+
+
+def _collect_full_replay_snapshots() -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    try:
+        from replay_contract import REQUIRED_FILES, list_snapshot_ids, load_snapshot
+        for run_id in list_snapshot_ids():
+            bundle = load_snapshot(run_id)
+            out[f"full_replay/{_safe_component(run_id)}/run_manifest.json"] = bundle.get("manifest") or {}
+            for name in REQUIRED_FILES:
+                if name in (bundle.get("files") or {}):
+                    out[f"full_replay/{_safe_component(run_id)}/{name}"] = bundle["files"][name]
+    except Exception as exc:
+        out["audit/full_replay_export_error.json"] = {"error": f"{type(exc).__name__}: {exc}"}
+    return out
+
+
 def _collect_runtime_exports() -> dict[str, Any]:
     out: dict[str, Any] = {}
     try:
@@ -514,6 +567,7 @@ def _collect_runtime_exports() -> dict[str, Any]:
                 continue
             rel = f"runtime_optional/{_safe_component(module_name)}/{_safe_component(attr.lower())}.json"
             out[rel] = _read_json_path(path, [])
+    out.update(_collect_full_replay_snapshots())
     return sanitize_for_export(out)
 
 
@@ -548,8 +602,9 @@ def build_complete_replay_export(
     date_to: datetime | None = None,
     versions: Sequence[str] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    incremental: bool = True,
 ) -> tuple[bytes, dict[str, Any]]:
-    """Build one read-only ZIP from every still-available report and learning store."""
+    """Build a baseline once, then content-addressed deltas for unchanged archives."""
     import market_intelligence as mi
     version_filter = {str(item).strip() for item in (versions or []) if str(item).strip()}
     archive_rows = [dict(item) for item in mi._load_report_archive() if isinstance(item, Mapping)]
@@ -569,6 +624,10 @@ def build_complete_replay_export(
     incomplete: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
     quarantined: list[dict[str, Any]] = []
+    unchanged: list[dict[str, Any]] = []
+    inventory = _load_export_inventory() if incremental else {}
+    previous_reports = inventory.get("reports") if isinstance(inventory.get("reports"), Mapping) else {}
+    inventory_updates: dict[str, dict[str, Any]] = {}
     seen_identity: dict[str, str] = {}
     seen_content: dict[str, str] = {}
     replay_counts = {"FULL_REPLAY": 0, "DECISION_REPLAY": 0, "REPORT_ONLY": 0}
@@ -604,6 +663,23 @@ def build_complete_replay_export(
             continue
         seen_identity[identity_key] = identity["run_id"]
         seen_content[content_hash] = identity["run_id"]
+        previous = previous_reports.get(identity_key) if isinstance(previous_reports, Mapping) else None
+        if isinstance(previous, Mapping) and str(previous.get("content_sha256") or "") == content_hash:
+            unchanged_record = {
+                **identity,
+                "content_sha256": content_hash,
+                "replay_level": str(previous.get("replay_level") or "REPORT_ONLY"),
+                "status": str(previous.get("status") or "EXPORTED"),
+                "reference_exported_at": previous.get("exported_at"),
+                "reason": "UNCHANGED_CONTENT_ALREADY_EXPORTED",
+            }
+            unchanged.append(unchanged_record)
+            if unchanged_record["status"] == "EXPORTED" and unchanged_record["replay_level"] in replay_counts:
+                replay_counts[unchanged_record["replay_level"]] += 1
+            completed_units += 1
+            if progress_callback:
+                progress_callback(completed_units, total, f"Refererer uendret rapport: {identity_key}")
+            continue
         if progress_callback:
             progress_callback(completed_units, total, f"Pakker rapport: {identity_key}")
         folder = f"reports/{_safe_component(identity_key)}"
@@ -628,6 +704,13 @@ def build_complete_replay_export(
                 "content_sha256": content_hash,
             }
             quarantined.append(quarantine_record)
+            inventory_updates[identity_key] = {
+                "content_sha256": content_hash,
+                "status": "QUARANTINED",
+                "replay_level": "REPORT_ONLY",
+                "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "reason_code": quarantine_record["reason_code"],
+            }
             quarantine_folder = f"{folder}/quarantine"
             files.update({
                 f"{quarantine_folder}/QUARANTINE_AUDIT.json": _json_bytes(quarantine_record),
@@ -669,6 +752,12 @@ def build_complete_replay_export(
         if str(clean_run.get("report_id") or identity_key) != identity_key:
             conflicts.append({"report_id": identity_key, "field": "report_id", "run_value": clean_run.get("report_id")})
         report_records.append({**identity, "replay_level": replay_level, "missing": sorted(set(missing)), "content_sha256": content_hash})
+        inventory_updates[identity_key] = {
+            "content_sha256": content_hash,
+            "status": "EXPORTED",
+            "replay_level": replay_level,
+            "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
         completed_units += 1
         if progress_callback:
             progress_callback(completed_units, total, f"Pakker rapport ferdig: {identity_key}")
@@ -714,10 +803,11 @@ def build_complete_replay_export(
     files["audit/incomplete_replay_cases.json"] = _json_bytes(incomplete)
     files["audit/conflicts.json"] = _json_bytes(conflicts)
     files["audit/quarantined_reports.json"] = _json_bytes(quarantined)
+    files["audit/unchanged_report_references.json"] = _json_bytes(unchanged)
 
     summary = {
         "schema_version": EXPORT_SCHEMA_VERSION,
-        "export_type": "COMPLETE_REPLAY_ARCHIVE",
+        "export_type": "INCREMENTAL_REPLAY_ARCHIVE" if incremental and bool(previous_reports) else "BASELINE_REPLAY_ARCHIVE",
         "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "exporter_version": APP_VERSION,
         "archive_entries_found": len(archive_rows),
@@ -726,6 +816,8 @@ def build_complete_replay_export(
         "reports_quarantined": len(quarantined),
         "reports_timed_out": sum(1 for row in quarantined if row.get("reason_code") == "REPORT_EXPORT_TIMEOUT"),
         "reports_accounted_for": len(report_records) + len(quarantined),
+        "reports_unchanged_referenced": len(unchanged),
+        "reports_accounted_for_total": len(report_records) + len(quarantined) + len(unchanged),
         "duplicates": len(duplicates),
         "missing_files": len(missing_files),
         "incomplete_replay_cases": len(incomplete),
@@ -742,12 +834,15 @@ def build_complete_replay_export(
         "network_calls": False,
         "notifications_sent": False,
         "production_data_mutated": False,
+        "content_addressed": True,
+        "incremental": bool(incremental and previous_reports),
+        "inventory_updates": inventory_updates,
     }
     files["EXPORT_SUMMARY.json"] = _json_bytes(summary)
-    files["REPLAY_DATASET_MANIFEST.json"] = _json_bytes({"summary": summary, "reports": report_records, "quarantined_reports": quarantined})
+    files["REPLAY_DATASET_MANIFEST.json"] = _json_bytes({"summary": summary, "reports": report_records, "quarantined_reports": quarantined, "unchanged_report_references": unchanged})
     files["MANIFEST.json"] = _json_bytes({
         "schema_version": EXPORT_SCHEMA_VERSION,
-        "export_type": "COMPLETE_REPLAY_ARCHIVE",
+        "export_type": summary["export_type"],
         "exported_at": summary["exported_at"],
         "exporter_version": APP_VERSION,
         "summary_file": "EXPORT_SUMMARY.json",

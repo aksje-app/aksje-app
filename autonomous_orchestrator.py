@@ -96,6 +96,7 @@ def run_post_scan_chain(
                 learning_buys = [x for x in learning_trades if str(x.get("action") or "").upper() == "BUY"]
                 buys = ordinary_buys + learning_buys
                 execution_integrity = dict(cycle.get("execution_integrity") or {})
+                full_replay = dict(cycle.get("full_replay") or {})
                 skips = [x for x in cycle_decisions if x.get("action") == "SKIP"]
                 stage("AUTONOMOUS_PORTFOLIO", "OK" if execution_integrity.get("ok", True) else "BLOCKED", {
                     "trades": len(cycle_trades), "buys": len(buys), "ordinary_buys": len(ordinary_buys), "learning_buys": len(learning_buys), "sells": len(sells),
@@ -107,6 +108,9 @@ def run_post_scan_chain(
                     "learning_buy_tickers": [x.get("ticker") for x in learning_buys],
                     "sell_tickers": [x.get("ticker") for x in sells],
                     "execution_integrity": execution_integrity,
+                    "replay_level": cycle.get("replay_level") or "DECISION_REPLAY",
+                    "full_replay_audit": full_replay.get("audit") or {},
+                    "full_replay_missing": full_replay.get("missing") or [],
                     "reason": ("Handel blokkert av integritetskontrollen" if not execution_integrity.get("ok", True) else ("Separate læringsposisjoner opprettet" if learning_buys and not ordinary_buys else ("Ingen kjøp opprettet" if not ordinary_buys else "Ordinære teoretiske porteføljekjøp opprettet"))),
                 })
         except Exception as exc:

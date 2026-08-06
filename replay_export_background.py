@@ -222,6 +222,11 @@ def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
         if persisted != archive_bytes or not _valid_zip_bytes(persisted):
             raise RuntimeError("Replay-ZIP kunne ikke verifiseres etter lagring")
         archive_sha256 = _sha256(persisted)
+        # The content inventory is committed only after the ZIP exists and its
+        # bytes passed the final integrity check. A failed export is never used
+        # as the baseline for future deltas.
+        from report_replay_export import commit_export_inventory
+        commit_export_inventory(summary)
         with _LOCK:
             current = _read_status()
             if str(current.get("execution_id") or "") == execution_id:
