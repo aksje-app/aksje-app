@@ -33,7 +33,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.16")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.17")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
@@ -221,6 +221,19 @@ class VerifiedExportClosureTests(unittest.TestCase):
             fake_streamlit.session_state["mi_replay_export_start_ack_v19220_rc1616"],
             "REPLAY-NEW",
         )
+
+    def test_21_archive_is_paginated_and_heavy_details_are_lazy(self):
+        source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
+        archive = source[source.index("with tab_reports:"):source.index("with tab_accuracy:")]
+        self.assertIn("archive_page_size_v19220_rc1617 = 20", archive)
+        self.assertIn("for row in visible_archive_rows_v19220_rc1617", archive)
+        self.assertNotIn("for row in filtered[:200]", archive)
+        toggle_pos = archive.index('"Last rapportdetaljer"')
+        load_pos = archive.index("saved_run = load_archived_run(row)")
+        self.assertLess(toggle_pos, load_pos)
+        between = archive[toggle_pos:load_pos]
+        self.assertIn("if not load_details_v19220_rc1617", between)
+        self.assertIn("continue", between)
 
 
 if __name__ == "__main__":
