@@ -5352,7 +5352,13 @@ def render_market_intelligence() -> None:
                 if not latest.get("evidence_ready_top3"):
                     st.caption("Ingen kandidat bestod data- og evidensporten; prioriteringen vises for å styre automatisk oppfølging og eventuell konkret manuell undersøkelse.")
                 st.markdown(heading)
-                cols = st.columns(min(3, len(displayed_candidates)))
+                # A run may contain candidates even when the channel projection
+                # deliberately returns no ranked rows. Streamlit rejects
+                # st.columns(0), which previously aborted the entire report
+                # archive and hid every download action below this point.
+                cols = st.columns(min(3, len(displayed_candidates))) if displayed_candidates else []
+                if not displayed_candidates:
+                    st.caption("Ingen kandidater er rangert for prioritert oppfølging i denne rapporten.")
                 for idx, candidate in enumerate(displayed_candidates):
                     strengths = {"AI Discovery": candidate.get("discovery_score",0), "Fundamentaler": candidate.get("fundamental_score",0), "Research": candidate.get("research_score",0), "Validering": candidate.get("validation_score",0), "Porteføljetilpasning": candidate.get("portfolio_fit_score",0), "Insider": (candidate.get("raw") or {}).get("insider_score",50)}
                     strongest = max(strengths, key=lambda k: float(strengths[k] or 0))
@@ -5455,6 +5461,24 @@ def render_market_intelligence() -> None:
         st.markdown("### 📚 Rapportarkiv")
         st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
         archive = _load_report_archive()
+        st.markdown("#### Last ned alle rapporter samlet")
+        st.caption("Bygger én verifisert ZIP med alle tilgjengelige rapporter, PDF/TXT/JSON, snapshots, manifest og SHA-256. Eksporten er skrivebeskyttet.")
+        try:
+            from replay_export_background import get_status as get_replay_export_status, is_running as replay_export_running, start_export as start_replay_export
+            replay_status = get_replay_export_status()
+            if st.button(
+                "Bygg samlet ZIP av alle rapporter",
+                key="mi_start_all_reports_zip_v19220_rc169",
+                type="primary",
+                width="stretch",
+                disabled=replay_export_running(replay_status),
+            ):
+                start_replay_export()
+                st.success("ZIP-eksporten er startet. Fremdriften oppdateres automatisk.")
+            _replay_export_status_fragment_v19220_rc16()
+        except Exception as exc:
+            st.error(f"Samlet ZIP kunne ikke startes: {exc}")
+        st.divider()
         q1, q2, q3, q4 = st.columns([2.2, 1.1, 1.1, 1.1])
         search = q1.text_input("Søk", placeholder="Ticker, jobbnavn, marked eller rapport-ID", key="mi_archive_search_v1921").strip().casefold()
         type_filter = q2.selectbox(
@@ -5667,42 +5691,6 @@ def render_market_intelligence() -> None:
         jobs = load_jobs(); active = [x for x in jobs if x.enabled]
         archive_rows_rc16 = _load_report_archive()
         archive_count = len(archive_rows_rc16); o1,o2,o3,o4 = st.columns(4); o1.metric("Jobber", len(jobs)); o2.metric("Aktive", len(active)); o3.metric("Kjøringer", archive_count); o4.metric("Regenererbare PDF-er", archive_count)
-
-        st.markdown("#### Komplett rapport- og læringsarkiv")
-        st.caption("Bygger en skrivebeskyttet replay-ZIP av alle fortsatt tilgjengelige rapporter, kandidatsnapshots, jobbdata og Autonomi-/læringsporteføljer. Ingen API-kall, Pushover eller handler utføres.")
-        export_period = st.selectbox(
-            "Eksportperiode", ["Alle tilgjengelige", "Siste 30 dager", "Siste 90 dager", "Egendefinert"],
-            key="mi_replay_export_period_v19220_rc16",
-        )
-        export_start = export_end = ""
-        if export_period == "Egendefinert":
-            ex1, ex2 = st.columns(2)
-            export_start = str(ex1.date_input("Fra dato", key="mi_replay_export_start_v19220_rc16"))
-            export_end = str(ex2.date_input("Til dato", key="mi_replay_export_end_v19220_rc16"))
-        elif export_period in {"Siste 30 dager", "Siste 90 dager"}:
-            days = 30 if export_period == "Siste 30 dager" else 90
-            export_start = str((_now().astimezone(ZoneInfo(DEFAULT_TIMEZONE)) - timedelta(days=days)).date())
-            export_end = str(_now().astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date())
-        version_options = sorted({str(row.get("app_version") or row.get("version") or "") for row in archive_rows_rc16 if str(row.get("app_version") or row.get("version") or "")})
-        export_versions = st.multiselect(
-            "Versjoner (tomt betyr alle)", version_options,
-            key="mi_replay_export_versions_v19220_rc16",
-        )
-        try:
-            from replay_export_background import get_status as get_replay_export_status, is_running as replay_export_running, start_export as start_replay_export
-            replay_status = get_replay_export_status()
-            if st.button(
-                "Eksporter komplett rapport- og læringsarkiv",
-                key="mi_start_complete_replay_export_v19220_rc16",
-                type="primary",
-                width="stretch",
-                disabled=replay_export_running(replay_status),
-            ):
-                start_replay_export(date_from=export_start, date_to=export_end, versions=export_versions)
-                st.success("Replay-eksporten er startet i en separat worker.")
-            _replay_export_status_fragment_v19220_rc16()
-        except Exception as exc:
-            st.error(f"Replay-eksportfunksjonen kunne ikke lastes: {exc}")
 
         try:
             from scheduled_runner import load_unattended_state
