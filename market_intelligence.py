@@ -4873,11 +4873,11 @@ else:
     _live_report_progress_fragment_v19220_rc161 = _live_report_progress_body_v19220_rc161
 
 
-def _render_replay_export_status_v19220_rc16() -> None:
+def _render_replay_export_status_v19220_rc16(status_override: Mapping[str, Any] | None = None) -> None:
     import streamlit as st
     from replay_export_background import get_status, is_running, read_export_bytes
 
-    status = get_status()
+    status = dict(status_override or get_status())
     if not status:
         st.caption("Ingen komplett replay-eksport er startet ennå.")
         return
@@ -4930,12 +4930,30 @@ def _render_replay_export_status_v19220_rc16() -> None:
             st.caption("Eksporten kjører i en separat worker. Rapportvisningen kan brukes mens arkivet bygges.")
 
 
+def _replay_export_panel_body_v19220_rc1613() -> None:
+    """Own both the start action and live status inside one fragment rerun."""
+    import streamlit as st
+    from replay_export_background import get_status, is_running, start_export
+
+    status = get_status()
+    if st.button(
+        "Bygg komplett rapport-, replay- og læringsarkiv (ZIP)",
+        key="mi_start_complete_replay_archive_v19220_rc1613",
+        type="primary",
+        width="stretch",
+        disabled=is_running(status),
+    ):
+        status = start_export()
+        st.success("Eksporten er startet. Ny eksport-ID og fremdrift vises nedenfor.")
+    _render_replay_export_status_v19220_rc16(status)
+
+
 try:
     _replay_export_status_fragment_v19220_rc16 = _st_fragment_rc161.fragment(run_every="3s")(
-        _render_replay_export_status_v19220_rc16
+        _replay_export_panel_body_v19220_rc1613
     )
 except Exception:
-    _replay_export_status_fragment_v19220_rc16 = _render_replay_export_status_v19220_rc16
+    _replay_export_status_fragment_v19220_rc16 = _replay_export_panel_body_v19220_rc1613
 
 
 def _build_report_package_with_visible_progress_v19220_rc1611(
@@ -5536,22 +5554,9 @@ def render_market_intelligence() -> None:
         st.markdown("### 📚 Rapportarkiv")
         st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
         archive = _load_report_archive()
-        st.markdown("#### Last ned alle rapporter samlet")
-        st.caption("Bygger én verifisert ZIP. Hver rapport må bestå samme harde PDF/TXT/JSON-konsistensaudit før arkivet tilbys.")
+        st.markdown("#### Komplett rapport-, replay- og læringsarkiv")
+        st.caption("Skrivebeskyttet offline-eksport med rapporter, replaydata, Autonomi-/læringsdata, manifest, avvik og SHA-256.")
         try:
-            from replay_export_background import get_status as get_replay_export_status, is_running as replay_export_running, start_export as start_replay_export
-            replay_status = get_replay_export_status()
-            if st.button(
-                "Bygg samlet ZIP av alle rapporter",
-                key="mi_start_all_reports_zip_v19220_rc1610",
-                type="primary",
-                width="stretch",
-                disabled=replay_export_running(replay_status),
-            ):
-                started_export = start_replay_export()
-                st.session_state["mi_started_replay_export_id_v19220_rc1612"] = str(started_export.get("execution_id") or "")
-                st.success("ZIP-eksporten er startet. Fremdriften vises straks og oppdateres automatisk.")
-                _rerun_reports_v19220_rc11(st)
             _replay_export_status_fragment_v19220_rc16()
         except Exception as exc:
             st.error(f"Samlet ZIP kunne ikke startes: {exc}")
