@@ -5010,6 +5010,34 @@ def _build_report_package_with_visible_progress_v19220_rc1611(
     return payload, single_report_package_filename(run)
 
 
+def _render_quick_report_archive_v19220_rc1618(st: Any) -> None:
+    """Fast default workspace: no scheduler, history, analytics or report bodies."""
+    import pandas as pd
+
+    st.markdown("### 📦 Hurtigarkiv")
+    st.caption(
+        "Starter komplett rapport-, replay- og læringseksport uten å laste jobbprofiler, historikk, "
+        "Accuracy Analytics, Drift, PDF-er eller rapportdetaljer i brukerflaten."
+    )
+    _replay_export_start_fragment_v19220_rc1616()
+    _replay_export_status_fragment_v19220_rc16()
+    archive = _load_report_archive()
+    st.metric("Rapporter registrert", len(archive))
+    latest_rows = []
+    for row in archive[:20]:
+        latest_rows.append({
+            "Rapport": row.get("report_label") or "Rapport",
+            "Jobb": row.get("job_name") or "-",
+            "Tid": row.get("created_at_local") or local_display(
+                row.get("created_at"), str(row.get("timezone_name") or DEFAULT_TIMEZONE)
+            ),
+            "Status": row.get("report_status_label") or row.get("report_state") or "Eldre rapport",
+        })
+    if latest_rows:
+        st.dataframe(pd.DataFrame(latest_rows), width="stretch", hide_index=True)
+        st.caption("Viser kun lett metadata for de 20 nyeste rapportene. Ingen rapportfiler er lastet.")
+
+
 def render_market_intelligence() -> None:
     import pandas as pd
     import streamlit as st
@@ -5038,6 +5066,15 @@ def render_market_intelligence() -> None:
     .mi-settings-help {margin:.15rem 0 .7rem 0; opacity:.82; line-height:1.4;}
     </style>""", unsafe_allow_html=True)
     st.markdown("#### 📊 Rapportsenter · Investor Edition")
+    report_workspace_v19220_rc1618 = st.radio(
+        "Arbeidsområde",
+        ["Hurtigarkiv og komplett ZIP", "Fullt rapportsenter"],
+        horizontal=True,
+        key="mi_report_workspace_v19220_rc1618",
+    )
+    if report_workspace_v19220_rc1618 == "Hurtigarkiv og komplett ZIP":
+        _render_quick_report_archive_v19220_rc1618(st)
+        return
     st.caption("Kjør utkast og manglende faste rapporter fra ett kompakt handlingsområde. Planlegging, historikk og avanserte valg ligger lenger ned.")
     try:
         from scheduler_background import kick_scheduler_background, scheduler_status

@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.17"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.17 Lazy Report Archive"
+APP_VERSION = "v19.22.0-rc16.18"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.18 Fast Archive Workspace"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.16"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.17"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.18: Rapporter åpner nå som standard i et eget Hurtigarkiv som returnerer før scheduler, historikk, Accuracy Analytics, Drift, jobbprofiler og rapportkropper kjøres. ZIP-start og status står alene med kun lett metadata for 20 rapporter. Fullt rapportsenter er fortsatt tilgjengelig som eksplisitt arbeidsområde.",
     "v19.22.0-rc16.17: Rapportarkivet rendrer nå maksimalt 20 lette sammendrag per side. JSON, PDF, tekst, spor og nedlastingshandlinger lastes bare etter eksplisitt Last rapportdetaljer for én rapport. ZIP-starten blir dermed interaktiv uten å vente på hele arkivet. RC16.14–16.16-sikkerhetsmekanismene beholdes.",
     "v19.22.0-rc16.16: Skjemainnsendingen som kolliderte med fragmentlivssyklusen er fjernet. En vanlig knapp i et ikke-periodisk fragment bruker nå on_click-callback som oppretter eksportworkeren før fragmentets rerendering, med egen ny widgetidentitet og eksport-ID-kvittering. Statuspolling forblir separat; RC16.14-sikkerhetsmekanismene beholdes.",
     "v19.22.0-rc16.15: Eksportstart er flyttet til et eget ikke-periodisk Streamlit-fragment med eksplisitt skjemainnsending og umiddelbar eksport-ID-kvittering. Tresekunders polling ligger i et separat skrivebeskyttet statusfragment og kan ikke lenger erstatte startknappen under klikk. RC16.14-timeout, watchdog og karantene er beholdt.",
