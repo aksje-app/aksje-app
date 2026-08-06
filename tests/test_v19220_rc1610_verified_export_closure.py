@@ -24,7 +24,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
         cls.json_bytes = json.dumps(cls.canonical_run, ensure_ascii=False, indent=2, default=str).encode("utf-8")
 
     def test_01_version_contract_is_rc1610(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.12")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.13")
         self.assertEqual(self.canonical_run["app_version"], APP_VERSION)
 
     def test_02_noto_sans_is_embedded(self):
@@ -101,7 +101,7 @@ class VerifiedExportClosureTests(unittest.TestCase):
     def test_12_all_reports_button_is_in_report_archive(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
         panel = source[source.index("with tab_reports:"):source.index("with tab_accuracy:")]
-        self.assertIn("Bygg samlet ZIP av alle rapporter", panel)
+        self.assertIn("Komplett rapport-, replay- og læringsarkiv", panel)
         self.assertIn("_replay_export_status_fragment_v19220_rc16()", panel)
 
     def test_13_invalid_legacy_report_is_quarantined_without_stopping_archive(self):
@@ -136,12 +136,13 @@ class VerifiedExportClosureTests(unittest.TestCase):
         self.assertEqual(summary["reports_quarantined"], 1)
         self.assertEqual(summary["reports_accounted_for"], 2)
 
-    def test_14_all_reports_start_forces_fresh_status_render(self):
+    def test_14_all_reports_start_is_owned_by_live_fragment(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        start = source.index('if st.button(\n                "Bygg samlet ZIP av alle rapporter"')
-        panel = source[start:start + 1300]
-        self.assertIn("started_export = start_replay_export()", panel)
-        self.assertIn("_rerun_reports_v19220_rc11(st)", panel)
+        start = source.index("def _replay_export_panel_body_v19220_rc1613")
+        panel = source[start:source.index("def _build_report_package_with_visible_progress", start)]
+        self.assertIn("status = start_export()", panel)
+        self.assertIn("_render_replay_export_status_v19220_rc16(status)", panel)
+        self.assertNotIn("st.rerun()", panel)
 
     def test_15_market_membership_is_order_independent(self):
         from report_integrity import validate_report_integrity
