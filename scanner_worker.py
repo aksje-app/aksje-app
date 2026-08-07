@@ -32,6 +32,7 @@ import os
 import time
 import requests
 from datetime import datetime, timezone
+from paper_scanner_runtime import load_scanner_status, run_coordinated
 
 from paper_store import force_schema_migration
 from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
@@ -69,8 +70,6 @@ force_schema_migration()
 
 SCANNER_MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
 SCAN_SLEEP_SECONDS = float(os.getenv("SCAN_SLEEP_SECONDS", "0.2"))
-
-
 from notifier import normalize_notification_result, send_pushover_alert  # canonical notifier
 
 
@@ -281,7 +280,7 @@ def maybe_send_trade_alert(result, msg):
     return sent
 
 
-def run_once(force=False):
+def _run_once_impl(force=False):
     # Currency alerts are independent of the stock scanner gate and market hours.
     # This must run before should_run_background_scan(), otherwise closed markets,
     # pause windows or scanner cooldowns silently suppress every FX alert.
@@ -453,12 +452,22 @@ def run_once(force=False):
                     source="paper_scanner_parallel",
                     purpose="PAPER_SCANNER_PARALLEL",
                     portfolio_states={"technical": load_portfolio()},
-                    families=["technical"],
+                    families=["technical", "autonomy"],
+                    context_metadata={
+                        "paper_autonomy_migration_phase": "OBSERVATIONAL_INPUT",
+                        "execution_authorized": False,
+                    },
+                )
+                from paper_autonomy_bridge import publish_paper_engine_handoff
+                handoff = publish_paper_engine_handoff(
+                    run_id=scan_run_id,
+                    market_snapshot=market_snapshot.to_dict(),
+                    parallel_result=parallel,
                 )
                 print(
                     f"Parallel strategies {parallel.get('strategy_run_id')}: "
                     f"strategies={parallel.get('strategy_count')} decisions={parallel.get('decision_count')} "
-                    f"errors={parallel.get('error_count')}"
+                    f"errors={parallel.get('error_count')} paper_autonomy_inputs={handoff.get('candidate_count')}"
                 )
             except Exception as parallel_exc:
                 # Parallel comparison is observability only and may never stop production Paper Trading.
@@ -494,6 +503,11 @@ def run_once(force=False):
     print(f"Trades executed this run: {trades_executed}")
 
     return trades_executed
+
+
+def run_once(force=False):
+    """Durable, globally coordinated unattended Paper scanner entry point."""
+    return run_coordinated(_run_once_impl, force=force)
 
 
 if __name__ == "__main__":

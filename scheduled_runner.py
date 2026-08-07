@@ -75,6 +75,36 @@ def run_once() -> dict[str, Any]:
         _notify_failure_once(state, state["error"])
         return _save(state)
 
+    # The due-job check is the primary purpose of this process and must run
+    # before report repair, revalidation or other maintenance can consume the
+    # cron execution window.
+    try:
+        from runtime_safety import scheduler_allowed
+        scheduler_enabled, scheduler_reason = scheduler_allowed()
+        state["scheduler_configuration"] = {
+            "enabled": bool(scheduler_enabled), "reason": scheduler_reason,
+            "execution_mode": "AUTHORITATIVE_UNATTENDED_CRON",
+        }
+        if not scheduler_enabled:
+            raise RuntimeError(f"Autonomi-planleggeren er ikke aktivert for cron: {scheduler_reason}")
+        from scheduler_background import run_scheduler_cycle
+
+        scheduler = dict(run_scheduler_cycle(authoritative_unattended=True) or {})
+        scheduler["execution_mode"] = "AUTHORITATIVE_UNATTENDED_CRON"
+        state["scheduler"] = scheduler
+        try:
+            from market_intelligence import scheduler_health_snapshot
+            state["scheduler_health"] = dict(scheduler_health_snapshot() or {})
+        except Exception as health_exc:
+            state["scheduler_health"] = {"state": "UNAVAILABLE", "error": str(health_exc)[:500]}
+        if scheduler.get("state") == "ERROR":
+            raise RuntimeError(str(scheduler.get("error") or "Planlegger feilet uten feildetalj"))
+        state["state"] = "COMPLETED"
+    except Exception as exc:
+        state["state"] = "FAILED"
+        state["error"] = str(exc)[:1000]
+        _notify_failure_once(state, state["error"])
+
     # Currency alerts share the durable five-minute Render cron. They run
     # independently of report due-times, market hours and user login.
     try:
@@ -113,24 +143,6 @@ def run_once() -> dict[str, Any]:
         state["report_revalidation"] = dict(revalidate_provisional_reports(limit=1) or {})
     except Exception as exc:
         state["report_revalidation"] = {"state": "FAILED", "error": str(exc)[:500]}
-
-    try:
-        from scheduler_background import run_scheduler_cycle
-
-        scheduler = dict(run_scheduler_cycle() or {})
-        state["scheduler"] = scheduler
-        try:
-            from market_intelligence import scheduler_health_snapshot
-            state["scheduler_health"] = dict(scheduler_health_snapshot() or {})
-        except Exception as health_exc:
-            state["scheduler_health"] = {"state": "UNAVAILABLE", "error": str(health_exc)[:500]}
-        if scheduler.get("state") == "ERROR":
-            raise RuntimeError(str(scheduler.get("error") or "Planlegger feilet uten feildetalj"))
-        state["state"] = "COMPLETED"
-    except Exception as exc:
-        state["state"] = "FAILED"
-        state["error"] = str(exc)[:1000]
-        _notify_failure_once(state, state["error"])
 
     state["completed_at"] = _now()
     _save(state)

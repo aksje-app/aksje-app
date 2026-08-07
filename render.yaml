@@ -87,7 +87,7 @@ services:
       - key: RUNTIME_BACKGROUND_ENABLED
         value: "false"
       - key: REPORT_SCHEDULER_ENABLED
-        value: "false"
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: FINNHUB_API_KEY

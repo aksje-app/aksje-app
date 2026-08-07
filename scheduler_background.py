@@ -75,7 +75,7 @@ def _worker() -> None:
                      message="Bakgrunnsscheduler feilet", error_code=stable_error_code("SCHEDULER", "scheduler_failed", "WORKER"), error=exc)
 
 
-def _run_due_jobs_coordinated() -> list[dict[str, Any]]:
+def _run_due_jobs_coordinated(*, authoritative_unattended: bool = False) -> list[dict[str, Any]]:
     with _global_scheduler_lock() as acquired:
         if not acquired:
             append_event("scheduler/audit.jsonl", _AUDIT_PATH, {
@@ -83,20 +83,22 @@ def _run_due_jobs_coordinated() -> list[dict[str, Any]]:
             })
             return []
         from market_intelligence import run_due_jobs
-        return list(run_due_jobs() or [])
+        return list(run_due_jobs(authoritative_unattended=authoritative_unattended) or [])
 
 
-def run_scheduler_cycle() -> dict[str, Any]:
+def run_scheduler_cycle(*, authoritative_unattended: bool = False) -> dict[str, Any]:
     """Run one durable due-job check with a complete structured trace."""
     global _STATUS
     started = _now()
-    trace = begin_run_trace(kind="SCHEDULER", trigger="BACKGROUND", metadata={"worker": "scheduler_background"})
+    trace = begin_run_trace(kind="SCHEDULER", trigger="BACKGROUND", metadata={
+        "worker": "scheduler_background", "authoritative_unattended": bool(authoritative_unattended),
+    })
     trace_id = str(trace.get("trace_id") or "")
     _STATUS = {"state": "RUNNING", "started_at": started, "completed_at": None, "runs": 0, "error": "", "health": {}, "trace_id": trace_id}
     append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": started, "event": "BACKGROUND_CHECK_STARTED", "trace_id": trace_id})
     mark_run_stage(trace_id, "DUE_JOB_SCAN", status="RUNNING", message="Kontrollerer planlagte jobber")
     try:
-        results = _run_due_jobs_coordinated()
+        results = _run_due_jobs_coordinated(authoritative_unattended=authoritative_unattended)
         mark_run_stage(trace_id, "DUE_JOB_SCAN", status="COMPLETED", message="Planlagte jobber er kontrollert", metrics={"runs": len(results)})
         try:
             from market_intelligence import scheduler_health_snapshot

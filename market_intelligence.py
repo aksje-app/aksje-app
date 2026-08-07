@@ -820,7 +820,12 @@ def _scheduled_history_for_slot_v19220_rc13(job: JobProfile, planned_utc: dateti
     return matches[0] if matches else {}
 
 
-def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str, Any]:
+def schedule_timeline(
+    job: JobProfile,
+    now: datetime | None = None,
+    *,
+    authoritative_unattended: bool = False,
+) -> dict[str, Any]:
     """Return next/previous slot with restart-aware, durable run classification."""
     now_utc = (now or _now()).astimezone(timezone.utc)
     local_now = as_local(now_utc, job.timezone_name)
@@ -853,10 +858,27 @@ def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str,
         previous_slot and (history_completed or (last_run and last_run >= previous_slot))
     )
     process_started_utc = SCHEDULER_OBSERVATION_STARTED_AT_UTC_V19220_RC13
-    unobserved_after_restart = bool(
+    restart_unobserved = bool(
         job.enabled and previous_utc and not history and not completed
         and process_started_utc <= now_utc and previous_utc < process_started_utc
     )
+    try:
+        unattended_grace_minutes = max(5, int(os.getenv("REPORT_CRON_CATCHUP_MINUTES", "90") or 90))
+    except (TypeError, ValueError):
+        unattended_grace_minutes = 90
+    unattended_slot_age_minutes = (
+        max(0.0, (now_utc - previous_utc).total_seconds() / 60.0)
+        if previous_utc else None
+    )
+    authoritative_slot_eligible = bool(
+        authoritative_unattended
+        and previous_utc
+        and unattended_slot_age_minutes is not None
+        and unattended_slot_age_minutes <= unattended_grace_minutes
+    )
+    # A one-shot Render Cron process is the observer by design. Its process
+    # start must not make a slot from the same cron window "unobserved".
+    unobserved_after_restart = bool(restart_unobserved and not authoritative_slot_eligible)
     grace_minutes = 5
     missed = bool(
         job.enabled and previous_slot and not completed and not history_failed
@@ -897,6 +919,10 @@ def schedule_timeline(job: JobProfile, now: datetime | None = None) -> dict[str,
         "scheduler_status_reason_code": reason_code,
         "durable_history_status": str(history.get("status") or ""),
         "scheduler_observation_started_at_utc": process_started_utc.isoformat(timespec="seconds"),
+        "authoritative_unattended": bool(authoritative_unattended),
+        "authoritative_slot_eligible": authoritative_slot_eligible,
+        "unattended_slot_age_minutes": round(unattended_slot_age_minutes, 2) if unattended_slot_age_minutes is not None else None,
+        "unattended_catchup_minutes": unattended_grace_minutes,
     }
 
 
@@ -4096,6 +4122,12 @@ def _run_job_impl(
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
         row["raw_rank"] = idx
+    # RC16.21 migration bridge: reuse the proven Paper scanner's immutable
+    # technical observations as an explicit Autonomi input.  This is
+    # observational only and occurs after ranking, so it cannot mutate score,
+    # order eligibility or the public candidate order.
+    from paper_autonomy_bridge import attach_paper_engine_inputs
+    paper_engine_handoff = attach_paper_engine_inputs(all_candidates)
     evidence_coverage_summary = apply_evidence_coverage_policy(all_candidates)
     from evidence_search_status import build_run_search_summary
     evidence_search_summary = build_run_search_summary(all_candidates)
@@ -4220,6 +4252,7 @@ def _run_job_impl(
            "data_contract": data_contract_summary,
            "evidence_coverage": evidence_coverage_summary,
            "evidence_search_summary": evidence_search_summary,
+           "paper_engine_handoff": paper_engine_handoff,
            "combined_data_quality": combined_quality,
            "integrity_preflight": integrity_preflight,
            "portfolio_need_preflight": portfolio_need_preflight,
@@ -4603,8 +4636,8 @@ def _window_slot_due(job: JobProfile, now: datetime, last: datetime | None) -> b
     return False
 
 
-def _due_slot_info(job: JobProfile, now: datetime) -> dict[str, Any]:
-    timeline = schedule_timeline(job, now)
+def _due_slot_info(job: JobProfile, now: datetime, *, authoritative_unattended: bool = False) -> dict[str, Any]:
+    timeline = schedule_timeline(job, now, authoritative_unattended=authoritative_unattended)
     # A slot is due as soon as the scheduled minute has passed and the
     # last successful/attempted run is older than that planned slot.
     # The user-facing status remains "Venter" until the grace window expires,
@@ -4618,15 +4651,15 @@ def _due_slot_info(job: JobProfile, now: datetime) -> dict[str, Any]:
     return {**timeline, "due": due}
 
 
-def _slot_due(job: JobProfile, now: datetime) -> bool:
-    return bool(_due_slot_info(job, now).get("due"))
+def _slot_due(job: JobProfile, now: datetime, *, authoritative_unattended: bool = False) -> bool:
+    return bool(_due_slot_info(job, now, authoritative_unattended=authoritative_unattended).get("due"))
 
 
-def run_due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
+def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool = False) -> list[dict[str, Any]]:
     now = now or _now()
     results = []
     for job in load_jobs():
-        slot = _due_slot_info(job, now)
+        slot = _due_slot_info(job, now, authoritative_unattended=authoritative_unattended)
         due = bool(slot.get("due"))
         _audit("SCHEDULE_CHECK", {
             "job_id": job.job_id,
@@ -4637,6 +4670,8 @@ def run_due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
             "previous_planned_utc": slot.get("previous_planned_utc"),
             "next_planned_utc": slot.get("next_planned_utc"),
             "timezone_name": job.timezone_name,
+            "authoritative_unattended": bool(authoritative_unattended),
+            "authoritative_slot_eligible": bool(slot.get("authoritative_slot_eligible")),
         })
         if not due:
             continue

@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.20"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.20 Background Job Watchdog"
+APP_VERSION = "v19.22.0-rc16.21"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.21 Unattended Autonomy and Paper Bridge"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.19"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.20"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.21: Autonomi har fått en autoritativ, innloggingsuavhengig Render Cron-kjede. En fersk planlagt tidsluke kan kreves selv om den ett-skudds cronprosessen startet etter klokkeslettet; gammel historikk kan ikke replayes vilkårlig, og PostgreSQL-lås og varig slot-historikk hindrer dobbeltkjøring. Autonomi-planleggeren kjører før rapportreparasjon og revalidering. Paper-skannerens immutable tekniske snapshot og parallelle strategiavgjørelser publiseres med SHA-256 som observasjonelt input til Autonomi uten score- eller ordremutasjon. Paper får varig scannerstatus og global cronlås. Ingen kjøps-, salgs-, stop-loss-, trailing-stop-, RSI-, score-, risiko- eller porteføljeterskler er endret.",
     "v19.22.0-rc16.20: Manuelle rapportjobber har nå en fremdriftsbasert watchdog som skiller worker-heartbeat fra faktisk arbeid. Fastlåste steg tilbakekaller jobbleasen og publiseringsretten, frigjør ny kjøring uten å slette data og avviser forsinkede resultater fra den gamle workeren. Rapportsenteret viser sekunder siden fremdrift og heartbeat, arbeidsenheter, aktivt objekt, tidsgrense, sikker manuell frigivelse og en hemmelighetsfri diagnosepakke. Ingen kjøps-, salgs-, score-, risiko-, portefølje- eller læringsterskler er endret.",
     "v19.22.0-rc16.19: Verifisert Full Replay og inkrementelt læringsarkiv: nye Autonomi-kjøringer fryser kandidatgrunnlag, evidens, markedsdata, konfigurasjon, portefølje før/etter, beslutningsspor og faktiske handlinger i en uforanderlig v2-kontrakt. FULL_REPLAY gis bare etter SHA-256-kontroll, offline reproduksjon gjennom produksjonens beslutningsport, handlingsintegritet og porteføljeavstemming. Mangler og manipulering nedklassifiseres fail-closed. Arkiveksporten oppretter grunnpakke én gang og refererer senere uendrede rapporter via innholdshash. Læringsutfall måles også etter 20 og 60 handelsdager og forblir OBSERVE uten automatisk parameterendring. Ingen kjøps-, salgs-, risiko- eller porteføljeterskler er endret.",
     "v19.22.0-rc16.18: Rapporter åpner nå som standard i et eget Hurtigarkiv som returnerer før scheduler, historikk, Accuracy Analytics, Drift, jobbprofiler og rapportkropper kjøres. ZIP-start og status står alene med kun lett metadata for 20 rapporter. Fullt rapportsenter er fortsatt tilgjengelig som eksplisitt arbeidsområde.",
