@@ -112,3 +112,24 @@ def test_full_report_center_contains_operator_controls():
     assert "Stopp og slå av testmodus" in source
     app = open("app.py", encoding="utf-8").read()
     assert app.index("render_public_report(st)") < app.index("current_user = require_login()")
+
+
+def test_public_renderer_uses_native_static_pdf_not_optional_st_pdf():
+    source = open("public_report_ui.py", encoding="utf-8").read()
+    assert "st.pdf(" not in source
+    assert "_hydrate_static_pdf(token, report)" in source
+    assert "window.top.location.replace" in source
+    assert 'st.link_button("Åpne PDF direkte"' in source
+
+
+def test_static_pdf_is_hydrated_atomically_on_web_instance(monkeypatch, tmp_path):
+    import public_report_ui
+    import report_delivery
+
+    monkeypatch.setattr(report_delivery, "PUBLIC_REPORT_DIR", tmp_path / "static" / "reports")
+    token = "H" * 43
+    target, url = public_report_ui._hydrate_static_pdf(token, {"data": b"%PDF-1.4\n%%EOF"})
+    assert target.read_bytes().startswith(b"%PDF-")
+    assert target.name == f"public_report_{token}.pdf"
+    assert url == f"/app/static/reports/public_report_{token}.pdf"
+    assert not target.with_suffix(".pdf.tmp").exists()
