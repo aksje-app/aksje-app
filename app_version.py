@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.24"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.24 Durable Pushover Report Route"
+APP_VERSION = "v19.22.0-rc16.25"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.25 Native Direct PDF Delivery"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.23"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.24"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.25: Tokenendepunktet bruker ikke lenger Streamlits valgfrie PDF-komponent. PDF-en hydreres atomisk fra den felles dokumentdatabasen til webinstansens aktiverte statiske rapportområde, og mobilnettleseren videresendes til den rå PDF-filen før innlogging og resten av appen. Synlig direkteåpning og nedlasting beholdes som reserve. Ingen kjøps-, salgs-, stop-loss-, trailing-stop-, RSI-, score-, risiko-, lærings- eller porteføljeterskler er endret.",
     "v19.22.0-rc16.24: Den varige rapporttokenen beholdes nå eksplisitt når det canonicaliserte rapportobjektet kopieres til rapportarkiv og Pushover-varsling. Nye varslingslenker kan bare bruke rotendepunktet med public_report_token; den gamle /app/static/reports-ruten er fjernet som fallback og manglende token feiler lukket uten lenke. Den komplette Pushover-overleveringen er regresjonstestet. Ingen kjøps-, salgs-, stop-loss-, trailing-stop-, RSI-, score-, risiko-, lærings- eller porteføljeterskler er endret.",
     "v19.22.0-rc16.23: Fullt rapportsenter har fått en varig, eksplisitt 30-minutters Pushover-testmodus med umiddelbar testknapp og automatisk stopp etter fire vellykkede tester, tre feil eller to timer. Testprofilen er hardt blokkert fra Autonomi-portefølje og kontrollert læring. Cron kjører ikke testen når en ordinær rapport ble startet i samme syklus. PDF-er som sendes fra cron lagres base64-kodet i den autoritative dokumentdatabasen og åpnes med en tilfeldig, utløpende rapporttoken før innlogging; lenken er derfor uavhengig av cron-instansens lokale disk og Streamlit-sideruting. Ingen kjøps-, salgs-, stop-loss-, trailing-stop-, RSI-, score-, risiko- eller porteføljeterskler er endret.",
     "v19.22.0-rc16.22: Planlagte Autonomi-rapporter eies nå utelukkende av Render Cron og startes aldri av innlogging eller Streamlit-rerender. Hele cron-syklusen og hver rapportkjøring har separate PostgreSQL-låser mot overlapp. Rapportreparasjon og revalidering kjøres høyst hver sjette time, cronloggen er kompakt, og blueprint bruker 30-minutters intervall og 2 GB Standard-instans. Morgen- og kveldsrapporter varsles alltid ved fullført kjøring. Forsinket manuell innhenting kan bygge rapport, men er eksplisitt blokkert fra retroaktive portefølje- og læringshandlinger. Ingen kjøps-, salgs-, stop-loss-, trailing-stop-, RSI-, score-, risiko- eller porteføljeterskler er endret.",
