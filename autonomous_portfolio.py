@@ -190,10 +190,12 @@ class AutonomousParameters:
     daily_loss_limit_pct: float = 4.0
     allow_additions: bool = False
     enable_learning_probe_buys: bool = True
-    learning_probe_minimum_score: float = 70.0
+    learning_probe_minimum_score: float = 63.0
+    learning_probe_maximum_risk_score: float = 75.0
     learning_probe_max_buys: int = 3
     learning_probe_notional_value: float = 15000.0
-    learning_probe_horizon_days: int = 30
+    learning_probe_horizon_days: int = 60
+    learning_policy_profile_version: str = "2.0"
     notify_trades: bool = True
     notify_risk_events: bool = True
 
@@ -215,10 +217,12 @@ class AutonomousParameters:
             daily_loss_limit_pct=max(0.1, min(50.0, _f(self.daily_loss_limit_pct, 4.0))),
             allow_additions=bool(self.allow_additions),
             enable_learning_probe_buys=bool(self.enable_learning_probe_buys),
-            learning_probe_minimum_score=max(0.0, min(100.0, _f(self.learning_probe_minimum_score, 70.0))),
+            learning_probe_minimum_score=max(60.0, min(65.0, _f(self.learning_probe_minimum_score, 63.0))),
+            learning_probe_maximum_risk_score=max(0.0, min(75.0, _f(self.learning_probe_maximum_risk_score, 75.0))),
             learning_probe_max_buys=max(0, min(10, int(self.learning_probe_max_buys))),
             learning_probe_notional_value=max(100.0, min(100000.0, _f(self.learning_probe_notional_value, 15000.0))),
             learning_probe_horizon_days=max(1, min(365, int(self.learning_probe_horizon_days))),
+            learning_policy_profile_version="2.0",
             notify_trades=bool(self.notify_trades),
             notify_risk_events=bool(self.notify_risk_events),
         )
@@ -227,7 +231,18 @@ class AutonomousParameters:
 def load_parameters() -> AutonomousParameters:
     raw = _read(PARAMETERS_PATH, {})
     try:
-        return AutonomousParameters(**{k: raw[k] for k in AutonomousParameters.__dataclass_fields__ if k in raw}).normalized()
+        values = {k: raw[k] for k in AutonomousParameters.__dataclass_fields__ if k in raw}
+        if str(raw.get("learning_policy_profile_version") or "1.0") != "2.0":
+            values.update({
+                "enable_learning_probe_buys": True,
+                "learning_probe_minimum_score": 63.0,
+                "learning_probe_maximum_risk_score": 75.0,
+                "learning_probe_max_buys": 3,
+                "learning_probe_notional_value": 15000.0,
+                "learning_probe_horizon_days": 60,
+                "learning_policy_profile_version": "2.0",
+            })
+        return AutonomousParameters(**values).normalized()
     except Exception:
         return AutonomousParameters()
 
@@ -244,7 +259,9 @@ def save_parameters(params: AutonomousParameters) -> AutonomousParameters:
 
 RC16_RECOMMENDED_LEARNING_NOTIONAL = 15000.0
 RC16_RECOMMENDED_LEARNING_MAX_BUYS = 3
-RC16_RECOMMENDED_LEARNING_HORIZON_DAYS = 30
+RC16_RECOMMENDED_LEARNING_HORIZON_DAYS = 60
+RC16_RECOMMENDED_LEARNING_MINIMUM_SCORE = 63.0
+RC16_RECOMMENDED_LEARNING_MAXIMUM_RISK = 75.0
 
 
 def recommended_learning_profile(params: AutonomousParameters | None = None) -> AutonomousParameters:
@@ -258,9 +275,12 @@ def recommended_learning_profile(params: AutonomousParameters | None = None) -> 
     values = asdict(current)
     values.update({
         "enable_learning_probe_buys": True,
+        "learning_probe_minimum_score": RC16_RECOMMENDED_LEARNING_MINIMUM_SCORE,
+        "learning_probe_maximum_risk_score": RC16_RECOMMENDED_LEARNING_MAXIMUM_RISK,
         "learning_probe_notional_value": RC16_RECOMMENDED_LEARNING_NOTIONAL,
         "learning_probe_max_buys": RC16_RECOMMENDED_LEARNING_MAX_BUYS,
         "learning_probe_horizon_days": RC16_RECOMMENDED_LEARNING_HORIZON_DAYS,
+        "learning_policy_profile_version": "2.0",
     })
     return AutonomousParameters(**values).normalized()
 
@@ -459,6 +479,68 @@ def _technical_contribution_metadata(candidate: Mapping[str, Any] | None) -> dic
     return {key: row.get(key) for key in keys if row.get(key) not in (None, "")}
 
 
+def _paper_learning_signal(candidate: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return a compact, non-authorising Paper signal for learning decisions."""
+    paper = dict((candidate or {}).get("paper_engine_input") or {})
+    decisions = [
+        dict(row) for row in list(paper.get("technical_decisions") or [])
+        if isinstance(row, Mapping)
+    ]
+    actions = [str(row.get("action") or row.get("raw_decision") or "").upper() for row in decisions]
+    action = "BUY" if any(value in {"BUY", "KJØP"} for value in actions) else "SELL" if any(value in {"SELL", "SALG"} for value in actions) else "NEUTRAL"
+    confidence = max((_f(row.get("confidence")) for row in decisions), default=0.0)
+    return {
+        "paper_signal_available": bool(decisions),
+        "paper_signal_action": action,
+        "paper_signal_confidence": confidence,
+        "paper_signal_source_run_id": paper.get("source_run_id") or paper.get("run_id"),
+        "paper_signal_execution_authorized": False,
+    }
+
+
+def _production_blockers_for_learning(candidate: Mapping[str, Any], params: "AutonomousParameters") -> list[str]:
+    """Freeze why the same candidate was not a production buy at learning entry."""
+    blockers = list(production_buy_authorization(candidate)[1])
+    score = _candidate_entry_score(candidate)
+    risk = _candidate_risk(candidate)
+    quality = _candidate_quality(candidate)
+    if score < params.minimum_investment_score:
+        blockers.append(f"Produksjonsscore {score:.1f} under {params.minimum_investment_score:.1f}")
+    if risk > params.maximum_risk_score:
+        blockers.append(f"Produksjonsrisiko {risk:.1f} over {params.maximum_risk_score:.1f}")
+    if quality < params.minimum_data_quality:
+        blockers.append(f"Produksjonsdatakvalitet {quality:.1f} under {params.minimum_data_quality:.1f}")
+    return list(dict.fromkeys(blockers))
+
+
+LEARNING_OUTCOME_HORIZONS = (1, 5, 10, 20, 60)
+
+
+def _record_learning_outcome_measurement(position: dict[str, Any], candidate: Mapping[str, Any], price: float) -> None:
+    """Store one mark per observed market date and immutable horizon measurements."""
+    market_date = str(
+        candidate.get("market_date") or candidate.get("price_date") or
+        candidate.get("as_of_date") or candidate.get("trading_date") or _now()[:10]
+    )[:10]
+    dates = list(position.get("evaluation_dates") or [])
+    if market_date and market_date not in dates:
+        dates.append(market_date)
+    position["evaluation_dates"] = dates[-120:]
+    position["observation_days"] = len(dates)
+    entry = _f(position.get("average_price"), price)
+    measured = {int(row.get("horizon_days") or 0) for row in list(position.get("outcome_measurements") or []) if isinstance(row, Mapping)}
+    for horizon in LEARNING_OUTCOME_HORIZONS:
+        if len(dates) >= horizon and horizon not in measured:
+            position.setdefault("outcome_measurements", []).append({
+                "horizon_days": horizon,
+                "measured_at": _now(),
+                "market_date": market_date,
+                "price": round(price, 4),
+                "return_pct": round((price / entry - 1) * 100, 4) if entry else 0.0,
+                "score": round(_candidate_score(candidate, _f(position.get("entry_score"))), 2),
+            })
+
+
 def _candidate_quality(candidate: Mapping[str, Any], default: float = 100.0) -> float:
     raw = candidate.get("combined_data_quality") if isinstance(candidate.get("combined_data_quality"), Mapping) else {}
     evidence = candidate.get("evidence_coverage") if isinstance(candidate.get("evidence_coverage"), Mapping) else {}
@@ -636,14 +718,19 @@ def _update_learning_positions(portfolio: dict[str, Any], candidate_map: Mapping
         pos["last_price"] = price
         pos["highest_price"] = max(_f(pos.get("highest_price"), price), price)
         pos["last_evaluated_at"] = _now()
+        _record_learning_outcome_measurement(pos, candidate, price)
         avg = _f(pos.get("average_price"), price)
         score = _candidate_score(candidate, _f(pos.get("entry_score"), 100.0))
         age = _days_opened(pos.get("opened_at"))
         reason = None
         if price <= avg * (1 - params.stop_loss_pct / 100):
             reason = "Læringsobservasjon: stop loss"
+        elif price <= _f(pos.get("highest_price"), price) * (1 - params.trailing_stop_pct / 100):
+            reason = "Læringsobservasjon: trailing stop"
         elif price >= avg * (1 + params.take_profit_pct / 100):
             reason = "Læringsobservasjon: gevinstmål"
+        elif _paper_learning_signal(candidate)["paper_signal_action"] == "SELL":
+            reason = "Læringsobservasjon: Paper-motoren ga salgssignal"
         elif candidate and score < params.score_exit_threshold:
             reason = f"Læringsobservasjon: score falt til {score:.1f}"
         elif age >= params.learning_probe_horizon_days:
@@ -695,6 +782,7 @@ def portfolio_status_summary(latest_chain: Mapping[str, Any] | None = None) -> d
         "Årsak til ingen kjøp": reason,
         "Minimum ordinær score": params.minimum_investment_score,
         "Minimum læringsscore": params.learning_probe_minimum_score,
+        "Maksimal læringsrisiko": params.learning_probe_maximum_risk_score,
         "Læringskjøp aktivert": bool(params.enable_learning_probe_buys),
         "Replaystatus siste kjøring": str(auto_detail.get("replay_level") or "Ikke registrert"),
         "Replaymangler": list(auto_detail.get("full_replay_missing") or []),
@@ -1130,7 +1218,9 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     continue
                 base_score = _candidate_score(candidate)
                 score = _candidate_entry_score(candidate)
-                if bool(candidate.get("technical_entry_wait")):
+                paper_signal = _paper_learning_signal(candidate)
+                paper_buy = paper_signal["paper_signal_action"] == "BUY"
+                if bool(candidate.get("technical_entry_wait")) and not paper_buy:
                     learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT", "reason": str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir VENT"), "score": score, "base_score": base_score, **_technical_contribution_metadata(candidate)})
                     continue
                 if score < params.learning_probe_minimum_score:
@@ -1142,6 +1232,13 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     continue
                 risk = _candidate_risk(candidate)
                 quality = _candidate_quality(candidate)
+                if candidate.get("valid_for_decision") is not True:
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Markedsdata er ikke beslutningsgyldige for læringskjøp", "score": score, "risk": risk, "learning_probe": True, **paper_signal})
+                    continue
+                if risk > params.learning_probe_maximum_risk_score:
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Risiko {risk:.1f} over læringsgrense {params.learning_probe_maximum_risk_score:.1f}", "score": score, "risk": risk, "learning_probe": True, **paper_signal})
+                    continue
+                production_blockers = _production_blockers_for_learning(candidate, params)
                 # A learning position is a shadow observation with fixed notional.
                 # It does not reserve or deduct ordinary portfolio cash.
                 value = params.learning_probe_notional_value
@@ -1159,6 +1256,10 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     "source_run_id": run_id, **_candidate_snapshot_metadata(candidate, market_snapshot_row), **_technical_contribution_metadata(candidate), "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
                     "observation_horizon_days": params.learning_probe_horizon_days,
                     "entry_confidence": _f(candidate.get("confidence_score")),
+                    "production_blockers_at_entry": production_blockers,
+                    "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
+                    "evaluation_dates": [], "observation_days": 0, "outcome_measurements": [],
+                    **paper_signal,
                     "entry_components": {
                         "discovery": _f(candidate.get("discovery_score")),
                         "fundamental": _f(candidate.get("fundamental_score")),
@@ -1177,6 +1278,9 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                     **_technical_contribution_metadata(candidate),
                     "entry_confidence": _f(candidate.get("confidence_score")),
+                    "production_blockers_at_entry": production_blockers,
+                    "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
+                    **paper_signal,
                     "entry_components": {
                         "discovery": _f(candidate.get("discovery_score")),
                         "fundamental": _f(candidate.get("fundamental_score")),
@@ -1188,7 +1292,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 }
                 _record_learning_trade(trade)
                 learning_trades.append(trade)
-                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "learning_probe": True})
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "risk": risk, "learning_probe": True, "production_blockers_at_entry": production_blockers, **paper_signal})
                 learning_portfolio["total_entry_notional"] = _f(learning_portfolio.get("total_entry_notional")) + value
                 learning_count += 1
                 if params.notify_trades:
@@ -1258,6 +1362,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         learning_account_result = get_autonomy_learning_account_service().run_cycle(
             candidates, run_id=run_id, main_trades=trades,
             market_snapshot_id=str(market_snapshot_row.get("snapshot_id") or ""),
+            production_parameters=asdict(params),
         )
         analysis_rows = []
         for decision in list(decisions):
@@ -1746,15 +1851,17 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         with st.expander("Kontrollert parameterprofil for autonomy_learning", expanded=False):
             learning_service = get_autonomy_learning_account_service()
             policy = learning_service.policy()
-            st.caption("Endringer gjelder bare læringskontoen. Hovedstrategien, minimum datakvalitet og maksimal risikogrense kan ikke svekkes gjennom denne kontrollen.")
-            p1, p2, p3 = st.columns(3)
-            learning_score = p1.slider("Minimum score – læringskonto", 65.0, 78.0, float(policy["minimum_score"]), 1.0, key="v1980_learning_score")
-            learning_pos = p2.slider("Maks posisjon % – læringskonto", 0.25, 2.0, float(policy["maximum_position_pct"]), 0.25, key="v1980_learning_position")
-            learning_buys = p3.number_input("Maks kjøp per syklus", 0, 5, int(policy["maximum_buys_per_cycle"]), 1, key="v1980_learning_buys")
-            p4, p5, p6 = st.columns(3)
+            st.caption("Endringer gjelder bare den simulerte læringskontoen. Produksjonskontoens score-, evidens- og risikokrav påvirkes ikke.")
+            p1, p2, p3, p4 = st.columns(4)
+            learning_score = p1.slider("Minimum score – læringskonto", 60.0, 65.0, float(policy["minimum_score"]), 1.0, key="v1980_learning_score")
+            learning_risk = p2.slider("Maks risiko – læringskonto", 0.0, 75.0, float(policy["maximum_risk_score"]), 1.0, key="v1980_learning_risk_rc1626")
+            learning_notional = p3.number_input("Beløp per læringskjøp", 100.0, 15000.0, float(policy["notional_value"]), 100.0, key="v1980_learning_notional_rc1626")
+            learning_buys = p4.number_input("Maks kjøp per syklus", 0, 5, int(policy["maximum_buys_per_cycle"]), 1, key="v1980_learning_buys")
+            p4, p5, p6, p7 = st.columns(4)
             learning_reserve = p4.slider("Kontantreserve %", 10.0, 50.0, float(policy["reserve_cash_pct"]), 1.0, key="v1980_learning_reserve")
             learning_stop = p5.slider("Stop-loss %", 2.0, 12.0, float(policy["stop_loss_pct"]), 0.5, key="v1980_learning_stop")
-            learning_target = p6.slider("Gevinstmål %", 5.0, 30.0, float(policy["take_profit_pct"]), 0.5, key="v1980_learning_target")
+            learning_trailing = p6.slider("Trailing stop %", 2.0, 20.0, float(policy["trailing_stop_pct"]), 0.5, key="v1980_learning_trailing_rc1626")
+            learning_target = p7.slider("Gevinstmål %", 5.0, 30.0, float(policy["take_profit_pct"]), 0.5, key="v1980_learning_target")
             approval = st.text_input("Skriv GODKJENN for å lagre læringsprofilen", key="v1980_learning_approval")
             reason = st.text_input("Begrunnelse for endringen", key="v1980_learning_reason")
             if st.button("Lagre godkjent læringsprofil", width="stretch", key="v1980_save_learning_policy"):
@@ -1762,9 +1869,11 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
                     st.error("Skriv GODKJENN før parameterprofilen lagres.")
                 else:
                     learning_service.update_policy({
-                        "minimum_score": learning_score, "maximum_position_pct": learning_pos,
+                        "minimum_score": learning_score, "maximum_risk_score": learning_risk,
+                        "notional_value": learning_notional,
                         "maximum_buys_per_cycle": int(learning_buys), "reserve_cash_pct": learning_reserve,
-                        "stop_loss_pct": learning_stop, "take_profit_pct": learning_target,
+                        "stop_loss_pct": learning_stop, "trailing_stop_pct": learning_trailing,
+                        "take_profit_pct": learning_target,
                     }, approved_by="streamlit_user", reason=reason or "Eksplisitt godkjent i v19.8.0")
                     st.success("Læringsprofilen er lagret. autonomy_main er uendret.")
                     st.rerun()
@@ -1923,14 +2032,15 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         s1, s2, s3, s4 = st.columns(4)
         max_dd = s1.slider("Maks drawdown %", 0.5, 80.0, float(params.maximum_drawdown_pct), 0.5, key="alp_dd_v18688")
         learning_enabled = s2.checkbox("Aktiver læringskjøp", params.enable_learning_probe_buys, key="alp_learning_probe_enabled_v19018")
-        learning_min_score = s3.slider("Minimum læringsscore", 0.0, 100.0, float(params.learning_probe_minimum_score), 1.0, key="alp_learning_probe_min_v19018")
+        learning_min_score = s3.slider("Minimum læringsscore", 60.0, 65.0, float(params.learning_probe_minimum_score), 1.0, key="alp_learning_probe_min_v19018")
         learning_max_buys = s4.number_input("Maks læringskjøp", 0, 10, int(params.learning_probe_max_buys), 1, key="alp_learning_probe_max_v19018")
         u1, u2 = st.columns(2)
         learning_notional = u1.number_input("Notional per læringsposisjon", 100.0, 100000.0, float(params.learning_probe_notional_value), 100.0, key="alp_learning_notional_v19018b")
         learning_horizon = u2.number_input("Læringshorisont (dager)", 1, 365, int(params.learning_probe_horizon_days), 1, key="alp_learning_horizon_v19018b")
+        learning_max_risk = st.slider("Maksimal risiko for kun læringskjøp", 0.0, 75.0, float(params.learning_probe_maximum_risk_score), 1.0, key="alp_learning_risk_v19220_rc1626")
         notify = st.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
         if st.button("Lagre parametere", key="alp_save_params_v18688"):
-            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
+            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_maximum_risk_score=learning_max_risk, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
             st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
 
     with st.expander("🔐 Konfigurasjonsrammeverk", expanded=False):

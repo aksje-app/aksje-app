@@ -129,7 +129,12 @@ def attach_paper_engine_inputs(candidates: Sequence[Mapping[str, Any]]) -> dict[
         ticker = str(candidate.get("ticker") or "").strip().upper()
         bridge_input = inputs.get(ticker)
         if bridge_input:
-            candidate["paper_engine_input"] = dict(bridge_input)
+            candidate["paper_engine_input"] = {
+                **dict(bridge_input),
+                "source_run_id": handoff.get("run_id"),
+                "published_at": handoff.get("published_at"),
+                "age_minutes": handoff.get("age_minutes"),
+            }
             matched += 1
     return {
         "available": bool(handoff.get("available")),

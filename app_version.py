@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.25"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.25 Native Direct PDF Delivery"
+APP_VERSION = "v19.22.0-rc16.26"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.26 Controlled Learning Activation"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.24"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.25"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -28,7 +28,7 @@ PARALLEL_STRATEGY_SERVICE_VERSION = "1.1"
 STRATEGY_ACCOUNT_SERVICE_VERSION = "1.0"
 SIMULATED_EXECUTION_SERVICE_VERSION = "1.0"
 AUTONOMY_ACTIVATION_SERVICE_VERSION = "1.0"
-AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION = "1.0"
+AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION = "2.0"
 EVALUATION_EXPORT_SERVICE_VERSION = "1.5"
 AUTONOMY_TECHNICAL_CONTRIBUTION_SERVICE_VERSION = "1.0"
 TECHNICAL_QUALITY_SERVICE_VERSION = "1.1"
