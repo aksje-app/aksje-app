@@ -41,7 +41,7 @@ class UnattendedSchedulerTests(unittest.TestCase):
     def test_blueprint_has_independent_cron_process(self):
         source = Path("render.yaml").read_text(encoding="utf-8")
         self.assertIn("type: cron", source)
-        self.assertIn('schedule: "*/5 * * * *"', source)
+        self.assertIn('schedule: "*/30 * * * *"', source)
         self.assertIn("startCommand: python scheduled_runner.py", source)
 
 
