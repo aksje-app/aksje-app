@@ -7,7 +7,7 @@ from typing import Any, Mapping, Sequence
 from services.simulated_execution_service import SimulatedExecutionService
 from services.strategy_account_service import StrategyAccountService
 
-AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION = "2.0"
+AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION = "2.1"
 LEARNING_POLICY_PROFILE_VERSION = "2.0"
 LEARNING_OUTCOME_HORIZONS = (1, 5, 10, 20, 60)
 
@@ -170,6 +170,18 @@ class AutonomyLearningAccountService:
         account = self.accounts.get("autonomy_learning") or {}
         policy = self.ensure_approved_profile()
         account = self.accounts.get("autonomy_learning") or account
+        account_metadata = dict(account.get("metadata") or {})
+        processed_run_ids = [str(value) for value in list(account_metadata.get("processed_run_ids") or [])]
+        if str(run_id) in processed_run_ids:
+            return {
+                "run_id": run_id, "status": "ALREADY_PROCESSED", "idempotent_replay": True,
+                "policy": policy, "decisions": [], "orders": [], "fills": [],
+                "buy_count": 0, "sell_count": 0,
+                "account_metrics": self.accounts.metrics("autonomy_learning"),
+                "parameter_change_applied": False,
+                "hard_production_gates_unchanged": True,
+                "service_version": AUTONOMY_LEARNING_ACCOUNT_SERVICE_VERSION,
+            }
         decisions: list[dict[str, Any]] = []
         orders: list[dict[str, Any]] = []
         fills: list[dict[str, Any]] = []
@@ -311,6 +323,17 @@ class AutonomyLearningAccountService:
             })
             buys += int(bool(result["ok"]))
 
+        account = self.accounts.get("autonomy_learning") or account
+        account_metadata = dict(account.get("metadata") or {})
+        completed_ids = [str(value) for value in list(account_metadata.get("processed_run_ids") or []) if str(value) != str(run_id)]
+        completed_ids.append(str(run_id))
+        account_metadata["processed_run_ids"] = completed_ids[-250:]
+        account_metadata["last_completed_learning_cycle"] = {"run_id": str(run_id), "completed_at": _now(), "buy_count": sum(1 for row in fills if row.get("side") == "BUY"), "sell_count": sum(1 for row in fills if row.get("side") == "SELL")}
+        account["metadata"] = account_metadata
+        account["last_run_id"] = str(run_id)
+        account["updated_at"] = _now()
+        self.accounts.upsert(account)
+        final_metrics = self.accounts.metrics("autonomy_learning")
         return {
             "run_id": run_id,
             "status": "COMPLETED",
@@ -320,7 +343,7 @@ class AutonomyLearningAccountService:
             "fills": fills,
             "buy_count": sum(1 for row in fills if row.get("side") == "BUY"),
             "sell_count": sum(1 for row in fills if row.get("side") == "SELL"),
-            "account_metrics": self.accounts.metrics("autonomy_learning"),
+            "account_metrics": final_metrics,
             "parameter_change_applied": False,
             "hard_risk_gates_unchanged": False,
             "hard_production_gates_unchanged": True,
