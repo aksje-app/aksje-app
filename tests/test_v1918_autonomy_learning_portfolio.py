@@ -30,7 +30,8 @@ def _reset_active():
         maximum_open_positions=10,
         reserve_cash_pct=0,
         enable_learning_probe_buys=True,
-        learning_probe_minimum_score=70,
+        learning_probe_minimum_score=63,
+        learning_probe_maximum_risk_score=75,
         learning_probe_max_buys=2,
         notify_trades=False,
         notify_risk_events=False,
@@ -51,8 +52,8 @@ def _reset_active():
 def test_learning_probe_buys_when_ordinary_gates_block_all_candidates():
     _reset_active()
     candidates = [
-        {"ticker": "AAA", "investment_score": 74, "data_quality": 100, "risk_score": 40, "price": 100, "sector": "Finans", "strategy_match": "Momentum", "portfolio_action": "REVIEW"},
-        {"ticker": "BBB", "investment_score": 72, "data_quality": 100, "risk_score": 40, "price": 50, "sector": "Industri", "strategy_match": "Vekst", "portfolio_action": "REVIEW"},
+        {"ticker": "AAA", "investment_score": 64, "data_quality": 100, "risk_score": 75, "price": 100, "sector": "Finans", "strategy_match": "Momentum", "portfolio_action": "REVIEW", "valid_for_decision": True, "evidence_valid_for_decision": False},
+        {"ticker": "BBB", "investment_score": 63, "data_quality": 100, "risk_score": 40, "price": 50, "sector": "Industri", "strategy_match": "Vekst", "portfolio_action": "REVIEW", "valid_for_decision": True, "evidence_valid_for_decision": False},
     ]
     result = run_autonomous_cycle(candidates, "TEST-V1918")
     buys = [t for t in result["trades"] if t["action"] == "BUY"]
@@ -64,13 +65,13 @@ def test_learning_probe_buys_when_ordinary_gates_block_all_candidates():
     assert load_equity_history(10)
 
 
-def test_runtime_forwards_observed_candidates_for_learning_when_decision_gate_blocks_all():
+def test_runtime_observes_but_does_not_buy_invalid_market_data():
     _reset_active()
     run = {
         "run_id": "MI-TEST-V1918",
         "markets": ["USA", "Norge"],
         "candidates": [
-            {"ticker": "CCC", "investment_score": 75, "data_quality": 95, "risk_score": 40, "price": 80, "valid_for_decision": False, "portfolio_action": "REVIEW"},
+            {"ticker": "CCC", "investment_score": 65, "data_quality": 95, "risk_score": 40, "price": 80, "valid_for_decision": False, "evidence_valid_for_decision": False, "portfolio_action": "REVIEW"},
         ],
         "proposals": [],
         "timezone_name": "Europe/Oslo",
@@ -80,7 +81,7 @@ def test_runtime_forwards_observed_candidates_for_learning_when_decision_gate_bl
     auto = next(s for s in result["stages"] if s["name"] == "AUTONOMOUS_PORTFOLIO")
     assert market["detail"]["candidates"] == 1
     assert market["detail"]["handoff_input"]["learning_probe_mode"] is True
-    assert auto["detail"]["learning_buys"] >= 1
+    assert auto["detail"]["learning_buys"] == 0
 
 
 def test_status_panel_exposes_expected_autonomy_state():

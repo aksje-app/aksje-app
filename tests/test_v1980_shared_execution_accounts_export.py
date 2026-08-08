@@ -37,7 +37,7 @@ def test_v1980_version_contract():
     assert contract["strategy_account_service_version"] == "1.0"
     assert contract["simulated_execution_service_version"] == "1.0"
     assert contract["autonomy_activation_service_version"] == "1.0"
-    assert contract["autonomy_learning_account_service_version"] == "1.0"
+    assert contract["autonomy_learning_account_service_version"] == "2.0"
     assert contract["evaluation_export_service_version"] == "1.5"
 
 
@@ -49,7 +49,8 @@ def test_separate_default_accounts(tmp_path):
     assert rows["autonomy_main"]["cash"] == 500000.0
     assert rows["autonomy_learning"]["cash"] == 100000.0
     assert rows["autonomy_learning"]["metadata"]["maximum_position_pct"] <= 2.0
-    assert rows["autonomy_learning"]["metadata"]["maximum_risk_score"] <= 65.0
+    assert rows["autonomy_learning"]["metadata"]["maximum_risk_score"] == 75.0
+    assert rows["autonomy_learning"]["metadata"]["minimum_score"] == 63.0
 
 
 def test_common_engine_isolates_accounts_and_executes_buy_sell(tmp_path):
@@ -118,15 +119,15 @@ def test_legacy_mirror_does_not_apply_trade_twice(tmp_path):
 def test_learning_account_uses_lower_score_but_keeps_hard_gates(tmp_path):
     _repos, _registry, accounts, execution, _activation, learning, _export = services(tmp_path)
     result = learning.run_cycle([
-        {"ticker": "GOOD.OL", "investment_score": 73, "data_quality_score": 80, "risk_score": 40, "price": 100},
-        {"ticker": "BADRISK.OL", "investment_score": 90, "data_quality_score": 90, "risk_score": 80, "price": 100},
-        {"ticker": "BADDATA.OL", "investment_score": 90, "data_quality_score": 40, "risk_score": 20, "price": 100},
+        {"ticker": "GOOD.OL", "investment_score": 63, "data_quality_score": 80, "risk_score": 75, "price": 100, "valid_for_decision": True},
+        {"ticker": "BADRISK.OL", "investment_score": 90, "data_quality_score": 90, "risk_score": 80, "price": 100, "valid_for_decision": True},
+        {"ticker": "BADDATA.OL", "investment_score": 90, "data_quality_score": 40, "risk_score": 20, "price": 100, "valid_for_decision": True},
     ], run_id="LEARN-1")
     assert result["buy_count"] == 1
     assert "GOOD.OL" in accounts.get("autonomy_learning")["positions"]
     assert "BADRISK.OL" not in accounts.get("autonomy_learning")["positions"]
     assert "BADDATA.OL" not in accounts.get("autonomy_learning")["positions"]
-    assert result["hard_risk_gates_unchanged"] is True
+    assert result["hard_production_gates_unchanged"] is True
 
 
 def test_learning_policy_change_is_explicit_bounded_and_does_not_touch_main(tmp_path):
@@ -138,9 +139,9 @@ def test_learning_policy_change_is_explicit_bounded_and_does_not_touch_main(tmp_
         "maximum_risk_score": 99, "minimum_data_quality": 1,
     }, approved_by="qa", reason="boundary test")
     policy = changed["policy"]
-    assert policy["minimum_score"] == 65.0
+    assert policy["minimum_score"] == 60.0
     assert policy["maximum_position_pct"] == 2.0
-    assert policy["maximum_risk_score"] == 65.0
+    assert policy["maximum_risk_score"] == 75.0
     assert policy["minimum_data_quality"] == 55.0
     assert accounts.get("autonomy_main") == main_before
     history = accounts.get("autonomy_learning")["metadata"]["policy_history"]

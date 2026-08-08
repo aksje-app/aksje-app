@@ -25,7 +25,8 @@ def test_learning_positions_do_not_modify_ordinary_cash_or_holdings():
     params = save_parameters(AutonomousParameters(
         initial_cash=100000, minimum_investment_score=90, minimum_data_quality=90,
         maximum_risk_score=30, reserve_cash_pct=0, maximum_sector_pct=50,
-        enable_learning_probe_buys=True, learning_probe_minimum_score=70,
+        enable_learning_probe_buys=True, learning_probe_minimum_score=63,
+        learning_probe_maximum_risk_score=75,
         learning_probe_max_buys=2, learning_probe_notional_value=2500,
         notify_trades=False, notify_risk_events=False,
     ))
@@ -34,8 +35,8 @@ def test_learning_positions_do_not_modify_ordinary_cash_or_holdings():
     for path in (TRADES_PATH, DECISIONS_PATH, LEARNING_TRADES_PATH, LEARNING_DECISIONS_PATH, EQUITY_HISTORY_PATH, LEARNING_EQUITY_HISTORY_PATH):
         _write(path, [])
     result = run_autonomous_cycle([
-        {"ticker":"AAA","investment_score":74,"data_quality":100,"risk_score":40,"price":100,"sector":"Finans"},
-        {"ticker":"BBB","investment_score":72,"data_quality":100,"risk_score":40,"price":50,"sector":"Industri"},
+        {"ticker":"AAA","investment_score":64,"data_quality":100,"risk_score":75,"price":100,"sector":"Finans","valid_for_decision":True,"evidence_valid_for_decision":False},
+        {"ticker":"BBB","investment_score":63,"data_quality":100,"risk_score":40,"price":50,"sector":"Industri","valid_for_decision":True,"evidence_valid_for_decision":False},
     ], "TEST-V1918B")
     assert result["portfolio"]["positions"] == {}
     assert result["portfolio"]["cash"] == 100000
