@@ -403,9 +403,9 @@ def score_articles(
 
 def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: bool = False,
                             lookback_days: int = DEFAULT_LOOKBACK_DAYS, market: str = "",
-                            ir_feed_url: str = "") -> dict[str, Any]:
+                            ir_feed_url: str = "", newsapi_priority: bool = False) -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
-    key = f"{VERSION}|{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}"
+    key = f"{VERSION}|{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}|priority={bool(newsapi_priority)}"
     cached = _cache_get(key)
     if cached and not force_refresh and time.time() - _f(cached.get("cached_at")) < CACHE_TTL_SECONDS and (cached.get("result") or {}).get("search_log"):
         from evidence_contract import normalize_search_payload
@@ -447,7 +447,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": str(exc)[:500],
         })
     try:
-        fallback_only = str(os.getenv("NEWSAPI_FALLBACK_ONLY", "true")).strip().casefold() not in {"0", "false", "no"}
+        fallback_only = (str(os.getenv("NEWSAPI_FALLBACK_ONLY", "true")).strip().casefold() not in {"0", "false", "no"}) and not newsapi_priority
         minimum_existing = max(1, int(os.getenv("NEWSAPI_FALLBACK_MIN_EXISTING_ARTICLES", "3") or 3))
         if fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing:
             search_log.append({
@@ -588,6 +588,7 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, 
             force_refresh=force_refresh,
             market=str(row.get("market") or ""),
             ir_feed_url=str(row.get("ir_feed_url") or row.get("investor_relations_feed") or ""),
+            newsapi_priority=bool(row.get("newsapi_priority") or row.get("evidence_priority")),
         )
         row["news_intelligence"] = result
         row["news_score"] = result.get("score", 50.0)

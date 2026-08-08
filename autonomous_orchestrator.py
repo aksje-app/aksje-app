@@ -81,19 +81,34 @@ def run_post_scan_chain(
         try:
             from autonomous_portfolio import load_portfolio, run_autonomous_cycle
             portfolio = load_portfolio()
-            if require_active_portfolio and portfolio.get("status") != "ACTIVE":
-                stage("AUTONOMOUS_PORTFOLIO", "SKIPPED", {"reason": "Porteføljen er pauset"})
-            elif not candidates:
+            if not candidates:
                 stage("AUTONOMOUS_PORTFOLIO", "SKIPPED", {"reason": "Ingen kandidater fra skanningen"})
             else:
+                # The production portfolio remains fail-closed inside
+                # run_autonomous_cycle when paused. The separate learning
+                # account must still receive the canonical candidate set;
+                # otherwise a paused production account silently disables all
+                # learning and recreates the original no-learning deadlock.
                 cycle = run_autonomous_cycle(candidates, str(market_run.get("run_id") or chain_id))
                 portfolio_trades = list(cycle.get("portfolio_trades") or [])
                 learning_trades = list(cycle.get("learning_trades") or [])
+                shared_learning = dict(cycle.get("autonomy_learning_account") or {})
+                shared_learning_fills = [
+                    dict(row) for row in list(shared_learning.get("fills") or [])
+                    if isinstance(row, Mapping)
+                ]
+                shared_learning_buys = [row for row in shared_learning_fills if str(row.get("side") or "").upper() == "BUY"]
+                shared_learning_sells = [row for row in shared_learning_fills if str(row.get("side") or "").upper() == "SELL"]
+                shared_metrics = dict(shared_learning.get("account_metrics") or {})
                 cycle_trades = portfolio_trades + learning_trades
                 cycle_decisions = cycle.get("decisions") or []
                 ordinary_buys = [x for x in portfolio_trades if str(x.get("action") or "").upper() == "BUY"]
                 sells = [x for x in portfolio_trades if str(x.get("action") or "").upper() == "SELL"]
-                learning_buys = [x for x in learning_trades if str(x.get("action") or "").upper() == "BUY"]
+                legacy_learning_buys = [x for x in learning_trades if str(x.get("action") or "").upper() == "BUY"]
+                # The shared learning account is the canonical account. Legacy
+                # rows remain diagnostic only and must not make the report show
+                # zero after persisted shared-account fills were completed.
+                learning_buys = shared_learning_buys or legacy_learning_buys
                 buys = ordinary_buys + learning_buys
                 execution_integrity = dict(cycle.get("execution_integrity") or {})
                 full_replay = dict(cycle.get("full_replay") or {})
@@ -102,10 +117,17 @@ def run_post_scan_chain(
                     "trades": len(cycle_trades), "buys": len(buys), "ordinary_buys": len(ordinary_buys), "learning_buys": len(learning_buys), "sells": len(sells),
                     "skips": len(skips), "decisions": len(cycle_decisions),
                     "open_positions": len((cycle.get("portfolio") or {}).get("positions") or {}),
-                    "learning_open_positions": len((cycle.get("learning_portfolio") or {}).get("positions") or {}),
+                    "learning_open_positions": int(shared_metrics.get("open_positions") or len((cycle.get("learning_portfolio") or {}).get("positions") or {})),
                     "status": cycle.get("portfolio", {}).get("status"),
                     "buy_tickers": [x.get("ticker") for x in ordinary_buys],
                     "learning_buy_tickers": [x.get("ticker") for x in learning_buys],
+                    "learning_sell_tickers": [x.get("ticker") for x in shared_learning_sells],
+                    "learning_account_id": "autonomy_learning",
+                    "learning_account_updated_at": shared_metrics.get("updated_at"),
+                    "learning_account_last_run_id": shared_metrics.get("last_run_id"),
+                    "learning_account_metrics": shared_metrics,
+                    "learning_decisions": list(shared_learning.get("decisions") or []),
+                    "learning_fills": shared_learning_fills,
                     "sell_tickers": [x.get("ticker") for x in sells],
                     "execution_integrity": execution_integrity,
                     "replay_level": cycle.get("replay_level") or "DECISION_REPLAY",
@@ -113,6 +135,13 @@ def run_post_scan_chain(
                     "full_replay_missing": full_replay.get("missing") or [],
                     "reason": ("Handel blokkert av integritetskontrollen" if not execution_integrity.get("ok", True) else ("Separate læringsposisjoner opprettet" if learning_buys and not ordinary_buys else ("Ingen kjøp opprettet" if not ordinary_buys else "Ordinære teoretiske porteføljekjøp opprettet"))),
                 })
+                result["autonomy_learning_account"] = shared_learning
+                result["autonomy_cycle"] = {
+                    "run_id": cycle.get("run_id"),
+                    "learning_account": shared_learning,
+                    "production_trades": portfolio_trades,
+                    "legacy_learning_trades": learning_trades,
+                }
         except Exception as exc:
             result["errors"].append(f"Autonomous Portfolio: {exc}")
             stage("AUTONOMOUS_PORTFOLIO", "ERROR", {"error": str(exc)})

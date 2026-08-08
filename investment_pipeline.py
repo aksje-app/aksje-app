@@ -739,6 +739,10 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     ]
     for row in evidence_rows:
         row["analysis_stage"] = "EVIDENCE_CONTROLLED"
+        # Only this bounded top-ranked set may spend the per-report NewsAPI
+        # budget. Other consumers retain the conservative fallback policy.
+        row["newsapi_priority"] = True
+        row["evidence_priority"] = True
         row["evidence_budget"] = {"max_source_areas": 2, "candidate_rank_budget": cfg.evidence_analysis_count, "strict_refresh": intelligence_force_refresh}
         if not cfg.use_insider_intelligence:
             _mark_intelligence_not_searched(

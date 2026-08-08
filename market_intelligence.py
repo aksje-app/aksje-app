@@ -26,7 +26,7 @@ from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, i
 from market_universe import (
     BASE_MARKET_SCOPES, CORE_MARKET_SCOPES, EXTENDED_NORDIC_MARKET_SCOPES,
     CORE_MARKET_SCOPE_LABEL, EXTENDED_NORDIC_SCOPE_LABEL, NORDIC_MARKET_SCOPE_LABEL,
-    FULL_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, expand_market_scope,
+    FULL_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, MARKET_PROFILE_FULL, expand_market_scope,
     infer_market_profile, market_profile_contract, profile_market_selections,
 )
 from storage_architecture import runtime_data_path, runtime_log_path
@@ -581,7 +581,7 @@ def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
 
 def job_fingerprint(job: "JobProfile") -> str:
     markets = normalize_markets(job.markets)
-    return f"{job.market_profile}|{job.scan_limit}|{job.deep_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}|{job.investment_mission_id}|{job.configuration_version}"
+    return f"{job.market_profile}|{job.scan_limit}|{job.deep_count}|{job.evidence_analysis_count}|{job.proposal_count}|{','.join(markets)}|{','.join(job.modules)}|{job.user_mission_id}|{job.investment_mission_id}|{job.configuration_version}"
 
 
 def explicit_job_name_v19220_rc12(
@@ -609,9 +609,11 @@ class JobProfile:
     schedules: list[str] = field(default_factory=lambda: ["08:00", "22:00"])
     weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     modules: list[str] = field(default_factory=lambda: list(MODULE_OPTIONS))
-    scan_limit: int = 25
-    deep_count: int = 20
+    scan_limit: int = 50
+    deep_count: int = 18
+    evidence_analysis_count: int = 15
     proposal_count: int = 5
+    coverage_profile_version: str = "3.0"
     min_alert_score: float = 80.0
     notify_pushover: bool = True
     notify_only_changes: bool = True
@@ -649,6 +651,15 @@ class JobProfile:
         if "News & Sentiment Intelligence" not in modules:
             modules.append("News & Sentiment Intelligence")
         data["modules"] = modules
+        # User-approved RC16.27 migration: every fixed report uses the complete
+        # six-market profile and a 50-symbol stage-1 scan. Manual drafts without
+        # schedules retain their explicit selection.
+        if list(data.get("schedules") or []):
+            data.update({
+                "markets": [FULL_MARKET_SCOPE_LABEL], "market_profile": MARKET_PROFILE_FULL,
+                "scan_limit": 50, "deep_count": 18, "evidence_analysis_count": 15,
+                "coverage_profile_version": "3.0",
+            })
         profile_id = infer_market_profile(
             data.get("markets"), name=data.get("name"), explicit_profile=data.get("market_profile"),
         )
@@ -2731,6 +2742,30 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     story += [status_stripe, Spacer(1, 1*mm), summary_table, quick_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"]),
               Paragraph(escape(learning_text), styles["Small"])]
+    learning_rows = []
+    for decision in list(learning_summary.get("learning_decisions") or []):
+        if not isinstance(decision, Mapping):
+            continue
+        action = str(decision.get("action") or decision.get("decision") or "").upper()
+        if action not in {"BUY", "SELL"}:
+            continue
+        blockers = decision.get("production_blockers") or decision.get("blockers") or []
+        if isinstance(blockers, str):
+            blockers = [blockers]
+        learning_rows.append([
+            _p(decision.get("ticker") or "-"), _p(action),
+            _p(round(float(decision.get("score") or decision.get("investment_score") or 0), 1)),
+            _p(round(float(decision.get("risk") or decision.get("risk_score") or 0), 1)),
+            _p(round(float(decision.get("data_quality") or 0), 1)),
+            _p(", ".join(str(value) for value in list(blockers)[:2]) or "Ingen"),
+        ])
+    if learning_rows:
+        learning_table = Table(
+            [["Ticker", "Læring", "Score", "Risiko", "Datakvalitet", "Produksjonsblokkering"]] + learning_rows[:10],
+            repeatRows=1, colWidths=[24*mm, 19*mm, 18*mm, 18*mm, 24*mm, 65*mm],
+        )
+        learning_table.setStyle(_table_style(6.3, padding=2))
+        story += [Paragraph("Kanoniske læringshandler i denne kjøringen", styles["Subsection"]), learning_table]
     if threshold_explanation:
         story += [Paragraph(escape(threshold_explanation), styles["Small"])]
     candidate_minutes = int(report_status.get("candidate_validity_minutes") or 60)
@@ -4018,8 +4053,14 @@ def _run_job_impl(
             market_deep_budget,
             _allocated_market_budget(job.proposal_count, market_index, len(markets), minimum=0),
         )
+        market_deep_budget = _allocated_market_budget(job.deep_count, market_index, len(markets), minimum=1)
+        market_evidence_analysis_budget = min(
+            market_deep_budget,
+            _allocated_market_budget(job.evidence_analysis_count, market_index, len(markets), minimum=0),
+        )
         cfg = PipelineConfig(market_scope=market, scan_limit=job.scan_limit, deep_analysis_count=market_deep_budget,
                              proposal_count=market_evidence_budget, use_research="AI Research Assistant" in job.modules,
+                             evidence_analysis_count=market_evidence_analysis_budget,
                              use_backtest="Backtesting Validation" in job.modules,
                              use_portfolio_fit="Portfolio Optimizer" in job.modules,
                              use_learning_advisor="Learning Advisor" in job.modules,
@@ -4343,6 +4384,9 @@ def _run_job_impl(
                "per_market": job.scan_limit,
                "market_count": len(markets),
                "planned_maximum": job.scan_limit * len(markets),
+               "deep_analysis_total_budget": int(job.deep_count),
+               "evidence_analysis_total_budget": int(job.evidence_analysis_count),
+               "newsapi_per_report_hard_cap": 5 if "TEST" in str(trigger or "").upper() or "TEST" in str(job.name or "").upper() else 15,
                "actual_by_market": {
                    str(item.get("config", {}).get("market_scope") or "Ukjent"): int((item.get("summary") or {}).get("scanned", 0))
                    for item in market_runs
@@ -4405,6 +4449,10 @@ def _run_job_impl(
     # Rebuild the canonical report after Autonomi so production and learning
     # activity is separated in the same document that is persisted and rendered.
     apply_report_integrity(run)
+    from report_integrity import audit_learning_report_consistency
+    run["learning_report_consistency"] = audit_learning_report_consistency(run)
+    if not run["learning_report_consistency"].get("ok"):
+        raise RuntimeError("Lærings-/rapportkonsistens feilet: " + "; ".join(run["learning_report_consistency"].get("errors") or []))
     run.pop("report_document", None)
     run.pop("decision_report", None)
 
@@ -4589,15 +4637,21 @@ def run_job(
     )
     trace_id = str(trace.get("trace_id") or "")
     mark_run_stage(trace_id, "PREFLIGHT", status="RUNNING", message="Starter forhåndskontroll og klargjøring")
+    from newsapi_budget import begin_report_budget, end_report_budget
+    report_api_limit = 5 if "TEST" in str(trigger or "").upper() or "TEST" in str(getattr(job, "name", "") or "").upper() else 15
+    begin_report_budget(report_api_limit, label=f"{trigger}:{getattr(job, 'job_id', '')}")
     try:
         with report_execution_lock() as execution_acquired:
             if not execution_acquired:
                 raise RuntimeError("En annen rapportkjøring er allerede aktiv. Ny kjøring ble ikke startet.")
-            return _run_job_traced(
+            result = _run_job_traced(
                 job, trigger, progress_callback, force_refresh, revision_parent,
                 send_notifications, scheduled_for, trace_id,
             )
+            result["newsapi_report_budget"] = end_report_budget()
+            return result
     except Exception as exc:
+        end_report_budget()
         code = stable_error_code("REPORT", "report_run_failed", "RUN")
         mark_run_stage(trace_id, "FAILED", status="ERROR", message="Rapportkjøringen feilet", error_code=code, error=exc)
         complete_run_trace(trace_id, status="FAILED", error_code=code, error=exc)
@@ -5412,7 +5466,8 @@ def render_market_intelligence() -> None:
             st.caption(f"Planlagt maksimum: {int(scan_limit) * len(normalize_markets(markets or ['Norge']))} aksjer ({int(scan_limit)} per marked).")
             if int(scan_limit) == 250:
                 st.warning(f"Maksprofil: opptil {250 * len(normalize_markets(markets or ['Norge']))} aksjer. Dette kan gi lang kjøretid og høy API-bruk.")
-            deep = st.number_input("Utvidet analyse - totalt antall kandidater", 3, 100, current.deep_count if current else 15, 1, key="mi_deep_v18687")
+            deep = st.number_input("Utvidet analyse - totalt antall kandidater", 3, 100, current.deep_count if current else 18, 1, key="mi_deep_v18687")
+            evidence_count = st.number_input("Evidenskontroll - totalt antall kandidater", 1, 20, min(current.evidence_analysis_count, current.deep_count) if current else 15, 1, key="mi_evidence_count_v19220_rc1627")
             proposals = st.number_input("Grundig evidenskontroll - totalt antall", 1, 15, min(current.proposal_count, current.deep_count) if current else 5, 1, key="mi_prop_v18687")
         st.markdown("##### Varsling, lagring og aktivering")
         delivery_settings, notification_settings = st.columns(2, gap="large", vertical_alignment="top")
@@ -5467,7 +5522,7 @@ def render_market_intelligence() -> None:
             _rerun_reports_v19220_rc11(st)
         if reset_all:
             defaults = load_draft_job()
-            defaults.name = "Morgenanalyse"; defaults.markets=[CORE_MARKET_SCOPE_LABEL]; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=15; defaults.proposal_count=5; defaults.min_alert_score=80; defaults.allow_weekends=False
+            defaults.name = "Morgenanalyse"; defaults.markets=[FULL_MARKET_SCOPE_LABEL]; defaults.market_profile=MARKET_PROFILE_FULL; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=50; defaults.deep_count=18; defaults.evidence_analysis_count=15; defaults.proposal_count=5; defaults.coverage_profile_version="3.0"; defaults.min_alert_score=80; defaults.allow_weekends=False
             write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
             for key in list(st.session_state):
                 if str(key).startswith("mi_"): del st.session_state[key]
@@ -5482,7 +5537,7 @@ def render_market_intelligence() -> None:
             name=name.strip() or "Uten navn", markets=profile_market_selections(selected_profile, markets or ["Norge"]),
             market_profile=selected_profile, schedules=schedules or [],
             weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
-            scan_limit=int(scan_limit), deep_count=int(deep), proposal_count=int(proposals), min_alert_score=float(min_score),
+            scan_limit=int(scan_limit), deep_count=int(deep), evidence_analysis_count=min(int(evidence_count), int(deep)), proposal_count=int(proposals), coverage_profile_version="3.0", min_alert_score=float(min_score),
             notify_pushover=notify, notify_only_changes=(notification_mode == "CHANGES_ONLY"), notification_mode=notification_mode, include_report_link=include_report_link,
             include_top3_in_notification=include_top3, allow_weekends=allow_weekends, save_pdf=save_pdf, enabled=False,
             scan_windows=scan_windows, run_autonomous_portfolio=run_auto, run_controlled_learning=run_learning, require_active_portfolio=require_active,

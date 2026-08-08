@@ -23,6 +23,7 @@ STATE_PATH = runtime_data_path("newsapi", "budget.json")
 CACHE_PATH = runtime_data_path("newsapi", "shared_cache.json")
 _LOCK = threading.RLock()
 _LAST_REQUEST = 0.0
+_REPORT_BUDGET = threading.local()
 
 
 class NewsApiError(RuntimeError):
@@ -45,6 +46,43 @@ class NewsApiDailyQuotaExceeded(NewsApiError):
         self.remaining = max(0, int(remaining or 0))
 
 
+class NewsApiReportQuotaExceeded(NewsApiDailyQuotaExceeded):
+    status = "REPORT_QUOTA_EXCEEDED"
+
+    def __init__(self, remaining: int = 0):
+        NewsApiError.__init__(self, "NewsAPI-budsjettet for denne rapporten er brukt; øvrige kilder benyttes")
+        self.remaining = max(0, int(remaining or 0))
+
+
+def begin_report_budget(max_requests: int, *, label: str = "REPORT") -> None:
+    """Start a thread-local hard request budget for one report execution."""
+    _REPORT_BUDGET.active = True
+    _REPORT_BUDGET.limit = max(0, int(max_requests or 0))
+    _REPORT_BUDGET.used = 0
+    _REPORT_BUDGET.cache_hits = 0
+    _REPORT_BUDGET.label = str(label or "REPORT")
+
+
+def report_budget_snapshot() -> dict[str, Any]:
+    active = bool(getattr(_REPORT_BUDGET, "active", False))
+    limit = int(getattr(_REPORT_BUDGET, "limit", 0) or 0)
+    used = int(getattr(_REPORT_BUDGET, "used", 0) or 0)
+    return {
+        "active": active,
+        "label": str(getattr(_REPORT_BUDGET, "label", "") or ""),
+        "limit": limit,
+        "used": used,
+        "remaining": max(0, limit - used),
+        "cache_hits": int(getattr(_REPORT_BUDGET, "cache_hits", 0) or 0),
+    }
+
+
+def end_report_budget() -> dict[str, Any]:
+    snapshot = report_budget_snapshot()
+    _REPORT_BUDGET.active = False
+    return snapshot
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -64,13 +102,13 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
 
 
 def configured_budget() -> int:
-    """Return a conservative budget, capped at the known Developer allowance."""
-    raw = os.getenv("NEWSAPI_DAILY_BUDGET", "60")
+    """Return the operational budget; ten Developer requests remain reserved."""
+    raw = os.getenv("NEWSAPI_DAILY_BUDGET", "50")
     try:
-        value = int(raw or 60)
+        value = int(raw or 50)
     except (TypeError, ValueError):
-        value = 60
-    return max(0, min(100, value))
+        value = 50
+    return max(0, min(50, value))
 
 
 def _state() -> dict[str, Any]:
@@ -165,12 +203,20 @@ def fetch_articles(
         state = _state()
         cached = _cached(cache_id, ttl)
         if cached is not None:
+            if bool(getattr(_REPORT_BUDGET, "active", False)):
+                _REPORT_BUDGET.cache_hits = int(getattr(_REPORT_BUDGET, "cache_hits", 0) or 0) + 1
             state["cache_hits"] = int(state.get("cache_hits") or 0) + 1
             _record(state, purpose, "CACHE_HIT")
             return cached
         state["cache_misses"] = int(state.get("cache_misses") or 0) + 1
         budget = configured_budget()
         used = int(state.get("requests") or 0)
+        if bool(getattr(_REPORT_BUDGET, "active", False)):
+            report_limit = int(getattr(_REPORT_BUDGET, "limit", 0) or 0)
+            report_used = int(getattr(_REPORT_BUDGET, "used", 0) or 0)
+            if report_limit <= 0 or report_used >= report_limit:
+                _record(state, purpose, "REPORT_QUOTA_EXCEEDED")
+                raise NewsApiReportQuotaExceeded(max(0, report_limit - report_used))
         if budget <= 0 or used >= budget:
             _record(state, purpose, "DAILY_QUOTA_EXCEEDED")
             raise NewsApiDailyQuotaExceeded(max(0, budget - used))
@@ -192,6 +238,8 @@ def fetch_articles(
         status_code = int(getattr(response, "status_code", 200) or 200)
         response_headers = getattr(response, "headers", {}) or {}
         _record(state, purpose, "HTTP_" + str(status_code), spent=True)
+        if bool(getattr(_REPORT_BUDGET, "active", False)):
+            _REPORT_BUDGET.used = int(getattr(_REPORT_BUDGET, "used", 0) or 0) + 1
         if status_code == 429:
             retry_after = float(response_headers.get("Retry-After") or 0.0)
             state = _state()
@@ -239,14 +287,20 @@ def health_snapshot() -> dict[str, Any]:
         "budget_window": "UTC",
         "next_local_budget_window": f"{tomorrow.isoformat()}T00:00:00Z",
         "developer_delay_hours": 24 if str(os.getenv("NEWSAPI_PLAN", "Developer")).casefold() == "developer" else 0,
+        "reserved_requests": 10,
+        "report_budget": report_budget_snapshot(),
     }
 
 
 __all__ = [
     "NewsApiDailyQuotaExceeded",
+    "NewsApiReportQuotaExceeded",
     "NewsApiError",
     "NewsApiRateLimited",
     "configured_budget",
+    "begin_report_budget",
+    "end_report_budget",
     "fetch_articles",
     "health_snapshot",
+    "report_budget_snapshot",
 ]

@@ -284,15 +284,55 @@ def _learning_summary(result: Mapping[str, Any]) -> dict[str, Any]:
             break
     ordinary_buys = portfolio_stage.get("ordinary_buys")
     production_buys = int(ordinary_buys if ordinary_buys is not None else (portfolio_stage.get("buys") or 0))
-    learning_buys = int(portfolio_stage.get("learning_buys") or 0)
+    canonical = chain.get("autonomy_learning_account") if isinstance(chain.get("autonomy_learning_account"), Mapping) else {}
+    fills = [dict(row) for row in list(canonical.get("fills") or portfolio_stage.get("learning_fills") or []) if isinstance(row, Mapping)]
+    metrics = dict(canonical.get("account_metrics") or portfolio_stage.get("learning_account_metrics") or {})
+    learning_buys = sum(1 for row in fills if str(row.get("side") or "").upper() == "BUY")
+    learning_sells = sum(1 for row in fills if str(row.get("side") or "").upper() == "SELL")
+    if not fills:
+        learning_buys = int(portfolio_stage.get("learning_buys") or 0)
+    open_positions = int(metrics.get("open_positions") or portfolio_stage.get("learning_open_positions") or 0)
+    decisions = list(canonical.get("decisions") or portfolio_stage.get("learning_decisions") or [])
     return {
         "production_buys": production_buys,
         "learning_buys": learning_buys,
         "production_open_positions": int(portfolio_stage.get("open_positions") or 0),
-        "learning_open_positions": int(portfolio_stage.get("learning_open_positions") or 0),
+        "learning_open_positions": open_positions,
         "production_buy_tickers": list(portfolio_stage.get("buy_tickers") or []),
-        "learning_buy_tickers": list(portfolio_stage.get("learning_buy_tickers") or []),
-        "separate_accounts": bool(learning_buys or portfolio_stage.get("learning_open_positions")),
+        "learning_buy_tickers": [str(row.get("ticker") or "") for row in fills if str(row.get("side") or "").upper() == "BUY"] or list(portfolio_stage.get("learning_buy_tickers") or []),
+        "learning_sells": learning_sells,
+        "learning_sell_tickers": [str(row.get("ticker") or "") for row in fills if str(row.get("side") or "").upper() == "SELL"],
+        "learning_decisions": decisions,
+        "learning_fills": fills,
+        "canonical_account_id": str(metrics.get("account_id") or portfolio_stage.get("learning_account_id") or "autonomy_learning"),
+        "canonical_account_last_run_id": str(metrics.get("last_run_id") or portfolio_stage.get("learning_account_last_run_id") or ""),
+        "canonical_account_updated_at": str(metrics.get("updated_at") or portfolio_stage.get("learning_account_updated_at") or ""),
+        "report_consistent": int(portfolio_stage.get("learning_buys") or learning_buys) == learning_buys and int(portfolio_stage.get("learning_open_positions") or open_positions) == open_positions,
+        "separate_accounts": bool(learning_buys or open_positions),
+    }
+
+
+def audit_learning_report_consistency(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Hard audit: persisted canonical learning activity must equal the report."""
+    summary = _learning_summary(result)
+    fills = list(summary.get("learning_fills") or [])
+    fill_buys = sum(1 for row in fills if str((row or {}).get("side") or "").upper() == "BUY")
+    reported_buys = int(summary.get("learning_buys") or 0)
+    open_positions = int(summary.get("learning_open_positions") or 0)
+    errors: list[str] = []
+    if fill_buys != reported_buys:
+        errors.append(f"Læringskjøp avviker: canonical fills={fill_buys}, rapport={reported_buys}")
+    run_id = str(result.get("run_id") or "")
+    account_run_id = str(summary.get("canonical_account_last_run_id") or "")
+    if fills and account_run_id and run_id and account_run_id != run_id:
+        errors.append(f"Læringskontoens siste run_id {account_run_id} avviker fra rapport {run_id}")
+    if reported_buys and open_positions <= 0:
+        errors.append("Rapporten viser læringskjøp, men ingen åpen læringsposisjon")
+    return {
+        "ok": not errors, "errors": errors, "run_id": run_id,
+        "canonical_account_id": summary.get("canonical_account_id"),
+        "learning_buys": reported_buys, "learning_sells": int(summary.get("learning_sells") or 0),
+        "learning_open_positions": open_positions,
     }
 
 
