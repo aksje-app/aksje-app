@@ -5294,6 +5294,46 @@ def render_market_intelligence() -> None:
         tab_history = st.container()
 
     with st.expander("5. Planlegging og avanserte innstillinger", expanded=False):
+        from report_test_mode import build_test_job, load_report_test_mode, set_report_test_mode
+        test_state = load_report_test_mode()
+        with st.container(border=True):
+            st.markdown("##### 🧪 Pushover-test av Autonomi-rapporter")
+            st.caption(
+                "Kjører en tydelig merket testrapport hvert 30. minutt via Render Cron. "
+                "Testen kan ikke kjøpe, selge, endre porteføljen eller opprette læringshandler."
+            )
+            requested_test_mode = st.checkbox(
+                "Aktiver testrapport med Pushover hvert 30. minutt",
+                value=bool(test_state.get("enabled")), key="mi_report_test_mode_v19220_rc1623",
+            )
+            if requested_test_mode != bool(test_state.get("enabled")):
+                test_state = set_report_test_mode(requested_test_mode)
+                st.success("Rapporttest er aktivert." if requested_test_mode else "Rapporttest er avsluttet.")
+            tm1, tm2, tm3, tm4 = st.columns(4)
+            tm1.metric("Status", "AKTIV" if test_state.get("enabled") else "AV")
+            tm2.metric("Vellykkede tester", f"{int(test_state.get('successes') or 0)}/4")
+            tm3.metric("Siste rapport-ID", str(test_state.get("last_report_id") or "-"))
+            tm4.metric("Pushover", str(test_state.get("last_notification_status") or "-"))
+            st.caption(
+                f"Sist startet: {local_display(test_state.get('last_started_at')) if test_state.get('last_started_at') else '-'} · "
+                f"Sist fullført: {local_display(test_state.get('last_completed_at')) if test_state.get('last_completed_at') else '-'}"
+            )
+            if test_state.get("last_error"):
+                st.error(f"Siste testfeil: {test_state.get('last_error')}")
+            test_now, stop_test = st.columns(2)
+            if test_now.button("🧪 Kjør én test umiddelbart", key="mi_report_test_now_v19220_rc1623", disabled=manual_job_running):
+                started = start_manual_job(
+                    build_test_job(), trigger="MANUAL_REPORT_TEST_NOTIFICATION",
+                    force_refresh=False, scheduled_for="",
+                )
+                st.session_state["mi_active_execution_v1924"] = str(started.get("execution_id") or "")
+                st.success("Testrapporten er startet i bakgrunnen. Pushover sendes når PDF-en er ferdig.")
+                _rerun_reports_v19220_rc11(st)
+            if stop_test.button("Stopp og slå av testmodus", key="mi_report_test_stop_v19220_rc1623", disabled=not bool(test_state.get("enabled"))):
+                set_report_test_mode(False)
+                st.success("Testmodus er slått av. En allerede startet rapport får fullføre uten handel eller læring.")
+                _rerun_reports_v19220_rc11(st)
+            st.info("Automatisk sikkerhetsstopp: etter fire vellykkede tester, tre feil eller to timer.")
         tab_jobs, tab_accuracy, tab_ops = st.tabs(["Jobbprofiler", "Accuracy Analytics", "Drift"])
     with tab_jobs:
         jobs = quick_jobs

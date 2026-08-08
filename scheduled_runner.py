@@ -81,6 +81,7 @@ def _run_once_locked() -> dict[str, Any]:
         "started_at": started,
         "completed_at": None,
         "scheduler": {},
+        "report_test_mode": {},
         "currency_alerts": {},
         "report_repair": {},
         "report_revalidation": {},
@@ -97,6 +98,7 @@ def _run_once_locked() -> dict[str, Any]:
         state["error"] = str(exc)[:1000]
         state["completed_at"] = _now()
         _notify_failure_once(state, state["error"])
+
         return _save(state)
 
     # The due-job check is the primary purpose of this process and must run
@@ -128,6 +130,17 @@ def _run_once_locked() -> dict[str, Any]:
         state["state"] = "FAILED"
         state["error"] = str(exc)[:1000]
         _notify_failure_once(state, state["error"])
+
+    # The bounded acceptance mode runs only when no ordinary report was claimed
+    # in this cron cycle. It uses the same report execution lock and never trades.
+    try:
+        if state.get("state") == "COMPLETED" and int((state.get("scheduler") or {}).get("runs") or 0) == 0:
+            from report_test_mode import run_due_report_test
+            state["report_test_mode"] = dict(run_due_report_test() or {})
+        else:
+            state["report_test_mode"] = {"run_state": "SKIPPED_ORDINARY_REPORT"}
+    except Exception as exc:
+        state["report_test_mode"] = {"run_state": "FAILED", "error": str(exc)[:500]}
 
     # Currency alerts share the durable five-minute Render cron. They run
     # independently of report due-times, market hours and user login.
@@ -201,6 +214,7 @@ def main() -> int:
         "state": state.get("state"), "started_at": state.get("started_at"),
         "completed_at": state.get("completed_at"), "error": state.get("error"),
         "scheduled_runs": (state.get("scheduler") or {}).get("runs", 0),
+        "report_test_mode": (state.get("report_test_mode") or {}).get("run_state"),
         "currency_alerts": (state.get("currency_alerts") or {}).get("state"),
         "report_repair": (state.get("report_repair") or {}).get("state"),
         "report_revalidation": (state.get("report_revalidation") or {}).get("state"),

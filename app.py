@@ -489,6 +489,8 @@ html body div[data-testid="stAppViewContainer"]::after {
 """, unsafe_allow_html=True)
 
 
+from public_report_ui import render_public_report
+if render_public_report(st): st.stop()
 current_user = require_login()
 
 # RC8: capture the browser timezone once.  It only affects presentation; report
