@@ -18,7 +18,7 @@ _PG_ADVISORY_LOCK_ID = 1871501
 
 
 @contextmanager
-def _global_scheduler_lock():
+def global_scheduler_lock():
     """Prevent duplicate scheduled reports across Render processes."""
     connection = None
     acquired = True
@@ -40,7 +40,9 @@ def _global_scheduler_lock():
                     stage="COORDINATION", message="Global scheduler-lås kunne ikke brukes; lokal kjøring fortsetter",
                     error_code=stable_error_code("SCHEDULER", "coordination_degraded", "LOCK"), error=exc,
                 )
-                acquired = True
+                # A configured production database is the cross-process source
+                # of truth. Continuing without its lock could duplicate reports.
+                acquired = False
         yield acquired
     finally:
         if connection is not None:
@@ -76,17 +78,19 @@ def _worker() -> None:
 
 
 def _run_due_jobs_coordinated(*, authoritative_unattended: bool = False) -> list[dict[str, Any]]:
-    with _global_scheduler_lock() as acquired:
+    with global_scheduler_lock() as acquired:
         if not acquired:
             append_event("scheduler/audit.jsonl", _AUDIT_PATH, {
                 "at": _now(), "event": "BACKGROUND_CHECK_SKIPPED", "reason": "another_process_holds_lock"
             })
             return []
         from market_intelligence import run_due_jobs
-        return list(run_due_jobs(authoritative_unattended=authoritative_unattended) or [])
+        if authoritative_unattended:
+            return list(run_due_jobs(authoritative_unattended=True) or [])
+        return list(run_due_jobs() or [])
 
 
-def run_scheduler_cycle(*, authoritative_unattended: bool = False) -> dict[str, Any]:
+def run_scheduler_cycle(*, authoritative_unattended: bool = False, already_coordinated: bool = False) -> dict[str, Any]:
     """Run one durable due-job check with a complete structured trace."""
     global _STATUS
     started = _now()
@@ -98,7 +102,11 @@ def run_scheduler_cycle(*, authoritative_unattended: bool = False) -> dict[str, 
     append_event("scheduler/audit.jsonl", _AUDIT_PATH, {"at": started, "event": "BACKGROUND_CHECK_STARTED", "trace_id": trace_id})
     mark_run_stage(trace_id, "DUE_JOB_SCAN", status="RUNNING", message="Kontrollerer planlagte jobber")
     try:
-        results = _run_due_jobs_coordinated(authoritative_unattended=authoritative_unattended)
+        if already_coordinated:
+            from market_intelligence import run_due_jobs
+            results = list(run_due_jobs(authoritative_unattended=authoritative_unattended) or [])
+        else:
+            results = _run_due_jobs_coordinated(authoritative_unattended=authoritative_unattended)
         mark_run_stage(trace_id, "DUE_JOB_SCAN", status="COMPLETED", message="Planlagte jobber er kontrollert", metrics={"runs": len(results)})
         try:
             from market_intelligence import scheduler_health_snapshot

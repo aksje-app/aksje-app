@@ -63,8 +63,8 @@ services:
   - type: cron
     name: aksje-app-report-scheduler
     runtime: python
-    plan: starter
-    schedule: "*/5 * * * *"
+    plan: standard
+    schedule: "*/30 * * * *"
     buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
     startCommand: python scheduled_runner.py
     envVars:
@@ -104,6 +104,8 @@ services:
         value: "true"
       - key: REPORT_REVALIDATION_HOURS
         value: "6"
+      - key: REPORT_MAINTENANCE_INTERVAL_MINUTES
+        value: "360"
       - key: SEC_USER_AGENT
         sync: false
       - key: PUSHOVER_APP_TOKEN

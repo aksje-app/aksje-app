@@ -1629,7 +1629,8 @@ def _notification_mode(job: JobProfile) -> str:
     mode = str(getattr(job, "notification_mode", "") or "").strip().upper()
     if mode in {"ALWAYS", "CHANGES_ONLY", "ERRORS_ONLY"}:
         return mode
-    if "morgen" in str(job.name or "").casefold():
+    normalized_name = str(job.name or "").casefold()
+    if any(token in normalized_name for token in ("morgen", "kveld", "evening")):
         return "ALWAYS"
     return "CHANGES_ONLY" if job.notify_only_changes else "ALWAYS"
 
@@ -3841,13 +3842,24 @@ def _run_job_impl(
     full_run_started = time_module.perf_counter()
     requested_job = job
     trigger = str(trigger or "MANUAL").upper()
+    delayed_catchup = trigger == "MISSED_SCHEDULE_CATCHUP"
     job, execution_settings = apply_execution_settings(job)
     # A manual/test run must never inherit an old planned slot. This was the
     # root cause of manually started drafts looking like delayed scheduled
     # reports in Pushover.
-    if trigger != "SCHEDULED":
+    if trigger not in {"SCHEDULED", "MISSED_SCHEDULE_CATCHUP"}:
         scheduled_for = None
     job, handoff = _effective_execution_job(job, trigger)
+    if delayed_catchup:
+        # A delayed catch-up may rebuild and deliver the missing report, but it
+        # must never create portfolio or learning transactions retroactively.
+        job = replace(job, run_autonomous_portfolio=False, run_controlled_learning=False)
+        execution_settings = {
+            **dict(execution_settings or {}),
+            "delayed_catchup": True,
+            "portfolio_actions_blocked": True,
+            "learning_actions_blocked": True,
+        }
     profile = market_profile_contract(job.market_profile, job.markets, name=job.name)
     job = replace(
         job,
@@ -4560,6 +4572,7 @@ def run_job(
     scheduled_for: str | None = None,
 ) -> dict[str, Any]:
     """Run one report job with a durable end-to-end operational trace."""
+    from execution_coordination import report_execution_lock
     from operational_telemetry import (
         begin_run_trace, bind_run_trace, complete_run_trace, mark_run_stage, stable_error_code,
     )
@@ -4574,6 +4587,32 @@ def run_job(
     )
     trace_id = str(trace.get("trace_id") or "")
     mark_run_stage(trace_id, "PREFLIGHT", status="RUNNING", message="Starter forhåndskontroll og klargjøring")
+    try:
+        with report_execution_lock() as execution_acquired:
+            if not execution_acquired:
+                raise RuntimeError("En annen rapportkjøring er allerede aktiv. Ny kjøring ble ikke startet.")
+            return _run_job_traced(
+                job, trigger, progress_callback, force_refresh, revision_parent,
+                send_notifications, scheduled_for, trace_id,
+            )
+    except Exception as exc:
+        code = stable_error_code("REPORT", "report_run_failed", "RUN")
+        mark_run_stage(trace_id, "FAILED", status="ERROR", message="Rapportkjøringen feilet", error_code=code, error=exc)
+        complete_run_trace(trace_id, status="FAILED", error_code=code, error=exc)
+        raise
+
+
+def _run_job_traced(
+    job: JobProfile,
+    trigger: str,
+    progress_callback: Callable[[Mapping[str, Any]], None] | None,
+    force_refresh: bool,
+    revision_parent: Mapping[str, Any] | None,
+    send_notifications: bool,
+    scheduled_for: str | None,
+    trace_id: str,
+) -> dict[str, Any]:
+    from operational_telemetry import bind_run_trace, complete_run_trace
     try:
         if progress_callback:
             progress_callback({
@@ -4600,10 +4639,7 @@ def run_job(
             },
         )
         return result
-    except Exception as exc:
-        code = stable_error_code("REPORT", "report_run_failed", "RUN")
-        mark_run_stage(trace_id, "FAILED", status="ERROR", message="Rapportkjøringen feilet", error_code=code, error=exc)
-        complete_run_trace(trace_id, status="FAILED", error_code=code, error=exc)
+    except Exception:
         raise
 
 
@@ -5134,18 +5170,17 @@ def render_market_intelligence() -> None:
         help="Kjøring og fremdrift laster ikke rapportkropper, historikk, Accuracy Analytics eller avanserte jobbinnstillinger.",
     )
     st.caption("Kjør utkast og manglende faste rapporter fra ett kompakt handlingsområde. Planlegging, historikk og avanserte valg ligger lenger ned.")
+    # The web process is display/control only. Authoritative scheduled work is
+    # owned by scheduled_runner.py in Render Cron and never starts on login.
     try:
-        from scheduler_background import kick_scheduler_background, scheduler_status
-        last_kick = float(st.session_state.get("mi_scheduler_kick_monotonic_v1924") or 0.0)
-        if time_module.monotonic() - last_kick >= 60.0:
-            kick_scheduler_background()
-            st.session_state["mi_scheduler_kick_monotonic_v1924"] = time_module.monotonic()
-        background = scheduler_status()
-        if background.get("state") == "RUNNING": st.caption("⏳ Scheduler kontrolleres i bakgrunnen. Jobbprofilene kan brukes mens kontrollen pågår.")
-        elif background.get("state") == "ERROR": st.warning(f"Bakgrunnsscheduler feilet: {background.get('error')}")
-        elif int(background.get("runs", 0)) > 0: st.success(f"{background.get('runs')} planlagt(e) jobb(er) ble kjørt i bakgrunnen.")
-    except Exception as exc:
-        st.warning(f"Bakgrunnsscheduler kunne ikke startes: {exc}")
+        from scheduled_runner import load_unattended_state
+        unattended = load_unattended_state()
+        if unattended.get("state") == "RUNNING":
+            st.caption("⏳ Den uavhengige cron-jobben kontrollerer planlagte rapporter.")
+        elif unattended.get("state") == "FAILED":
+            st.warning(f"Siste uavhengige planleggerkontroll feilet: {unattended.get('error') or 'ukjent feil'}")
+    except Exception:
+        pass
 
     # The report center follows the operator workflow deliberately:
     # status -> actions -> latest reports -> history -> advanced planning.
