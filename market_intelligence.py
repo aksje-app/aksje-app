@@ -4444,7 +4444,9 @@ def _run_job_impl(
         _write(LATEST_PATH, run)
         _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
         archive_view = dict(canonical_run)
-        archive_view.update({key: run.get(key) for key in ("pdf_path", "public_pdf_name", "report_url")})
+        archive_view.update({key: run.get(key) for key in (
+            "pdf_path", "public_pdf_name", "public_report_token", "report_url",
+        )})
         archive_report(archive_view)
         persistence = verify_report_persistence(run_id)
         if not persistence.get("ok"):
@@ -4459,7 +4461,7 @@ def _run_job_impl(
         emit("REPORT", 2, 3, "Rapport, arkiv og historikk er lagret; kontrollerer varsling")
         notification_view = dict(canonical_run)
         notification_view.update({key: run.get(key) for key in (
-            "pdf_path", "public_pdf_name", "report_url", "trigger", "test_run",
+            "pdf_path", "public_pdf_name", "public_report_token", "report_url", "trigger", "test_run",
             "suppress_notifications", "scheduled_for",
         )})
         notify_ok, notify_detail = _notification(job, notification_view)
