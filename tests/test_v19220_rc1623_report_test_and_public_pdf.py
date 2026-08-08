@@ -24,6 +24,51 @@ def test_public_url_uses_unlisted_token_not_streamlit_page_route(monkeypatch):
     assert "/app/static/" not in url
 
 
+def test_public_url_fails_closed_without_durable_token(monkeypatch):
+    monkeypatch.setenv("REPORT_PUBLIC_BASE_URL", "https://aksje-app.onrender.com/app/static/reports")
+    monkeypatch.setenv("REPORT_BASE_URL", "https://aksje-app.onrender.com")
+    assert report_delivery.public_report_url({"public_pdf_name": "old.pdf"}) == ""
+
+
+def test_notification_copy_preserves_durable_public_token():
+    source = open("market_intelligence.py", encoding="utf-8").read()
+    notification_block = source[source.index("notification_view = dict(canonical_run)"):source.index("notify_ok, notify_detail")]
+    assert '"public_report_token"' in notification_block
+
+
+def test_pushover_receives_root_query_url_not_static_page(monkeypatch):
+    import sys
+    import types
+    import market_intelligence as mi
+
+    captured = {}
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://aksje-app.onrender.com")
+    monkeypatch.setattr(mi, "_read", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mi, "_write", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mi, "_audit", lambda *args, **kwargs: None)
+
+    def fake_send(message, **kwargs):
+        captured.update(kwargs)
+        return True, "Sendt"
+
+    monkeypatch.setitem(sys.modules, "notifier", types.SimpleNamespace(send_pushover_alert=fake_send))
+    job = mi.JobProfile(name="Autonomi rapporttest", notification_mode="ALWAYS")
+    token = "T" * 43
+    run = {
+        "run_id": "MI-NOTIFY-ROUTE", "created_at": datetime.now(timezone.utc).isoformat(),
+        "trigger": "TEST", "test_run": True, "public_pdf_name": "report.pdf",
+        "public_report_token": token, "markets": ["Norge"],
+        "summary": {"deep_analyzed": 1, "recommended": 0}, "changes": {},
+        "report_status": {"label": "TEST"}, "report_revision": {"revision_label": "R1"},
+        "candidates": [], "proposals": [],
+    }
+    ok, detail = mi._notification(job, run)
+    assert ok is True
+    assert detail == "Sendt"
+    assert captured["url"] == f"https://aksje-app.onrender.com/?public_report_token={token}"
+    assert "/app/static/" not in captured["url"]
+
+
 def test_report_test_mode_is_bounded_and_due_every_30_minutes():
     now = datetime(2026, 8, 8, 8, 0, tzinfo=timezone.utc)
     state = {"enabled": True, "enabled_at": (now - timedelta(minutes=31)).isoformat(), "last_started_at": "", "successes": 0, "failures": 0}

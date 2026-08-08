@@ -28,9 +28,10 @@ class V18715ReleaseTests(unittest.TestCase):
             target = report_delivery.publish_pdf(run, b"%PDF-test")
             self.assertEqual(target.read_bytes(), b"%PDF-test")
             url = report_delivery.public_report_url(run)
-            self.assertTrue(url.startswith("https://aksje-app.onrender.com/app/static/reports/"))
-            self.assertIn("rapport_analyse", url)
-            self.assertTrue(url.endswith(".pdf"))
+            self.assertTrue(url.startswith("https://aksje-app.onrender.com/?public_report_token="))
+            self.assertNotIn("/app/static/reports/", url)
+            self.assertIn("rapport_analyse", target.name)
+            self.assertGreaterEqual(len(run.get("public_report_token", "")), 32)
 
     def test_streamlit_static_serving_is_enabled(self):
         config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
