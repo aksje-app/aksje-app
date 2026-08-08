@@ -32,7 +32,7 @@ def _candidate(ticker: str, **changes):
 def test_rc1626_identity_and_learning_profile(tmp_path):
     accounts, learning = _services(tmp_path)
     policy = learning.ensure_approved_profile()
-    assert APP_VERSION == "v19.22.0-rc16.26"
+    assert APP_VERSION == "v19.22.0-rc16.27"
     assert policy["minimum_score"] == 63.0
     assert policy["maximum_risk_score"] == 75.0
     assert policy["notional_value"] == 15000.0
