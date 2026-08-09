@@ -190,7 +190,8 @@ def test_source_integration_and_ui_contracts():
     autonomous = (ROOT / "autonomous_portfolio.py").read_text(encoding="utf-8")
     scanner = (ROOT / "scanner_worker.py").read_text(encoding="utf-8")
     repos = (ROOT / "repositories" / "application.py").read_text(encoding="utf-8")
-    assert "get_autonomy_learning_account_service().run_cycle" in autonomous
+    assert 'account_service.sync_legacy_account(\n            "autonomy_learning", learning_portfolio' in autonomous
+    assert 'account_id="autonomy_learning", trade=legacy_trade' in autonomous
     assert "get_autonomy_activation_service().analyse" in autonomous
     assert "Eksporter testresultater (ZIP)" in autonomous
     assert "Skriv GODKJENN" in autonomous
