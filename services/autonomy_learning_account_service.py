@@ -39,7 +39,15 @@ def _risk(row: Mapping[str, Any]) -> float:
 
 
 def _price(row: Mapping[str, Any]) -> float:
-    return _f(row.get("price", row.get("current_price", row.get("last_price"))))
+    raw = row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    for value in (
+        row.get("price"), row.get("current_price"), row.get("last_price"),
+        raw.get("price"), raw.get("current_price"), raw.get("last_price"), raw.get("regularMarketPrice"),
+    ):
+        price = _f(value)
+        if price > 0:
+            return price
+    return 0.0
 
 
 def _paper_signal(row: Mapping[str, Any]) -> dict[str, Any]:
