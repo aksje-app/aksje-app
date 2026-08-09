@@ -3865,6 +3865,19 @@ def _build_refresh_summary(candidates: Sequence[Mapping[str, Any]], force_refres
         "execution_trace": execution_trace,
     }
 
+def normalise_progress_counts(completed: Any, total: Any) -> tuple[int, int]:
+    """Return safe progress counters for internal and third-party callbacks."""
+    try:
+        done = max(0, int(completed or 0))
+    except (TypeError, ValueError, OverflowError):
+        done = 0
+    try:
+        count = max(1, int(total or 1))
+    except (TypeError, ValueError, OverflowError):
+        count = 1
+    return done, count
+
+
 def _run_job_impl(
     job: JobProfile,
     trigger: str = "MANUAL",
@@ -4028,13 +4041,14 @@ def _run_job_impl(
             progress_callback({"phase": "COMPLETE", "completed": 1, "total": 1, "message": "Validerte utkastdata gjenbrukes som endelig morgenrapport"})
         return _persist_promoted_run(reusable, job, trigger, handoff)
     def emit(phase: str, completed: int, total: int, message: str, **extra: Any) -> None:
-        payload = {"phase": phase, "completed": completed, "total": max(1, total), "message": message, **extra}
+        completed, total = normalise_progress_counts(completed, total)
+        payload = {"phase": phase, "completed": completed, "total": total, "message": message, **extra}
         if progress_callback:
             progress_callback(payload)
         if _trace_id:
             try:
                 from operational_telemetry import mark_run_stage
-                phase_status = "COMPLETED" if int(completed) >= int(max(1, total)) else "RUNNING"
+                phase_status = "COMPLETED" if completed >= total else "RUNNING"
                 mark_run_stage(_trace_id, phase, status=phase_status, message=message, metrics={
                     key: value for key, value in payload.items() if key not in {"phase", "message"}
                 })
@@ -4440,7 +4454,12 @@ def _run_job_impl(
     except Exception as exc:
         if isinstance(exc, ExecutionCancelled):
             raise
-        run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
+        run["autonomous_chain"] = {
+            "status": "ERROR", "errors": [str(exc)],
+            "error_type": type(exc).__name__,
+            "traceback": traceback.format_exc()[-12000:],
+            "failed_stage": "AUTONOMY_GATEWAY",
+        }
         try:
             from learning_acceptance import evaluate_learning_run
             run["learning_acceptance"] = evaluate_learning_run(run)

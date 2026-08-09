@@ -69,6 +69,7 @@ def run_post_scan_chain(
         if progress_callback is not None:
             progress_callback({
                 "phase": "AUTONOMOUS", "substage": name,
+                "completed": max(0, len(result["stages"]) - 1), "total": 3,
                 "message": f"Autonomi: {name.replace('_', ' ').title()} · {status}",
             })
 
