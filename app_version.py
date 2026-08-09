@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.29"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.29 Canonical Learning Consistency"
+APP_VERSION = "v19.22.0-rc16.30"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.30 Instrumented Autonomy Runtime"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.28"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.29"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.30: Autonomi-motoren publiserer nå reelle, kansellerbare delsteg gjennom markedssnapshot, parallelle strategier, teknisk bidrag, posisjonsoppdatering, salg, kjøp/læring, lagring, shared accounts, replay og parameterlæring. Fremdriftsvakten tillater opptil 15 minutters stillhet i Autonomi, men hvert delsteg fornyer jobblåsen og en tilbakekalling avbryter før senere lagring. Diagnosepakken merker tidligere læringsaksept som PREVIOUS_RUN i stedet for å fremstille den som resultatet av den aktive kjøringen. Ingen kjøps-, salgs-, risiko- eller produksjonsporter er endret.",
     "v19.22.0-rc16.29: Retter den dokumenterte canonical læringskonsistensfeilen der tre lagrede action=BUY-handler ble lest som null fordi kontrollen bare godtok side=BUY. Begge verbkontrakter normaliseres nå, tom shared fills faller tilbake til de faktiske LEARNING_ONLY-handlene fra samme kjøring, og Autonomi sender reell fremdrift før rapportaudit. OBSERVE er et gyldig læringsutfall og telles ikke som UNCLASSIFIED_BLOCKER. Feilbanen avslutter jobben terminalt og frigjør workerregistreringen uten å endre produksjonsporter eller virkelige handler.",
     "v19.22.0-rc16.28: Faste rapportjobber er igjen redigerbare og bruker Norge, Sverige og USA som trygg standard uten tvungen seksmarkedsmigrering. Den avgrensede 30-minutters akseptansetesten kjører nå den virkelige teoretiske Autonomi- og læringskjeden, lagrer et maskinlesbart PASS/PARTIAL/FAIL-bevis og beholder ordinære produksjonsporter uendret. Diagnosepakken inkluderer en hemmelighetsfri læringsprofil, heartbeat, beslutninger, handler, posisjonssammendrag, blokkårsaker, ytelse og testresultat med SHA-256-manifest.",
     "v19.22.0-rc16.25: Tokenendepunktet bruker ikke lenger Streamlits valgfrie PDF-komponent. PDF-en hydreres atomisk fra den felles dokumentdatabasen til webinstansens aktiverte statiske rapportområde, og mobilnettleseren videresendes til den rå PDF-filen før innlogging og resten av appen. Synlig direkteåpning og nedlasting beholdes som reserve. Ingen kjøps-, salgs-, stop-loss-, trailing-stop-, RSI-, score-, risiko-, lærings- eller porteføljeterskler er endret.",

@@ -10,7 +10,7 @@ import json
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
@@ -45,6 +45,7 @@ def run_post_scan_chain(
     run_learning: bool = True,
     require_active_portfolio: bool = True,
     trigger: str = "SCHEDULED",
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Execute the autonomous stages after a completed market scan."""
     timezone_name = str(market_run.get("timezone_name") or "Europe/Oslo")
@@ -65,6 +66,11 @@ def run_post_scan_chain(
 
     def stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> None:
         result["stages"].append({"name": name, "status": status, "at": _now(), "detail": dict(detail or {})})
+        if progress_callback is not None:
+            progress_callback({
+                "phase": "AUTONOMOUS", "substage": name,
+                "message": f"Autonomi: {name.replace('_', ' ').title()} · {status}",
+            })
 
     observed_candidates: Sequence[Mapping[str, Any]] = market_run.get("observed_candidates") or []
     candidates: Sequence[Mapping[str, Any]] = market_run.get("candidates") or market_run.get("proposals") or []
@@ -89,7 +95,10 @@ def run_post_scan_chain(
                 # account must still receive the canonical candidate set;
                 # otherwise a paused production account silently disables all
                 # learning and recreates the original no-learning deadlock.
-                cycle = run_autonomous_cycle(candidates, str(market_run.get("run_id") or chain_id))
+                cycle = run_autonomous_cycle(
+                    candidates, str(market_run.get("run_id") or chain_id),
+                    progress_callback=progress_callback,
+                )
                 portfolio_trades = list(cycle.get("portfolio_trades") or [])
                 learning_trades = list(cycle.get("learning_trades") or [])
                 shared_learning = dict(cycle.get("autonomy_learning_account") or {})
@@ -157,6 +166,12 @@ def run_post_scan_chain(
 
     if run_learning:
         try:
+            if progress_callback is not None:
+                progress_callback({
+                    "phase": "AUTONOMOUS", "substage": "CONTROLLED_LEARNING",
+                    "completed": 0, "total": 1,
+                    "message": "Kjører kontrollert læring på lagrede resultater",
+                })
             from controlled_parameter_learning import run_automatic_learning_if_due
             learning = run_automatic_learning_if_due(trigger=f"ORCHESTRATOR:{trigger}", force=True)
             learning["source_result_id"] = (market_run.get("canonical_result") or {}).get("result_id")

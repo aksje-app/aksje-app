@@ -4424,6 +4424,11 @@ def _run_job_impl(
             run_learning=job.run_controlled_learning,
             require_active_portfolio=job.require_active_portfolio,
                 trigger=trigger,
+                progress_callback=lambda event: emit(
+                    "AUTONOMOUS", event.get("completed"), event.get("total"),
+                    str(event.get("message") or event.get("substage") or "Autonomi arbeider"),
+                    ticker=str(event.get("ticker") or ""),
+                ),
             )
             emit("AUTONOMOUS", 1, 3, "Autonomi fullført; kontrollerer lagrede læringsbeslutninger")
             from learning_acceptance import evaluate_learning_run

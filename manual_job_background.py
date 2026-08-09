@@ -42,7 +42,10 @@ _STAGE_PROGRESS_LIMIT_SECONDS = {
     "NEWS": 360,
     "SCORING": 360,
     "PORTFOLIO_PROPOSAL": 300,
-    "AUTONOMOUS": 300,
+    # Autonomi performs persisted portfolio, learning-account and replay work.
+    # It must emit internal checkpoints (RC16.30), while the hard silence limit
+    # allows Render's single CPU and durable database normal operating room.
+    "AUTONOMOUS": 900,
     "REPORT": 420,
 }
 
@@ -449,6 +452,17 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     try:
         from learning_acceptance import build_learning_diagnostics
         learning = build_learning_diagnostics()
+        acceptance = dict(learning.get("acceptance") or {})
+        current_run_id = str(status.get("run_id") or "")
+        acceptance_report_id = str(acceptance.get("report_id") or "")
+        current_match = bool(current_run_id and acceptance_report_id == current_run_id)
+        acceptance.update({
+            "current_job_match": current_match,
+            "evidence_scope": "CURRENT_RUN" if current_match else "PREVIOUS_RUN",
+            "diagnostic_execution_id": execution_id,
+            "diagnostic_run_id": current_run_id,
+        })
+        learning["acceptance"] = acceptance
     except Exception as exc:
         learning = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     try:

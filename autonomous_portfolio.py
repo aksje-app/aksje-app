@@ -15,7 +15,7 @@ import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from services.strategy_binding import stamp_strategy_metadata
 from services.market_snapshot_service import get_market_snapshot_service
 from services.parallel_strategy_service import get_parallel_strategy_service
@@ -923,7 +923,10 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
     return trade
 
 
-def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | None = None) -> dict[str, Any]:
+def run_autonomous_cycle(
+    candidates: Sequence[Mapping[str, Any]], run_id: str | None = None,
+    *, progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     params = load_parameters().normalized()
     portfolio = load_portfolio()
     learning_portfolio = load_learning_portfolio()
@@ -939,6 +942,19 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
         "replay_level": "DECISION_REPLAY",
         "missing": ["FULL_REPLAY_SNAPSHOT_NOT_FINALIZED"],
     }
+
+    def emit_progress(completed: int, total: int, message: str, *, ticker: str = "") -> None:
+        if progress_callback is not None:
+            # Do not swallow ExecutionCancelled: the callback is also the
+            # worker-lease checkpoint that prevents late writes after timeout.
+            progress_callback({
+                "phase": "AUTONOMOUS", "substage": "AUTONOMOUS_PORTFOLIO",
+                "completed": completed, "total": total,
+                "message": message, "ticker": ticker,
+            })
+
+    progress_total = 10
+    emit_progress(0, progress_total, "Klargjør Autonomi-porteføljer og læringskonto")
 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
     market_snapshot_row: dict[str, Any] = {}
@@ -962,6 +978,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                     row.setdefault(key, value)
             enriched_candidates.append(row)
         candidates = enriched_candidates
+        emit_progress(1, progress_total, "Markedssnapshot er lagret")
         try:
             technical_portfolio = {}
             try:
@@ -986,6 +1003,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 "errors": parallel_strategy_run.get("error_count"),
                 "execution_authorized": False,
             })
+            emit_progress(2, progress_total, "Parallelle strategier er vurdert")
         except Exception as parallel_exc:
             # A benchmark/challenger failure must never stop Autonomi production.
             _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
@@ -1006,6 +1024,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 "hard_gates_unchanged": True,
                 "execution_authorized": False,
             })
+            emit_progress(3, progress_total, "Teknisk strategibidrag er kontrollert")
         except Exception as technical_exc:
             # Missing technical contribution must never stop the base Autonomi engine.
             technical_contribution = {
@@ -1024,6 +1043,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     observed_decisions, observed_trades = _update_learning_positions(learning_portfolio, candidate_map, run_id, params)
     learning_decisions.extend(observed_decisions)
     learning_trades.extend(observed_trades)
+    emit_progress(4, progress_total, "Eksisterende læringsposisjoner er oppdatert")
 
     # Mark ordinary autonomous positions and evaluate hard exits first.
     for ticker, pos in list((portfolio.get("positions") or {}).items()):
@@ -1053,6 +1073,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SELL", "reason": reason, "price": price, "score": score})
         else:
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "HOLD", "reason": "Ingen exitregel utløst", "price": price, "score": score})
+    emit_progress(5, progress_total, "Salgs- og holdbeslutninger er kontrollert")
 
     equity_before_buys = portfolio_equity(portfolio)
     high = max(_f(portfolio.get("high_watermark"), equity_before_buys), equity_before_buys)
@@ -1302,6 +1323,8 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
                 if params.notify_trades:
                     _notification("TRADE", f"AUTONOMY LEARNING BUY {ticker}", f"Teoretisk læringskjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade)
 
+    emit_progress(6, progress_total, "Kjøps- og læringsbeslutninger er ferdige")
+
     execution_integrity = _validate_execution_integrity(trades, candidate_map, portfolio)
     if not execution_integrity["ok"]:
         # Atomic safety fallback: no ordinary portfolio mutation or order ledger is
@@ -1344,11 +1367,13 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     learning_perf = learning_portfolio_performance(learning_portfolio)
     _write(PERFORMANCE_PATH, perf)
     _write(LEARNING_PERFORMANCE_PATH, learning_perf)
+    emit_progress(7, progress_total, "Porteføljer, beslutninger og ytelse er lagret")
 
     shared_account_sync: dict[str, Any] = {}
     learning_account_result: dict[str, Any] = {}
     activation_analysis: dict[str, Any] = {}
     try:
+        emit_progress(8, progress_total, "Synkroniserer delte strategi- og læringskontoer")
         account_service = get_strategy_account_service()
         execution_service = get_simulated_execution_service()
         main_account = account_service.sync_legacy_account(
@@ -1390,6 +1415,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     # cycle is finalized.  Failure never fabricates FULL_REPLAY and never
     # changes the already evaluated trading rules or parameters.
     try:
+        emit_progress(9, progress_total, "Bygger uforanderlig replay- og revisjonsspor")
         from autonomi_core.portfolio_decisions.layer import build_portfolio_context
         from replay_contract import build_snapshot, persist_snapshot
 
@@ -1436,6 +1462,7 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
     _append_audit("AUTONOMOUS_CYCLE_COMPLETED", {"run_id": run_id, "decisions": len(decisions), "ordinary_trades": len(trades), "learning_decisions": len(learning_decisions), "learning_trades": len(learning_trades), "equity": equity, "status": portfolio.get("status"), "execution_integrity": execution_integrity, "shared_learning_buys": learning_account_result.get("buy_count", 0), "activation_analysis_id": activation_analysis.get("analysis_id")})
     learning_result = None
     try:
+        emit_progress(10, progress_total, "Kjører kontrollert parameterlæring og sluttkontroll")
         from controlled_parameter_learning import run_automatic_learning_if_due
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
