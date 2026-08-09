@@ -640,6 +640,10 @@ class JobProfile:
     last_completed_at: str = ""
     last_failed_at: str = ""
     last_notification_status: str = ""
+    report_test_series_id: str = ""
+    report_test_part: int = 0
+    report_test_total: int = 0
+    report_test_attempt: int = 0
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "JobProfile":
@@ -973,6 +977,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     counter_hypotheses = section_payload(document, "counter_hypotheses", {}) or {}
     historical_evaluations = section_payload(document, "historical_evaluations", []) or []
     learning_guard = section_payload(document, "controlled_learning_guard", {}) or {}
+    learning_summary = run.get("learning_portfolio_summary") if isinstance(run.get("learning_portfolio_summary"), Mapping) else {}
     candidates = section_payload(document, "candidate_decisions", []) or []
     rejected_control = section_payload(document, "rejected_control_appendix", []) or []
     tasks = section_payload(document, "next_run_tasks", []) or []
@@ -1086,6 +1091,20 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     lines.append(f"- Automatisk endring av produksjonsregler: {'Tillatt' if learning_guard.get('production_rules_auto_change_allowed') else 'Ikke tillatt'}")
     lines.append(f"- Eksplisitt brukergodkjenning: {'Påkrevd' if learning_guard.get('require_explicit_user_approval') else 'Ikke påkrevd'}")
 
+    lines.extend(["", "KANONISKE LÆRINGSHANDLER I DENNE KJØRINGEN"])
+    learning_fills = [row for row in learning_summary.get("learning_fills") or [] if isinstance(row, Mapping)]
+    if learning_fills:
+        for fill in learning_fills:
+            action = str(fill.get("side") or fill.get("action") or "-").upper()
+            price = _safe_float_v1917(fill.get("price", fill.get("fill_price")))
+            quantity = _safe_float_v1917(fill.get("quantity"))
+            score = _safe_float_v1917(fill.get("score", fill.get("autonomy_adjusted_investment_score", fill.get("investment_score"))))
+            lines.append(
+                f"- {fill.get('ticker') or '-'} · {action} · antall {quantity:g} · pris {price:.2f} · score {score:.2f}"
+            )
+    else:
+        lines.append("- Ingen læringshandler i denne kjøringen.")
+
     lines.extend(["", "KRITISKE HENDELSER"])
     if events:
         for event in events[:10]:
@@ -1108,6 +1127,8 @@ def build_text_report(run: Mapping[str, Any]) -> str:
 
     technical = section_payload(document, "technical_status", {}) or {}
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
+    notification_channels = run.get("notification_channels") if isinstance(run.get("notification_channels"), Mapping) else {}
+    learning_notification = notification_channels.get("learning") if isinstance(notification_channels.get("learning"), Mapping) else {}
     lines.extend([
         "",
         "TEKNISK VEDLEGG – KORT STATUS",
@@ -1116,6 +1137,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         f"- Foreløpige modellkandidater: {summary.get('proposals', 0)}",
         f"- Teknisk markedsdatadekning: {quality.get('score', '-')} {quality.get('label', '')}".strip(),
         f"- Pushover: {notification.get('status_label') or notification.get('detail') or 'Ikke registrert'}",
+        f"- Pushover – læring: {learning_notification.get('status_label') or 'Ikke registrert'} ({int(learning_notification.get('sent_count') or 0)} sendt)",
     ])
     for error in technical.get("errors") or []:
         lines.append(f"- Feil: {error}")
@@ -1717,11 +1739,22 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         from report_channel_consistency import projection_from_run
         channel_projection = projection_from_run(run)
         is_test = bool(run.get("test_run")) or "TEST" in str(run.get("trigger") or "").upper()
+        test_series = dict(run.get("report_test_series") or {}) if isinstance(run.get("report_test_series"), Mapping) else {}
+        automatic_test = bool(test_series.get("automatic") and test_series.get("series_id"))
+        test_part = int(test_series.get("part") or 0)
+        test_total = int(test_series.get("total") or 0)
         origin = "Planlagt" if str(run.get("trigger") or "").upper() == "SCHEDULED" else ("Test" if is_test else "Manuell")
         top = (run.get("proposals") or run.get("candidates") or [{}])[0]
         lines: list[str] = []
         if is_test:
-            lines.append("🧪 TESTVARSEL - ikke ordinær rapport")
+            if automatic_test:
+                lines.extend([
+                    f"🧪 AUTOMATISK RAPPORTTEST {test_part}/{test_total}",
+                    f"Testserie-ID: {test_series.get('series_id')}",
+                    f"Forsøk: {int(test_series.get('attempt') or 0)}",
+                ])
+            else:
+                lines.append("🧪 TESTVARSEL · MANUELL TEST - teller ikke i automatisk 1/4–4/4")
         if run.get("scheduled_for"):
             lines.append(f"Planlagt tidspunkt: {run.get('scheduled_for')}")
         lines.extend([
@@ -1749,7 +1782,12 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         else:
             lines.append(f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})")
         url = report_public_url(run) if job.include_report_link else ""
-        title_prefix = "🧪 TESTVARSEL · " if is_test else ""
+        if automatic_test:
+            title_prefix = f"🧪 AUTOMATISK {test_part}/{test_total} · "
+        elif is_test:
+            title_prefix = "🧪 TESTVARSEL · MANUELL TEST · "
+        else:
+            title_prefix = ""
         ok, err = send_pushover_alert(
             "\n".join(lines), title=f"{title_prefix}{identity.get('label') or 'Rapport'} · AI Aksje Analyzer",
             url=url or None, url_title="Åpne rapport" if url else None,
@@ -2085,6 +2123,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     header_bg = colors.HexColor("#D9EAF7")
     grid = colors.HexColor("#9FB3C8")
     stripe = colors.HexColor("#F5F8FA")
+    SUMMARY_VALUE_FONT_SIZE = 8
+
+    def _format_summary_value(value: Any) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if number.is_integer():
+            return str(int(number))
+        precision = 2 if abs(number * 10 - round(number * 10)) > 1e-8 else 1
+        return f"{number:.{precision}f}".replace(".", ",")
 
     def _table_style(font_size: float = 7, *, header: bool = True, padding: float = 2.5) -> TableStyle:
         commands = [
@@ -2665,11 +2714,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     for index in range(0, len(summary_items), 3):
         cells = []
         for label, value in summary_items[index:index+3]:
-            cells.append(Paragraph(f"<b>{escape(label)}</b><br/><font size='11'>{escape(str(value))}</font>", styles["Small"]))
+            cells.append(Paragraph(
+                f"<b>{escape(label)}</b><br/><font size='{SUMMARY_VALUE_FONT_SIZE}'>{escape(_format_summary_value(value))}</font>",
+                styles["Small"],
+            ))
         while len(cells) < 3: cells.append("")
         summary_grid.append(cells)
     summary_table = Table(summary_grid, colWidths=[61.3*mm]*3)
-    summary_table.setStyle(_table_style(7, header=False, padding=4))
+    summary_table.setStyle(_table_style(7, header=False, padding=2))
     decision_conclusion = (
         f"Autonomiutfall: {int(reduction.get('buy_candidates') or 0)} kjøpskandidat(er), "
         f"{int(reduction.get('automatic_watch') or 0)} overvåkes automatisk, "
@@ -2682,17 +2734,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     decision_confidence_value = int(decision_confidence.get("decision_confidence") or 0)
     is_draft_report = str(identity.get("type") or "").upper() == "UTKAST"
     quick_report_status_v19143 = "Utkast – ikke endelig" if is_draft_report else ("Foreløpig" if report_status.get("state") == "PROVISIONAL" else "Endelig")
-    quick_table = Table([
-        ["Teknisk rapportkontroll", technical_report_label, "Beslutningskonfidens", f"{decision_confidence_value}/100",
-         "Rapportstatus", quick_report_status_v19143],
-    ], colWidths=[34*mm, 24*mm, 34*mm, 24*mm, 26*mm, 42*mm])
+    quick_table = Table([[
+        Paragraph("<b>Teknisk rapportkontroll</b>", styles["Tiny"]), _p(technical_report_label, "Tiny"),
+        Paragraph("<b>Beslutningskonfidens</b>", styles["Tiny"]), _p(f"{decision_confidence_value}/100", "Tiny"),
+        Paragraph("<b>Rapportstatus</b>", styles["Tiny"]), _p(quick_report_status_v19143, "Tiny"),
+    ]], colWidths=[38*mm, 20*mm, 36*mm, 22*mm, 28*mm, 40*mm])
     quick_table.setStyle(_table_style(6.8, header=False, padding=2.5))
-    quick_table.setStyle(TableStyle([("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
-                                     ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
-                                     ("FONTNAME", (4,0), (4,-1), "Helvetica-Bold")]))
     report_state_raw = "DRAFT" if is_draft_report else ("PROVISIONAL" if report_status.get("state") == "PROVISIONAL" else "PASS")
     quality_state_raw = "PASS" if technical_report_ok else "ERROR"
     notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
+    notification_channels = run.get("notification_channels") if isinstance(run.get("notification_channels"), Mapping) else {}
+    learning_notification = notification_channels.get("learning") if isinstance(notification_channels.get("learning"), Mapping) else {}
     notification_raw = "PASS" if (notification.get("sent") is True or str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}) else ("ERROR" if notification.get("attempted") else "NOT_SEARCHED")
     combined_quality = run.get("combined_quality") if isinstance(run.get("combined_quality"), Mapping) else (run.get("combined_data_quality") if isinstance(run.get("combined_data_quality"), Mapping) else {})
     source_total = int(combined_quality.get("evaluated") or len(run.get("candidates") or []) or 0)
@@ -2703,7 +2755,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         Paragraph(f"<font color='{decision_text_color(report_state_raw)}'>●</font> <b>Rapportstatus</b><br/>{'Utkast – ikke endelig' if is_draft_report else ('Foreløpig rapport – automatisk revalidering' if report_status.get('state') == 'PROVISIONAL' else 'Endelig rapport')}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(quality_state_raw)}'>●</font> <b>Teknisk rapportkontroll</b><br/>{technical_report_label}", styles["Small"]),
         Paragraph(f"<font color='{decision_text_color(source_raw)}'>●</font> <b>Kilde-/evidenskontroll</b><br/>{source_valid}/{source_total} kandidater evidensklare" if source_total else "<b>Kildekontroll</b><br/>Ikke målt", styles["Small"]),
-        Paragraph(f"<font color='{decision_text_color(notification_raw)}'>●</font> <b>Pushover</b><br/>{escape(_loc(notification_text))}", styles["Small"]),
+        Paragraph(
+            f"<font color='{decision_text_color(notification_raw)}'>●</font> <b>Pushover – rapport</b><br/>{escape(_loc(notification_text))}"
+            f"<br/><b>Pushover – læring</b>: {escape(str(learning_notification.get('status_label') or 'Ingen læringsvarsler'))}"
+            f" ({int(learning_notification.get('sent_count') or 0)})",
+            styles["Small"],
+        ),
     ]], colWidths=[42*mm, 42*mm, 42*mm, 42*mm])
     status_stripe.setStyle(TableStyle([
         ("GRID", (0,0), (-1,-1), .35, grid),
@@ -2744,26 +2801,26 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
               Paragraph(escape(decision_conclusion), styles["BodyCompact"]),
               Paragraph(escape(learning_text), styles["Small"])]
     learning_rows = []
-    for decision in list(learning_summary.get("learning_decisions") or []):
+    for decision in list(learning_summary.get("learning_fills") or []):
         if not isinstance(decision, Mapping):
             continue
         action = str(decision.get("action") or decision.get("decision") or "").upper()
         if action not in {"BUY", "SELL"}:
             continue
-        blockers = decision.get("production_blockers") or decision.get("blockers") or []
+        blockers = decision.get("production_blockers_at_entry") or decision.get("production_blockers") or decision.get("blockers") or []
         if isinstance(blockers, str):
             blockers = [blockers]
         learning_rows.append([
             _p(decision.get("ticker") or "-"), _p(action),
-            _p(round(float(decision.get("score") or decision.get("investment_score") or 0), 1)),
-            _p(round(float(decision.get("risk") or decision.get("risk_score") or 0), 1)),
-            _p(round(float(decision.get("data_quality") or 0), 1)),
+            _p(str(decision.get("quantity") or "-").replace(".", ",")),
+            _p((f"{float(decision.get('price')):.2f}".replace(".", ",") if decision.get("price") is not None else "-")),
+            _p(_format_summary_value(decision.get("score", decision.get("autonomy_adjusted_investment_score", decision.get("investment_score", 0))))),
             _p(", ".join(str(value) for value in list(blockers)[:2]) or "Ingen"),
         ])
     if learning_rows:
         learning_table = Table(
-            [["Ticker", "Læring", "Score", "Risiko", "Datakvalitet", "Produksjonsblokkering"]] + learning_rows[:10],
-            repeatRows=1, colWidths=[24*mm, 19*mm, 18*mm, 18*mm, 24*mm, 65*mm],
+            [["Ticker", "Resultat", "Antall", "Pris", "Score", "Produksjonsblokkering"]] + learning_rows[:10],
+            repeatRows=1, colWidths=[22*mm, 18*mm, 22*mm, 20*mm, 17*mm, 69*mm],
         )
         learning_table.setStyle(_table_style(6.3, padding=2))
         story += [Paragraph("Kanoniske læringshandler i denne kjøringen", styles["Subsection"]), learning_table]
@@ -4313,6 +4370,13 @@ def _run_job_impl(
            "trigger": trigger, "scheduled_for": scheduled_for or "",
            "execution_settings": execution_settings,
            "test_run": "TEST" in str(trigger or "").upper(),
+           "report_test_series": {
+               "series_id": str(getattr(job, "report_test_series_id", "") or ""),
+               "part": int(getattr(job, "report_test_part", 0) or 0),
+               "total": int(getattr(job, "report_test_total", 0) or 0),
+               "attempt": int(getattr(job, "report_test_attempt", 0) or 0),
+               "automatic": bool(getattr(job, "report_test_series_id", "")),
+           },
            "suppress_notifications": should_suppress_notifications(trigger, send_notifications),
            "markets": markets, "market_profile": dict(profile), "modules": job.modules, "summary": totals, "candidates": all_candidates,
            "proposals": all_proposals, "market_runs": market_runs, "errors": errors, "warnings": warnings, "execution": "ANALYSIS_ONLY",
@@ -5415,11 +5479,23 @@ def render_market_intelligence() -> None:
             tm3.metric("Siste rapport-ID", str(test_state.get("last_report_id") or "-"))
             tm4.metric("Pushover", str(test_state.get("last_notification_status") or "-"))
             st.caption(
+                f"Testserie-ID: {test_state.get('series_id') or '-'} · "
+                f"Automatiske forsøk: {int(test_state.get('attempts') or 0)} · "
+                f"Feil: {int(test_state.get('failures') or 0)}/3"
+            )
+            st.caption(
                 f"Sist startet: {local_display(test_state.get('last_started_at')) if test_state.get('last_started_at') else '-'} · "
-                f"Sist fullført: {local_display(test_state.get('last_completed_at')) if test_state.get('last_completed_at') else '-'}"
+                f"Sist fullført: {local_display(test_state.get('last_completed_at')) if test_state.get('last_completed_at') else '-'} · "
+                f"Neste automatiske forsøk: {local_display(test_state.get('next_due_at')) if test_state.get('next_due_at') else '-'}"
             )
             if test_state.get("last_error"):
                 st.error(f"Siste testfeil: {test_state.get('last_error')}")
+            if test_state.get("persistence_error"):
+                st.error(f"Statuslagring: {test_state.get('persistence_error')}")
+            timeline_rows = list(test_state.get("timeline") or [])
+            if timeline_rows:
+                with st.expander("Vis automatisk testtidslinje", expanded=False):
+                    st.dataframe(timeline_rows[-12:][::-1], width="stretch", hide_index=True)
             test_now, stop_test = st.columns(2)
             if test_now.button("🧪 Kjør én test umiddelbart", key="mi_report_test_now_v19220_rc1623", disabled=manual_job_running):
                 started = start_manual_job(
@@ -5429,11 +5505,26 @@ def render_market_intelligence() -> None:
                 st.session_state["mi_active_execution_v1924"] = str(started.get("execution_id") or "")
                 st.success("Testrapporten er startet i bakgrunnen. Pushover sendes når PDF-en er ferdig.")
                 _rerun_reports_v19220_rc11(st)
+            st.caption("En umiddelbar manuell test kontrollerer rapport og Pushover, men teller ikke i den automatiske serien 1/4–4/4.")
             if stop_test.button("Stopp og slå av testmodus", key="mi_report_test_stop_v19220_rc1623", disabled=not bool(test_state.get("enabled"))):
                 set_report_test_mode(False)
                 st.success("Testmodus er slått av. En allerede startet rapport får fullføre; eventuelle posisjoner er kun LEARNING_ONLY.")
                 _rerun_reports_v19220_rc11(st)
-            st.info("Automatisk sikkerhetsstopp: etter fire vellykkede tester, tre feil eller to timer.")
+            st.info("Automatisk sikkerhetsstopp: etter fire vellykkede automatiske tester, tre feil eller fire timer.")
+            from report_system_check import load_report_system_check, run_report_system_check
+            st.markdown("###### 🩺 Rask systemkontroll")
+            st.caption("Tester database, rapportlås, PDF-motor, offentlig lenke og Pushover uten markedsskann, porteføljehandling eller læringshandling.")
+            if st.button("Kjør systemkontroll", key="mi_report_system_check_v19220_rc1631"):
+                with st.spinner("Kontrollerer rapportleveransen …"):
+                    st.session_state["mi_report_system_check_result_v19220_rc1631"] = run_report_system_check(send_notification=True)
+            system_check = dict(st.session_state.get("mi_report_system_check_result_v19220_rc1631") or load_report_system_check() or {})
+            if system_check:
+                check_state = str(system_check.get("state") or "UKJENT")
+                (st.success if check_state == "PASS" else st.warning if check_state == "DEGRADED" else st.error)(
+                    f"Systemkontroll: {check_state} · fullført {local_display(system_check.get('completed_at')) if system_check.get('completed_at') else '-'}"
+                )
+                if system_check.get("checks"):
+                    st.dataframe(system_check.get("checks"), width="stretch", hide_index=True)
         tab_jobs, tab_accuracy, tab_ops = st.tabs(["Jobbprofiler", "Accuracy Analytics", "Drift"])
     with tab_jobs:
         jobs = quick_jobs

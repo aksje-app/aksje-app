@@ -472,6 +472,16 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     except Exception as exc:
         report_test = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     try:
+        from report_system_check import load_report_system_check
+        system_check = load_report_system_check()
+    except Exception as exc:
+        system_check = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from notifier import pushover_audit
+        pushover_rows = list(pushover_audit(limit=50) or [])
+    except Exception as exc:
+        pushover_rows = [{"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}]
+    try:
         from scheduled_runner import load_unattended_state
         scheduler = load_unattended_state()
         scheduler = {key: scheduler.get(key) for key in (
@@ -493,6 +503,9 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scheduler/REPORT_TEST_TIMELINE.json": json.dumps(report_test.get("timeline") or [], ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scheduler/REPORT_SYSTEM_CHECK.json": json.dumps(system_check, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "notifications/PUSHOVER_AUDIT.json": json.dumps(pushover_rows, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
     }
     checksums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in sorted(payloads.items()))
     payloads["SHA256SUMS"] = checksums.encode("utf-8")
