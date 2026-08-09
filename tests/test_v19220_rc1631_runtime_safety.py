@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from app_version import APP_VERSION
 from autonomous_portfolio import _normalise_runtime_positions
 from autonomi_core.runtime.full_execution import pre_notification_gate
+from market_intelligence import normalise_progress_counts
 
 
 def _base_run():
@@ -55,3 +57,45 @@ def test_terminal_status_is_not_published_by_progress_callback():
 def test_autonomy_error_keeps_traceback():
     source = Path("autonomous_orchestrator.py").read_text(encoding="utf-8")
     assert '"traceback": traceback.format_exc()[-12000:]' in source
+
+
+def test_live_autonomy_progress_accepts_missing_and_invalid_counters():
+    cases = [
+        (None, None, (0, 1)),
+        ("", "", (0, 1)),
+        ("bad", "bad", (0, 1)),
+        (-4, 0, (0, 1)),
+        (2, 1, (2, 1)),
+    ]
+    for completed, total, expected in cases:
+        assert normalise_progress_counts(completed, total) == expected
+
+
+def test_orchestrator_stage_events_have_explicit_counters():
+    source = Path("autonomous_orchestrator.py").read_text(encoding="utf-8")
+    assert '"completed": max(0, len(result["stages"]) - 1)' in source
+    assert '"total": 3' in source
+
+
+def test_outer_autonomy_exception_preserves_original_traceback():
+    source = Path("market_intelligence.py").read_text(encoding="utf-8")
+    assert '"traceback": traceback.format_exc()[-12000:]' in source
+    assert '"error_type": type(exc).__name__' in source
+
+
+def test_exact_market_scan_callback_path_no_longer_crashes():
+    from autonomous_orchestrator import run_post_scan_chain
+
+    received = []
+    def live_gateway(event):
+        done, total = normalise_progress_counts(event.get("completed"), event.get("total"))
+        received.append((event.get("substage"), done, total))
+
+    with patch("autonomous_orchestrator._write"), patch("autonomous_orchestrator._audit"):
+        result = run_post_scan_chain(
+            {"run_id": "RC1631-LIVE-CALLBACK", "candidates": [{"ticker": "TEST.OL"}]},
+            run_autonomous=False, run_learning=False, progress_callback=live_gateway,
+        )
+    assert result["status"] == "OK"
+    assert received[0] == ("MARKET_SCAN", 0, 3)
+    assert all(isinstance(done, int) and isinstance(total, int) and total >= 1 for _, done, total in received)
