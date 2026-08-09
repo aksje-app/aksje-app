@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from autonomi_core.configuration.policy import AutonomyPolicy, load_policy
 from autonomi_core.missions.market_mission import build_market_mission
@@ -18,6 +18,7 @@ def execute_market_mission(
     market_run: Mapping[str, Any], *, trigger: str = "SCHEDULED",
     run_autonomous: bool | None = None, run_learning: bool | None = None,
     require_active_portfolio: bool | None = None,
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Execute through one stable Autonomy API while preserving legacy engines."""
     policy = load_policy()
@@ -76,6 +77,7 @@ def execute_market_mission(
         run_learning=effective.run_controlled_learning,
         require_active_portfolio=effective.require_active_portfolio,
         trigger=mission.trigger,
+        progress_callback=progress_callback,
     )
     result["autonomy_core"] = {
         "version": CORE_VERSION, "mission": "MARKET_ANALYSIS",
