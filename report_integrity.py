@@ -285,10 +285,24 @@ def _learning_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     ordinary_buys = portfolio_stage.get("ordinary_buys")
     production_buys = int(ordinary_buys if ordinary_buys is not None else (portfolio_stage.get("buys") or 0))
     canonical = chain.get("autonomy_learning_account") if isinstance(chain.get("autonomy_learning_account"), Mapping) else {}
-    fills = [dict(row) for row in list(canonical.get("fills") or portfolio_stage.get("learning_fills") or []) if isinstance(row, Mapping)]
+    # The shared account uses ``side`` while the established theoretical
+    # learning portfolio uses ``action``.  Both are persisted learning fills.
+    # Prefer the shared account when it contains rows, but fall back to the
+    # exact legacy rows exposed by the same autonomous cycle.  Normalising the
+    # verb here prevents a valid BUY from becoming canonical=0/report=1.
+    raw_fills = list(canonical.get("fills") or portfolio_stage.get("learning_fills") or chain.get("learning_trades") or [])
+    fills = []
+    for raw in raw_fills:
+        if not isinstance(raw, Mapping):
+            continue
+        row = dict(raw)
+        side = str(row.get("side") or row.get("action") or "").upper()
+        if side:
+            row["side"] = side
+        fills.append(row)
     metrics = dict(canonical.get("account_metrics") or portfolio_stage.get("learning_account_metrics") or {})
-    learning_buys = sum(1 for row in fills if str(row.get("side") or "").upper() == "BUY")
-    learning_sells = sum(1 for row in fills if str(row.get("side") or "").upper() == "SELL")
+    learning_buys = sum(1 for row in fills if str(row.get("side") or row.get("action") or "").upper() == "BUY")
+    learning_sells = sum(1 for row in fills if str(row.get("side") or row.get("action") or "").upper() == "SELL")
     if not fills:
         learning_buys = int(portfolio_stage.get("learning_buys") or 0)
     open_positions = int(metrics.get("open_positions") or portfolio_stage.get("learning_open_positions") or 0)
@@ -299,9 +313,9 @@ def _learning_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         "production_open_positions": int(portfolio_stage.get("open_positions") or 0),
         "learning_open_positions": open_positions,
         "production_buy_tickers": list(portfolio_stage.get("buy_tickers") or []),
-        "learning_buy_tickers": [str(row.get("ticker") or "") for row in fills if str(row.get("side") or "").upper() == "BUY"] or list(portfolio_stage.get("learning_buy_tickers") or []),
+        "learning_buy_tickers": [str(row.get("ticker") or "") for row in fills if str(row.get("side") or row.get("action") or "").upper() == "BUY"] or list(portfolio_stage.get("learning_buy_tickers") or []),
         "learning_sells": learning_sells,
-        "learning_sell_tickers": [str(row.get("ticker") or "") for row in fills if str(row.get("side") or "").upper() == "SELL"],
+        "learning_sell_tickers": [str(row.get("ticker") or "") for row in fills if str(row.get("side") or row.get("action") or "").upper() == "SELL"],
         "learning_decisions": decisions,
         "learning_fills": fills,
         "canonical_account_id": str(metrics.get("account_id") or portfolio_stage.get("learning_account_id") or "autonomy_learning"),
@@ -316,7 +330,7 @@ def audit_learning_report_consistency(result: Mapping[str, Any]) -> dict[str, An
     """Hard audit: persisted canonical learning activity must equal the report."""
     summary = _learning_summary(result)
     fills = list(summary.get("learning_fills") or [])
-    fill_buys = sum(1 for row in fills if str((row or {}).get("side") or "").upper() == "BUY")
+    fill_buys = sum(1 for row in fills if str((row or {}).get("side") or (row or {}).get("action") or "").upper() == "BUY")
     reported_buys = int(summary.get("learning_buys") or 0)
     open_positions = int(summary.get("learning_open_positions") or 0)
     errors: list[str] = []

@@ -635,6 +635,12 @@ def _worker(
         })
         _write_status(final)
     except ExecutionCancelled as exc:
+        # Revoke the in-process worker/heartbeat before durable terminal I/O.
+        # A slow database write must not leave the UI or watchdog believing
+        # that a failed analysis worker is still active.
+        heartbeat_stop.set()
+        with _LOCK:
+            _THREADS.pop(execution_id, None)
         cancelled = get_status(execution_id) or status
         if cancelled.get("lease_revoked") or str(cancelled.get("state") or "").upper() == "STALLED":
             cancelled.update({
@@ -651,6 +657,12 @@ def _worker(
         })
         _write_status(cancelled)
     except Exception as exc:
+        # Publish and release the terminal failure path immediately.  This is
+        # deliberately done before the durable write below so a consistency
+        # exception cannot linger as RUNNING until the progress watchdog fires.
+        heartbeat_stop.set()
+        with _LOCK:
+            _THREADS.pop(execution_id, None)
         failed = get_status(execution_id) or status
         last_percent = max(0, min(99, int(failed.get("percent") or 0)))
         last_phase = str(failed.get("phase") or "START")

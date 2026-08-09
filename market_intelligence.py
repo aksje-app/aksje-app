@@ -4425,8 +4425,10 @@ def _run_job_impl(
             require_active_portfolio=job.require_active_portfolio,
                 trigger=trigger,
             )
+            emit("AUTONOMOUS", 1, 3, "Autonomi fullført; kontrollerer lagrede læringsbeslutninger")
             from learning_acceptance import evaluate_learning_run
             run["learning_acceptance"] = evaluate_learning_run(run)
+            emit("AUTONOMOUS", 2, 3, "Læringsaksept lagret; bygger canonical rapportgrunnlag")
             run["autonomy_candidate_handoff"] = build_autonomy_candidate_handoff(run, run.get("autonomous_chain"))
             if run["autonomy_candidate_handoff"].get("mismatch"):
                 warnings.append(run["autonomy_candidate_handoff"].get("warning"))
@@ -4457,6 +4459,7 @@ def _run_job_impl(
     # Rebuild the canonical report after Autonomi so production and learning
     # activity is separated in the same document that is persisted and rendered.
     apply_report_integrity(run)
+    emit("AUTONOMOUS", 3, 3, "Kontrollerer samsvar mellom læringshandler og rapport")
     from report_integrity import audit_learning_report_consistency
     run["learning_report_consistency"] = audit_learning_report_consistency(run)
     if not run["learning_report_consistency"].get("ok"):

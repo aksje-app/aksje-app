@@ -32,8 +32,6 @@ def first_blocker_code(row: Mapping[str, Any]) -> str:
         return existing
     reason = str(row.get("reason") or "").casefold()
     action = str(row.get("action") or "").upper()
-    if action in {"ADD_OBSERVATION", "BUY", "SELL", "CLOSE_OBSERVATION", "PROMOTED"}:
-        return "NONE"
     rules = (
         (("under læringsgrense",), "LEARNING_SCORE_BELOW_THRESHOLD"),
         (("markedsdata", "beslutningsgyldige"), "MARKET_DATA_INVALID"),
@@ -47,6 +45,11 @@ def first_blocker_code(row: Mapping[str, Any]) -> str:
     for fragments, code in rules:
         if any(fragment in reason for fragment in fragments):
             return code
+    # OBSERVE without a gate/blocking phrase means an already-open observation
+    # is merely being followed. A threshold-related OBSERVE is classified by
+    # the rules above and remains a real blocker.
+    if action in {"OBSERVE", "ADD_OBSERVATION", "BUY", "SELL", "CLOSE_OBSERVATION", "PROMOTED"}:
+        return "NONE"
     return "UNCLASSIFIED_BLOCKER"
 
 
