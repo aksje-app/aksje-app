@@ -132,7 +132,8 @@ def _run_once_locked() -> dict[str, Any]:
         _notify_failure_once(state, state["error"])
 
     # The bounded acceptance mode runs only when no ordinary report was claimed
-    # in this cron cycle. It uses the same report execution lock and never trades.
+    # in this cron cycle. It uses the same report execution lock. Any positions
+    # created are isolated LEARNING_ONLY observations; real trading is impossible.
     try:
         if state.get("state") == "COMPLETED" and int((state.get("scheduler") or {}).get("runs") or 0) == 0:
             from report_test_mode import run_due_report_test

@@ -142,6 +142,13 @@ def run_post_scan_chain(
                     "production_trades": portfolio_trades,
                     "legacy_learning_trades": learning_trades,
                 }
+                # Expose the exact persisted learning artifacts to the
+                # acceptance auditor.  They remain theoretical-only and are
+                # already stored by run_autonomous_cycle.
+                result["learning_portfolio"] = cycle.get("learning_portfolio") or {}
+                result["learning_decisions"] = cycle.get("learning_decisions") or []
+                result["learning_trades"] = learning_trades
+                result["learning_performance"] = cycle.get("learning_performance") or {}
         except Exception as exc:
             result["errors"].append(f"Autonomous Portfolio: {exc}")
             stage("AUTONOMOUS_PORTFOLIO", "ERROR", {"error": str(exc)})

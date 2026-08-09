@@ -576,6 +576,11 @@ def _learning_summary(runtime: Mapping[str, Any]) -> dict[str, Any]:
     learn = runtime.get("learning_portfolio/portfolio.json") if isinstance(runtime.get("learning_portfolio/portfolio.json"), Mapping) else {}
     trades = runtime.get("autonomy_portfolio/trades.json") if isinstance(runtime.get("autonomy_portfolio/trades.json"), list) else []
     learning_trades = runtime.get("learning_portfolio/trades.json") if isinstance(runtime.get("learning_portfolio/trades.json"), list) else []
+    try:
+        from learning_acceptance import load_latest_learning_acceptance
+        acceptance = load_latest_learning_acceptance()
+    except Exception:
+        acceptance = {}
     return {
         "autonomy_open_positions": len(auto.get("positions") or {}),
         "autonomy_closed_positions": len(auto.get("closed_positions") or []),
@@ -583,6 +588,10 @@ def _learning_summary(runtime: Mapping[str, Any]) -> dict[str, Any]:
         "learning_open_positions": len(learn.get("positions") or {}),
         "learning_closed_positions": len(learn.get("closed_positions") or []),
         "learning_trade_events": len(learning_trades),
+        "acceptance_verdict": acceptance.get("verdict", "NOT_RUN"),
+        "acceptance_report_id": acceptance.get("report_id", ""),
+        "acceptance_checks": acceptance.get("checks", {}),
+        "learning_blocker_counts": acceptance.get("blocker_counts", []),
         "learning_maturity_warning": "Åpne posisjoner er observasjoner, ikke dokumentert læring, før minst ett resultatmålepunkt finnes.",
     }
 

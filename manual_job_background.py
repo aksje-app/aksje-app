@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import io
+import hashlib
 import os
 import threading
 import traceback
@@ -430,7 +431,7 @@ def force_release(execution_id: str, requested_by: str = "UI") -> dict[str, Any]
 
 
 def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
-    """Create a small, secret-free support bundle for one background job."""
+    """Create a bounded, secret-free job and learning support bundle."""
     status = dict(get_status(execution_id) or {})
     allowed = {
         "execution_id", "state", "phase", "active_stage", "completed_steps",
@@ -445,15 +446,45 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "lease_revoked", "partial_results_published", "ui_poll_source",
     }
     sanitized = {key: status.get(key) for key in sorted(allowed) if key in status}
+    try:
+        from learning_acceptance import build_learning_diagnostics
+        learning = build_learning_diagnostics()
+    except Exception as exc:
+        learning = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from report_test_mode import load_report_test_mode
+        report_test = load_report_test_mode()
+    except Exception as exc:
+        report_test = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from scheduled_runner import load_unattended_state
+        scheduler = load_unattended_state()
+        scheduler = {key: scheduler.get(key) for key in (
+            "state", "started_at", "completed_at", "process", "scheduler",
+            "scheduler_health", "report_test_mode", "error",
+        ) if key in scheduler}
+    except Exception as exc:
+        scheduler = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     readme = (
         "Diagnosepakke for manuell bakgrunnskjøring.\n"
-        "Pakken inneholder bare status- og fremdriftsmetadata, ingen API-nøkler, "
-        "porteføljedata eller rapportinnhold.\n"
+        "Pakken inneholder status, fremdrift og avgrenset Autonomi-læringsbevis. "
+        "API-nøkler, tokens, passord, miljøverdier, fulle rapporter og ordinær "
+        "portefølje er ikke inkludert. Læringsposisjoner er teoretiske.\n"
     )
+    payloads = {
+        "README.txt": readme.encode("utf-8"),
+        "status.json": json.dumps(sanitized, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "learning/LEARNING_DIAGNOSTICS.json": json.dumps(learning, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+    }
+    checksums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in sorted(payloads.items()))
+    payloads["SHA256SUMS"] = checksums.encode("utf-8")
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("README.txt", readme)
-        archive.writestr("status.json", json.dumps(sanitized, ensure_ascii=False, indent=2, default=str))
+        for name, data in payloads.items():
+            archive.writestr(name, data)
     safe_id = "".join(character for character in execution_id if character.isalnum() or character in "-_") or "ukjent"
     return buffer.getvalue(), f"Bakgrunnsjobb_diagnose_{safe_id}.zip"
 

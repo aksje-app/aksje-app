@@ -609,9 +609,9 @@ class JobProfile:
     schedules: list[str] = field(default_factory=lambda: ["08:00", "22:00"])
     weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     modules: list[str] = field(default_factory=lambda: list(MODULE_OPTIONS))
-    scan_limit: int = 50
-    deep_count: int = 18
-    evidence_analysis_count: int = 15
+    scan_limit: int = 25
+    deep_count: int = 10
+    evidence_analysis_count: int = 10
     proposal_count: int = 5
     coverage_profile_version: str = "3.0"
     min_alert_score: float = 80.0
@@ -651,15 +651,9 @@ class JobProfile:
         if "News & Sentiment Intelligence" not in modules:
             modules.append("News & Sentiment Intelligence")
         data["modules"] = modules
-        # User-approved RC16.27 migration: every fixed report uses the complete
-        # six-market profile and a 50-symbol stage-1 scan. Manual drafts without
-        # schedules retain their explicit selection.
-        if list(data.get("schedules") or []):
-            data.update({
-                "markets": [FULL_MARKET_SCOPE_LABEL], "market_profile": MARKET_PROFILE_FULL,
-                "scan_limit": 50, "deep_count": 18, "evidence_analysis_count": 15,
-                "coverage_profile_version": "3.0",
-            })
+        # Saved fixed jobs are authoritative.  Never silently replace their
+        # markets or budgets while loading them.  New jobs use the bounded
+        # three-market defaults declared by JobProfile and remain editable.
         profile_id = infer_market_profile(
             data.get("markets"), name=data.get("name"), explicit_profile=data.get("market_profile"),
         )
@@ -1739,6 +1733,13 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
         ])
+        learning_acceptance = run.get("learning_acceptance") if isinstance(run.get("learning_acceptance"), Mapping) else {}
+        if is_test and learning_acceptance:
+            lines.append(
+                "Læringstest: " + str(learning_acceptance.get("verdict") or "IKKE KJØRT")
+                + f" · beslutninger {int(learning_acceptance.get('learning_decision_count') or 0)}"
+                + f" · handler {int(learning_acceptance.get('learning_trade_count') or 0)}"
+            )
         if job.include_top3_in_notification:
             medals = list(channel_projection.get("ranking") or [])[:3]
             for idx, item in enumerate(medals):
@@ -4424,6 +4425,8 @@ def _run_job_impl(
             require_active_portfolio=job.require_active_portfolio,
                 trigger=trigger,
             )
+            from learning_acceptance import evaluate_learning_run
+            run["learning_acceptance"] = evaluate_learning_run(run)
             run["autonomy_candidate_handoff"] = build_autonomy_candidate_handoff(run, run.get("autonomous_chain"))
             if run["autonomy_candidate_handoff"].get("mismatch"):
                 warnings.append(run["autonomy_candidate_handoff"].get("warning"))
@@ -4431,6 +4434,11 @@ def _run_job_impl(
         if isinstance(exc, ExecutionCancelled):
             raise
         run["autonomous_chain"] = {"status": "ERROR", "errors": [str(exc)]}
+        try:
+            from learning_acceptance import evaluate_learning_run
+            run["learning_acceptance"] = evaluate_learning_run(run)
+        except Exception:
+            pass
         errors.append(f"Autonom orkestrering: {exc}")
     # v19.0.6: one canonical explanation mirrors the final Autonomous Portfolio
     # gates. Shadow thresholds are diagnostic and never alter production.
@@ -5356,7 +5364,8 @@ def render_market_intelligence() -> None:
             st.markdown("##### 🧪 Pushover-test av Autonomi-rapporter")
             st.caption(
                 "Kjører en tydelig merket testrapport hvert 30. minutt via Render Cron. "
-                "Testen kan ikke kjøpe, selge, endre porteføljen eller opprette læringshandler."
+                "Testen kan ikke utføre ekte eller ordinære kjøp. Den kjører den virkelige, "
+                "isolerte LEARNING_ONLY-kjeden og kan opprette små teoretiske læringsobservasjoner."
             )
             requested_test_mode = st.checkbox(
                 "Aktiver testrapport med Pushover hvert 30. minutt",
@@ -5387,7 +5396,7 @@ def render_market_intelligence() -> None:
                 _rerun_reports_v19220_rc11(st)
             if stop_test.button("Stopp og slå av testmodus", key="mi_report_test_stop_v19220_rc1623", disabled=not bool(test_state.get("enabled"))):
                 set_report_test_mode(False)
-                st.success("Testmodus er slått av. En allerede startet rapport får fullføre uten handel eller læring.")
+                st.success("Testmodus er slått av. En allerede startet rapport får fullføre; eventuelle posisjoner er kun LEARNING_ONLY.")
                 _rerun_reports_v19220_rc11(st)
             st.info("Automatisk sikkerhetsstopp: etter fire vellykkede tester, tre feil eller to timer.")
         tab_jobs, tab_accuracy, tab_ops = st.tabs(["Jobbprofiler", "Accuracy Analytics", "Drift"])
@@ -5522,7 +5531,7 @@ def render_market_intelligence() -> None:
             _rerun_reports_v19220_rc11(st)
         if reset_all:
             defaults = load_draft_job()
-            defaults.name = "Morgenanalyse"; defaults.markets=[FULL_MARKET_SCOPE_LABEL]; defaults.market_profile=MARKET_PROFILE_FULL; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=50; defaults.deep_count=18; defaults.evidence_analysis_count=15; defaults.proposal_count=5; defaults.coverage_profile_version="3.0"; defaults.min_alert_score=80; defaults.allow_weekends=False
+            defaults.name = "Morgenanalyse"; defaults.markets=[CORE_MARKET_SCOPE_LABEL]; defaults.market_profile=MARKET_PROFILE_CORE; defaults.schedules=["08:00"]; defaults.weekdays=[0,1,2,3,4]; defaults.scan_limit=25; defaults.deep_count=10; defaults.evidence_analysis_count=10; defaults.proposal_count=5; defaults.coverage_profile_version="3.1"; defaults.min_alert_score=80; defaults.allow_weekends=False
             write_persistent_json(DRAFT_STORAGE_KEY, asdict(defaults))
             for key in list(st.session_state):
                 if str(key).startswith("mi_"): del st.session_state[key]

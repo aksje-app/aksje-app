@@ -64,14 +64,17 @@ def test_mode_due(state: Mapping[str, Any] | None = None, *, now: datetime | Non
 
 
 def build_test_job():
-    from market_intelligence import JobProfile, load_jobs
+    from market_intelligence import CORE_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, JobProfile, load_jobs
 
     source = next((job for job in load_jobs() if job.enabled), None) or JobProfile(name="Autonomi rapporttest")
     return replace(
         source, name=f"Autonomi rapporttest · {source.name}", enabled=False,
+        markets=[CORE_MARKET_SCOPE_LABEL], market_profile=MARKET_PROFILE_CORE,
+        schedules=[], scan_limit=25, deep_count=10, evidence_analysis_count=10,
+        proposal_count=5, coverage_profile_version="3.1",
         notify_pushover=True, notify_only_changes=False, notification_mode="ALWAYS",
-        include_report_link=True, save_pdf=True, run_autonomous_portfolio=False,
-        run_controlled_learning=False, require_active_portfolio=False,
+        include_report_link=True, save_pdf=True, run_autonomous_portfolio=True,
+        run_controlled_learning=True, require_active_portfolio=False,
     )
 def run_due_report_test() -> dict[str, Any]:
     state = load_report_test_mode()

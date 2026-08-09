@@ -1211,10 +1211,14 @@ def run_autonomous_cycle(candidates: Sequence[Mapping[str, Any]], run_id: str | 
             learning_ranked = sorted(candidates, key=lambda c: _candidate_entry_score(c), reverse=True)
             learning_count = 0
             for candidate in learning_ranked:
-                if learning_count >= params.learning_probe_max_buys:
-                    break
                 ticker = str(candidate.get("ticker") or "").upper()
-                if not ticker or ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
+                if not ticker:
+                    continue
+                if ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Finnes allerede i ordinær portefølje, læringsportefølje eller ble lukket i samme syklus", "learning_probe": True})
+                    continue
+                if learning_count >= params.learning_probe_max_buys:
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Maks {params.learning_probe_max_buys} nye læringsposisjoner per kjøring er nådd", "learning_probe": True})
                     continue
                 base_score = _candidate_score(candidate)
                 score = _candidate_entry_score(candidate)
