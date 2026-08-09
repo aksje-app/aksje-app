@@ -19,18 +19,16 @@ from services.strategy_registry_service import StrategyRegistryService
 
 
 class Rc1627AcceptanceTests(unittest.TestCase):
-    def test_version_and_scheduled_profile_migrate_to_six_markets(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.27")
+    def test_rc1628_keeps_operator_selected_fixed_profile(self):
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.28")
         profile = JobProfile.from_dict({
             "name": "Fast kveldsrapport", "schedules": ["22:00"],
             "markets": ["Norge", "Sverige", "USA"], "scan_limit": 25,
             "deep_count": 10, "proposal_count": 5,
         })
-        self.assertEqual(profile.markets, [FULL_MARKET_SCOPE_LABEL])
-        self.assertEqual(normalize_markets(profile.markets), list(BASE_MARKET_SCOPES))
-        self.assertEqual(profile.scan_limit, 50)
-        self.assertEqual(profile.deep_count, 18)
-        self.assertEqual(profile.evidence_analysis_count, 15)
+        self.assertEqual(normalize_markets(profile.markets), ["Norge", "Sverige", "USA"])
+        self.assertEqual(profile.scan_limit, 25)
+        self.assertEqual(profile.deep_count, 10)
 
     def test_canonical_learning_fills_drive_report_and_audit(self):
         run = {
