@@ -20,7 +20,7 @@ from services.strategy_registry_service import StrategyRegistryService
 
 class Rc1627AcceptanceTests(unittest.TestCase):
     def test_rc1628_keeps_operator_selected_fixed_profile(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.28")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.29")
         profile = JobProfile.from_dict({
             "name": "Fast kveldsrapport", "schedules": ["22:00"],
             "markets": ["Norge", "Sverige", "USA"], "scan_limit": 25,
