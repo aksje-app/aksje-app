@@ -11,7 +11,7 @@ from report_test_mode import build_test_job
 
 
 def test_version_and_new_job_defaults_are_bounded_core_markets():
-    assert APP_VERSION == "v19.22.0-rc16.29"
+    assert APP_VERSION == "v19.22.0-rc16.30"
     job = JobProfile(name="Ny fast jobb")
     assert job.markets == [CORE_MARKET_SCOPE_LABEL]
     assert job.scan_limit == 25
