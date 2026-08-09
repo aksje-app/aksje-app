@@ -4528,8 +4528,16 @@ def _run_job_impl(
             "pdf_path", "public_pdf_name", "public_report_token", "report_url", "trigger", "test_run",
             "suppress_notifications", "scheduled_for",
         )})
-        notify_ok, notify_detail = _notification(job, notification_view)
-        notify_attempted = bool(job.notify_pushover and not run.get("suppress_notifications"))
+        from autonomi_core.runtime.full_execution import pre_notification_gate
+        delivery_gate = pre_notification_gate(run)
+        if delivery_gate.get("ok"):
+            notify_ok, notify_detail = _notification(job, notification_view)
+            notify_attempted = bool(job.notify_pushover and not run.get("suppress_notifications"))
+        else:
+            notify_ok = False
+            notify_attempted = False
+            notify_detail = "Ikke sendt: Autonomi-forutsetning feilet (" + ", ".join(delivery_gate.get("failed_stages") or []) + ")"
+        run["pre_notification_gate"] = delivery_gate
         status_label = "Sendt" if notify_ok else ("Ikke sendt" if not notify_attempted else "Feilet")
         run["notification"] = {
             "sent": notify_ok, "attempted": notify_attempted, "detail": notify_detail,

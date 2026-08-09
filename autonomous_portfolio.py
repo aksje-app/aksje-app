@@ -414,6 +414,7 @@ def load_portfolio() -> dict[str, Any]:
         value = default_portfolio(params)
         _write(PORTFOLIO_PATH, value)
     value.setdefault("positions", {})
+    value["positions"] = _normalise_runtime_positions(value.get("positions"))
     return value
 
 
@@ -425,8 +426,30 @@ def load_learning_portfolio() -> dict[str, Any]:
         value = default_learning_portfolio(params)
         _write(LEARNING_PORTFOLIO_PATH, value)
     value.setdefault("positions", {})
+    value["positions"] = _normalise_runtime_positions(value.get("positions"))
     value.setdefault("closed_positions", [])
     return value
+
+
+def _normalise_runtime_positions(value: Any) -> dict[str, dict[str, Any]]:
+    """Normalise legacy/null numeric portfolio state before comparisons."""
+    if not isinstance(value, Mapping):
+        return {}
+    numeric_defaults = {
+        "quantity": 0.0, "average_price": 0.0, "last_price": 0.0,
+        "highest_price": 0.0, "entry_score": 0.0, "entry_risk_score": 100.0,
+        "entry_data_quality": 0.0, "observation_days": 0.0,
+        "observation_horizon_days": 60.0,
+    }
+    result: dict[str, dict[str, Any]] = {}
+    for ticker, raw in value.items():
+        if not isinstance(raw, Mapping):
+            continue
+        row = dict(raw)
+        for key, default in numeric_defaults.items():
+            row[key] = _f(row.get(key), default)
+        result[str(ticker).upper()] = row
+    return result
 
 
 def candidate_price(candidate: Mapping[str, Any], existing: Mapping[str, Any] | None = None) -> float:

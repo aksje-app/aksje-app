@@ -160,7 +160,10 @@ def run_post_scan_chain(
                 result["learning_performance"] = cycle.get("learning_performance") or {}
         except Exception as exc:
             result["errors"].append(f"Autonomous Portfolio: {exc}")
-            stage("AUTONOMOUS_PORTFOLIO", "ERROR", {"error": str(exc)})
+            stage("AUTONOMOUS_PORTFOLIO", "ERROR", {
+                "error_type": type(exc).__name__, "error": str(exc),
+                "traceback": traceback.format_exc()[-12000:],
+            })
     else:
         stage("AUTONOMOUS_PORTFOLIO", "DISABLED")
 

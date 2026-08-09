@@ -447,6 +447,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "worker_thread_name", "heartbeat_thread_name", "job_id", "job_name",
         "trigger", "scan_configuration", "cancel_requested", "cancel_reason",
         "lease_revoked", "partial_results_published", "ui_poll_source",
+        "run_id", "chain", "chain_status", "full_autonomy_execution", "error_trace",
     }
     sanitized = {key: status.get(key) for key in sorted(allowed) if key in status}
     try:
@@ -585,8 +586,7 @@ def _worker(
                 if stage_history and not stage_history[-1].get("left_at"):
                     stage_history[-1] = {**dict(stage_history[-1]), "left_at": now}
                 stage_history.append({"stage": active_stage, "entered_at": now})
-            if phase == "COMPLETE":
-                completed_steps = list(_STAGE_ORDER)
+            event_run_id = str(event.get("run_id") or current.get("run_id") or "")
             current.update({
                 "state": "RUNNING", "updated_at": now, "heartbeat_at": now,
                 "last_progress_at": _now(),
@@ -599,6 +599,7 @@ def _worker(
                 "stage_history": stage_history,
                 "percent": max(int(current.get("percent") or 0), progress_percent(event)), "message": message,
                 "progress_event": dict(event),
+                "run_id": event_run_id,
                 "work_completed": event.get("completed"), "work_total": event.get("total"),
                 "active_ticker": ticker, "active_market": event.get("market") or event.get("market_name") or "",
             })
@@ -641,6 +642,7 @@ def _worker(
             "mission_id": result.get("mission_id") or (result.get("investment_mission") or {}).get("mission_id"),
             "configuration_version": result.get("configuration_version") or (result.get("investment_mission") or {}).get("configuration_version"),
             "completion_status": result.get("completion_status") or "FULLFØRT",
+            "completed_steps": list(_STAGE_ORDER),
             "full_autonomy_execution": dict(full_execution or {}),
             "partial_market_failure": bool(result.get("partial_market_failure")),
             "failed_markets": list((result.get("data_quality") or {}).get("failed_markets") or []),
@@ -678,6 +680,9 @@ def _worker(
         with _LOCK:
             _THREADS.pop(execution_id, None)
         failed = get_status(execution_id) or status
+        failed_result = result if "result" in locals() and isinstance(result, Mapping) else {}
+        failed_chain = dict(failed_result.get("autonomous_chain") or {})
+        failed_execution = dict(failed_result.get("full_autonomy_execution") or {})
         last_percent = max(0, min(99, int(failed.get("percent") or 0)))
         last_phase = str(failed.get("phase") or "START")
         report_context = dict(getattr(exc, "context", {}) or {})
@@ -693,6 +698,10 @@ def _worker(
             "diagnostic_path": report_context.get("diagnostic_path") or "",
             "app_runtime_root": report_context.get("app_runtime_root") or "",
             "storage_mode": report_context.get("storage_mode") or "",
+            "run_id": str(failed_result.get("run_id") or failed.get("run_id") or ""),
+            "chain": failed_chain,
+            "chain_status": failed_chain.get("status"),
+            "full_autonomy_execution": failed_execution,
         })
         _write_status(failed)
     finally:
