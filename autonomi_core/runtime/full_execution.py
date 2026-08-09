@@ -100,3 +100,17 @@ def prepublication_gate(run: Mapping[str, Any]) -> dict[str, Any]:
     receipt = build_full_execution_receipt(shadow)
     failed = [code for code in receipt.get("failed_stages") or [] if code not in {"CANONICAL_TOP_PICKS", "DASHBOARD"}]
     return {"ok": not failed, "failed_stages": failed}
+
+
+def pre_notification_gate(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Block external delivery until all pre-delivery Autonomy stages pass."""
+    shadow = dict(run)
+    shadow["canonical_top_picks"] = {
+        "published": True, "result_id": (run.get("canonical_result") or {}).get("result_id"),
+        "top_picks": [],
+    }
+    shadow["notification"] = {"sent": True, "required": True, "detail": "PRE_DELIVERY_AUDIT"}
+    receipt = build_full_execution_receipt(shadow)
+    ignored = {"CANONICAL_TOP_PICKS", "DASHBOARD", "NOTIFICATIONS"}
+    failed = [code for code in receipt.get("failed_stages") or [] if code not in ignored]
+    return {"ok": not failed, "failed_stages": failed}
