@@ -602,6 +602,19 @@ def explicit_job_name_v19220_rc12(
     return f"{'Utkast' if draft else 'Analyse'} – {scope}"
 
 
+def deduplicated_display_name(value: Any) -> str:
+    """Collapse repeated display-name segments without changing the stored job."""
+    parts = [part.strip() for part in re.split(r"\s*[·|]\s*", str(value or "-")) if part.strip()]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        key = part.casefold()
+        if key not in seen:
+            unique.append(part)
+            seen.add(key)
+    return " · ".join(unique) or "-"
+
+
 @dataclass
 class JobProfile:
     name: str
@@ -1676,6 +1689,15 @@ def _notification_mode(job: JobProfile) -> str:
     return "CHANGES_ONLY" if job.notify_only_changes else "ALWAYS"
 
 
+def _format_summary_value_for_notice(value: Any, decimals: int = 1) -> str:
+    try:
+        number = float(value)
+        text = f"{number:.{decimals}f}".rstrip("0").rstrip(".")
+        return text.replace(".", ",")
+    except (TypeError, ValueError):
+        return str(value if value is not None else "-")
+
+
 def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
     run_id = str(run.get("run_id") or "").strip()
     receipts = _read(REPORT_NOTIFICATION_RECEIPTS_PATH, {})
@@ -1765,20 +1787,32 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
                 lines.extend([
                     f"🧪 AUTOMATISK RAPPORTTEST {test_part}/{test_total}",
                     f"Testserie-ID: {test_series.get('series_id')}",
-                    f"Forsøk: {int(test_series.get('attempt') or 0)}",
+                    f"Deltest: {test_part}/{test_total}",
+                    f"Kjøringsforsøk: {int(test_series.get('attempt') or 0)} (inkluderer eventuelle retry)",
                 ])
             else:
                 lines.append("🧪 TESTVARSEL · MANUELL TEST - teller ikke i automatisk 1/4–4/4")
         if run.get("scheduled_for"):
             lines.append(f"Planlagt tidspunkt: {run.get('scheduled_for')}")
+        report_summary_notice = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+        quality_notice = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
+        candidate_total_notice = int(report_summary_notice.get("deep_analyzed") or run.get("summary", {}).get("deep_analyzed", 0) or 0)
+        evidence_ready_notice = int(report_summary_notice.get("evidence_data_ready") or 0)
+        report_created_local = str(
+            (run.get("report_document") or {}).get("metadata", {}).get("created_at_local")
+            if isinstance(run.get("report_document"), Mapping) else ""
+        ) or local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
         lines.extend([
             f"Rapport: {identity.get('label') or 'Rapport'} · {origin}",
             f"Rapport-ID: {channel_projection.get('report_id') or run_id}",
+            f"Programversjon: {APP_VERSION}",
+            f"Rapporttid: {report_created_local}",
             f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
-            f"Jobb: {job.name}", f"Markeder: {', '.join(run.get('markets', []))}",
+            f"Jobb: {deduplicated_display_name(job.name)}", f"Markeder: {', '.join(run.get('markets', []))}",
             f"Analysert: {run.get('summary', {}).get('deep_analyzed', 0)}",
             f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
+            f"Datastatus: markedsdata {_format_summary_value_for_notice(quality_notice.get('score', 0))}/100 · evidens {evidence_ready_notice}/{candidate_total_notice}",
         ])
         learning_acceptance = run.get("learning_acceptance") if isinstance(run.get("learning_acceptance"), Mapping) else {}
         if is_test and learning_acceptance:
@@ -1791,10 +1825,10 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             medals = list(channel_projection.get("ranking") or [])[:3]
             for idx, item in enumerate(medals):
                 score = item.get("score")
-                score_text = "-" if score is None else f"{float(score):.2f}"
+                score_text = "-" if score is None else _format_summary_value_for_notice(score, 2)
                 lines.append(f"{('🥇','🥈','🥉')[idx]} {item.get('ticker','-')} {score_text} · {item.get('decision_label') or item.get('decision') or '-'}")
         else:
-            lines.append(f"Topp: {top.get('ticker', '-')} ({top.get('investment_score', '-')})")
+            lines.append(f"Topp: {top.get('ticker', '-')} ({_format_summary_value_for_notice(top.get('investment_score', '-'), 2)})")
         url = report_public_url(run) if job.include_report_link else ""
         if automatic_test:
             title_prefix = f"🧪 AUTOMATISK {test_part}/{test_total} · "
@@ -2188,12 +2222,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         return re.sub(r"(?<![A-Za-z0-9._/\-])(\d+)\.(\d+)(?!\.\d)(?![A-Za-z0-9_/\-])", r"\1,\2", text)
 
     def _deduplicated_job_name(value: Any) -> str:
-        parts = [part.strip() for part in re.split(r"\s*[·|]\s*", str(value or "-")) if part.strip()]
-        unique: list[str] = []
-        for part in parts:
-            if part.casefold() not in {item.casefold() for item in unique}:
-                unique.append(part)
-        return " · ".join(unique) or "-"
+        return deduplicated_display_name(value)
 
     def _short(value: Any, limit: int = 165) -> str:
         text = " ".join(str(value or "").split())
@@ -5521,11 +5550,21 @@ def render_market_intelligence() -> None:
                 f"Automatiske forsøk: {int(test_state.get('attempts') or 0)} · "
                 f"Feil: {int(test_state.get('failures') or 0)}/3"
             )
+            st.info(
+                f"Fase: {test_state.get('phase') or 'UKJENT'} · "
+                f"{test_state.get('status_message') or 'Ingen statusforklaring registrert.'}"
+            )
             st.caption(
                 f"Sist startet: {local_display(test_state.get('last_started_at')) if test_state.get('last_started_at') else '-'} · "
                 f"Sist fullført: {local_display(test_state.get('last_completed_at')) if test_state.get('last_completed_at') else '-'} · "
                 f"Neste automatiske forsøk: {local_display(test_state.get('next_due_at')) if test_state.get('next_due_at') else '-'}"
             )
+            if test_state.get("expected_result_at") and str(test_state.get("phase") or "") == "RUNNING_FULL_CHAIN":
+                st.caption(
+                    "Forventet resultat hvis kjeden fullfører normalt: "
+                    + local_display(test_state.get("expected_result_at"))
+                    + ". 1/4 registreres først etter godkjent PDF, lagring og Pushover."
+                )
             if test_state.get("last_error"):
                 st.error(f"Siste testfeil: {test_state.get('last_error')}")
             if test_state.get("persistence_error"):

@@ -23,6 +23,7 @@ from autonomous_portfolio import (
     calculate_performance, TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
 )
 from durable_runtime import append_event, read_events
+from app_version import APP_VERSION
 
 VERSION = "v19.3.0"
 ROOT = runtime_data_path("controlled_learning")
@@ -519,7 +520,17 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
     reports.insert(0, report); _write(REPORTS_PATH, reports[:365])
     state["last_management_report_at"] = report["created_at"]; _write(STATE_PATH, state)
     _audit("MANAGEMENT_REPORT_CREATED", report)
-    _notify("Autonomi: læringsrapport", f"{len(open_h)} åpne hypoteser, {len(active_tests)} aktive tester, drawdown {_f(perf.get('drawdown_pct')):.2f}%.", report)
+    drawdown_text = f"{_f(perf.get('drawdown_pct')):.2f}".replace(".", ",")
+    _notify(
+        "Autonomi: læringsrapport",
+        "\n".join([
+            f"{len(open_h)} åpne hypoteser, {len(active_tests)} aktive tester, drawdown {drawdown_text} %.",
+            f"Rapport-ID: {report['report_id']}",
+            f"Programversjon: {APP_VERSION}",
+            f"Rapporttid: {report['created_at']}",
+        ]),
+        report,
+    )
     return report
 
 

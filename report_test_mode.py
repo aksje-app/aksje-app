@@ -73,6 +73,7 @@ def _send_terminal_summary(state: dict[str, Any], *, passed: bool, reason: str) 
         return
     try:
         from notifier import send_pushover_alert
+        from app_version import APP_VERSION
 
         successes = int(state.get("successes") or 0)
         failures = int(state.get("failures") or 0)
@@ -84,6 +85,7 @@ def _send_terminal_summary(state: dict[str, Any], *, passed: bool, reason: str) 
                 f"Resultat: {outcome}",
                 f"Vellykkede: {successes}/4 · Feil: {failures}/3",
                 f"Siste rapport-ID: {state.get('last_report_id') or '-'}",
+                f"Programversjon: {APP_VERSION}",
                 f"Årsak: {reason}",
             ]),
             title=f"{'✅' if passed else '❌'} RAPPORTTEST · {outcome}",
@@ -100,7 +102,12 @@ def _send_terminal_summary(state: dict[str, Any], *, passed: bool, reason: str) 
 def load_report_test_mode() -> dict[str, Any]:
     value = read_json(STATE_KEY, STATE_PATH, {})
     state = dict(value) if isinstance(value, Mapping) else {}
-    return {"enabled": False, "successes": 0, "failures": 0, **state}
+    return {
+        "enabled": False, "successes": 0, "failures": 0,
+        "phase": "INACTIVE", "status_message": "Testserien er ikke aktiv.",
+        "expected_first_start_at": "", "expected_result_at": "",
+        **state,
+    }
 
 
 def set_report_test_mode(enabled: bool) -> dict[str, Any]:
@@ -114,10 +121,17 @@ def set_report_test_mode(enabled: bool) -> dict[str, Any]:
             "last_started_at": "", "last_completed_at": "", "last_report_id": "",
             "last_notification_status": "", "last_error": "", "successes": 0, "failures": 0,
             "attempts": 0, "timeline": [], "terminal_notification_sent": False,
+            "phase": "WAITING_FOR_SCHEDULER",
+            "status_message": "Testserien er aktivert. Første rapport starter ved neste schedulerkjøring.",
+            "expected_first_start_at": now,
+            "expected_result_at": "",
         }
         _add_event(current, "SERIES_ENABLED", part="0/4")
     elif not enabled:
-        current.update({"enabled": False, "disabled_at": now, "updated_at": now, "disabled_reason": "OPERATOR"})
+        current.update({
+            "enabled": False, "disabled_at": now, "updated_at": now, "disabled_reason": "OPERATOR",
+            "phase": "INACTIVE", "status_message": "Testserien er stoppet av operatøren.",
+        })
         _add_event(current, "SERIES_DISABLED", reason="OPERATOR")
     _persist_state(current)
     return current
@@ -152,11 +166,12 @@ def test_mode_due(state: Mapping[str, Any] | None = None, *, now: datetime | Non
 
 
 def build_test_job(*, series_id: str = "", part: int = 0, total: int = MAX_SUCCESSES, attempt: int = 0):
-    from market_intelligence import CORE_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, JobProfile, load_jobs
+    from market_intelligence import CORE_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, JobProfile, deduplicated_display_name, load_jobs
 
     source = next((job for job in load_jobs() if job.enabled), None) or JobProfile(name="Autonomi rapporttest")
+    test_name = deduplicated_display_name(f"Autonomi rapporttest · {source.name}")
     return replace(
-        source, name=f"Autonomi rapporttest · {source.name}", enabled=False,
+        source, name=test_name, enabled=False,
         markets=[CORE_MARKET_SCOPE_LABEL], market_profile=MARKET_PROFILE_CORE,
         schedules=[], scan_limit=25, deep_count=10, evidence_analysis_count=10,
         proposal_count=5, coverage_profile_version="3.1",
@@ -176,7 +191,10 @@ def run_due_report_test() -> dict[str, Any]:
         except Exception:
             safety_limit = safety_limit or bool(state.get("enabled"))
         if state.get("enabled") and safety_limit:
-            state.update({"enabled": False, "disabled_at": _now().isoformat(timespec="seconds"), "disabled_reason": "SAFETY_LIMIT"})
+            state.update({
+                "enabled": False, "disabled_at": _now().isoformat(timespec="seconds"), "disabled_reason": "SAFETY_LIMIT",
+                "phase": "FAILED", "status_message": "Sikkerhetsvinduet utløp før 4/4.",
+            })
             _add_event(state, "SERIES_STOPPED", reason="SAFETY_LIMIT")
             _send_terminal_summary(state, passed=False, reason="Sikkerhetsvinduet utløp før 4/4")
             _persist_state(state)
@@ -200,6 +218,9 @@ def run_due_report_test() -> dict[str, Any]:
         "updated_at": started,
         "last_error": "",
         "persistence_error": "",
+        "phase": "RUNNING_FULL_CHAIN",
+        "status_message": f"Kjører deltest {part}/{MAX_SUCCESSES}: marked, evidens, Autonomi, PDF, lagring og Pushover.",
+        "expected_result_at": (started_at + timedelta(minutes=20)).isoformat(timespec="seconds"),
     })
     _add_event(state, "AUTOMATIC_TEST_STARTED", part=f"{part}/{MAX_SUCCESSES}", attempt=attempt)
     _persist_state(state)
@@ -218,36 +239,58 @@ def run_due_report_test() -> dict[str, Any]:
         if notification_sent:
             state["successes"] = int(state.get("successes") or 0) + 1
             state["run_state"] = "COMPLETED"
+            state["phase"] = "WAITING_FOR_NEXT_INTERVAL"
+            state["status_message"] = f"Deltest {state['successes']}/{MAX_SUCCESSES} er godkjent. Venter på neste 30-minuttersintervall."
             _add_event(
                 state, "AUTOMATIC_TEST_COMPLETED", part=f"{state['successes']}/{MAX_SUCCESSES}",
                 attempt=attempt, report_id=state.get("last_report_id"), pushover="SENT",
             )
             if int(state["successes"]) >= MAX_SUCCESSES:
-                state.update({"enabled": False, "disabled_reason": "SUCCESS_LIMIT", "disabled_at": _now().isoformat(timespec="seconds")})
+                state.update({
+                    "enabled": False, "disabled_reason": "SUCCESS_LIMIT", "disabled_at": _now().isoformat(timespec="seconds"),
+                    "phase": "COMPLETED", "status_message": "Alle fire deltester og Pushover-varsler er godkjent.",
+                })
                 _send_terminal_summary(state, passed=True, reason="Alle fire automatiske rapport- og Pushover-tester er fullført")
         else:
             state["failures"] = int(state.get("failures") or 0) + 1
             state["run_state"] = "FAILED_NOTIFICATION"
             state["last_error"] = str(notification.get("detail") or "Pushover-varselet ble ikke sendt")[:1000]
+            state["phase"] = "RETRY_WAIT"
+            state["status_message"] = f"Deltest {part}/{MAX_SUCCESSES} ble ikke godkjent. Neste schedulerkjøring prøver igjen."
             _add_event(
                 state, "AUTOMATIC_TEST_FAILED", part=f"{part}/{MAX_SUCCESSES}", attempt=attempt,
                 report_id=state.get("last_report_id"), pushover="FAILED", detail=state["last_error"],
             )
             if int(state["failures"]) >= MAX_FAILURES:
-                state.update({"enabled": False, "disabled_reason": "FAILURE_LIMIT", "disabled_at": _now().isoformat(timespec="seconds")})
+                state.update({
+                    "enabled": False, "disabled_reason": "FAILURE_LIMIT", "disabled_at": _now().isoformat(timespec="seconds"),
+                    "phase": "FAILED", "status_message": "Testserien er stoppet etter tre feil.",
+                })
                 _send_terminal_summary(state, passed=False, reason=state["last_error"])
     except Exception as exc:
         detail = _exception_detail(exc)[:1000]
         if "allerede aktiv" in detail.casefold():
-            state.update({"last_completed_at": _now().isoformat(timespec="seconds"), "last_error": detail, "run_state": "DEFERRED_BUSY"})
+            retry_at = _now().isoformat(timespec="seconds")
+            state.update({
+                "last_completed_at": retry_at, "last_error": detail, "run_state": "DEFERRED_BUSY",
+                "phase": "WAITING_FOR_WORKER", "status_message": "En annen jobb bruker worker. Nytt forsøk skjer ved neste schedulerkjøring.",
+                "next_due_at": retry_at,
+            })
             state["last_started_at"] = ""
             _add_event(state, "AUTOMATIC_TEST_DEFERRED", part=f"{part}/{MAX_SUCCESSES}", attempt=attempt, detail=detail)
             _persist_state(state)
             return state
-        state.update({"last_completed_at": _now().isoformat(timespec="seconds"), "last_error": detail, "failures": int(state.get("failures") or 0) + 1, "run_state": "FAILED"})
+        state.update({
+            "last_completed_at": _now().isoformat(timespec="seconds"), "last_error": detail,
+            "failures": int(state.get("failures") or 0) + 1, "run_state": "FAILED",
+            "phase": "RETRY_WAIT", "status_message": f"Deltest {part}/{MAX_SUCCESSES} feilet. Neste schedulerkjøring prøver igjen.",
+        })
         _add_event(state, "AUTOMATIC_TEST_FAILED", part=f"{part}/{MAX_SUCCESSES}", attempt=attempt, detail=detail)
         if int(state["failures"]) >= MAX_FAILURES:
-            state.update({"enabled": False, "disabled_reason": "FAILURE_LIMIT", "disabled_at": _now().isoformat(timespec="seconds")})
+            state.update({
+                "enabled": False, "disabled_reason": "FAILURE_LIMIT", "disabled_at": _now().isoformat(timespec="seconds"),
+                "phase": "FAILED", "status_message": "Testserien er stoppet etter tre feil.",
+            })
             _send_terminal_summary(state, passed=False, reason=detail)
     state["updated_at"] = _now().isoformat(timespec="seconds")
     try:
