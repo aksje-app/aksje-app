@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import re
 import traceback
 import threading
 import uuid
@@ -964,6 +965,15 @@ def scheduler_health_snapshot(now: datetime | None = None, *, persist: bool = Tr
     return snapshot
 
 
+def _localize_report_decimal_text(value: Any) -> str:
+    """Use Norwegian decimal commas while preserving versions, IDs, paths and URLs."""
+    return re.sub(
+        r"(?<![A-Za-z0-9._/\-])(\d+)\.(\d+)(?!\.\d)(?![A-Za-z0-9_/\-])",
+        r"\1,\2",
+        str(value if value is not None else "-"),
+    )
+
+
 def build_text_report(run: Mapping[str, Any]) -> str:
     """Render the decision report and a compact technical appendix from ReportDocument."""
     document = ensure_report_document(run)
@@ -1083,7 +1093,11 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     if historical_evaluations:
         for evaluation in historical_evaluations[:10]:
             return_text = "-" if evaluation.get("price_return_pct") is None else f"{float(evaluation.get('price_return_pct')):+.2f}%"
-            lines.append(f"- {evaluation.get('ticker')}: {evaluation.get('outcome')} · score {evaluation.get('score_delta') if evaluation.get('score_delta') is not None else '-'} · kurs {return_text}")
+            outcome = {
+                "UTGÅTT_ELLER_MANGLER_DATA": "Utløpt vurdering - resultatdata mangler",
+                "EXPIRED_OR_MISSING_DATA": "Utløpt vurdering - resultatdata mangler",
+            }.get(str(evaluation.get("outcome") or "").upper(), evaluation.get("outcome") or "-")
+            lines.append(f"- {evaluation.get('ticker')}: {outcome} · score {evaluation.get('score_delta') if evaluation.get('score_delta') is not None else '-'} · kurs {return_text}")
     else:
         lines.append("- Ingen utløpte vurderinger kunne evalueres mot denne rapporten.")
 
@@ -1121,7 +1135,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
 
     lines.extend(["", "KVALITETSAVVIK OG FORBEDRINGSPUNKTER"])
     for item in reliability.get("deductions") or []:
-        lines.append(f"- −{item.get('points', 0)}: {item.get('reason')}")
+        lines.append(f"- −{item.get('points', 0)} poeng: {item.get('reason')}")
     if not reliability.get("deductions"):
         lines.append("- Ingen eksplisitte trekk er registrert.")
 
@@ -1148,7 +1162,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         "Datadekning, kildesikkerhet og beslutningssikkerhet er ikke sannsynlighet for gevinst.",
         "Rapporten er beslutningsstøtte og utfører ingen ekte handler automatisk.",
     ])
-    return "\n".join(str(x) for x in lines)
+    return "\n".join(_localize_report_decimal_text(x) for x in lines)
 
 
 
@@ -1844,7 +1858,7 @@ def risk_level(value: Any) -> str:
 
 def format_risk(value: Any) -> str:
     try:
-        score = f"{float(value):.2f}".rstrip("0").rstrip(".")
+        score = f"{float(value):.2f}".rstrip("0").rstrip(".").replace(".", ",")
     except (TypeError, ValueError):
         return str(value if value is not None else "-")
     return f"{score} - {risk_level(value)}"
@@ -2153,7 +2167,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         return TableStyle(commands)
 
     def _p(value: Any, style: str = "Tiny") -> Paragraph:
-        return Paragraph(escape(_loc(value if value is not None else "-")), styles[style])
+        localized = _norwegian_decimal_text(_loc(value if value is not None else "-"))
+        return Paragraph(escape(localized), styles[style])
 
     def _rawp(value: Any, style: str = "Tiny") -> Paragraph:
         """Render external titles, names, IDs and URLs without word translation."""
@@ -2163,9 +2178,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         if isinstance(value, bool) or value is None:
             return value
         try:
-            return f"{float(value):.{decimals}f}".rstrip("0").rstrip(".")
+            return f"{float(value):.{decimals}f}".rstrip("0").rstrip(".").replace(".", ",")
         except (TypeError, ValueError):
             return value
+
+    def _norwegian_decimal_text(value: Any) -> str:
+        """Localise standalone decimal numbers without changing versions, IDs or URLs."""
+        text = str(value if value is not None else "-")
+        return re.sub(r"(?<![A-Za-z0-9._/\-])(\d+)\.(\d+)(?!\.\d)(?![A-Za-z0-9_/\-])", r"\1,\2", text)
+
+    def _deduplicated_job_name(value: Any) -> str:
+        parts = [part.strip() for part in re.split(r"\s*[·|]\s*", str(value or "-")) if part.strip()]
+        unique: list[str] = []
+        for part in parts:
+            if part.casefold() not in {item.casefold() for item in unique}:
+                unique.append(part)
+        return " · ".join(unique) or "-"
 
     def _short(value: Any, limit: int = 165) -> str:
         text = " ".join(str(value or "").split())
@@ -2262,7 +2290,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             number = float(value)
             if number == number:
                 decimals = 2 if str(name or "").strip().lower() == "rsi" else 3
-                return f"{number:.{decimals}f}".rstrip("0").rstrip(".")
+                return f"{number:.{decimals}f}".rstrip("0").rstrip(".").replace(".", ",")
         except (TypeError, ValueError):
             pass
         return _short(_loc(value), 100)
@@ -2336,7 +2364,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             cautions.append(f"datagyldighet {_status_label(validity)}")
         score_gap = ""
         if next_candidate:
-            score_gap = f"{float(candidate.get('investment_score') or 0) - float(next_candidate.get('investment_score') or 0):.2f} poeng foran neste"
+            score_gap = f"{_fmt(float(candidate.get('investment_score') or 0) - float(next_candidate.get('investment_score') or 0), 2)} poeng foran neste"
         return {
             "drivers": drivers,
             "cautions": ", ".join(cautions[:3]) or "Ingen kritiske forbehold registrert",
@@ -2385,7 +2413,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         critical_gaps_by_ticker.setdefault(str(gap_row.get("ticker") or "").upper(), []).append(gap_row)
     report_revision = run.get("report_revision") if isinstance(run.get("report_revision"), Mapping) else {}
     meta = Table([
-        [_p("Rapporttype", "Small"), _p(identity.get("type", "-"), "Small"), _p("Jobb", "Small"), _p(run.get("job_name", "-"), "Small")],
+        [_p("Rapporttype", "Small"), _p(identity.get("type", "-"), "Small"), _p("Jobb", "Small"), _p(_deduplicated_job_name(run.get("job_name", "-")), "Small")],
         [_p("Rapport-ID", "Small"), _rawp(report_metadata.get("report_id") or run.get("report_id") or run.get("run_id") or "-", "Small"), _p("Generert", "Small"),
          _p(local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)), "Small")],
         [_p("Markeder", "Small"), _p(markets_text, "Small"), "", ""],
@@ -2517,7 +2545,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             f"{escape(str(report_metadata.get('report_label') or identity.get('label') or 'Rapport'))} – Markedsanalyse – beslutningsside",
             styles["Section"],
         ),
-        Paragraph(f"Type: {escape(str(report_metadata.get('report_type') or identity.get('type') or '-'))} · Jobb: {escape(str(run.get('job_name') or '-'))}", styles["Small"]),
+        Paragraph(f"Type: {escape(str(report_metadata.get('report_type') or identity.get('type') or '-'))} · Jobb: {escape(_deduplicated_job_name(run.get('job_name') or '-'))}", styles["Small"]),
         decision_meta,
         Paragraph("Markedsdekning", styles["Subsection"]),
         coverage_table,
@@ -2549,7 +2577,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         candidate_rows.append([
             candidate.get("rank") or "-",
             _rawp(candidate.get("ticker") or "-", "Tiny"),
-            _p(f"{candidate.get('score', '-')} · {_decision_label(candidate.get('action'))}", "Tiny"),
+            _p(f"{_fmt(candidate.get('score'))} · {_decision_label(candidate.get('action'))}", "Tiny"),
             _p(_short(main_reason, 115), "Tiny"),
             _p(_short(main_risk, 135), "Tiny"),
             _p(_short(source_text, 105), "Tiny"),
@@ -2580,7 +2608,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     decision_story += [Paragraph("Kontrollvedlegg – avviste aksjer", styles["Section"]), rejected_table]
     decision_page_one_end_v1924 = len(decision_story)
     decision_story += [
-        PageBreak(),
+        CondPageBreak(40*mm),
         Paragraph("Oppfølging, endringer og kontrollpunkter", styles["ReportTitle"]),
         Paragraph("Fokus: " + escape(focus_text or str(report_metadata.get("mission_objective") or "-")), styles["BodyCompact"]),
     ]
@@ -2632,11 +2660,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             _p(_short(model_text, 95), "Tiny"),
             _p(_short(counter.get("strongest_argument") or "Ikke tilgjengelig", 115), "Tiny"),
         ])
-    if len(diff_rows) == 1:
-        diff_rows.append(["-", "-", "Ingen sammenlignbar diff", "Ingen kandidater"])
-    diff_table = Table(diff_rows, repeatRows=1, colWidths=[23*mm, 18*mm, 65*mm, 78*mm])
-    diff_table.setStyle(_table_style(5.5, padding=1.3))
-    decision_story += [Paragraph("Data-, modell- og beslutningsdiff / motargument", styles["Section"]), diff_table]
+    if len(diff_rows) > 1:
+        diff_table = Table(diff_rows, repeatRows=1, colWidths=[23*mm, 18*mm, 65*mm, 78*mm])
+        diff_table.setStyle(_table_style(5.5, padding=1.3))
+        decision_story += [Paragraph("Data-, modell- og beslutningsdiff / motargument", styles["Section"]), diff_table]
 
     event_lines = []
     for event in list(decision_events)[:2]:
@@ -2659,17 +2686,24 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         task_rows.append([_p("-", "Tiny"), _p("Ingen automatiske oppfølgingsoppgaver registrert.", "Tiny")])
     task_table_decision = Table(task_rows, repeatRows=1, colWidths=[48*mm, 136*mm])
     task_table_decision.setStyle(_table_style(5.8, padding=1.4))
+    if event_lines:
+        decision_story += [
+            Paragraph("Kritiske hendelser", styles["Subsection"]),
+            Paragraph(escape(" | ".join(event_lines)), styles["Small"]),
+        ]
     decision_story += [
-        Paragraph("Kritiske hendelser", styles["Subsection"]),
-        Paragraph(escape(" | ".join(event_lines) or "Ingen kandidatrelaterte hendelser registrert."), styles["Small"]),
         Paragraph("Oppgaver til neste kjøring" + escape(task_count_note), styles["Subsection"]),
         task_table_decision,
     ]
 
     if decision_historical:
+        historical_outcome_labels = {
+            "UTGÅTT_ELLER_MANGLER_DATA": "Utløpt vurdering - resultatdata mangler",
+            "EXPIRED_OR_MISSING_DATA": "Utløpt vurdering - resultatdata mangler",
+        }
         historical_text = "; ".join(
-            f"{row.get('ticker')}: {row.get('outcome')}"
-            + (f" ({float(row.get('price_return_pct')):+.1f}%)" if row.get('price_return_pct') is not None else "")
+            f"{row.get('ticker')}: {historical_outcome_labels.get(str(row.get('outcome') or '').upper(), _loc(row.get('outcome') or '-'))}"
+            + (f" ({_fmt(float(row.get('price_return_pct')), 1)} %)" if row.get('price_return_pct') is not None else "")
             for row in list(decision_historical)[:2]
         )
     else:
@@ -2678,12 +2712,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     if decision_learning_guard.get("production_rules_auto_change_allowed"):
         guard_text = "ADVARSEL: automatisk produksjonsendring er rapportert som tillatt."
     deductions = list(decision_reliability.get("deductions") or [])[:2]
-    deduction_text = "; ".join(f"-{row.get('points', 0)} {row.get('reason') or '-'}" for row in deductions) or "Ingen eksplisitte trekk."
+    deduction_text = "; ".join(
+        f"−{abs(float(row.get('points') or 0)):g} poeng: {row.get('reason') or '-'}"
+        for row in deductions
+    ) or "Ingen eksplisitte trekk."
     decision_story += [
         Paragraph("Historisk evaluering / læringsvern", styles["Subsection"]),
         Paragraph(escape(historical_text + " | " + guard_text), styles["Small"]),
         Paragraph("Kvalitetsavvik og forbedringspunkter", styles["Subsection"]),
-        Paragraph(escape(deduction_text), styles["Small"]),
+        Paragraph(escape(_norwegian_decimal_text(deduction_text)), styles["Small"]),
         Paragraph(f"Sporbarhet: program {APP_VERSION} · rapportskjema {REPORT_SCHEMA_VERSION} · rapport-ID {report_metadata.get('report_id') or run.get('run_id') or '-'} · generert {report_metadata.get('created_at_local') or local_display(run.get('created_at'), str(run.get('timezone_name') or DEFAULT_TIMEZONE))}.", styles["Footer"]),
         Paragraph("Vurderinger utløper ved oppgitt tidspunkt eller tidligere ved vesentlig kurs-, kilde-, data- eller hendelsesendring.", styles["Footer"]),
     ]
@@ -2825,7 +2862,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         learning_table.setStyle(_table_style(6.3, padding=2))
         story += [Paragraph("Kanoniske læringshandler i denne kjøringen", styles["Subsection"]), learning_table]
     if threshold_explanation:
-        story += [Paragraph(escape(threshold_explanation), styles["Small"])]
+        story += [Paragraph(escape(_norwegian_decimal_text(threshold_explanation)), styles["Small"])]
     candidate_minutes = int(report_status.get("candidate_validity_minutes") or 60)
     report_hours = int(report_status.get("revalidation_after_hours") or 6)
     story += [Paragraph(
@@ -2942,7 +2979,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         story += [Paragraph("Markedsstatus", styles["Subsection"]), ms_table]
     quality = run.get("data_quality") or {}
     if quality:
-        quality_table = Table([["Markedsdata", f"{quality.get('score', 0)} %", "Vurdering", _loc(quality.get("label", "-")), "Live", quality.get("live", 0), "Cache", quality.get("cache", 0), "Feil", quality.get("errors", 0)]], colWidths=[18*mm,13*mm,18*mm,29*mm,10*mm,10*mm,11*mm,10*mm,10*mm,10*mm])
+        quality_table = Table([["Markedsdata", f"{_fmt(quality.get('score', 0), 1)} %", "Vurdering", _loc(quality.get("label", "-")), "Live", quality.get("live", 0), "Cache", quality.get("cache", 0), "Feil", quality.get("errors", 0)]], colWidths=[18*mm,13*mm,18*mm,29*mm,10*mm,10*mm,11*mm,10*mm,10*mm,10*mm])
         quality_table.setStyle(_table_style(6.8, header=False, padding=2))
         quality_table.setStyle(TableStyle([("FONTNAME", (0,0), (-1,0), "Helvetica"), ("FONTNAME", (0,0), (0,0), "Helvetica-Bold"), ("FONTNAME", (2,0), (2,0), "Helvetica-Bold"), ("FONTNAME", (4,0), (4,0), "Helvetica-Bold"), ("FONTNAME", (6,0), (6,0), "Helvetica-Bold"), ("FONTNAME", (8,0), (8,0), "Helvetica-Bold")]))
         story += [Paragraph("Teknisk fullstendighet og markedsdatadekning", styles["Subsection"]), quality_table,
@@ -2960,7 +2997,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
              "Stopp beslutning", actions.get("STOPP_BESLUTNING", 0), "Fallback / redusert", actions.get("BRUK_FALLBACK", 0) + actions.get("REDUSER_KONFIDENS", 0)],
         ], colWidths=[26*mm, 18*mm]*4)
         contract_table.setStyle(_table_style(6.6, header=False, padding=2.2))
-        story += [Paragraph("Freshness & Data Contract", styles["Subsection"]), contract_table,
+        story += [Paragraph("Datakontroll: aktualitet og gyldighet", styles["Subsection"]), contract_table,
                   Paragraph(escape(str(contract_summary.get("approval_rule") or "Ingen anbefaling på kritiske, foreldede data")), styles["Small"])]
     combined_quality = run.get("combined_data_quality") or {}
     if combined_quality:
@@ -3019,7 +3056,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         if len(discovery_rows) > 1:
             discovery_table = Table(discovery_rows, repeatRows=1, colWidths=[25*mm, 18*mm, 25*mm, 18*mm, 27*mm, 22*mm, 24*mm])
             discovery_table.setStyle(_table_style(6.5, padding=2))
-            story += [Paragraph("Discovery & Data Layer", styles["Subsection"]),
+            story += [Paragraph("Kandidatfunn og datagrunnlag", styles["Subsection"]),
                       Paragraph("Målfordeling: 70 % dokumenterte, 20 % nye og 10 % eksperimentelle kandidater. Uendrede kildebevis merkes med analysekarantene.", styles["Small"]),
                       discovery_table]
     refresh = run.get("data_refresh") or {}
@@ -3183,7 +3220,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ranking_note = ranking_explanation.get("note") or shortlist_note
         story += [Paragraph(shortlist_heading, styles["Section"]), medal_table,
                   Paragraph("Slik leses rangeringene", styles["Subsection"]), ranking_table,
-                  Paragraph(escape(_loc(ranking_note)), styles["BodyCompact"]),
+                  Paragraph(escape(_norwegian_decimal_text(_loc(ranking_note))), styles["BodyCompact"]),
                   Paragraph("Konkret beslutningsbevis for den viste listen", styles["Subsection"]), evidence_table]
         # v19.0.6: the three leading candidates receive auditable evidence
         # pages.  Long tables may naturally continue on a following page.
@@ -3283,7 +3320,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             if not change_conditions:
                 change_conditions.append("risiko- og porteføljeporten godkjenner kandidaten")
             insight_table = Table([
-                ["Beslutningskonfidens", f"{confidence:.1f} % ({confidence_label})", "Neste forventede hendelse", _p(_short(next_event, 120))],
+                ["Beslutningskonfidens", f"{_fmt(confidence, 1)} % ({confidence_label})", "Neste forventede hendelse", _p(_short(next_event, 120))],
                 ["Konfidensforklaring", _p(confidence_reason), "Endring siden forrige", _p(candidate.get("score_change_reason") or candidate.get("change_reason") or "Ingen dokumentert vesentlig endring")],
                 ["Hva kan endre beslutningen?", _p("; ".join(change_conditions)), "Dokumentasjonsdekning", f"{_fmt(profile.get('documentation_coverage', profile.get('data_coverage', 0)))} %"],
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
@@ -3572,7 +3609,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         decision_table = Table([
             [_p(_decision_label("BUY")), actions.get("BUY", 0), _p(_decision_label("HOLD")), actions.get("HOLD", 0), _p(_decision_label("SELL")), actions.get("SELL", 0), _p(_decision_label("SKIP")), actions.get("SKIP", 0)],
             [_p("Foreløpig viderebehandling i porteføljelaget"), actions.get("REVIEW", 0), _p("Konkrete manuelle oppgaver"), int(reduction.get("manual_task_count") or 0), _p("Overvåkes automatisk"), int(reduction.get("automatic_watch") or 0), _p("Automatisk avvist"), int(reduction.get("automatic_rejected") or 0)],
-            [_p("Posisjoner"), context.get("position_count", 0), _p("Kontant %"), context.get("cash_pct", 0), _p("Effektive posisjoner"), context.get("effective_positions", 0), _p("Porteføljevurdert"), "JA"],
+            [_p("Posisjoner"), context.get("position_count", 0), _p("Kontant %"), _fmt(context.get("cash_pct", 0)), _p("Effektive posisjoner"), _fmt(context.get("effective_positions", 0)), _p("Porteføljevurdert"), "JA"],
         ], colWidths=[26*mm, 16*mm]*4)
         decision_table.setStyle(_table_style(6.5, header=False, padding=2))
         story += [Paragraph("Autonomis primære simulerte portefølje og beslutningslag", styles["Section"]), decision_table,
@@ -3622,18 +3659,22 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         portfolio_blocked_count = funnel.get("portfolio_blocked_buy_recommendations", 0)
         capacity_blocked_count = funnel.get("capacity_blocked_buy_recommendations", 0)
         funnel_summary = Table([
-            ["Vurdert", funnel.get("evaluated", 0), "Analytiske kjøpsanbefalinger", analytical_buy_count,
-             "Gjennomførbar nå", trade_executable_count, "Produksjonsterskel", _fmt(funnel.get("production_threshold", 78), 1)],
-            ["Blokkert av Autonomi-portefølje", portfolio_blocked_count,
-             "Blokkert av posisjonsgrense", capacity_blocked_count,
-             "Ikke analytisk anbefalt", max(0, int(funnel.get("evaluated", 0)) - int(analytical_buy_count or 0)),
+            ["Vurdert", funnel.get("evaluated", 0), "Analytisk kjøpssignal", analytical_buy_count,
+             "Gjennomførbar handel", trade_executable_count, "Produksjonsterskel", _fmt(funnel.get("production_threshold", 78), 1)],
+            ["Stoppet av porteføljelag", portfolio_blocked_count,
+             "Stoppet av posisjonsgrense", capacity_blocked_count,
+             "Uten kjøpssignal", max(0, int(funnel.get("evaluated", 0)) - int(analytical_buy_count or 0)),
              "Portefølje", _p(funnel.get("portfolio_name") or "Autonomis primære simulerte portefølje", "Tiny")],
-        ], colWidths=[30*mm, 15*mm, 35*mm, 15*mm, 28*mm, 15*mm, 24*mm, 22*mm])
+        ], colWidths=[29*mm, 12*mm, 33*mm, 12*mm, 31*mm, 12*mm, 25*mm, 30*mm])
         funnel_summary.setStyle(_table_style(5.7, header=False, padding=1.6))
         analytical_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in analytical_counts.items()) or "Ingen analytiske avvisninger"
         execution_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in execution_counts.items()) or "Ingen gjennomføringsblokker"
         legacy_text = "; ".join(f"{rejection_names.get(key, key)}: {value}" for key, value in counts.items()) or "Ingen avvisninger"
         story += [Paragraph("Beslutningstrakt og kjøpsvurdering – analyse separat fra handel", styles["Section"]), funnel_summary,
+                  Paragraph(
+                      "Et analytisk kjøpssignal er et modellresultat før evidens-, Autonomi- og porteføljekontroll. "
+                      "Bare «gjennomførbar handel» er kjøpsgodkjent i denne rapporten.", styles["Small"],
+                  ),
                   Paragraph("Analytiske krav: " + escape(analytical_text), styles["Small"]),
                   Paragraph("Gjennomføring i Autonomis simulerte portefølje: " + escape(execution_text), styles["Small"]),
                   Paragraph("Produksjonskjeden er uendret. Kompatibilitetsporter: " + escape(legacy_text), styles["Footer"])]
@@ -3673,20 +3714,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ptable = Table(pdata, repeatRows=1, colWidths=[24*mm, 24*mm, 38*mm, 18*mm, 18*mm, 20*mm, 18*mm])
         ptable.setStyle(_table_style())
         story += [KeepTogether([Paragraph("Foreløpig modellportefølje før endelig beslutningsport", styles["Section"]),
-                               Paragraph(f"Investert: {portfolio_proposal.get('invested_pct', 0)} % | Kontanter: {portfolio_proposal.get('cash_pct', 100)} %", styles["BodyCompact"]),
+                               Paragraph(f"Investert: {_fmt(portfolio_proposal.get('invested_pct', 0))} % | Kontanter: {_fmt(portfolio_proposal.get('cash_pct', 100))} %", styles["BodyCompact"]),
                                ptable])]
 
     report_summary_v19143 = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
     story += [
         Paragraph(
-            f"Integritetsstempel: {len(candidates)} kandidater | {int(report_summary_v19143.get('automatic_watch') or 0)} overvåkes | "
-            f"{int(report_summary_v19143.get('automatic_rejected') or 0)} avvist | {int(report_summary_v19143.get('buy_candidates') or 0)} kjøp",
-            styles["Footer"],
-        ),
-        Paragraph(
-            f"INTEGRITY-CANDIDATES={len(candidates)};WATCH={int(report_summary_v19143.get('automatic_watch') or 0)};"
-            f"REJECTED={int(report_summary_v19143.get('automatic_rejected') or 0)};BUY={int(report_summary_v19143.get('buy_candidates') or 0)};"
-            f"VERSION={APP_VERSION};SCHEMA={REPORT_SCHEMA_VERSION}",
+            f"Kandidatavstemming: {len(candidates)} totalt | {int(report_summary_v19143.get('buy_candidates') or 0)} kjøpsgodkjent | "
+            f"{int(report_summary_v19143.get('automatic_watch') or 0)} overvåkes | "
+            f"{int(report_summary_v19143.get('manual_review') or 0)} undersøkes manuelt | "
+            f"{int(report_summary_v19143.get('automatic_rejected') or 0)} avvist | "
+            f"avstemt {int(report_summary_v19143.get('buy_candidates') or 0) + int(report_summary_v19143.get('automatic_watch') or 0) + int(report_summary_v19143.get('manual_review') or 0) + int(report_summary_v19143.get('automatic_rejected') or 0)} av {len(candidates)}",
             styles["Footer"],
         ),
     ]

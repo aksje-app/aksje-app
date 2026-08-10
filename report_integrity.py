@@ -306,7 +306,39 @@ def _learning_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     if not fills:
         learning_buys = int(portfolio_stage.get("learning_buys") or 0)
     open_positions = int(metrics.get("open_positions") or portfolio_stage.get("learning_open_positions") or 0)
-    decisions = list(canonical.get("decisions") or portfolio_stage.get("learning_decisions") or [])
+    attempts = [dict(row) for row in list(canonical.get("decisions") or portfolio_stage.get("learning_decisions") or []) if isinstance(row, Mapping)]
+    # A persisted fill is the terminal truth.  An earlier account attempt may
+    # legitimately have been SKIP/OBSERVE, but that attempt must not survive as
+    # the public final decision after another learning path persisted a fill.
+    fill_by_ticker = {
+        str(row.get("ticker") or "").upper(): row for row in fills
+        if str(row.get("ticker") or "").strip()
+    }
+    decisions: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for attempt in attempts:
+        ticker = str(attempt.get("ticker") or "").upper()
+        fill = fill_by_ticker.get(ticker)
+        if fill:
+            final = dict(fill)
+            final["action"] = str(fill.get("side") or fill.get("action") or "BUY").upper()
+            final["terminal_result"] = True
+            final["superseded_attempt"] = {
+                "action": attempt.get("action") or attempt.get("decision"),
+                "reason": attempt.get("reason"),
+            }
+            decisions.append(final)
+            seen.add(ticker)
+        else:
+            attempt["terminal_result"] = True
+            decisions.append(attempt)
+            seen.add(ticker)
+    for ticker, fill in fill_by_ticker.items():
+        if ticker not in seen:
+            final = dict(fill)
+            final["action"] = str(fill.get("side") or fill.get("action") or "BUY").upper()
+            final["terminal_result"] = True
+            decisions.append(final)
     return {
         "production_buys": production_buys,
         "learning_buys": learning_buys,
@@ -317,6 +349,7 @@ def _learning_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         "learning_sells": learning_sells,
         "learning_sell_tickers": [str(row.get("ticker") or "") for row in fills if str(row.get("side") or row.get("action") or "").upper() == "SELL"],
         "learning_decisions": decisions,
+        "learning_attempts": attempts,
         "learning_fills": fills,
         "canonical_account_id": str(metrics.get("account_id") or portfolio_stage.get("learning_account_id") or "autonomy_learning"),
         "canonical_account_last_run_id": str(metrics.get("last_run_id") or portfolio_stage.get("learning_account_last_run_id") or ""),
@@ -342,11 +375,24 @@ def audit_learning_report_consistency(result: Mapping[str, Any]) -> dict[str, An
         errors.append(f"Læringskontoens siste run_id {account_run_id} avviker fra rapport {run_id}")
     if reported_buys and open_positions <= 0:
         errors.append("Rapporten viser læringskjøp, men ingen åpen læringsposisjon")
+    fill_tickers = {
+        str(row.get("ticker") or "").upper() for row in fills
+        if str(row.get("side") or row.get("action") or "").upper() == "BUY"
+    }
+    terminal_by_ticker = {
+        str(row.get("ticker") or "").upper(): str(row.get("action") or row.get("side") or "").upper()
+        for row in summary.get("learning_decisions") or [] if isinstance(row, Mapping)
+    }
+    conflicts = sorted(ticker for ticker in fill_tickers if terminal_by_ticker.get(ticker) != "BUY")
+    if conflicts:
+        errors.append("Terminal læringsbeslutning avviker fra fill: " + ", ".join(conflicts))
     return {
         "ok": not errors, "errors": errors, "run_id": run_id,
         "canonical_account_id": summary.get("canonical_account_id"),
         "learning_buys": reported_buys, "learning_sells": int(summary.get("learning_sells") or 0),
         "learning_open_positions": open_positions,
+        "learning_buy_tickers": sorted(fill_tickers),
+        "conflicting_decision_tickers": conflicts,
     }
 
 
@@ -902,6 +948,44 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     diagnostics_summary = _normalise_market_diagnostics(result)
     result["diagnostics_summary"] = diagnostics_summary
     result["learning_portfolio_summary"] = _learning_summary(result)
+    preflight = _mapping(result.get("portfolio_need_preflight"))
+    preflight_context = _mapping(preflight.get("context"))
+    if preflight_context:
+        # Preserve the exact pre-scan portfolio input at top level so export
+        # and offline decision replay consume the same context as the run.
+        result["portfolio_context"] = deepcopy(preflight_context)
+        result["portfolio_snapshot"] = deepcopy(preflight_context)
+    report_notification = _mapping(result.get("notification"))
+    learning_fills = list(result["learning_portfolio_summary"].get("learning_fills") or [])
+    learning_activity = [
+        row for row in learning_fills
+        if str(row.get("side") or row.get("action") or "").upper() in {"BUY", "SELL"}
+    ]
+    learning_sent = [
+        row for row in learning_activity
+        if str((_mapping(row.get("notification"))).get("status") or "").upper() == "SENT"
+    ]
+    learning_failed = [
+        row for row in learning_activity
+        if str((_mapping(row.get("notification"))).get("status") or "").upper() == "FAILED"
+    ]
+    learning_status = (
+        "Sendt" if learning_activity and len(learning_sent) == len(learning_activity)
+        else "Feilet" if learning_failed
+        else "Ikke dokumentert" if learning_activity
+        else "Ingen læringsvarsler"
+    )
+    result["notification_channels"] = {
+        "report": report_notification,
+        "learning": {
+            "activity_count": len(learning_activity),
+            "sent_count": len(learning_sent),
+            "failed_count": len(learning_failed),
+            "tickers": sorted(str(row.get("ticker") or "") for row in learning_activity),
+            "status_label": learning_status,
+            "theoretical_only": True,
+        },
+    }
     # Canonical portfolio reason: do not claim capacity shortage when the
     # portfolio is inactive or has documented room/cash.
     portfolio_decisions = _mapping(result.get("portfolio_decisions"))
@@ -1210,6 +1294,15 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         errors.append("summary.rejected og report_summary.automatic_rejected er ulike")
     if int(report_summary.get("automatic_rejected") or 0) != int(reduction.get("automatic_rejected") or 0):
         errors.append("Avvisningstall er ikke kanoniske på tvers av rapporten")
+    outcome_total = sum(
+        int(report_summary.get(key) or 0)
+        for key in ("buy_candidates", "automatic_watch", "manual_review", "automatic_rejected")
+    )
+    if outcome_total != len(candidates):
+        errors.append(
+            "Kandidatregnskapet er ikke avstemt: kjøp + overvåking + manuell vurdering + avvist "
+            f"er {outcome_total}, men kandidatlisten har {len(candidates)}"
+        )
     autonomous_decisions = list(run.get("autonomous_decisions") or [])
     if candidates and len(autonomous_decisions) != len(candidates):
         errors.append("Alle kandidatutfall er ikke registrert som autonome beslutninger")
@@ -1369,15 +1462,16 @@ def validate_pdf_semantics(pdf_bytes: bytes, run: Mapping[str, Any]) -> dict[str
         return {"ok": False, "errors": [f"PDF kunne ikke leses for semantisk kontroll: {exc}"], "warnings": []}
     normalized = " ".join(text.split())
     candidates = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
-    version_stamp = f"VERSION={APP_VERSION};SCHEMA={REPORT_SCHEMA_VERSION}"
-    if candidates and version_stamp not in normalized:
+    if candidates and (APP_VERSION not in normalized or REPORT_SCHEMA_VERSION not in normalized):
         errors.append("PDF-versjon og rapportskjema samsvarer ikke med kanonisk JSON")
     summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
-    stamp = (
-        f"INTEGRITY-CANDIDATES={len(candidates)};WATCH={int(summary.get('automatic_watch') or 0)};"
-        f"REJECTED={int(summary.get('automatic_rejected') or 0)};BUY={int(summary.get('buy_candidates') or 0)}"
+    reconciliation = (
+        f"Kandidatavstemming: {len(candidates)} totalt | {int(summary.get('buy_candidates') or 0)} kjøpsgodkjent | "
+        f"{int(summary.get('automatic_watch') or 0)} overvåkes | "
+        f"{int(summary.get('manual_review') or 0)} undersøkes manuelt | "
+        f"{int(summary.get('automatic_rejected') or 0)} avvist"
     )
-    if candidates and stamp not in normalized:
+    if candidates and reconciliation not in normalized:
         errors.append("PDF mangler eller motsier kanonisk integritetsstempel")
     projection = run.get("public_report_contract") if isinstance(run.get("public_report_contract"), Mapping) else {}
     public_ranking = list(projection.get("ranking") or [])
