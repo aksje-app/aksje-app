@@ -10,6 +10,8 @@ from zipfile import ZipFile
 import manual_job_background as background
 import market_intelligence as mi
 import report_system_check as system_check
+import report_test_mode as test_mode
+from app_version import APP_VERSION
 
 
 def _notification_run(*, automatic: bool) -> dict:
@@ -50,6 +52,12 @@ def test_automatic_notification_contains_series_and_part(monkeypatch):
     assert "AUTOMATISK 2/4" in captured["title"]
     assert "AUTOMATISK RAPPORTTEST 2/4" in captured["message"]
     assert "RTS-20260809-TEST01" in captured["message"]
+    assert "Deltest: 2/4" in captured["message"]
+    assert "Kjøringsforsøk: 2 (inkluderer eventuelle retry)" in captured["message"]
+    assert f"Programversjon: {APP_VERSION}" in captured["message"]
+    assert "Jobb: Autonomi rapporttest\n" in captured["message"]
+    assert "Autonomi rapporttest · Autonomi rapporttest" not in captured["message"]
+    assert "Datastatus: markedsdata" in captured["message"]
 
 
 def test_manual_notification_is_explicitly_not_part_of_series(monkeypatch):
@@ -65,6 +73,23 @@ def test_manual_notification_is_explicitly_not_part_of_series(monkeypatch):
     assert ok is True
     assert "MANUELL TEST" in captured["title"]
     assert "teller ikke i automatisk 1/4–4/4" in captured["message"]
+
+
+def test_test_job_does_not_duplicate_an_existing_test_name(monkeypatch):
+    monkeypatch.setattr(mi, "load_jobs", lambda: [mi.JobProfile(name="Autonomi rapporttest", enabled=True)])
+    job = test_mode.build_test_job(series_id="RTS-ONE", part=1, attempt=1)
+    assert job.name == "Autonomi rapporttest"
+
+
+def test_new_series_explains_zero_of_four_and_expected_start(monkeypatch):
+    memory = {}
+    monkeypatch.setattr(test_mode, "load_report_test_mode", lambda: {"enabled": False})
+    monkeypatch.setattr(test_mode, "_persist_state", lambda value: memory.update(dict(value)))
+    state = test_mode.set_report_test_mode(True)
+    assert state["phase"] == "WAITING_FOR_SCHEDULER"
+    assert "Første rapport starter" in state["status_message"]
+    assert state["expected_first_start_at"]
+    assert state["successes"] == 0
 
 
 def test_fast_system_check_runs_without_market_pipeline(monkeypatch):
