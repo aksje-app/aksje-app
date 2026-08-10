@@ -1683,10 +1683,43 @@ def _notification_mode(job: JobProfile) -> str:
     mode = str(getattr(job, "notification_mode", "") or "").strip().upper()
     if mode in {"ALWAYS", "CHANGES_ONLY", "ERRORS_ONLY"}:
         return mode
+    if "morgen" in str(job.name or "").casefold():
+        return "ALWAYS"
     normalized_name = str(job.name or "").casefold()
-    if any(token in normalized_name for token in ("morgen", "kveld", "evening")):
+    if any(token in normalized_name for token in ("kveld", "evening")):
         return "ALWAYS"
     return "CHANGES_ONLY" if job.notify_only_changes else "ALWAYS"
+
+
+def _scheduled_report_delivery_override(
+    job: JobProfile, run: Mapping[str, Any], delivery_gate: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Allow delivery of a valid fixed report with one explicit limitation.
+
+    The acceptance series remains fail-closed.  This override affects delivery
+    only; it never turns an incomplete Autonomy execution into a valid decision.
+    """
+    failed = {str(value) for value in delivery_gate.get("failed_stages") or []}
+    test_series = run.get("report_test_series") if isinstance(run.get("report_test_series"), Mapping) else {}
+    pdf = run.get("pdf_delivery") if isinstance(run.get("pdf_delivery"), Mapping) else {}
+    persistence = run.get("persistence") if isinstance(run.get("persistence"), Mapping) else {}
+    eligible = bool(
+        str(run.get("trigger") or "").upper() == "SCHEDULED"
+        and not test_series.get("series_id")
+        and failed == {"THEORETICAL_DECISIONS"}
+        and persistence.get("ok")
+        and pdf.get("generated") and pdf.get("validated") and pdf.get("published")
+    )
+    return {
+        "allowed": eligible,
+        "code": "LIMITED_THEORETICAL_DECISIONS" if eligible else "",
+        "failed_stages": sorted(failed),
+        "message": (
+            "Rapporten er levert med begrensning: teoretiske beslutninger ble ikke fullført. "
+            "Rapporten er ikke beslutningsklar og skal ikke brukes som kjøpssignal."
+            if eligible else ""
+        ),
+    }
 
 
 def _format_summary_value_for_notice(value: Any, decimals: int = 1) -> str:
@@ -1782,6 +1815,12 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         origin = "Planlagt" if str(run.get("trigger") or "").upper() == "SCHEDULED" else ("Test" if is_test else "Manuell")
         top = (run.get("proposals") or run.get("candidates") or [{}])[0]
         lines: list[str] = []
+        delivery_limitation = run.get("delivery_limitation") if isinstance(run.get("delivery_limitation"), Mapping) else {}
+        if delivery_limitation.get("message"):
+            lines.extend([
+                "⚠️ BEGRENSET RAPPORT – IKKE BESLUTNINGSKLAR",
+                str(delivery_limitation.get("message")),
+            ])
         if is_test:
             if automatic_test:
                 lines.extend([
@@ -4680,7 +4719,11 @@ def _run_job_impl(
         )})
         from autonomi_core.runtime.full_execution import pre_notification_gate
         delivery_gate = pre_notification_gate(run)
-        if delivery_gate.get("ok"):
+        delivery_override = _scheduled_report_delivery_override(job, run, delivery_gate)
+        if delivery_gate.get("ok") or delivery_override.get("allowed"):
+            if delivery_override.get("allowed"):
+                run["delivery_limitation"] = delivery_override
+                notification_view["delivery_limitation"] = delivery_override
             notify_ok, notify_detail = _notification(job, notification_view)
             notify_attempted = bool(job.notify_pushover and not run.get("suppress_notifications"))
         else:
@@ -4688,6 +4731,7 @@ def _run_job_impl(
             notify_attempted = False
             notify_detail = "Ikke sendt: Autonomi-forutsetning feilet (" + ", ".join(delivery_gate.get("failed_stages") or []) + ")"
         run["pre_notification_gate"] = delivery_gate
+        run["notification_delivery_override"] = delivery_override
         status_label = "Sendt" if notify_ok else ("Ikke sendt" if not notify_attempted else "Feilet")
         run["notification"] = {
             "sent": notify_ok, "attempted": notify_attempted, "detail": notify_detail,
@@ -4977,7 +5021,15 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
                 "job_id": job.job_id, "job_name": job.name, "error": str(exc)[:1000],
                 "planned_at": planned_at,
             })
-            raise
+            # One failed fixed report must not suppress other reports due in
+            # the same cron cycle.  Return a structured failure for telemetry
+            # and continue with the remaining jobs.
+            results.append({
+                "scheduler_result": "FAILED", "job_id": job.job_id,
+                "job_name": job.name, "planned_at": planned_at,
+                "error": str(exc)[:1000],
+            })
+            continue
     scheduler_health_snapshot(now)
     return results
 
