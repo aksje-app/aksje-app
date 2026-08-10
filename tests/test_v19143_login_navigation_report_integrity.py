@@ -50,12 +50,12 @@ def test_outcomes_summary_decisions_and_evidence_are_one_truth():
     assert validate_report_integrity(result)["ok"] is True
 
 
-def test_pdf_uses_canonical_candidate_details_and_full_ranking():
+def test_pdf_uses_canonical_candidate_details_and_buy_only_public_ranking():
     source = Path("market_intelligence.py").read_text(encoding="utf-8")
     assert "proposal_rows = [candidate_lookup.get" in source
-    assert 'Paragraph("Full rangering – scoretrend"' in source
-    assert "for r in candidates:" in source
-    assert "Rangering omfatter {len(candidates)} av {len(candidates)} kandidater" in source
+    assert 'shortlist_heading = f"Kjøpsanbefalinger 1-3' in source
+    assert "Listen inneholder bare reelle, endelig kjøpsgodkjente anbefalinger" in source
+    assert "Tekniske scorer brukes internt og er ikke en offentlig rangering" in source
 
 
 def test_orchestrator_polling_never_reruns_whole_app():
