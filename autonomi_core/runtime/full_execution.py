@@ -44,6 +44,15 @@ def build_full_execution_receipt(run: Mapping[str, Any]) -> dict[str, Any]:
     chain = dict(run.get("autonomous_chain") or {})
     chain_stages = {str(x.get("name")): str(x.get("status")) for x in chain.get("stages") or [] if isinstance(x, Mapping)}
     decision_stage = chain_stages.get("AUTONOMOUS_PORTFOLIO", "")
+    decision_row = next(
+        (dict(x) for x in chain.get("stages") or [] if isinstance(x, Mapping) and str(x.get("name")) == "AUTONOMOUS_PORTFOLIO"),
+        {},
+    )
+    decision_detail = dict(decision_row.get("detail") or {})
+    # THEORETICAL_DECISIONS owns only the portfolio-decision substage. A later
+    # controlled-learning error may degrade the full chain, but must not erase
+    # an already documented theoretical decision result.
+    theoretical_decisions_ok = decision_stage in {"OK", "SKIPPED"}
     persistence = dict(run.get("persistence") or {})
     notification = dict(run.get("notification") or {})
     learning = dict(run.get("historical_learning") or {})
@@ -66,7 +75,13 @@ def build_full_execution_receipt(run: Mapping[str, Any]) -> dict[str, Any]:
         _stage(6, *STAGES[5][1:], "OK" if multi else "FAILED", {"multi_strategy_candidates": len(multi)}),
         _stage(7, *STAGES[6][1:], "OK" if top.get("published") else "FAILED", {"result_id": top.get("result_id"), "top_picks": len(top.get("top_picks") or [])}),
         _stage(8, *STAGES[7][1:], "OK" if decisions and all(x.get("portfolio_assessed") for x in decisions) else "FAILED", {"decisions": len(decisions), "actions": portfolio.get("actions")}),
-        _stage(9, *STAGES[8][1:], "OK" if chain.get("status") == "OK" and decision_stage in {"OK", "SKIPPED"} else "FAILED", {"status": chain.get("status"), "decision_stage": decision_stage, "execution": chain.get("execution", "THEORETICAL_ONLY")}),
+        _stage(9, *STAGES[8][1:], "OK" if theoretical_decisions_ok else "FAILED", {
+            "chain_status": chain.get("status"), "decision_stage": decision_stage,
+            "execution": chain.get("execution", "THEORETICAL_ONLY"),
+            "decisions": decision_detail.get("decisions", 0),
+            "trades": decision_detail.get("trades", 0),
+            "reason": decision_detail.get("reason") or decision_detail.get("error") or "",
+        }),
         _stage(10, *STAGES[9][1:], "OK" if top.get("published") else "FAILED", {"source": "CANONICAL_TOP_PICKS", "result_id": top.get("result_id")}),
         _stage(11, *STAGES[10][1:], "OK" if report_ok else "FAILED", {
             "archive": persistence.get("archive_saved"), "json": persistence.get("run_json_saved"),
