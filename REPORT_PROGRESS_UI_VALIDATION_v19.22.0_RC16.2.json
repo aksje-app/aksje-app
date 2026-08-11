@@ -1,0 +1,55 @@
+{
+  "version": "v19.22.0-rc16.2",
+  "baseline": "v19.22.0-rc16.1",
+  "status": "LOCALLY_VALIDATED_NOT_LIVE_CONFIRMED",
+  "ok": true,
+  "root_cause": "Rapportsenteret brukte en separat modulnivå-dekorert RC16.1-fragmentimplementasjon. Oversikt brukte et dynamisk fragment opprettet i den aktive Streamlit-kjøringen.",
+  "implementation": {
+    "shared_component": "autonomy_overview.render_shared_manual_job_progress",
+    "fragment": "streamlit.fragment(run_every=\"5s\")",
+    "status_source": "manual_job_background.get_active_status",
+    "reports_terminal_full_app_rerun": false,
+    "old_rc161_fragment_called_by_reports": false
+  },
+  "source_files_changed": [
+    "autonomy_overview.py",
+    "market_intelligence.py",
+    "app_version.py"
+  ],
+  "checks": [
+    {
+      "name": "reports_calls_shared_component",
+      "passed": true
+    },
+    {
+      "name": "overview_and_reports_share_dynamic_fragment",
+      "passed": true
+    },
+    {
+      "name": "same_authoritative_status_source",
+      "passed": true
+    },
+    {
+      "name": "no_reports_terminal_full_app_rerun",
+      "passed": true
+    },
+    {
+      "name": "targeted_tests",
+      "passed": true,
+      "tests": 49,
+      "subtests": 4
+    },
+    {
+      "name": "full_collected_suite",
+      "passed": true,
+      "tests": 730,
+      "mode": "isolated fresh-process batches"
+    },
+    {
+      "name": "live_render",
+      "passed": false,
+      "required": true,
+      "reason": "User must verify browser updates without refresh"
+    }
+  ]
+}

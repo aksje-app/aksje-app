@@ -1,0 +1,26 @@
+{
+  "version": "v19.22.0-rc16.3",
+  "baseline": "v19.22.0-rc16.2",
+  "status": "LOCAL_PASS_LIVE_REQUIRED",
+  "ok": true,
+  "collected_test_nodes": 734,
+  "passed_test_nodes": 734,
+  "targeted_tests_passed": 30,
+  "python_compile": "PASS",
+  "full_system_audit": "PASS",
+  "navigation_rerun_audit": "PASS",
+  "timezone_clock_validation": "PASS",
+  "protected_rules_validation": "PASS",
+  "navigation_renderer_unchanged": true,
+  "live_render_required": [
+    "timezone persistence after refresh and new login",
+    "active navigation unchanged after save",
+    "PC/app live clock",
+    "UI",
+    "PDF",
+    "JSON",
+    "logs",
+    "scheduler",
+    "Pushover"
+  ]
+}

@@ -6034,8 +6034,8 @@ def _render_display_time_settings_v19220_rc8() -> None:
             else:
                 st.error(message or "Visningstidssonen kunne ikke lagres varig.")
         st.caption(
-            "Styrer bare klokkeslett som vises i programmet. Morgen- og kveldsrapportene "
-            "forblir 08:00 og 22:00 Europe/Oslo til en separat schedulerinnstilling endres."
+            "Styrer bare klokkeslett som vises i programmet. De obligatoriske rapportene "
+            "forblir 08:00, 14:00 og 22:00 Europe/Oslo til schedulerinnstillingen endres."
         )
         selected_label = st.selectbox(
             "Visningstidssone",
@@ -9802,6 +9802,8 @@ st.markdown(
 
 # V15.4: én samlet visningslogikk for Paper når Full stopp er aktiv.
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
+if _top_paper_label == "AKTIV" and bool(_top_cron.get("scan_stale")):
+    _top_paper_label, _top_paper_color = "AKTIV · SCAN FORELDET", "yellow"
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
 st.markdown(

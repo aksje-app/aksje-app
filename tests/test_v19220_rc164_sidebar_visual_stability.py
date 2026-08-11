@@ -6,8 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_rc164_version_chain():
-    assert APP_VERSION == "v19.22.0-rc16.4"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.3"
+    assert APP_VERSION in {"v19.22.0-rc16.4", "v19.22.0-rc16.6", "v19.22.0-rc16.7"}
+    assert PREVIOUS_APP_VERSION in {"v19.22.0-rc16.3", "v19.22.0-rc16.4", "v19.22.0-rc16.6", "v19.22.0-rc16.7"}
 
 
 def test_loaded_sidebar_uses_one_visual_contract():

@@ -4,8 +4,11 @@ from datetime import datetime, timezone
 import json
 
 import market_intelligence as mi
+import cron_control
+import paper_scanner_runtime
 from autonomi_core.learning_reporting import layer
 from services.storage_service import StorageService
+from report_test_mode import build_test_job
 
 
 def test_immutable_local_store_creates_once_and_returns_existing(tmp_path):
@@ -57,7 +60,7 @@ def test_three_required_reports_are_created_with_stable_oslo_schedules():
     jobs, changes = mi.ensure_required_report_jobs([])
     assert [(job.job_id, job.schedules, job.timezone_name, job.enabled) for job in jobs] == [
         ("MI-REQUIRED-MORNING", ["08:00"], "Europe/Oslo", True),
-        ("MI-REQUIRED-AFTERNOON", ["15:00"], "Europe/Oslo", True),
+        ("MI-REQUIRED-AFTERNOON", ["14:00"], "Europe/Oslo", True),
         ("MI-REQUIRED-EVENING", ["22:00"], "Europe/Oslo", True),
     ]
     assert len(changes) == 3
@@ -65,7 +68,7 @@ def test_three_required_reports_are_created_with_stable_oslo_schedules():
 
 def test_required_report_repair_preserves_analysis_budget():
     source = mi.JobProfile(
-        job_id="OLD", name="Min morgenrapport", schedules=[], enabled=False,
+        job_id="OLD", name="Morgenrapport", schedules=[], enabled=False,
         scan_limit=100, deep_count=20, evidence_analysis_count=15,
     )
     jobs, _ = mi.ensure_required_report_jobs([source])
@@ -80,7 +83,7 @@ def test_daily_ledger_tracks_all_three_deliveries(monkeypatch):
     jobs, _ = mi.ensure_required_report_jobs([])
     monkeypatch.setattr(mi, "load_jobs", lambda: jobs)
     history = []
-    for job, planned in zip(jobs, ("06:00", "13:00", "20:00")):
+    for job, planned in zip(jobs, ("06:00", "12:00", "20:00")):
         history.append({
             "job_id": job.job_id, "planned_at": f"2026-08-11T{planned}:00+00:00",
             "status": "Fullført", "pdf": True, "pushover_sent": True, "run_id": f"RUN-{job.job_id}",
@@ -129,7 +132,7 @@ def test_morning_afternoon_evening_run_in_chronological_slots(monkeypatch):
         "due": job.schedules == [active_schedule["value"]],
         "previous_planned_utc": "2026-08-11T00:00:00+00:00",
     })
-    for schedule, hour in (("08:00", 6), ("15:00", 13), ("22:00", 20)):
+    for schedule, hour in (("08:00", 6), ("14:00", 12), ("22:00", 20)):
         active_schedule["value"] = schedule
         mi.run_due_jobs(datetime(2026, 8, 11, hour, 0, tzinfo=timezone.utc), authoritative_unattended=True)
     assert attempted == [
@@ -161,3 +164,62 @@ def test_delivery_retry_uses_stored_run_without_new_analysis(monkeypatch):
     result = mi.retry_pending_required_report_deliveries()
     assert result["sent"] == 1
     assert history[0]["type"] == "Leveringsretry"
+
+
+def test_legacy_1630_schedule_migrates_to_1400():
+    assert mi.normalize_schedule_value("16:30") == "14:00"
+
+
+def test_required_jobs_disable_known_legacy_duplicates_but_preserve_custom_jobs():
+    required, _ = mi.ensure_required_report_jobs([])
+    legacy = mi.JobProfile(job_id="OLD-DAY", name="Dagsrapport", schedules=["16:30"], enabled=True)
+    custom = mi.JobProfile(job_id="CUSTOM", name="Min egen ettermiddagsstrategi", schedules=["15:00"], enabled=True)
+    repaired, changes = mi.ensure_required_report_jobs([*required, legacy, custom])
+    old = next(job for job in repaired if job.job_id == "OLD-DAY")
+    own = next(job for job in repaired if job.job_id == "CUSTOM")
+    assert old.enabled is False and old.schedules == []
+    assert own.enabled is True and own.schedules == ["15:00"]
+    assert any(change["action"] == "DISABLED_DUPLICATE" for change in changes)
+
+
+def test_automatic_test_has_isolated_identity(monkeypatch):
+    source = mi.JobProfile(
+        job_id="MI-REQUIRED-MORNING", name="Obligatorisk morgenrapport",
+        schedules=["08:00"], enabled=True, scan_limit=50,
+    )
+    monkeypatch.setattr(mi, "load_jobs", lambda: [source])
+    # build_test_job imports load_jobs from the module at call time.
+    job = build_test_job(series_id="RTS-1", part=1, total=4, attempt=1)
+    assert job.job_id == "MI-AUTONOMY-REPORT-TEST"
+    assert job.name == "Autonomi rapporttest"
+    assert job.schedules == [] and job.enabled is False
+
+
+def test_required_ledger_ignores_test_history_using_production_job_id(monkeypatch):
+    jobs, _ = mi.ensure_required_report_jobs([])
+    monkeypatch.setattr(mi, "load_jobs", lambda: jobs)
+    monkeypatch.setattr(mi, "load_job_history", lambda limit=2000: [{
+        "job_id": "MI-REQUIRED-MORNING", "type": "Test",
+        "trigger": "SCHEDULED_REPORT_TEST_NOTIFICATION",
+        "planned_at": "2026-08-11T06:00:00+00:00", "pdf": True,
+        "pushover_sent": True, "run_id": "TEST-RUN",
+    }])
+    ledger = mi.required_report_delivery_ledger(datetime(2026, 8, 11, 7, 0, tzinfo=timezone.utc))
+    morning = ledger["rows"][0]
+    assert morning["status"] == "FORSINKET"
+    assert morning["run_id"] == "" and morning["pushover_sent"] is False
+
+
+def test_top_scan_status_prefers_durable_paper_scanner_heartbeat(monkeypatch):
+    monkeypatch.setattr(cron_control, "_utc_now", lambda: datetime(2026, 8, 11, 12, 15, tzinfo=timezone.utc))
+    monkeypatch.setattr(cron_control, "load_settings", lambda: {
+        "last_scan_at": "2026-07-25T21:00:00+00:00",
+        "scan_interval_minutes": 15, "background_scanning_enabled": True,
+    })
+    monkeypatch.setattr(paper_scanner_runtime, "load_scanner_status", lambda: {
+        "state": "COMPLETED", "completed_at": "2026-08-11T12:00:00+00:00",
+    })
+    status = cron_control.cron_status_text()
+    assert status["last_scan_at"] == "2026-08-11T12:00:00+00:00"
+    assert status["last_scan_source"] == "paper_scanner_status"
+    assert status["scan_stale"] is False

@@ -1,0 +1,24 @@
+AI Aksje Analyzer Pro – autoritativ fortsettelse etter RC14
+
+Base: AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC14_FULL.zip
+Versjon: v19.22.0-rc14 Investor Edition RC14
+Dato: 2026-08-05
+
+RC14 retter:
+- global rutelås rundt ordinære st.rerun-kall
+- rute gjenopprettes før navigasjonswidgeter opprettes
+- alternativ Kontrollsenter-meny skriver ikke til opprettet selectbox-nøkkel
+- tidssone lagres i sentral reporting.ui-konfigurasjon og verifiseres
+- System/admin og Visning og tid beholdes etter lagring
+- rapportfragment utløser ikke automatisk helsidererender ved terminalstatus
+- statisk audit av 292 aktive Python-filer: 0 literal post-widget-writes
+
+Ikke endret:
+- scheduler 08:00 og 22:00 Europe/Oslo
+- final_score, terskler, rangering og handelsregler
+- Autonomi/Paper Trading-separasjon
+- fail-closed produksjonshandel
+- Pushover, innlogging og Husk meg
+- PDF/JSON-rapportinnhold
+
+Produksjonsklarhet krever fortsatt live Render-verifikasjon av alle hovedmenyer, rapportfragment, tidssone etter deploy, JSON, PDF, logger, scheduler og Pushover.

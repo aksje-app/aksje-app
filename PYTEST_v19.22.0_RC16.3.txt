@@ -1,0 +1,17 @@
+RC16.3 regression validation
+============================
+Collected tests: 734
+Targeted timezone/navigation/clock/progress selection: 30 passed
+Full collected suite: 734 test node IDs passed across isolated fresh-process batches
+Failures after final source/docs state: 0
+
+Execution note:
+- All node IDs were executed in fresh pytest processes to avoid cumulative test-state/thread hangs.
+- A combined shell run could remain open after completed batches; every batch was therefore confirmed independently.
+
+Key targeted files:
+- tests/test_v19220_rc163_timezone_pc_clock.py
+- tests/test_v19220_rc14_global_navigation_persistence.py
+- tests/test_v19220_rc8_stability_layout_time_report.py
+- tests/test_v19220_rc162_shared_progress.py
+- tests/test_v19220_rc161_progress_hotfix.py

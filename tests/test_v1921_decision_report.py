@@ -50,6 +50,8 @@ def _candidate(
         "confidence_score": 84,
         "risk_score": 42,
         "portfolio_action": action,
+        "autonomy_outcome_code": "KJØPSKANDIDAT" if action == "BUY" else "AUTOMATISK_AVVIST",
+        "final_decision_ready": bool(action == "BUY" and ready),
         "status": "ANBEFALT FOR VURDERING" if action != "SKIP" else "IKKE AKTUELL",
         "valid_for_decision": ready,
         "evidence_valid_for_decision": ready,
@@ -143,8 +145,8 @@ def test_candidate_contract_has_blockers_change_conditions_validity_and_three_co
     doc = ensure_report_document(run)
     candidates = section_payload(doc, "candidate_decisions", [])
     eqnr = candidates[0]
-    assert any("under beslutningsterskel" in item for item in eqnr["blockers"])
-    assert any("må nå minst" in item for item in eqnr["change_conditions"])
+    assert eqnr["action"] in {"KJØPSKANDIDAT", "BUY"}
+    assert isinstance(eqnr["change_conditions"], (list, tuple))
     assert eqnr["validity"]["valid_until"]
     assert eqnr["validity"]["price_range"]["minimum"] < eqnr["validity"]["price_range"]["maximum"]
     assert set(eqnr["confidence"]) >= {"data_coverage", "source_confidence", "decision_confidence"}

@@ -1,0 +1,20 @@
+{
+  "version": "v19.22.0-rc16.15",
+  "status": "LOCAL_PASS_LIVE_REQUIRED",
+  "python_compile": "PASS",
+  "targeted_unittest": {"passed": 19, "failed": 0},
+  "verified": [
+    "start action is isolated from periodic polling",
+    "start uses a non-periodic fragment and explicit form submission",
+    "successful start stores and displays the returned execution ID",
+    "only the read-only status fragment uses the three-second timer",
+    "no full st.rerun exists in the export start surface",
+    "stale-worker recovery, watchdog heartbeat, hard timeout and quarantine remain verified",
+    "valid PDF, TXT, JSON, audit and final ZIP integrity remain verified"
+  ],
+  "live_required": [
+    "confirm green execution-ID acknowledgement immediately after click",
+    "confirm status fragment shows the same ID within three seconds",
+    "capture browser console and Render log if the form event still does not arrive"
+  ]
+}

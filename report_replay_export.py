@@ -291,6 +291,18 @@ def _input_snapshot(run: Mapping[str, Any]) -> dict[str, Any]:
     return sanitize_for_export({key: copy.deepcopy(run.get(key)) for key in keys if key in run})
 
 
+def _portfolio_snapshot(run: Mapping[str, Any]) -> dict[str, Any]:
+    for value in (
+        run.get("portfolio_context"),
+        run.get("portfolio_snapshot"),
+        (run.get("portfolio_need_preflight") or {}).get("context") if isinstance(run.get("portfolio_need_preflight"), Mapping) else None,
+        (run.get("portfolio_decisions") or {}).get("portfolio_context") if isinstance(run.get("portfolio_decisions"), Mapping) else None,
+    ):
+        if isinstance(value, Mapping) and value:
+            return sanitize_for_export(copy.deepcopy(dict(value)))
+    return {}
+
+
 def classify_replay_case(run: Mapping[str, Any]) -> tuple[str, list[str]]:
     missing: list[str] = []
     candidates = [item for item in (run.get("candidates") or []) if isinstance(item, Mapping)]
@@ -383,6 +395,10 @@ def build_single_report_package(
         progress_callback(0, 12, "Canonicaliserer rapportdata")
     canonical_run = canonical_public_run(run)
     clean_run = sanitize_for_export(canonical_run)
+    portfolio_snapshot = _portfolio_snapshot(clean_run)
+    if portfolio_snapshot:
+        clean_run["portfolio_context"] = copy.deepcopy(portfolio_snapshot)
+        clean_run["portfolio_snapshot"] = copy.deepcopy(portfolio_snapshot)
     identity = _report_identity(clean_run, archive_entry)
     replay_level, missing = classify_replay_case(clean_run)
     report_dir = "report"
@@ -403,6 +419,7 @@ def build_single_report_package(
         f"{report_dir}/report.json": report_json,
         f"{report_dir}/report.txt": report_txt,
         f"{report_dir}/input_snapshot.json": _json_bytes(_input_snapshot(clean_run)),
+        f"{report_dir}/portfolio_snapshot.json": _json_bytes(portfolio_snapshot),
         f"{report_dir}/decision_trace.json": _json_bytes(_candidate_trace(clean_run)),
         f"{report_dir}/replay_result_rc16.json": _json_bytes(replay_result),
         f"{report_dir}/source_manifest.json": _json_bytes(sanitize_for_export({

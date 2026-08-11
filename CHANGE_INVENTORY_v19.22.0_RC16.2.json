@@ -1,0 +1,62 @@
+{
+  "version": "v19.22.0-rc16.2",
+  "baseline": "v19.22.0-rc16.1",
+  "scope": "automatic_report_progress_only",
+  "changed_files": [
+    "DISTRIBUTION_MANIFEST.json",
+    "app_version.py",
+    "autonomy_overview.py",
+    "market_intelligence.py",
+    "tests/test_v19141_decision_gate_runtime_consistency.py",
+    "tests/test_v19145_report_local_storage.py",
+    "tests/test_v19146_pdf_dependency_hotfix.py",
+    "tests/test_v1915_mobile_navigation.py",
+    "tests/test_v19166_controlled_stabilization.py",
+    "tests/test_v19170_rc5_completion.py",
+    "tests/test_v19170_rc6_banner_repair.py",
+    "tests/test_v19170_rc7_banner_integrity.py",
+    "tests/test_v1919a_safe_distribution.py",
+    "tests/test_v19220_rc161_progress_hotfix.py",
+    "tests/test_v19220_rc16_decision_replay_export.py",
+    "tests/test_v19220_rc4_full_repairs.py",
+    "tests/test_v19220_rc5_currency_alert_repair.py",
+    "tests/test_v19220_rc6_currency_navigation.py",
+    "tests/test_v19220_rc8_stability_layout_time_report.py",
+    "tests/test_v1922_daily_user_experience.py",
+    "tests/test_v1922_investor_edition.py"
+  ],
+  "added_files": [
+    "ACCEPTANCE_v19.22.0_RC16.2.md",
+    "CHANGE_INVENTORY_v19.22.0_RC16.2.json",
+    "DEPLOY_v19.22.0_RC16.2.md",
+    "FLYTT_TIL_NY_CHAT_v19.22.0_RC16.2.txt",
+    "FULL_SYSTEM_AUDIT_v19.22.0_RC16.2.json",
+    "NAVIGATION_RERUN_AUDIT_v19.22.0_RC16.2.json",
+    "PATCH_DIFF_v19.22.0_RC16.2.diff",
+    "PROTECTED_RULES_VALIDATION_v19.22.0_RC16.2.json",
+    "PYTEST_v19.22.0_RC16.2.txt",
+    "RELEASE_NOTES_v19.22.0_RC16.2.md",
+    "REPORT_PROGRESS_UI_VALIDATION_v19.22.0_RC16.2.json",
+    "TARGETED_TESTS_v19.22.0_RC16.2.txt",
+    "VALIDATION_v19.22.0_RC16.2.json",
+    "tests/test_v19220_rc162_shared_progress.py"
+  ],
+  "removed_files": [],
+  "production_source_changes": [
+    "app_version.py",
+    "autonomy_overview.py",
+    "market_intelligence.py"
+  ],
+  "behavioral_change": "Rapporter delegates live job progress to the same dynamic fragment implementation used by Autonomi Oversikt.",
+  "explicitly_unchanged": [
+    "menu/CSS",
+    "display timezone",
+    "report generation",
+    "ZIP/replay export",
+    "scoring",
+    "scheduler",
+    "portfolios",
+    "trading"
+  ],
+  "delta_file_count": 35
+}

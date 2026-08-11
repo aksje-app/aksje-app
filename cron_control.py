@@ -106,8 +106,30 @@ def cron_status_text():
     allowed, reason = should_run_background_scan()
     pause_to = settings.get("pause_scanning_until")
     last_scan = settings.get("last_scan_at")
+    scan_source = "legacy_settings"
+    try:
+        # The coordinated worker persists this independently of Streamlit and
+        # is therefore the authoritative production heartbeat.
+        from paper_scanner_runtime import load_scanner_status
+        scanner_status = load_scanner_status()
+        durable_scan = scanner_status.get("completed_at") or scanner_status.get("started_at")
+        durable_dt = _parse_iso(durable_scan)
+        legacy_dt = _parse_iso(last_scan)
+        if durable_dt and (not legacy_dt or durable_dt > legacy_dt):
+            last_scan = durable_dt.isoformat()
+            scan_source = "paper_scanner_status"
+    except Exception:
+        pass
     interval = settings.get("scan_interval_minutes", 15)
     enabled = settings.get("background_scanning_enabled", True)
+    last_scan_dt = _parse_iso(last_scan)
+    scan_age_minutes = None
+    scan_stale = False
+    if last_scan_dt:
+        scan_age_minutes = max(0.0, (_utc_now() - last_scan_dt).total_seconds() / 60.0)
+        # Two expected intervals plus a small cron/startup allowance.
+        stale_after = max(45, int(interval or 15) * 2 + 15)
+        scan_stale = scan_age_minutes > stale_after
 
     return {
         "enabled": enabled,
@@ -118,6 +140,9 @@ def cron_status_text():
         "interval": interval,
         "pause_until": pause_to,
         "last_scan_at": last_scan,
+        "last_scan_source": scan_source,
+        "last_scan_age_minutes": scan_age_minutes,
+        "scan_stale": scan_stale,
     }
 
 

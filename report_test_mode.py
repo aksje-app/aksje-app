@@ -77,13 +77,15 @@ def _send_terminal_summary(state: dict[str, Any], *, passed: bool, reason: str) 
 
         successes = int(state.get("successes") or 0)
         failures = int(state.get("failures") or 0)
+        attempts = int(state.get("attempts") or 0)
         series_id = str(state.get("series_id") or "-")
         outcome = "4/4 BESTÅTT" if passed else "TESTSERIEN FEILET"
         ok, detail = send_pushover_alert(
             "\n".join([
                 f"Testserie: {series_id}",
                 f"Resultat: {outcome}",
-                f"Vellykkede: {successes}/4 · Feil: {failures}/3",
+                f"Vellykkede: {successes}/4 · Kjøringsforsøk: {attempts}",
+                f"Retry/feilede forsøk: {failures}",
                 f"Siste rapport-ID: {state.get('last_report_id') or '-'}",
                 f"Programversjon: {APP_VERSION}",
                 f"Årsak: {reason}",
@@ -166,12 +168,11 @@ def test_mode_due(state: Mapping[str, Any] | None = None, *, now: datetime | Non
 
 
 def build_test_job(*, series_id: str = "", part: int = 0, total: int = MAX_SUCCESSES, attempt: int = 0):
-    from market_intelligence import CORE_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, JobProfile, deduplicated_display_name, load_jobs
+    from market_intelligence import CORE_MARKET_SCOPE_LABEL, MARKET_PROFILE_CORE, JobProfile, load_jobs
 
     source = next((job for job in load_jobs() if job.enabled), None) or JobProfile(name="Autonomi rapporttest")
-    test_name = deduplicated_display_name(f"Autonomi rapporttest · {source.name}")
     return replace(
-        source, name=test_name, enabled=False,
+        source, job_id="MI-AUTONOMY-REPORT-TEST", name="Autonomi rapporttest", enabled=False,
         markets=[CORE_MARKET_SCOPE_LABEL], market_profile=MARKET_PROFILE_CORE,
         schedules=[], scan_limit=25, deep_count=10, evidence_analysis_count=10,
         proposal_count=5, coverage_profile_version="3.1",

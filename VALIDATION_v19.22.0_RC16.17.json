@@ -1,0 +1,20 @@
+{
+  "version": "v19.22.0-rc16.17",
+  "status": "LOCAL_PASS_LIVE_REQUIRED",
+  "python_compile": "PASS",
+  "targeted_unittest": {"passed": 21, "failed": 0},
+  "verified": [
+    "archive page size is limited to 20 summaries",
+    "legacy 200-row eager rendering path is removed",
+    "load_archived_run is behind an explicit per-report detail toggle",
+    "PDF, JSON, TXT and delivery resolution are skipped until details are requested",
+    "callback-first export start remains verified",
+    "watchdog, stale recovery, hard timeout and quarantine remain verified",
+    "valid report artifacts and final ZIP integrity remain verified"
+  ],
+  "live_required": [
+    "confirm initial report archive rendering completes quickly on production data",
+    "confirm ZIP start responds before any report details are loaded",
+    "confirm pagination and one-report lazy loading in deployed Streamlit runtime"
+  ]
+}
