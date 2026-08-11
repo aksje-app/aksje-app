@@ -9,6 +9,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -34,7 +35,19 @@ def _path_lock(path: Path) -> threading.RLock:
 
 def read_json(key: str, path: Path, default: Any) -> Any:
     repository = _repositories().documents
-    stored = repository.read(key, default=None)
+    stored = None
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            stored = repository.read(key, default=None)
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt < 3:
+                time.sleep(0.25 * (2 ** (attempt - 1)))
+    if last_error is not None:
+        raise last_error
     if stored is not None:
         # PostgreSQL is authoritative. A diagnostic mirror must never make a
         # successful database read fail or interrupt an analysis callback.
@@ -53,12 +66,37 @@ def read_json(key: str, path: Path, default: Any) -> Any:
 
 def write_json(key: str, path: Path, value: Any) -> None:
     repository = _repositories().documents
-    persisted = repository.write(key, value)
+    persisted = False
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            persisted = repository.write(key, value)
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt < 3:
+                time.sleep(0.25 * (2 ** (attempt - 1)))
+    if last_error is not None:
+        raise last_error
     try:
         _write_local(path, value)
     except OSError:
         if not persisted:
             raise
+
+
+def write_immutable_json(key: str, path: Path, value: Any, *, attempts: int = 3) -> Any:
+    """Persist or read one immutable value through one authoritative operation."""
+    storage = get_storage_service()
+    stored = storage.write_json_immutable(key, value, attempts=attempts)
+    try:
+        _write_local(path, stored)
+    except OSError:
+        # Local mirror is diagnostic only when PostgreSQL succeeded.
+        if not storage.using_postgres():
+            raise
+    return stored
 
 
 def append_event(key: str, path: Path, row: Mapping[str, Any]) -> None:

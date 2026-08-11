@@ -263,6 +263,11 @@ def apply_execution_settings(job: "JobProfile") -> tuple["JobProfile", dict[str,
     }
 DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 30}]
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
+REQUIRED_REPORT_SPECS = (
+    {"job_id": "MI-REQUIRED-MORNING", "name": "Obligatorisk morgenrapport", "schedule": "08:00", "token": "morgen"},
+    {"job_id": "MI-REQUIRED-AFTERNOON", "name": "Obligatorisk ettermiddagsrapport", "schedule": "15:00", "token": "ettermiddag"},
+    {"job_id": "MI-REQUIRED-EVENING", "name": "Obligatorisk kveldsrapport", "schedule": "22:00", "token": "kveld"},
+)
 
 SCAN_PROFILES = {
     "Rask (10)": 10, "Standard (20)": 20, "Normal (25)": 25,
@@ -686,6 +691,42 @@ class JobProfile:
         return cls(**data)
 
 
+def ensure_required_report_jobs(jobs: Sequence[JobProfile]) -> tuple[list[JobProfile], list[dict[str, Any]]]:
+    """Repair the three fixed production reports without touching analysis rules."""
+    repaired = list(jobs)
+    changes: list[dict[str, Any]] = []
+    claimed: set[str] = set()
+    for spec in REQUIRED_REPORT_SPECS:
+        match = next((job for job in repaired if job.job_id == spec["job_id"]), None)
+        if match is None:
+            match = next((job for job in repaired if job.job_id not in claimed and spec["token"] in str(job.name or "").casefold()), None)
+        if match is None:
+            match = JobProfile(
+                job_id=spec["job_id"], name=spec["name"],
+                markets=[CORE_MARKET_SCOPE_LABEL], market_profile=MARKET_PROFILE_CORE,
+                schedules=[spec["schedule"]], weekdays=[0, 1, 2, 3, 4],
+                enabled=True, allow_weekends=False, notify_pushover=True,
+                notify_only_changes=False, notification_mode="ALWAYS", save_pdf=True,
+            )
+            repaired.append(match)
+            changes.append({"job_id": match.job_id, "action": "CREATED", "schedule": spec["schedule"]})
+            claimed.add(match.job_id)
+            continue
+        claimed.add(match.job_id)
+        updated = replace(
+            match, job_id=spec["job_id"], name=spec["name"],
+            schedules=[spec["schedule"]], weekdays=[0, 1, 2, 3, 4],
+            timezone_name="Europe/Oslo", enabled=True, allow_weekends=False,
+            notify_pushover=True, notify_only_changes=False,
+            notification_mode="ALWAYS", include_report_link=True, save_pdf=True,
+        )
+        index = repaired.index(match)
+        if asdict(updated) != asdict(match):
+            repaired[index] = updated
+            changes.append({"job_id": updated.job_id, "action": "REPAIRED", "schedule": spec["schedule"]})
+    return repaired, changes
+
+
 def load_jobs() -> list[JobProfile]:
     data = read_persistent_json("market_intelligence/jobs.json", default=None)
     if data is None:
@@ -712,11 +753,13 @@ def load_jobs() -> list[JobProfile]:
         not str(item.get("name") or "").strip() or str(item.get("name") or "").strip().casefold() == "uten navn"
         for item in source_payload
     )
-    if len(cleaned) != len(jobs) or schedules_migrated or names_migrated:
+    cleaned, required_changes = ensure_required_report_jobs(cleaned)
+    if len(cleaned) != len(jobs) or schedules_migrated or names_migrated or required_changes:
         save_jobs(cleaned)
         _audit("JOB_PROFILES_REPAIRED", {
             "before": len(jobs), "after": len(cleaned),
             "schedules_migrated": schedules_migrated, "names_migrated": names_migrated,
+            "required_reports": required_changes,
         })
     return cleaned
 
@@ -786,6 +829,138 @@ def load_job_history(limit: int = 200) -> list[dict[str, Any]]:
     if not isinstance(rows, list):
         return []
     return [dict(x) for x in rows if isinstance(x, Mapping)][: max(0, int(limit))]
+
+
+def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, Any]:
+    """Daily delivery truth for morning, afternoon and evening reports."""
+    now_utc = (now or _now()).astimezone(timezone.utc)
+    local_now = now_utc.astimezone(ZoneInfo("Europe/Oslo"))
+    jobs = {job.job_id: job for job in load_jobs()}
+    history = load_job_history(limit=2000)
+    rows: list[dict[str, Any]] = []
+    for spec in REQUIRED_REPORT_SPECS:
+        job = jobs.get(spec["job_id"])
+        hh, mm = (int(part) for part in spec["schedule"].split(":"))
+        planned_local = datetime.combine(local_now.date(), time(hh, mm), tzinfo=ZoneInfo("Europe/Oslo"))
+        planned_utc = planned_local.astimezone(timezone.utc)
+        candidates: list[dict[str, Any]] = []
+        for item in history:
+            if str(item.get("job_id") or "") != spec["job_id"]:
+                continue
+            raw = str(item.get("planned_at") or "").strip()
+            if not raw:
+                continue
+            try:
+                item_planned = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                item_planned = item_planned.replace(tzinfo=item_planned.tzinfo or timezone.utc).astimezone(timezone.utc)
+            except Exception:
+                continue
+            if abs((item_planned - planned_utc).total_seconds()) <= 60:
+                candidates.append(dict(item))
+        latest = candidates[0] if candidates else {}
+        delivered = latest.get("pushover_sent") is True
+        pdf_created = latest.get("pdf") is True
+        grace_end = planned_utc + timedelta(minutes=30)
+        if local_now.weekday() >= 5:
+            status = "IKKE_PLANLAGT"
+        elif delivered:
+            status = "SENDT"
+        elif now_utc < planned_utc:
+            status = "VENTER"
+        elif now_utc <= grace_end:
+            status = "PÅGÅR"
+        else:
+            status = "FORSINKET"
+        rows.append({
+            "job_id": spec["job_id"], "name": spec["name"], "schedule": spec["schedule"],
+            "planned_at": planned_utc.isoformat(timespec="seconds"), "status": status,
+            "pdf_created": pdf_created, "stored": bool(latest.get("run_id")),
+            "pushover_sent": delivered, "run_id": latest.get("run_id") or "",
+            "error": str(latest.get("error") or latest.get("notification_detail") or "")[:500],
+            "active": bool(job and job.enabled),
+        })
+    return {
+        "date": local_now.date().isoformat(), "timezone": "Europe/Oslo",
+        "complete": all(row["status"] in {"SENDT", "IKKE_PLANLAGT"} for row in rows),
+        "rows": rows,
+    }
+
+
+def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, Any]:
+    """Send one independent operations warning per missed required report."""
+    ledger = required_report_delivery_ledger(now)
+    overdue = [row for row in ledger["rows"] if row["status"] == "FORSINKET"]
+    receipt_key = "scheduler/required_report_missing_alerts.json"
+    receipts = read_persistent_json(receipt_key, default={})
+    receipts = dict(receipts) if isinstance(receipts, Mapping) else {}
+    sent: list[str] = []
+    for row in overdue:
+        receipt_id = f"{ledger['date']}:{row['job_id']}"
+        if receipts.get(receipt_id):
+            continue
+        try:
+            from notifier import normalize_notification_result, send_pushover_alert
+            ok, detail = normalize_notification_result(send_pushover_alert(
+                "\n".join([
+                    f"Obligatorisk rapport: {row['name']}",
+                    f"Planlagt: {row['schedule']} (Europe/Oslo)",
+                    "Status: Ikke levert innen 30 minutter",
+                    f"PDF: {'opprettet' if row['pdf_created'] else 'ikke bekreftet'}",
+                    f"Lagring: {'bekreftet' if row['stored'] else 'ikke bekreftet'}",
+                    f"Feil: {row['error'] or 'ingen detalj registrert'}",
+                    f"Programversjon: {APP_VERSION}",
+                ]),
+                title=f"❌ MANGLENDE FAST RAPPORT · {row['name']}",
+            ))
+            if ok:
+                receipts[receipt_id] = {"sent_at": _now_iso(), "job_id": row["job_id"], "detail": str(detail or "Sendt")}
+                sent.append(row["job_id"])
+        except Exception as exc:
+            row["alert_error"] = str(exc)[:500]
+    if sent:
+        write_persistent_json(receipt_key, receipts)
+    return {"ledger": ledger, "overdue": len(overdue), "alerts_sent": sent}
+
+
+def retry_pending_required_report_deliveries(limit: int = 3) -> dict[str, Any]:
+    """Retry PDF/Pushover delivery from stored runs without a new market scan."""
+    jobs = {job.job_id: job for job in load_jobs() if job.job_id in {spec["job_id"] for spec in REQUIRED_REPORT_SPECS}}
+    attempted: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in load_job_history(limit=500):
+        job_id = str(row.get("job_id") or "")
+        run_id = str(row.get("run_id") or "")
+        if job_id not in jobs or not run_id or run_id in seen or row.get("pushover_sent") is True:
+            continue
+        seen.add(run_id)
+        run = load_run(run_id)
+        if not run or not bool((run.get("persistence") or {}).get("ok")):
+            continue
+        pdf = run.get("pdf_delivery") if isinstance(run.get("pdf_delivery"), Mapping) else {}
+        if not (pdf.get("generated") and pdf.get("validated") and pdf.get("published")):
+            continue
+        notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
+        if notification.get("sent") is True:
+            continue
+        ok, detail = _notification(jobs[job_id], run)
+        run["notification"] = {
+            **dict(notification), "sent": bool(ok), "attempted": True,
+            "detail": str(detail or ""), "status_label": "Sendt" if ok else "Feilet",
+            "delivery_retry": True, "delivery_retry_at": _now_iso(),
+        }
+        _write(RUNS_DIR / f"{run_id}.json", run)
+        _append_job_history({
+            "job_id": job_id, "job_name": jobs[job_id].name, "run_id": run_id,
+            "type": "Leveringsretry", "started_at": _now_iso(), "completed_at": _now_iso(),
+            "planned_at": str(row.get("planned_at") or ""),
+            "status": "Fullført" if ok else "Feil", "pdf": True,
+            "pushover_attempted": True, "pushover_sent": bool(ok),
+            "notification_detail": str(detail or ""),
+        })
+        attempted.append({"job_id": job_id, "run_id": run_id, "sent": bool(ok), "detail": str(detail or "")[:500]})
+        if len(attempted) >= max(1, int(limit or 1)):
+            break
+    return {"attempted": attempted, "sent": sum(1 for row in attempted if row["sent"])}
 
 
 def _append_job_history(row: Mapping[str, Any]) -> None:
@@ -5511,12 +5686,21 @@ def render_market_intelligence() -> None:
                 execution_id = str(started.get("execution_id") or "")
                 st.session_state["mi_active_execution_v1924"] = execution_id
                 _rerun_reports_v19220_rc11(st)
+        delivery_ledger = required_report_delivery_ledger()
+        st.markdown("**Dagens obligatoriske rapporter**")
+        st.dataframe([{
+            "Rapport": row["name"], "Tid": row["schedule"], "Status": row["status"],
+            "PDF": "Ja" if row["pdf_created"] else "Nei",
+            "Lagring": "Ja" if row["stored"] else "Nei",
+            "Pushover": "Sendt" if row["pushover_sent"] else "Ikke sendt",
+            "Rapport-ID": row["run_id"] or "-",
+        } for row in delivery_ledger["rows"]], width="stretch", hide_index=True)
 
     with st.container(border=True):
         st.markdown("##### 2. Handlinger")
         morning_job = next((j for j in quick_jobs if "morgen" in str(j.name).casefold()), None)
+        afternoon_job = next((j for j in quick_jobs if "ettermiddag" in str(j.name).casefold()), None)
         evening_job = next((j for j in quick_jobs if any(x in str(j.name).casefold() for x in ["kveld", "evening"])), None)
-        night_job = next((j for j in quick_jobs if any(x in str(j.name).casefold() for x in ["natt", "night"])), None)
         q1, q2, q3, q4 = st.columns(4, gap="large")
         if q1.button("📄 Nytt utkast", key="mi_quick_draft_v1924", type="primary", width="content", disabled=manual_job_running):
             from autonomy_overview import start_shared_manual_draft_job
@@ -5531,16 +5715,16 @@ def render_market_intelligence() -> None:
             execution_id = str(started.get("execution_id") or "")
             st.session_state["mi_active_execution_v1924"] = execution_id
             _rerun_reports_v19220_rc11(st)
-        if q3.button("🌇 Kjør kveldsanalyse", key="mi_quick_evening_v1924", width="content", disabled=manual_job_running or evening_job is None):
+        if q3.button("☀️ Kjør ettermiddagsanalyse", key="mi_quick_afternoon_v19220_rc1631", width="content", disabled=manual_job_running or afternoon_job is None):
             started = start_manual_job(
-                evening_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
+                afternoon_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             )
             execution_id = str(started.get("execution_id") or "")
             st.session_state["mi_active_execution_v1924"] = execution_id
             _rerun_reports_v19220_rc11(st)
-        if q4.button("🌙 Kjør nattanalyse", key="mi_quick_night_v1924", width="content", disabled=manual_job_running or night_job is None):
+        if q4.button("🌇 Kjør kveldsanalyse", key="mi_quick_evening_v1924", width="content", disabled=manual_job_running or evening_job is None):
             started = start_manual_job(
-                night_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
+                evening_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
             )
             execution_id = str(started.get("execution_id") or "")
             st.session_state["mi_active_execution_v1924"] = execution_id
@@ -5548,10 +5732,10 @@ def render_market_intelligence() -> None:
         unavailable = []
         if morning_job is None:
             unavailable.append("morgenanalyse")
+        if afternoon_job is None:
+            unavailable.append("ettermiddagsanalyse")
         if evening_job is None:
             unavailable.append("kveldsanalyse")
-        if night_job is None:
-            unavailable.append("nattanalyse")
         if unavailable:
             st.caption("Ikke konfigurert som aktiv jobbprofil: " + ", ".join(unavailable) + ". Opprett eller aktiver profilen under avanserte innstillinger.")
         # RC16.2: Rapporter uses the exact same live progress fragment as

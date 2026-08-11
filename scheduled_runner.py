@@ -143,6 +143,22 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["report_test_mode"] = {"run_state": "FAILED", "error": str(exc)[:500]}
 
+    # Retry only delivery artifacts from an already stored run. Market scan,
+    # Autonomy and learning are never repeated by this step.
+    try:
+        from market_intelligence import retry_pending_required_report_deliveries
+        state["report_delivery_retry"] = dict(retry_pending_required_report_deliveries() or {})
+    except Exception as exc:
+        state["report_delivery_retry"] = {"state": "FAILED", "error": str(exc)[:500]}
+
+    # Required-report accounting is independent of report generation. It can
+    # warn about a missing report even when the report pipeline itself failed.
+    try:
+        from market_intelligence import notify_overdue_required_reports
+        state["required_reports"] = dict(notify_overdue_required_reports() or {})
+    except Exception as exc:
+        state["required_reports"] = {"state": "FAILED", "error": str(exc)[:500]}
+
     # Currency alerts share the durable five-minute Render cron. They run
     # independently of report due-times, market hours and user login.
     try:
