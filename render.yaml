@@ -120,3 +120,33 @@ services:
         value: "30"
       - key: SCAN_SLEEP_SECONDS
         value: "0.5"
+  - type: cron
+    name: aksje-app-paper-scanner
+    runtime: python
+    plan: standard
+    schedule: "*/30 * * * *"
+    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
+    startCommand: python scanner_worker.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: APP_ENVIRONMENT
+        value: "production"
+      - key: STORAGE_MODE
+        value: "auto"
+      - key: ALLOW_LOCAL_STORAGE_FALLBACK
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: PUSHOVER_APP_TOKEN
+        sync: false
+      - key: PUSHOVER_USER_KEY
+        sync: false
+      - key: PAPER_TRADING_ENABLED
+        value: "true"
+      - key: SCANNER_MAX_TICKERS
+        value: "30"
+      - key: SCAN_SLEEP_SECONDS
+        value: "0.5"
