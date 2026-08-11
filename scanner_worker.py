@@ -32,7 +32,7 @@ import os
 import time
 import requests
 from datetime import datetime, timezone
-from paper_scanner_runtime import load_scanner_status, run_coordinated
+from paper_scanner_runtime import load_scanner_status, run_coordinated, update_scanner_status
 
 from paper_store import force_schema_migration
 from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
@@ -302,6 +302,7 @@ def _run_once_impl(force=False):
         print(f"Cron control: {_reason}")
         if not _allowed:
             print("⏸ Cron våknet, aksjescanner kjører ikke nå. Valutavarsler er allerede kontrollert.")
+            update_scanner_status(state="SKIPPED_POLICY", message=_reason)
             return 0
         mark_background_scan_started()
 
@@ -312,6 +313,7 @@ def _run_once_impl(force=False):
     markets = open_markets()
     if not markets:
         print("⏸ Alle markeder stengt - ingen scanning")
+        update_scanner_status(state="MARKET_CLOSED", markets_open=[], message="Alle markeder er stengt")
         return 0
 
     print(f"Åpne markeder: {markets}")
@@ -333,13 +335,18 @@ def _run_once_impl(force=False):
 
     snapshot_service = get_market_snapshot_service()
     scan_run_id = f"PAPER-SCAN-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    update_scanner_status(scan_run_id=scan_run_id, markets_open=markets, tickers_total=len(tickers), tickers_processed=0)
     market_snapshot_id = snapshot_service.new_snapshot_id(run_id=scan_run_id, source="paper_scanner")
     candidate_snapshots = []
     latest_prices = {}
     trades_executed = 0
 
-    for ticker in tickers:
+    for ticker_index, ticker in enumerate(tickers, start=1):
         try:
+            update_scanner_status(
+                scan_run_id=scan_run_id, current_ticker=str(ticker),
+                tickers_processed=ticker_index - 1, trades_executed=trades_executed,
+            )
             if not should_process_ticker(ticker):
                 print(f"⏸ {ticker}: marked stengt")
                 continue
@@ -374,7 +381,7 @@ def _run_once_impl(force=False):
                         confidence=result["confidence"],
                         rsi=result.get("rsi"),
                         prev_rsi=result.get("prev_rsi"),
-                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "candidate": _paper_candidate_context(result)},
+                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "scan_id": scan_run_id, "scanner_execution_id": load_scanner_status().get("execution_id"), "market_data_at": result.get("market_data_at") or result.get("as_of") or "", "candidate": _paper_candidate_context(result)},
                     )
                     print(f"Auto risk check {ticker}: {msg}")
 
@@ -402,6 +409,9 @@ def _run_once_impl(force=False):
                                 "source": "scanner_worker",
                                 "automatic": True,
                                 "run_id": scan_run_id,
+                                "scan_id": scan_run_id,
+                                "scanner_execution_id": load_scanner_status().get("execution_id"),
+                                "market_data_at": result.get("market_data_at") or result.get("as_of") or "",
                                 "candidate": _paper_candidate_context(result),
                             },
                         )
@@ -421,7 +431,7 @@ def _run_once_impl(force=False):
                         confidence=result["confidence"],
                         rsi=result.get("rsi"),
                         prev_rsi=result.get("prev_rsi"),
-                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "candidate": _paper_candidate_context(result)},
+                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "scan_id": scan_run_id, "scanner_execution_id": load_scanner_status().get("execution_id"), "market_data_at": result.get("market_data_at") or result.get("as_of") or "", "candidate": _paper_candidate_context(result)},
                     )
                     print(f"Auto trade {ticker}: {msg}")
 
@@ -436,6 +446,11 @@ def _run_once_impl(force=False):
 
         except Exception as e:
             print(f"Feil på {ticker}: {type(e).__name__}: {e}")
+
+    update_scanner_status(
+        scan_run_id=scan_run_id, current_ticker="", tickers_processed=len(tickers),
+        trades_executed=trades_executed,
+    )
 
     if candidate_snapshots:
         try:

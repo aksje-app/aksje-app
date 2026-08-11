@@ -760,6 +760,12 @@ def load_jobs() -> list[JobProfile]:
         if data:
             write_persistent_json("market_intelligence/jobs.json", data)
     jobs = [JobProfile.from_dict(x) for x in data if isinstance(x, Mapping)]
+    # Report-test profiles are ephemeral execution inputs, never schedules.
+    jobs = [
+        job for job in jobs
+        if str(job.job_id or "").upper() != "MI-AUTONOMY-REPORT-TEST"
+        and "autonomi rapporttest" not in str(job.name or "").casefold()
+    ]
     deduped: dict[str, JobProfile] = {}
     order: list[str] = []
     for job in jobs:
@@ -4165,7 +4171,8 @@ def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: s
     _write(LATEST_PATH, run)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run.get(k) for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
     job.last_run_at, job.last_status = run["created_at"], "OK"
-    upsert_job(job)
+    if not bool(run.get("test_run")) and not str(job.job_id or "").upper().startswith("MI-AUTONOMY-REPORT-TEST"):
+        upsert_job(job)
     _audit("JOB_RUN_PROMOTED", {"job_id": job.job_id, "run_id": run_id, "source_draft_run_id": source.get("run_id")})
     return run
 
@@ -5020,7 +5027,8 @@ def _run_job_impl(
     job.last_scheduled_at = scheduled_for or job.last_scheduled_at
     job.last_notification_status = str((run.get("notification") or {}).get("status_label") or "")
     job.last_status = "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("FULLFØRT MED FEIL" if errors else ("OK MED DATAVARSLER" if warnings else "OK"))
-    upsert_job(job)
+    if not bool(run.get("test_run")) and not str(job.job_id or "").upper().startswith("MI-AUTONOMY-REPORT-TEST"):
+        upsert_job(job)
     _append_job_history({
         "job_id": job.job_id, "job_name": job.name, "run_id": run_id,
         "type": "Test" if run.get("test_run") else ("Planlagt" if str(trigger or "").upper() == "SCHEDULED" else "Manuell"),
@@ -5874,7 +5882,26 @@ def render_market_intelligence() -> None:
     with tab_jobs:
         jobs = quick_jobs
         labels = ["Ny jobb"] + [f"{x.name} ({x.job_id})" for x in jobs]
-        selected = st.selectbox("Rediger jobb", labels, key="mi_job_select_v18687")
+        def _reset_job_editor_state_v19220_rc1631a() -> None:
+            """Discard widget values belonging to the previously selected job."""
+            exact = {
+                "mi_name_v18687", "mi_timezone_v18711", "mi_markets_v18687", "mi_schedules_v18690",
+                "mi_window_count_v18690", "mi_allow_weekends_v1870", "mi_days_v1870",
+                "mi_modules_v18687", "mi_scan_profile_v18693", "mi_scan_custom_v18693",
+                "mi_scan_loaded_v18710", "mi_deep_v18687", "mi_evidence_count_v19220_rc1627",
+                "mi_prop_v18687", "mi_push_v1924", "mi_pdf_v1924", "mi_enabled_v1924",
+                "mi_report_link_v1924", "mi_top3_push_v1924", "mi_notification_mode_v1924",
+                "mi_auto_port_v18690", "mi_auto_learning_v18690", "mi_require_active_v18690",
+            }
+            prefixes = ("mi_wstart_", "mi_wend_", "mi_wint_")
+            for state_key in list(st.session_state):
+                if state_key in exact or str(state_key).startswith(prefixes):
+                    del st.session_state[state_key]
+
+        selected = st.selectbox(
+            "Rediger jobb", labels, key="mi_job_select_v18687",
+            on_change=_reset_job_editor_state_v19220_rc1631a,
+        )
         editing_job = None if selected == "Ny jobb" else jobs[labels.index(selected)-1]
         # A new-job form is also the persistent auto-saved draft.  Loading that
         # draft prevents Streamlit reruns from replacing a custom limit with 25.

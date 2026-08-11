@@ -9804,6 +9804,12 @@ st.markdown(
 _top_paper_label, _top_paper_color = _paper_state(_top_full_stop)
 if _top_paper_label == "AKTIV" and bool(_top_cron.get("scan_stale")):
     _top_paper_label, _top_paper_color = "AKTIV · SCAN FORELDET", "yellow"
+if _top_paper_label == "AKTIV" and _top_cron.get("scanner_state") == "RUNNING":
+    _top_paper_label, _top_paper_color = "AKTIV · SKANNER NÅ", "blue"
+elif _top_paper_label == "AKTIV" and _top_cron.get("scanner_state") == "MARKET_CLOSED" and _top_cron.get("scanner_worker_healthy"):
+    _top_paper_label, _top_paper_color = "AKTIV · MARKED STENGT", "green"
+elif _top_paper_label == "AKTIV" and _top_cron.get("scanner_state") == "FAILED":
+    _top_paper_label, _top_paper_color = "AKTIV · SCANNERFEIL", "red"
 _top_chart_auto = False  # V16.1: global manuell oppdatering er standard
 
 st.markdown(

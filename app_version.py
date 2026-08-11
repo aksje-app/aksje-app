@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31 Report Identity and Schedule Closure"
+APP_VERSION = "v19.22.0-rc16.31a"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31a Paper and Report Reliability"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.30"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31a: Skiller rapport- og Paper-skannerlås, gjør Paper-status persistent med heartbeat, skann-ID og handelsspor, definerer Paper-cron i deploy, rydder midlertidige testprofiler og vurderer THEORETICAL_DECISIONS fra det faktiske beslutningssteget i stedet for uvedkommende senere kjedefeil.",
     "v19.22.0-rc16.31: Lukker den dokumenterte rapporttestfeilen: automatisk serie bruker eksplisitt neste halvtime uten sekunddrift, varig statuslagring har avgrenset retry og kan ikke maskere opprinnelig feil, og bare faktisk sendt Pushover teller som bestått. Hvert varsel viser stabil testserie-ID og automatisk 1/4–4/4, manuell test merkes separat, terminalt sammendrag sendes, rapportsenteret viser tidslinje og neste forsøk, og en rask systemkontroll verifiserer database, rapportlås, PDF, offentlig lenke og Pushover uten markedsskann eller portefølje-/læringshandling. Diagnosepakken inkluderer tidslinje, systemkontroll og Pushover-audit. Ingen kjøps-, salgs-, score-, risiko-, portefølje- eller læringsterskler er endret.",
     "v19.22.0-rc16.30: Autonomi-motoren publiserer nå reelle, kansellerbare delsteg gjennom markedssnapshot, parallelle strategier, teknisk bidrag, posisjonsoppdatering, salg, kjøp/læring, lagring, shared accounts, replay og parameterlæring. Fremdriftsvakten tillater opptil 15 minutters stillhet i Autonomi, men hvert delsteg fornyer jobblåsen og en tilbakekalling avbryter før senere lagring. Diagnosepakken merker tidligere læringsaksept som PREVIOUS_RUN i stedet for å fremstille den som resultatet av den aktive kjøringen. Ingen kjøps-, salgs-, risiko- eller produksjonsporter er endret.",
     "v19.22.0-rc16.29: Retter den dokumenterte canonical læringskonsistensfeilen der tre lagrede action=BUY-handler ble lest som null fordi kontrollen bare godtok side=BUY. Begge verbkontrakter normaliseres nå, tom shared fills faller tilbake til de faktiske LEARNING_ONLY-handlene fra samme kjøring, og Autonomi sender reell fremdrift før rapportaudit. OBSERVE er et gyldig læringsutfall og telles ikke som UNCLASSIFIED_BLOCKER. Feilbanen avslutter jobben terminalt og frigjør workerregistreringen uten å endre produksjonsporter eller virkelige handler.",

@@ -11,7 +11,10 @@ from storage_architecture import runtime_data_path
 
 PAPER_SCANNER_STATUS_KEY = "paper_trading/scanner_status.json"
 PAPER_SCANNER_STATUS_PATH = runtime_data_path("paper_trading", "scanner_status.json")
-PAPER_SCANNER_ADVISORY_LOCK_ID = 1871502
+# Deliberately different from execution_coordination._REPORT_EXECUTION_LOCK_ID.
+# Paper scanning and report generation are independent workloads and must never
+# suppress each other.
+PAPER_SCANNER_ADVISORY_LOCK_ID = 1871503
 
 
 def scanner_now() -> str:
@@ -25,6 +28,14 @@ def write_scanner_status(value: dict) -> None:
 def load_scanner_status() -> dict:
     value = read_json(PAPER_SCANNER_STATUS_KEY, PAPER_SCANNER_STATUS_PATH, {})
     return dict(value) if isinstance(value, dict) else {}
+
+
+def update_scanner_status(**values) -> dict:
+    status = load_scanner_status()
+    status.update({key: value for key, value in values.items() if value is not None})
+    status["heartbeat_at"] = scanner_now()
+    write_scanner_status(status)
+    return status
 
 
 @contextmanager
@@ -66,6 +77,7 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
         "execution_id": execution_id,
         "state": "RUNNING",
         "started_at": scanner_now(),
+        "heartbeat_at": scanner_now(),
         "completed_at": None,
         "force": bool(force),
         "process": "scanner_worker",
@@ -84,18 +96,28 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
                 write_scanner_status(status)
                 return 0
             trades = int(run_impl(force=force) or 0)
+        # The worker may have published richer state/heartbeat fields while it
+        # ran. Reload instead of overwriting those fields with the startup copy.
+        status = load_scanner_status() or status
+        terminal_state = str(status.get("state") or "RUNNING")
+        completed_scan = terminal_state not in {"MARKET_CLOSED", "SKIPPED_POLICY"}
         status.update({
-            "state": "COMPLETED",
+            "state": "COMPLETED" if completed_scan else terminal_state,
             "completed_at": scanner_now(),
             "trades_executed": trades,
-            "message": "Paper-skanningen er fullført",
+            "heartbeat_at": scanner_now(),
+            "message": status.get("message") or "Paper-skanningen er fullført",
         })
+        if completed_scan:
+            status["last_successful_scan_at"] = scanner_now()
         write_scanner_status(status)
         return trades
     except Exception as exc:
+        status = load_scanner_status() or status
         status.update({
             "state": "FAILED",
             "completed_at": scanner_now(),
+            "heartbeat_at": scanner_now(),
             "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
         })
         write_scanner_status(status)

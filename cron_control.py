@@ -112,7 +112,11 @@ def cron_status_text():
         # is therefore the authoritative production heartbeat.
         from paper_scanner_runtime import load_scanner_status
         scanner_status = load_scanner_status()
-        durable_scan = scanner_status.get("completed_at") or scanner_status.get("started_at")
+        durable_scan = scanner_status.get("last_successful_scan_at")
+        if not durable_scan and str(scanner_status.get("state") or "").upper() == "COMPLETED":
+            # Backward compatibility with RC16.31 status rows written before
+            # last_successful_scan_at was introduced.
+            durable_scan = scanner_status.get("completed_at")
         durable_dt = _parse_iso(durable_scan)
         legacy_dt = _parse_iso(last_scan)
         if durable_dt and (not legacy_dt or durable_dt > legacy_dt):
@@ -131,6 +135,14 @@ def cron_status_text():
         stale_after = max(45, int(interval or 15) * 2 + 15)
         scan_stale = scan_age_minutes > stale_after
 
+    scanner_status = locals().get("scanner_status", {}) or {}
+    heartbeat_at = scanner_status.get("heartbeat_at") or scanner_status.get("completed_at")
+    heartbeat_dt = _parse_iso(heartbeat_at)
+    heartbeat_age_minutes = (
+        max(0.0, (_utc_now() - heartbeat_dt).total_seconds() / 60.0)
+        if heartbeat_dt else None
+    )
+    worker_healthy = heartbeat_age_minutes is not None and heartbeat_age_minutes <= max(45, int(interval or 15) * 2 + 15)
     return {
         "enabled": enabled,
         "vacation_mode": settings.get("vacation_mode_enabled", False),
@@ -143,6 +155,14 @@ def cron_status_text():
         "last_scan_source": scan_source,
         "last_scan_age_minutes": scan_age_minutes,
         "scan_stale": scan_stale,
+        "scanner_state": str(scanner_status.get("state") or "NEVER_RUN"),
+        "scanner_execution_id": str(scanner_status.get("execution_id") or ""),
+        "scanner_scan_id": str(scanner_status.get("scan_run_id") or ""),
+        "scanner_heartbeat_at": heartbeat_at,
+        "scanner_heartbeat_age_minutes": heartbeat_age_minutes,
+        "scanner_worker_healthy": worker_healthy,
+        "scanner_trades_executed": int(scanner_status.get("trades_executed") or 0),
+        "scanner_error": str(scanner_status.get("error") or ""),
     }
 
 
