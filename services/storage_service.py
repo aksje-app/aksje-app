@@ -18,6 +18,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -137,7 +138,57 @@ class StorageService:
     def _conn(self):
         if not self.using_postgres():
             raise StorageUnavailableError("Postgres storage er ikke konfigurert eller psycopg2 mangler")
-        return psycopg2.connect(self.database_url)  # type: ignore[union-attr]
+        timeout = max(2, min(30, int(os.getenv("DATABASE_CONNECT_TIMEOUT_SECONDS", "8") or 8)))
+        return psycopg2.connect(self.database_url, connect_timeout=timeout)  # type: ignore[union-attr]
+
+    def write_json_immutable(self, name: str, data: Any, *, attempts: int = 3) -> Any:
+        """Atomically create one immutable document or return its stored value.
+
+        This removes the vulnerable read-then-write gap used by canonical
+        report results. PostgreSQL is retried only for transient availability;
+        a caller still validates content identity and fails on a real conflict.
+        """
+        name = _safe_name(name)
+        payload = json.dumps(data, ensure_ascii=False, default=str)
+        attempts = max(1, min(5, int(attempts or 1)))
+        if self.using_postgres():
+            last_error: Exception | None = None
+            for attempt in range(1, attempts + 1):
+                try:
+                    self.init_db(); conn = self._conn()
+                    try:
+                        cur = conn.cursor()
+                        cur.execute(
+                            """INSERT INTO app_kv_store (name, payload, updated_at)
+                               VALUES (%s, %s, NOW()::TEXT)
+                               ON CONFLICT (name) DO NOTHING""",
+                            (name, payload),
+                        )
+                        cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR SHARE", (name,))
+                        row = cur.fetchone()
+                        if not row:
+                            raise StorageUnavailableError(f"immutable_json({name}) mangler etter transaksjon")
+                        conn.commit()
+                        return json.loads(row[0])
+                    except Exception:
+                        conn.rollback()
+                        raise
+                    finally:
+                        conn.close()
+                except Exception as exc:
+                    last_error = exc
+                    logging.warning("Postgres immutable_json forsøk %s/%s feilet for %s: %s", attempt, attempts, name, exc)
+                    if attempt < attempts:
+                        time.sleep(0.25 * (2 ** (attempt - 1)))
+            if not self._local_allowed():
+                raise StorageUnavailableError(f"immutable_json({name}) feilet etter {attempts} forsøk") from last_error
+        self._require_local_allowed("immutable_json")
+        path = self.base_dir / name
+        with _path_lock(path):
+            if path.exists():
+                return json.loads(path.read_text(encoding="utf-8"))
+            self._atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, default=str))
+            return data
 
     def init_db(self) -> bool:
         if not self.using_postgres():
