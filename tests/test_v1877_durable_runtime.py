@@ -76,8 +76,11 @@ def test_duplicate_job_names_keep_active_profile(monkeypatch):
     monkeypatch.setattr(mi, "save_jobs", lambda jobs: saved.extend(jobs))
     monkeypatch.setattr(mi, "_audit", lambda *args, **kwargs: None)
     jobs = mi.load_jobs()
-    assert [job.job_id for job in jobs] == ["ACTIVE"]
-    assert [job.job_id for job in saved] == ["ACTIVE"]
+    assert [job.job_id for job in jobs] == [
+        "MI-REQUIRED-MORNING", "MI-REQUIRED-AFTERNOON", "MI-REQUIRED-EVENING",
+    ]
+    assert jobs[0].last_run_at == "2026-07-20T09:00:00+00:00"
+    assert [job.job_id for job in saved] == [job.job_id for job in jobs]
 
 
 def test_background_scheduler_returns_without_waiting(monkeypatch):

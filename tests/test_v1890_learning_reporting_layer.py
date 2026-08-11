@@ -41,16 +41,18 @@ class LearningReportingLayerTests(unittest.TestCase):
         self.assertEqual(view["canonical_result"]["result_id"], "RESULT-MI-V1890-TEST")
         self.assertEqual(view["candidates"][0]["ticker"], "TEST.OL")
 
+    @patch("autonomi_core.learning_reporting.layer.write_immutable_json")
     @patch("autonomi_core.learning_reporting.layer.write_json")
     @patch("autonomi_core.learning_reporting.layer.read_json")
-    def test_retry_is_idempotent_and_conflict_fails_closed(self, read_json, write_json):
+    def test_retry_is_idempotent_and_conflict_fails_closed(self, read_json, write_json, write_immutable_json):
         record = build_canonical_result(sample_run())
-        read_json.side_effect = [record]
+        write_immutable_json.return_value = record
+        read_json.return_value = [{k: record[k] for k in ("result_id", "run_id", "stored_at", "content_hash", "schema_version")}]
         self.assertEqual(save_canonical_result(sample_run())["content_hash"], record["content_hash"])
         write_json.assert_not_called()
 
         conflicting = dict(record, content_hash="different")
-        read_json.side_effect = [conflicting]
+        write_immutable_json.return_value = conflicting
         with self.assertRaises(RuntimeError):
             save_canonical_result(sample_run())
 

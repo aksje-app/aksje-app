@@ -23,9 +23,9 @@ def test_report_center_sections_follow_agreed_operator_workflow():
     assert 'st.tabs(["Jobbprofiler", "Siste rapport", "Rapporter"' not in source
 
 
-def test_compact_report_actions_include_night_and_do_not_stretch():
+def test_compact_report_actions_include_three_required_reports_and_do_not_stretch():
     source = (ROOT / 'market_intelligence.py').read_text(encoding='utf-8')
-    for label in ['📄 Nytt utkast', '🌅 Kjør morgenanalyse', '🌇 Kjør kveldsanalyse', '🌙 Kjør nattanalyse']:
+    for label in ['📄 Nytt utkast', '🌅 Kjør morgenanalyse', '☀️ Kjør ettermiddagsanalyse', '🌇 Kjør kveldsanalyse']:
         assert label in source
     action_start = source.index('##### 2. Handlinger')
     action_end = source.index('##### 3. Siste rapporter')
@@ -57,7 +57,7 @@ def test_advanced_job_settings_are_collapsed_and_checkbox_groups_are_framed():
 def test_investor_edition_branding_and_version():
     version = (ROOT / 'app_version.py').read_text(encoding='utf-8')
     report = (ROOT / 'market_intelligence.py').read_text(encoding='utf-8')
-    assert 'APP_VERSION = "v19.22.0-rc16.3"' in version
+    assert 'APP_VERSION = "v19.22.0-rc16.7"' in version
     assert 'Investor Edition' in report
 
 
