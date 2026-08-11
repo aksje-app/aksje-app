@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from durable_runtime import read_json, write_json
+from durable_runtime import read_json, write_immutable_json, write_json
 
 
 VERSION = "v18.9.0"
@@ -56,18 +56,20 @@ def save_canonical_result(run: Mapping[str, Any]) -> dict[str, Any]:
     record = build_canonical_result(run)
     key = f"autonomi_core/learning_reporting/results/{record['result_id']}.json"
     path = ROOT / "learning_reporting" / "results" / f"{record['result_id']}.json"
-    existing = read_json(key, path, {})
-    if isinstance(existing, Mapping) and existing:
-        if str(existing.get("content_hash")) != record["content_hash"]:
-            raise RuntimeError(f"Resultatkonflikt for {record['result_id']}; eksisterende resultat er uforanderlig")
-        return dict(existing)
-    write_json(key, path, record)
-    index = read_json(INDEX_KEY, INDEX_PATH, [])
-    rows = [dict(x) for x in index if isinstance(x, Mapping)] if isinstance(index, list) else []
-    if not any(str(x.get("result_id")) == record["result_id"] for x in rows):
-        rows.insert(0, {k: record[k] for k in ("result_id", "run_id", "stored_at", "content_hash", "schema_version")})
-        write_json(INDEX_KEY, INDEX_PATH, rows[:2000])
-    return record
+    stored = write_immutable_json(key, path, record, attempts=3)
+    if not isinstance(stored, Mapping) or str(stored.get("content_hash")) != record["content_hash"]:
+        raise RuntimeError(f"Resultatkonflikt for {record['result_id']}; eksisterende resultat er uforanderlig")
+    # The index is a rebuildable accelerator, not the canonical truth. A short
+    # index outage must not invalidate the immutable result just committed.
+    try:
+        index = read_json(INDEX_KEY, INDEX_PATH, [])
+        rows = [dict(x) for x in index if isinstance(x, Mapping)] if isinstance(index, list) else []
+        if not any(str(x.get("result_id")) == record["result_id"] for x in rows):
+            rows.insert(0, {k: stored[k] for k in ("result_id", "run_id", "stored_at", "content_hash", "schema_version")})
+            write_json(INDEX_KEY, INDEX_PATH, rows[:2000])
+    except Exception:
+        pass
+    return dict(stored)
 
 
 def load_canonical_result(result_id: str) -> dict[str, Any]:
