@@ -1,0 +1,9 @@
+{
+  "version": "v19.22.0-rc16.8",
+  "status": "LOCAL_PASS_WITH_LEGACY_EXPECTATION_UPDATES_REQUIRED",
+  "targeted_tests": {"passed": 34, "failed": 0},
+  "full_regression": {"passed": 725, "failed": 23, "subtests_passed": 4},
+  "compile": "PASS",
+  "live_render_required": true,
+  "notes": "The remaining legacy failures expect rejected/watch candidates in the ranked report or older version-chain values; they do not exercise the RC16.8 draft or ZIP progress paths."
+}

@@ -220,10 +220,10 @@ MODULE_LABELS_NO = {
     "Insider Intelligence": "Innsideranalyse",
     "News & Sentiment Intelligence": "Nyhets- og sentimentanalyse",
 }
-SCHEDULE_OPTIONS = ["Ved appstart", "08:00", "12:00", "15:00", "16:30", "22:00"]
+SCHEDULE_OPTIONS = ["Ved appstart", "08:00", "12:00", "14:00", "15:00", "22:00"]
 GLOBAL_ALERT_SCORE_KEY = "market_intelligence/global_alert_score.json"
 DEFAULT_GLOBAL_ALERT_SCORE = 80.0
-LEGACY_SCHEDULE_MIGRATION = {"08:30": "08:00", "22:30": "22:00"}
+LEGACY_SCHEDULE_MIGRATION = {"08:30": "08:00", "16:30": "14:00", "22:30": "22:00"}
 
 
 def normalize_schedule_value(value: Any) -> str:
@@ -265,9 +265,18 @@ DEFAULT_SCAN_WINDOWS = [{"start": "08:00", "end": "10:00", "interval_minutes": 3
 WEEKDAY_NAMES = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
 REQUIRED_REPORT_SPECS = (
     {"job_id": "MI-REQUIRED-MORNING", "name": "Obligatorisk morgenrapport", "schedule": "08:00", "token": "morgen"},
-    {"job_id": "MI-REQUIRED-AFTERNOON", "name": "Obligatorisk ettermiddagsrapport", "schedule": "15:00", "token": "ettermiddag"},
+    {"job_id": "MI-REQUIRED-AFTERNOON", "name": "Obligatorisk ettermiddagsrapport", "schedule": "14:00", "token": "ettermiddag"},
     {"job_id": "MI-REQUIRED-EVENING", "name": "Obligatorisk kveldsrapport", "schedule": "22:00", "token": "kveld"},
 )
+
+_LEGACY_FIXED_REPORT_NAMES = {
+    "morgen": {"morgenrapport", "morgenanalyse", "obligatorisk morgenrapport"},
+    "ettermiddag": {
+        "dagsrapport", "ettermiddagsrapport", "ettermiddagsanalyse",
+        "obligatorisk ettermiddagsrapport",
+    },
+    "kveld": {"kveldsrapport", "kveldsanalyse", "obligatorisk kveldsrapport"},
+}
 
 SCAN_PROFILES = {
     "Rask (10)": 10, "Standard (20)": 20, "Normal (25)": 25,
@@ -699,7 +708,11 @@ def ensure_required_report_jobs(jobs: Sequence[JobProfile]) -> tuple[list[JobPro
     for spec in REQUIRED_REPORT_SPECS:
         match = next((job for job in repaired if job.job_id == spec["job_id"]), None)
         if match is None:
-            match = next((job for job in repaired if job.job_id not in claimed and spec["token"] in str(job.name or "").casefold()), None)
+            known_names = _LEGACY_FIXED_REPORT_NAMES.get(spec["token"], set())
+            match = next((
+                job for job in repaired
+                if job.job_id not in claimed and str(job.name or "").strip().casefold() in known_names
+            ), None)
         if match is None:
             match = JobProfile(
                 job_id=spec["job_id"], name=spec["name"],
@@ -724,6 +737,19 @@ def ensure_required_report_jobs(jobs: Sequence[JobProfile]) -> tuple[list[JobPro
         if asdict(updated) != asdict(match):
             repaired[index] = updated
             changes.append({"job_id": updated.job_id, "action": "REPAIRED", "schedule": spec["schedule"]})
+
+    # Once the stable mandatory identities exist, old fixed profiles must not
+    # continue to run in parallel.  Keep them for audit/history, but disable
+    # their scheduling.  User-created profiles with other names are untouched.
+    required_ids = {spec["job_id"] for spec in REQUIRED_REPORT_SPECS}
+    known_legacy_names = set().union(*_LEGACY_FIXED_REPORT_NAMES.values())
+    for index, job in enumerate(list(repaired)):
+        if job.job_id in required_ids or not job.enabled:
+            continue
+        if str(job.name or "").strip().casefold() not in known_legacy_names:
+            continue
+        repaired[index] = replace(job, enabled=False, schedules=[])
+        changes.append({"job_id": job.job_id, "action": "DISABLED_DUPLICATE", "schedule": ""})
     return repaired, changes
 
 
@@ -846,6 +872,8 @@ def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, An
         candidates: list[dict[str, Any]] = []
         for item in history:
             if str(item.get("job_id") or "") != spec["job_id"]:
+                continue
+            if str(item.get("type") or "").strip().casefold() == "test" or "TEST" in str(item.get("trigger") or "").upper():
                 continue
             raw = str(item.get("planned_at") or "").strip()
             if not raw:
@@ -2007,7 +2035,11 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             else:
                 lines.append("🧪 TESTVARSEL · MANUELL TEST - teller ikke i automatisk 1/4–4/4")
         if run.get("scheduled_for"):
-            lines.append(f"Planlagt tidspunkt: {run.get('scheduled_for')}")
+            lines.append(
+                "Planlagt tidspunkt: "
+                + local_display(run.get("scheduled_for"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
+                + f" ({valid_timezone(run.get('timezone_name'))})"
+            )
         report_summary_notice = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
         quality_notice = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
         candidate_total_notice = int(report_summary_notice.get("deep_analyzed") or run.get("summary", {}).get("deep_analyzed", 0) or 0)

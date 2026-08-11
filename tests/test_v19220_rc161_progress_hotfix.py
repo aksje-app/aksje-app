@@ -81,5 +81,5 @@ def test_report_center_reuses_overview_progress_fragment():
 
 def test_hotfix_scope_does_not_touch_report_or_trading_engines():
     version = Path("app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.22.0-rc16.3"' in version
+    assert 'APP_VERSION = "v19.22.0-rc16.7"' in version
     assert "Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel" in version

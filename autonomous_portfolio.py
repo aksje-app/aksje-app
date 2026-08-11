@@ -826,7 +826,7 @@ def _sector_value(portfolio: Mapping[str, Any], sector: str) -> float:
     )
 
 
-def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any]) -> None:
+def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     rows = _read(NOTIFICATIONS_PATH, [])
     if not isinstance(rows, list):
         rows = []
@@ -851,6 +851,7 @@ def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any
     except Exception as exc:
         item["attempted_at"] = _now(); item["status"] = "FAILED"; item["delivery"] = "PUSHOVER_FAILED"; item["error"] = str(exc)[:500]
     _write(NOTIFICATIONS_PATH, rows[:1000])
+    return dict(item)
 
 
 def _record_trade(trade: dict[str, Any]) -> None:
@@ -1338,13 +1339,18 @@ def run_autonomous_cycle(
                         "risk_adjustment": 100.0 - risk,
                     },
                 }
+                if params.notify_trades:
+                    trade["notification"] = _notification(
+                        "TRADE", f"AUTONOMY LEARNING BUY {ticker}",
+                        f"Teoretisk læringskjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade,
+                    )
+                else:
+                    trade["notification"] = {"status": "SKIPPED_POLICY", "detail": "Læringsvarsling deaktivert"}
                 _record_learning_trade(trade)
                 learning_trades.append(trade)
-                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "risk": risk, "learning_probe": True, "production_blockers_at_entry": production_blockers, **paper_signal})
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "risk": risk, "learning_probe": True, "production_blockers_at_entry": production_blockers, "notification": dict(trade["notification"]), **paper_signal})
                 learning_portfolio["total_entry_notional"] = _f(learning_portfolio.get("total_entry_notional")) + value
                 learning_count += 1
-                if params.notify_trades:
-                    _notification("TRADE", f"AUTONOMY LEARNING BUY {ticker}", f"Teoretisk læringskjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade)
 
     emit_progress(6, progress_total, "Kjøps- og læringsbeslutninger er ferdige")
 
@@ -1411,11 +1417,55 @@ def run_autonomous_cycle(
             mirrored += int(bool(mirror.get("mirrored")))
         shared_account_sync = {"account_id": main_account.get("account_id"), "mirrored_trades": mirrored}
 
-        learning_account_result = get_autonomy_learning_account_service().run_cycle(
-            candidates, run_id=run_id, main_trades=trades,
-            market_snapshot_id=str(market_snapshot_row.get("snapshot_id") or ""),
-            production_parameters=asdict(params),
+        # The established learning portfolio has already applied exits, buys,
+        # persistence and notification exactly once above.  Synchronise that
+        # final state into the shared account and mirror its trades to the
+        # common order/fill ledger.  Running a second learning policy here used
+        # to create a contradictory SKIP decision for a ticker already filled
+        # by the established learning portfolio.
+        learning_account = account_service.sync_legacy_account(
+            "autonomy_learning", learning_portfolio,
+            strategy_family="autonomy", strategy_id="autonomy_learning",
+            strategy_version_id="autonomy_learning@2.0.0",
+            display_name="Autonomi læringskonto", role="LEARNING",
+            status=str(learning_portfolio.get("status") or "ACTIVE"), run_id=run_id,
+            metadata={"source": "autonomous_portfolio", "canonical_learning_bridge": True},
         )
+        learning_orders: list[dict[str, Any]] = []
+        learning_fills: list[dict[str, Any]] = []
+        for legacy_trade in learning_trades:
+            mirror = execution_service.mirror_legacy_trade(
+                account_id="autonomy_learning", trade=legacy_trade, run_id=run_id,
+            )
+            if isinstance(mirror.get("order"), Mapping):
+                learning_orders.append(dict(mirror["order"]))
+            if isinstance(mirror.get("fill"), Mapping):
+                fill = dict(mirror["fill"])
+                fill.update({
+                    "action": str(legacy_trade.get("action") or fill.get("side") or "").upper(),
+                    "price": legacy_trade.get("price", fill.get("fill_price")),
+                    "quantity": legacy_trade.get("quantity", fill.get("quantity")),
+                    "score": legacy_trade.get("autonomy_adjusted_investment_score", legacy_trade.get("score")),
+                    "risk": legacy_trade.get("risk", legacy_trade.get("entry_risk_score")),
+                    "data_quality": legacy_trade.get("data_quality", legacy_trade.get("entry_data_quality")),
+                    "reason": legacy_trade.get("reason"),
+                    "production_blockers_at_entry": list(legacy_trade.get("production_blockers_at_entry") or []),
+                    "notification": dict(legacy_trade.get("notification") or {}),
+                })
+                learning_fills.append(fill)
+        learning_account_result = {
+            "run_id": run_id, "status": "SYNCED_FROM_CANONICAL_LEARNING_PORTFOLIO",
+            "policy": {"source": "established_learning_portfolio", "parameter_change_applied": False},
+            "decisions": [dict(row) for row in learning_decisions],
+            "orders": learning_orders, "fills": learning_fills,
+            "buy_count": sum(str(row.get("side") or row.get("action") or "").upper() == "BUY" for row in learning_fills),
+            "sell_count": sum(str(row.get("side") or row.get("action") or "").upper() == "SELL" for row in learning_fills),
+            "account_metrics": account_service.metrics("autonomy_learning"),
+            "parameter_change_applied": False,
+            "hard_production_gates_unchanged": True,
+            "service_version": "CANONICAL_LEARNING_BRIDGE_1.0",
+            "account": learning_account,
+        }
         analysis_rows = []
         for decision in list(decisions):
             ticker = str(decision.get("ticker") or "").upper()

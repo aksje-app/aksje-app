@@ -1,0 +1,21 @@
+{
+  "version": "v19.22.0-rc16.2",
+  "baseline": "v19.22.0-rc16.1",
+  "result": "LOCAL_PASS_LIVE_REQUIRED",
+  "generated_at_utc": "2026-08-05T18:47:52+00:00",
+  "scope": "automatic report-center progress only",
+  "tests": {
+    "collected": 730,
+    "passed": 730,
+    "failed": 0,
+    "targeted_passed": 49,
+    "subtests_passed": 4,
+    "execution": "isolated batches after monolithic timeout at 29%"
+  },
+  "compileall": true,
+  "full_system_audit": true,
+  "navigation_rerun_audit": true,
+  "protected_rules_unchanged": true,
+  "live_render_verified": false,
+  "acceptance_required": "Run one report in Rapporter without browser refresh and observe at least three status changes within 5-10 second intervals."
+}

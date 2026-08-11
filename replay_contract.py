@@ -244,7 +244,15 @@ def audit_snapshot(bundle: Mapping[str, Any], *, rerun: bool = True) -> dict[str
             if candidate.get(field) is None:
                 errors.append(f"CANDIDATE_FIELD_MISSING:{index}:{field}")
         raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
-        if candidate.get("price") is None and raw.get("current_price") is None and raw.get("regularMarketPrice") is None:
+        if (
+            candidate.get("price") is None
+            and candidate.get("current_price") is None
+            and candidate.get("last_price") is None
+            and raw.get("price") is None
+            and raw.get("current_price") is None
+            and raw.get("last_price") is None
+            and raw.get("regularMarketPrice") is None
+        ):
             errors.append(f"CANDIDATE_FIELD_MISSING:{index}:price")
         if candidate.get("data_quality") is None and candidate.get("data_quality_score") is None and not candidate.get("data_contract"):
             errors.append(f"CANDIDATE_FIELD_MISSING:{index}:data_quality")

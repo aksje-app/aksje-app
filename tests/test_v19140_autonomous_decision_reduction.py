@@ -5,6 +5,7 @@ from copy import deepcopy
 import investment_pipeline as ip
 import market_intelligence as mi
 from autonomous_decision_reduction import (
+    OUTCOME_BUY,
     OUTCOME_MANUAL,
     OUTCOME_REJECT,
     OUTCOME_WATCH,
@@ -81,7 +82,7 @@ def test_manual_work_is_concrete_and_globally_limited_to_two_tasks():
         assert all(str(task[key]).strip() for key in required)
 
 
-def test_priority_top3_is_restored_without_being_a_buy_list():
+def test_priority_top3_does_not_include_non_buy_outcomes():
     candidates = [
         _candidate("WATCH", 79, stage="EXTENDED_ANALYSIS"),
         _candidate("MANUAL", 78, failure=True),
@@ -89,10 +90,8 @@ def test_priority_top3_is_restored_without_being_a_buy_list():
         _candidate("REJECT", 50, failure=True),
     ]
     rows, summary = apply_decision_reduction(candidates)
-    priority = summary["priority_top3"]
-    assert [row["priority_rank"] for row in priority] == [1, 2, 3]
-    assert all(row["autonomy_outcome_code"] != OUTCOME_REJECT for row in priority)
-    assert {row["ticker"] for row in priority} == {"WATCH", "MANUAL", "WATCH2"}
+    assert summary["priority_top3"] == []
+    assert all(row.get("autonomy_outcome_code") != OUTCOME_BUY for row in rows)
 
 
 def test_pipeline_only_calls_expensive_sources_for_stage3_budget(monkeypatch):
@@ -145,12 +144,11 @@ def test_total_evidence_budget_can_allocate_zero_to_a_market():
     assert ip.PipelineConfig(deep_analysis_count=3, proposal_count=0).normalized().proposal_count == 0
 
 
-def test_priority_top3_is_filled_with_clearly_rejected_fallbacks():
+def test_priority_top3_is_never_filled_with_rejected_fallbacks():
     candidates = [_candidate("WATCH", 77, stage="EXTENDED_ANALYSIS"), _candidate("R1", 60), _candidate("R2", 59)]
     rows, summary = apply_decision_reduction(candidates)
-    assert len(summary["priority_top3"]) == 3
-    assert summary["priority_top3"][0]["ticker"] == "WATCH"
-    assert all(row["autonomy_outcome_code"] == OUTCOME_REJECT for row in summary["priority_top3"][1:])
+    assert summary["priority_top3"] == []
+    assert sum(1 for row in rows if row.get("autonomy_outcome_code") == OUTCOME_REJECT) >= 1
 
 
 def test_report_document_prefers_autonomy_outcome_over_legacy_review():

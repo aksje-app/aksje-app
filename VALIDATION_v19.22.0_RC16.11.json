@@ -1,0 +1,24 @@
+{
+  "version": "v19.22.0-rc16.11",
+  "status": "LOCAL_PASS_LIVE_REQUIRED",
+  "targeted_tests": {
+    "passed": 17,
+    "failed": 0,
+    "runner": "python -m unittest -v tests.test_v19220_rc1610_verified_export_closure tests.test_v19220_rc1611_visible_package_progress"
+  },
+  "progress_contract": {
+    "first_event": "0/12",
+    "last_event": "12/12",
+    "minimum_observed_events": 9,
+    "visible_fields": ["percent", "active_stage", "work_units", "elapsed_seconds"]
+  },
+  "checks": {
+    "latest_report_visible_progress": "PASS",
+    "archived_report_visible_progress": "PASS",
+    "single_package_integrity": "PASS",
+    "complete_archive_background_progress": "PASS",
+    "embedded_noto_sans": "PASS",
+    "pdf_bookmarks": "PASS",
+    "python_compile": "PASS"
+  }
+}

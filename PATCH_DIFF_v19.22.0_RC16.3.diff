@@ -1,0 +1,467 @@
+--- a/ACCEPTANCE_v19.22.0_RC16.3.md
++++ b/ACCEPTANCE_v19.22.0_RC16.3.md
+@@ -0,0 +1,13 @@
++# Akseptanse v19.22.0 RC16.3
++
++RC16.3 kan godkjennes lokalt når:
++
++1. Valgt visningstidssone kan lagres og leses tilbake fra varig innstillingslager.
++2. Lagring av tidssone kaller ikke helsidererender eller navigasjonsfunksjoner.
++3. Aktiv side, panel og fane er uendret etter lagring.
++4. Klokken viser PC-/nettlesertid og apptid, og oppdateres hvert sekund.
++5. Navigasjonsrenderer har samme SHA-256 som RC16.2.
++6. Scheduler-kontrakten 08:00 og 22:00 Europe/Oslo er uendret.
++7. Full regresjon er grønn.
++
++Produksjonsklar kan først erklæres etter live Render-verifisering av tidssonelagring, navigasjon, klokke, UI, PDF, JSON, logger, scheduler og Pushover.
+--- a/DEPLOY_v19.22.0_RC16.3.md
++++ b/DEPLOY_v19.22.0_RC16.3.md
+@@ -0,0 +1,13 @@
++# Deploy v19.22.0 RC16.3
++
++1. Ta sikkerhetskopi av aktiv RC16.2-deploy.
++2. Erstatt med RC16.3 FULL eller legg RC16.3 DELTA over en ren RC16.2-installasjon.
++3. Bekreft banner `v19.22.0-rc16.3`.
++4. Åpne System/admin og velg en visningstidssone.
++5. Lagre tidssonen og bekreft at aktiv navigasjon og panel ikke endres.
++6. Oppdater siden og logg inn på nytt; bekreft at tidssonen fortsatt er valgt.
++7. Bekreft at sidefeltets klokke viser både PC-tid og apptid og oppdateres hvert sekund.
++8. Bekreft at rapportjobbene fortsatt er 08:00 og 22:00 Europe/Oslo.
++9. Utfør live Render-kontroll av UI, PDF, JSON, logger, scheduler og Pushover.
++
++Rollback: gjenopprett RC16.2 FULL. Ingen database- eller skjemamigrering kreves.
+--- a/RELEASE_NOTES_v19.22.0_RC16.3.md
++++ b/RELEASE_NOTES_v19.22.0_RC16.3.md
+@@ -0,0 +1,13 @@
++# Release notes v19.22.0 RC16.3
++
++## Endret
++- Valgt visningstidssone lagres varig via eksisterende sentralt innstillingslager og konfigurasjonsregister.
++- Lagring av visningstidssone utløser ikke lenger en ekstra helsidererender.
++- Aktiv hovedside, panel og fane skal derfor beholdes når tidssonen lagres.
++- En passiv live-klokke i sidefeltet viser både PC-/nettlesertid og apptid i valgt visningstidssone.
++
++## Uendret og beskyttet
++- Navigasjonsrenderer er byte-for-byte identisk med RC16.2.
++- Scheduler kjører fortsatt 08:00 og 22:00 Europe/Oslo.
++- Rapportmotor, score, terskler, porteføljer, Paper Trading og ekte handel er ikke endret.
++- Produksjonshandel er fortsatt fail-closed.
+--- a/app.py
++++ b/app.py
+@@ -47,6 +47,7 @@
+     AUTO_TIMEZONE, DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, TIMEZONE_LABELS,
+     display_time, display_timezone_name, install_browser_timezone_bootstrap,
+ )
++from ui_clock import render_sidebar_clock_v19220_rc163
+ from ui_layout_contracts import (
+     currency_runtime_summary_html, currency_status_html, data_freshness_label,
+     format_decimal, special_banner_enabled,
+@@ -6053,19 +6054,14 @@
+         if selected == AUTO_TIMEZONE:
+             st.caption(f"Nettleserens registrerte tidssone: {browser_tz or 'ikke registrert ennå'}. Aktiv visning: {resolved}.")
+         if st.button("Lagre visningstidssone", key="save_display_timezone_v19220_rc8", width="content"):
++            # Persist independently of route state; never force a second page rerun.
+             settings["display_timezone"] = selected
+             save_settings(settings)
+             persisted = str((load_settings() or {}).get("display_timezone") or AUTO_TIMEZONE) == selected
+             st.session_state["display_time_settings_expanded_v19220_rc14"] = True
+-            st.session_state["display_timezone_flash_v19220_rc14"] = {
+-                "ok": persisted,
+-                "message": (
+-                    f"Visningstidssone lagret varig: {label_by_value[selected]}. Scheduler er ikke endret."
+-                    if persisted else
+-                    "Visningstidssonen ble ikke bekreftet i varig lagring. Ingen schedulerinnstilling ble endret."
+-                ),
+-            }
+-            st.rerun()
++            message = (f"Visningstidssone lagret varig: {label_by_value[selected]}. Scheduler og navigasjon er ikke endret." if persisted else "Visningstidssonen ble ikke bekreftet i varig lagring. Scheduler og navigasjon er ikke endret.")
++            st.session_state["display_timezone_flash_v19220_rc14"] = {"ok": persisted, "message": message}
++            (st.success if persisted else st.error)(message)
+ 
+ 
+ def _render_runtime_diagnostics_v19220_rc8() -> None:
+@@ -9477,6 +9473,7 @@
+ consume_global_navigation_route_v19220_rc14(st)
+ _apply_mobile_nav_query_v18646()
+ show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
++render_sidebar_clock_v19220_rc163(st)
+ 
+ # v19.17.0 RC2: Driftssenter is a dedicated page, independent from AI Kontrollsenter.
+ _active_nav_v19170rc2 = str(
+--- a/app_version.py
++++ b/app_version.py
+@@ -3,11 +3,11 @@
+ from dataclasses import asdict, dataclass
+ from typing import Any
+ 
+-APP_VERSION = "v19.22.0-rc16.2"
+-APP_VERSION_NAME = "Investor Edition Release Candidate 16.2 Shared Progress Hotfix"
++APP_VERSION = "v19.22.0-rc16.3"
++APP_VERSION_NAME = "Investor Edition Release Candidate 16.3 Persistent Timezone and PC Clock Hotfix"
+ APP_BUILD_LABEL = APP_VERSION
+ PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
+-PREVIOUS_APP_VERSION = "v19.22.0-rc16.1"
++PREVIOUS_APP_VERSION = "v19.22.0-rc16.2"
+ 
+ # Independent compatibility contracts. These change only when their own
+ # serialised or behavioural contract changes, not for every app release.
+@@ -143,6 +143,7 @@
+     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
+ 
+ CHANGELOG = [
++    "v19.22.0-rc16.3: Visningstidssonen lagres varig i sentralt innstillingslager uten ekstra helsidererender, slik at aktiv navigasjon og panel beholdes. En passiv live-klokke viser både PC-/nettlesertid og apptid i valgt tidssone. Scheduler-tidene 08:00 og 22:00 Europe/Oslo, rapportmotor, score, porteføljer og handel er uendret.",
+     "v19.22.0-rc16.2: Avgrenset live-hotfix som fjerner den separate fremdriftsmotoren i Rapporter. Rapportsenteret bruker nå nøyaktig samme dynamiske Streamlit-fragment, samme femsekunders intervall og samme autoritative jobbstatuskilde som Autonomi Oversikt. Terminalstatus utløser ikke helsidererender i Rapporter. Ingen endring i rapportmotor, ZIP, tidssone, meny, score, scheduler, porteføljer eller handel.",
+     "v19.22.0-rc16.1: Avgrenset live-hotfix for automatisk rapportfremdrift. Statusfragmentet er eksplisitt og kan ikke lenger falle stille tilbake til en ikke-pollende funksjon. Hver poll leser et skrivebeskyttet prosessminne-/atomisk lokalstatussnapshot uten PostgreSQL-tilkobling, speilskriving, navigasjonsendring eller full app-rerun. UI viser pollkilde og siste lesetid. Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel.",
+     "v19.22.0-rc16: Samlet replay-, beslutnings- og presentasjonskonsolidering. Rapport- og læringsarkiv kan eksporteres skrivebeskyttet i bakgrunn med PDF/TXT/JSON/snapshots/manifest/SHA-256; enkelt­rapporter får komplette ZIP-pakker. Porteføljelaget evaluerer de lagrede produksjonsportene direkte og registrerer entydig første blocker i stedet for å vente på en sirkulær statusstreng. Evidenskontroll dekker den avgrensede dypanalysen, læringsprofilen tilbyr eksplisitt 15 000 i LEARNING_ONLY-notional, rapportfremdrift bruker et modulnivå-fragment, og siste CSS-lag låser den profesjonelle sidemenyen etter full lasting. Ekte handel forblir fail-closed; scheduler-tider, final_score og produksjonsterskler er ikke senket.",
+--- a/local_time.py
++++ b/local_time.py
+@@ -1,6 +1,7 @@
+ """Timezone helpers: UTC persistence with user-selected local presentation."""
+ from __future__ import annotations
+ 
++import json
+ import os
+ from urllib.parse import quote
+ from datetime import datetime, timezone
+@@ -126,6 +127,65 @@
+     return f"{result} ({valid_timezone(timezone_name)})" if include_timezone else result
+ 
+ 
++def browser_clock_document(app_timezone_name: str = DEFAULT_TIMEZONE) -> str:
++    """Return a self-contained live clock rendered by the user's browser.
++
++    The PC clock uses ``new Date()`` and therefore follows the operating
++    system/browser clock.  The app clock renders the same instant in the
++    persisted presentation timezone.  This is display-only and never touches
++    navigation, scheduler configuration or server-side timestamps.
++    """
++    app_timezone = valid_timezone(app_timezone_name)
++    app_timezone_json = json.dumps(app_timezone)
++    return f"""<!doctype html>
++<html lang="nb">
++<head>
++<meta charset="utf-8">
++<style>
++  html, body {{ margin:0; padding:0; background:transparent; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
++  .clock-card {{
++    box-sizing:border-box; width:100%; padding:8px 10px; border:1px solid rgba(148,163,184,.28);
++    border-radius:10px; background:rgba(15,23,42,.72); color:#f8fafc;
++  }}
++  .clock-row {{ display:grid; grid-template-columns:54px 1fr; column-gap:8px; align-items:baseline; }}
++  .clock-row + .clock-row {{ margin-top:5px; }}
++  .clock-label {{ color:#94a3b8; font-size:11px; font-weight:650; letter-spacing:.02em; }}
++  .clock-time {{ font-variant-numeric:tabular-nums; font-size:13px; font-weight:700; white-space:nowrap; }}
++  .clock-zone {{ margin-top:5px; color:#94a3b8; font-size:9.5px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
++</style>
++</head>
++<body>
++<div class="clock-card" aria-label="PC-klokke og apptid">
++  <div class="clock-row"><span class="clock-label">PC-tid</span><span id="pc-time" class="clock-time">--:--:--</span></div>
++  <div class="clock-row"><span class="clock-label">App-tid</span><span id="app-time" class="clock-time">--:--:--</span></div>
++  <div id="clock-zone" class="clock-zone"></div>
++</div>
++<script>
++(() => {{
++  const appTz = {app_timezone_json};
++  const pcNode = document.getElementById('pc-time');
++  const appNode = document.getElementById('app-time');
++  const zoneNode = document.getElementById('clock-zone');
++  const format = (date, timeZone) => new Intl.DateTimeFormat('nb-NO', {{
++    timeZone, day:'2-digit', month:'2-digit', year:'numeric',
++    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
++  }}).format(date);
++  const update = () => {{
++    const now = new Date();
++    let pcTz = 'lokal PC-tid';
++    try {{ pcTz = Intl.DateTimeFormat().resolvedOptions().timeZone || pcTz; }} catch (_) {{}}
++    try {{ pcNode.textContent = format(now, undefined); }} catch (_) {{ pcNode.textContent = now.toLocaleString('nb-NO'); }}
++    try {{ appNode.textContent = format(now, appTz); }} catch (_) {{ appNode.textContent = pcNode.textContent; }}
++    zoneNode.textContent = `PC: ${{pcTz}} · App: ${{appTz}}`;
++  }};
++  update();
++  window.setInterval(update, 1000);
++}})();
++</script>
++</body>
++</html>"""
++
++
+ def install_browser_timezone_bootstrap() -> None:
+     """Capture Intl timezone once without coupling scheduler execution to a browser."""
+     try:
+--- a/tests/test_v19141_decision_gate_runtime_consistency.py
++++ b/tests/test_v19141_decision_gate_runtime_consistency.py
+@@ -89,7 +89,7 @@
+ 
+ def test_all_exposed_autonomy_versions_follow_app_version():
+     expected = app_version.APP_VERSION
+-    assert expected == "v19.22.0-rc16.2"
++    assert expected == "v19.22.0-rc16.3"
+     assert orchestrator.CORE_VERSION == expected
+     assert full_execution.VERSION == expected
+     assert layer.LAYER_VERSION == expected
+--- a/tests/test_v19145_report_local_storage.py
++++ b/tests/test_v19145_report_local_storage.py
+@@ -15,7 +15,7 @@
+ 
+ def test_version_contract_is_v19145():
+     assert app_version.APP_VERSION.startswith("v19.22.0-rc")
+-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
++    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
+     assert app_version.RANKING_MODEL_VERSION == "v19.16.0"
+     assert app_version.AUTONOMY_POLICY_VERSION == "v19.16.0"
+ 
+--- a/tests/test_v19146_pdf_dependency_hotfix.py
++++ b/tests/test_v19146_pdf_dependency_hotfix.py
+@@ -12,7 +12,7 @@
+ 
+ def test_version_contract_is_v19146():
+     assert app_version.APP_VERSION.startswith("v19.22.0-rc")
+-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
++    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
+     assert app_version.RANKING_MODEL_VERSION == "v19.16.0"
+     assert app_version.AUTONOMY_POLICY_VERSION == "v19.16.0"
+ 
+--- a/tests/test_v1915_mobile_navigation.py
++++ b/tests/test_v1915_mobile_navigation.py
+@@ -6,7 +6,7 @@
+ 
+ 
+ def test_version_is_v1915():
+-    assert 'v19.0.15:' in VERSION and 'APP_VERSION = "v19.22.0-rc16.2"' in VERSION
++    assert 'v19.0.15:' in VERSION and 'APP_VERSION = "v19.22.0-rc16.3"' in VERSION
+     assert 'Mobil høyremeny og navigasjonshotfix' in VERSION
+ 
+ 
+--- a/tests/test_v19166_controlled_stabilization.py
++++ b/tests/test_v19166_controlled_stabilization.py
+@@ -6,7 +6,7 @@
+ def test_version_and_safe_login():
+     version = (ROOT / "app_version.py").read_text(encoding="utf-8")
+     auth = (ROOT / "auth.py").read_text(encoding="utf-8")
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in version
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in version
+     assert "Husk meg på denne enheten" in auth
+     assert "SameSite=Strict" in auth
+     assert "window.parent.location.reload" not in auth
+--- a/tests/test_v19170_rc5_completion.py
++++ b/tests/test_v19170_rc5_completion.py
+@@ -3,7 +3,7 @@
+ 
+ def test_version_rc5():
+     s=(ROOT/'app_version.py').read_text(encoding='utf-8')
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in s
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in s
+ 
+ def test_paper_off_state_is_clean_and_links_to_drift_center():
+     s=(ROOT/'pages/paper_trading.py').read_text(encoding='utf-8')
+--- a/tests/test_v19170_rc6_banner_repair.py
++++ b/tests/test_v19170_rc6_banner_repair.py
+@@ -7,7 +7,7 @@
+ 
+ 
+ def test_rc6_version():
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in VERSION
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in VERSION
+ 
+ 
+ def test_provider_aliases_and_wrong_suffixes_are_normalised():
+--- a/tests/test_v19170_rc7_banner_integrity.py
++++ b/tests/test_v19170_rc7_banner_integrity.py
+@@ -7,7 +7,7 @@
+ 
+ 
+ def test_rc7_version():
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in VERSION
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in VERSION
+ 
+ 
+ def test_macro_aliases_are_provider_specific():
+--- a/tests/test_v1919a_safe_distribution.py
++++ b/tests/test_v1919a_safe_distribution.py
+@@ -12,7 +12,7 @@
+ 
+ def test_release_identity_is_safe_distribution_patch():
+     assert APP_VERSION.startswith("v19.22.0-rc")
+-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
++    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
+ 
+ 
+ def test_validator_rejects_runtime_secret_and_generated_report():
+--- a/tests/test_v19220_rc14_global_navigation_persistence.py
++++ b/tests/test_v19220_rc14_global_navigation_persistence.py
+@@ -76,7 +76,9 @@
+     assert "display_time_settings_expanded_v19220_rc14" in block
+     assert "display_timezone_flash_v19220_rc14" in block
+     assert "persisted =" in block
+-    assert "st.rerun()" in block
++    save_branch = block[block.index('if st.button("Lagre visningstidssone"') :]
++    assert "st.rerun()" not in save_branch
++    assert "Scheduler og navigasjon er ikke endret" in save_branch
+ 
+ 
+ def test_report_fragment_never_auto_reruns_whole_app_at_terminal_state():
+--- a/tests/test_v19220_rc161_progress_hotfix.py
++++ b/tests/test_v19220_rc161_progress_hotfix.py
+@@ -81,5 +81,5 @@
+ 
+ def test_hotfix_scope_does_not_touch_report_or_trading_engines():
+     version = Path("app_version.py").read_text(encoding="utf-8")
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in version
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in version
+     assert "Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel" in version
+--- a/tests/test_v19220_rc162_shared_progress.py
++++ b/tests/test_v19220_rc162_shared_progress.py
+@@ -25,6 +25,6 @@
+ 
+ def test_rc162_version_scope_is_progress_only():
+     version = Path("app_version.py").read_text(encoding="utf-8")
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in version
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in version
+     assert "samme dynamiske Streamlit-fragment" in version
+     assert "Ingen endring i rapportmotor, ZIP, tidssone, meny, score, scheduler, porteføljer eller handel" in version
+--- a/tests/test_v19220_rc163_timezone_pc_clock.py
++++ b/tests/test_v19220_rc163_timezone_pc_clock.py
+@@ -0,0 +1,50 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++from app_version import APP_VERSION, PREVIOUS_APP_VERSION
++from local_time import browser_clock_document
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def test_rc163_version_chain_and_protected_navigation_source():
++    assert APP_VERSION == "v19.22.0-rc16.3"
++    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
++    # Recorded from the accepted RC16.2 FULL package. The navigation renderer
++    # itself must remain byte-for-byte unchanged by the clock hotfix.
++    assert __import__('hashlib').sha256((ROOT / 'ui_sidebar_stable.py').read_bytes()).hexdigest() == (
++        "14243f913540c3c6eaa945fff3338d222197d28b50dc419dad7eeee4d25ff871"
++    )
++
++
++def test_browser_clock_uses_pc_time_and_persisted_app_timezone():
++    document = browser_clock_document("Europe/Oslo")
++    assert "new Date()" in document
++    assert "Intl.DateTimeFormat().resolvedOptions().timeZone" in document
++    assert "PC-tid" in document and "App-tid" in document
++    assert 'const appTz = "Europe/Oslo"' in document
++    assert "window.setInterval(update, 1000)" in document
++
++
++def test_timezone_save_does_not_force_navigation_rerun():
++    source = (ROOT / "app.py").read_text(encoding="utf-8")
++    block = source[
++        source.index("def _render_display_time_settings_v19220_rc8"):
++        source.index("def _render_runtime_diagnostics_v19220_rc8")
++    ]
++    save_branch = block[block.index('if st.button("Lagre visningstidssone"'):]
++    assert 'settings["display_timezone"] = selected' in save_branch
++    assert "save_settings(settings)" in save_branch
++    assert "persisted =" in save_branch
++    assert "st.rerun()" not in save_branch
++    assert "set_global_navigation_state" not in save_branch
++    assert "_apply_nav_target" not in save_branch
++
++
++def test_clock_is_appended_after_stable_sidebar_navigation():
++    source = (ROOT / "app.py").read_text(encoding="utf-8")
++    sidebar = "show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)"
++    clock = "render_sidebar_clock_v19220_rc163(st)"
++    assert sidebar in source and clock in source
++    assert source.index(clock, source.index(sidebar)) > source.index(sidebar)
+--- a/tests/test_v19220_rc4_full_repairs.py
++++ b/tests/test_v19220_rc4_full_repairs.py
+@@ -111,8 +111,8 @@
+ 
+ 
+ def test_rc4_version_identity_is_current() -> None:
+-    assert APP_VERSION == "v19.22.0-rc16.2"
+-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
++    assert APP_VERSION == "v19.22.0-rc16.3"
++    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
+ 
+ 
+ def test_rc4_pdf_page_one_contains_decision_information_and_top3() -> None:
+--- a/tests/test_v19220_rc5_currency_alert_repair.py
++++ b/tests/test_v19220_rc5_currency_alert_repair.py
+@@ -153,5 +153,5 @@
+ def test_version_identity_advances_to_rc6():
+     from app_version import APP_VERSION, PREVIOUS_APP_VERSION
+ 
+-    assert APP_VERSION == "v19.22.0-rc16.2"
+-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
++    assert APP_VERSION == "v19.22.0-rc16.3"
++    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
+--- a/tests/test_v19220_rc6_currency_navigation.py
++++ b/tests/test_v19220_rc6_currency_navigation.py
+@@ -71,5 +71,5 @@
+ def test_version_identity_is_rc6():
+     from app_version import APP_VERSION, PREVIOUS_APP_VERSION
+ 
+-    assert APP_VERSION == "v19.22.0-rc16.2"
+-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
++    assert APP_VERSION == "v19.22.0-rc16.3"
++    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
+--- a/tests/test_v19220_rc8_stability_layout_time_report.py
++++ b/tests/test_v19220_rc8_stability_layout_time_report.py
+@@ -12,8 +12,8 @@
+ 
+ 
+ def test_rc8_version_and_protected_engine_versions_are_unchanged():
+-    assert APP_VERSION == "v19.22.0-rc16.2"
+-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.1"
++    assert APP_VERSION == "v19.22.0-rc16.3"
++    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.2"
+     assert RANKING_MODEL_VERSION == "v19.16.0"
+     assert AUTONOMY_POLICY_VERSION == "v19.16.0"
+ 
+--- a/tests/test_v1922_daily_user_experience.py
++++ b/tests/test_v1922_daily_user_experience.py
+@@ -18,7 +18,7 @@
+ 
+ 
+ def test_version_and_changelog():
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in VERSION
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in VERSION
+     assert "Forenklet daglig brukeropplevelse" in VERSION
+ 
+ 
+--- a/tests/test_v1922_investor_edition.py
++++ b/tests/test_v1922_investor_edition.py
+@@ -57,7 +57,7 @@
+ def test_investor_edition_branding_and_version():
+     version = (ROOT / 'app_version.py').read_text(encoding='utf-8')
+     report = (ROOT / 'market_intelligence.py').read_text(encoding='utf-8')
+-    assert 'APP_VERSION = "v19.22.0-rc16.2"' in version
++    assert 'APP_VERSION = "v19.22.0-rc16.3"' in version
+     assert 'Investor Edition' in report
+ 
+ 
+--- a/ui_clock.py
++++ b/ui_clock.py
+@@ -0,0 +1,21 @@
++"""Passive live clock UI; deliberately isolated from navigation state."""
++from __future__ import annotations
++
++from local_time import browser_clock_document, display_timezone_name
++from settings_store import load_settings
++
++
++def render_sidebar_clock_v19220_rc163(st) -> None:
++    """Show browser/PC time and persisted app display time in the sidebar."""
++    try:
++        from streamlit.components.v1 import html as components_html
++        app_timezone = display_timezone_name(load_settings() or {}, streamlit_module=st)
++        with st.sidebar:
++            st.markdown(
++                "<div class='sidebar-section-title sidebar-clock-title-v19220-rc163'>Klokke</div>",
++                unsafe_allow_html=True,
++            )
++            components_html(browser_clock_document(app_timezone), height=92, scrolling=False)
++    except Exception:
++        # Informational only: failure must never affect navigation or the app.
++        pass

@@ -10,7 +10,7 @@ import replay_export_background as background
 ROOT = Path(__file__).resolve().parents[1]
 
 def test_version_chain_rc165():
-    assert APP_VERSION == "v19.22.0-rc16.5"
+    assert APP_VERSION == "v19.22.0-rc16.7"
     assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.4"
 
 def test_header_clock_is_browser_local_and_before_version():

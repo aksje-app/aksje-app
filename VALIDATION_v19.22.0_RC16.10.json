@@ -1,0 +1,29 @@
+{
+  "version": "v19.22.0-rc16.10",
+  "status": "LOCAL_PASS_LIVE_REQUIRED",
+  "targeted_tests": {
+    "passed": 12,
+    "failed": 0,
+    "runner": "python -m unittest -v tests.test_v19220_rc1610_verified_export_closure"
+  },
+  "checks": {
+    "python_compile": "PASS",
+    "bundled_noto_sans": "PASS",
+    "embedded_pdf_noto_sans": "PASS",
+    "pdf_outline_nonempty": "PASS",
+    "single_report_export_gate": "PASS",
+    "complete_archive_per_report_gate": "PASS",
+    "zip_integrity": "PASS",
+    "empty_public_ranking_ui_guard": "PASS"
+  },
+  "problem_report_MI_20260805_200637": {
+    "status": "NOT_AVAILABLE_IN_UPLOADED_PACKAGE",
+    "claim": "NOT_TESTED",
+    "live_action": "Run through the same gate if present in the durable report archive."
+  },
+  "full_regression": {
+    "status": "NOT_CLAIMED",
+    "reason": "pytest is not installed in this execution environment; all Python sources are compiled and the standalone RC16.10 suite is executed."
+  }
+}
+

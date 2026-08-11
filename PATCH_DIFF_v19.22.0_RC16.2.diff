@@ -1,0 +1,106 @@
+--- a/app_version.py
++++ b/app_version.py
+@@ -3,11 +3,11 @@
+ from dataclasses import asdict, dataclass
+ from typing import Any
+ 
+-APP_VERSION = "v19.22.0-rc16.1"
+-APP_VERSION_NAME = "Investor Edition Release Candidate 16.1 Progress Hotfix"
++APP_VERSION = "v19.22.0-rc16.2"
++APP_VERSION_NAME = "Investor Edition Release Candidate 16.2 Shared Progress Hotfix"
+ APP_BUILD_LABEL = APP_VERSION
+ PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
+-PREVIOUS_APP_VERSION = "v19.22.0-rc16"
++PREVIOUS_APP_VERSION = "v19.22.0-rc16.1"
+ 
+ # Independent compatibility contracts. These change only when their own
+ # serialised or behavioural contract changes, not for every app release.
+@@ -143,6 +143,7 @@
+     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
+ 
+ CHANGELOG = [
++    "v19.22.0-rc16.2: Avgrenset live-hotfix som fjerner den separate fremdriftsmotoren i Rapporter. Rapportsenteret bruker nå nøyaktig samme dynamiske Streamlit-fragment, samme femsekunders intervall og samme autoritative jobbstatuskilde som Autonomi Oversikt. Terminalstatus utløser ikke helsidererender i Rapporter. Ingen endring i rapportmotor, ZIP, tidssone, meny, score, scheduler, porteføljer eller handel.",
+     "v19.22.0-rc16.1: Avgrenset live-hotfix for automatisk rapportfremdrift. Statusfragmentet er eksplisitt og kan ikke lenger falle stille tilbake til en ikke-pollende funksjon. Hver poll leser et skrivebeskyttet prosessminne-/atomisk lokalstatussnapshot uten PostgreSQL-tilkobling, speilskriving, navigasjonsendring eller full app-rerun. UI viser pollkilde og siste lesetid. Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel.",
+     "v19.22.0-rc16: Samlet replay-, beslutnings- og presentasjonskonsolidering. Rapport- og læringsarkiv kan eksporteres skrivebeskyttet i bakgrunn med PDF/TXT/JSON/snapshots/manifest/SHA-256; enkelt­rapporter får komplette ZIP-pakker. Porteføljelaget evaluerer de lagrede produksjonsportene direkte og registrerer entydig første blocker i stedet for å vente på en sirkulær statusstreng. Evidenskontroll dekker den avgrensede dypanalysen, læringsprofilen tilbyr eksplisitt 15 000 i LEARNING_ONLY-notional, rapportfremdrift bruker et modulnivå-fragment, og siste CSS-lag låser den profesjonelle sidemenyen etter full lasting. Ekte handel forblir fail-closed; scheduler-tider, final_score og produksjonsterskler er ikke senket.",
+     "v19.22.0-rc15: Bakgrunnsrapporten kjører i eksplisitt Streamlit-fri workerkontekst med separat heartbeat og reell fremdrift. Markedsdata har avgrensede tidsfrister og begrenset retry, og ikke-aksje-/kryssmarkedssymboler filtreres før Yahoo-kall. IDEX og PEXIP normaliseres til Oslo-symbol når markedet er Norge. Skanneprofilens widgetverdi og dataframekolonner normaliseres før rendering. Ingen endring i final_score, rangering, produksjonsterskel, scheduler, portefølje- eller handelsregler.",
+--- a/autonomy_overview.py
++++ b/autonomy_overview.py
+@@ -352,14 +352,14 @@
+             st.rerun()
+ 
+ 
+-def _live_progress_panel(*, allow_quick_start: bool = True) -> None:
++def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_terminal: bool = True) -> None:
+     """Poll only durable job status; never rerender the full Autonomy page."""
+     status = get_active_status() or {}
+     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
+     if is_running(status):
+         st.caption("Status og fremdrift oppdateres automatisk hvert 5. sekund mens kjøringen pågår.")
+     execution_id = str(status.get("execution_id") or "")
+-    if str(status.get("state") or "") in TERMINAL_STATES and execution_id:
++    if refresh_app_on_terminal and str(status.get("state") or "") in TERMINAL_STATES and execution_id:
+         refresh_key = "autonomy_overview_terminal_refresh_v1902"
+         if st.session_state.get(refresh_key) != execution_id:
+             st.session_state[refresh_key] = execution_id
+@@ -369,7 +369,11 @@
+                 st.rerun()
+ 
+ 
+-def _render_live_progress(*, allow_quick_start: bool = True) -> None:
++def _render_live_progress(
++    *,
++    allow_quick_start: bool = True,
++    refresh_app_on_terminal: bool = True,
++) -> None:
+     # A periodic Streamlit fragment remains scheduled until the fragment is
+     # removed from the page.  Only create it for an actually active job;
+     # completed/failed/cancelled pages are rendered once and stay idle.
+@@ -377,9 +381,27 @@
+     running = is_running(status)
+     fragment = getattr(st, "fragment", None)
+     if running and callable(fragment):
+-        fragment(run_every="5s")(_live_progress_panel)(allow_quick_start=allow_quick_start)
++        fragment(run_every="5s")(_live_progress_panel)(
++            allow_quick_start=allow_quick_start,
++            refresh_app_on_terminal=refresh_app_on_terminal,
++        )
+     else:
+-        _live_progress_panel(allow_quick_start=allow_quick_start)
++        _live_progress_panel(
++            allow_quick_start=allow_quick_start,
++            refresh_app_on_terminal=refresh_app_on_terminal,
++        )
++
++
++def render_shared_manual_job_progress(
++    *,
++    allow_quick_start: bool = False,
++    refresh_app_on_terminal: bool = False,
++) -> None:
++    """Render the same proven progress fragment used by Autonomi Oversikt."""
++    _render_live_progress(
++        allow_quick_start=allow_quick_start,
++        refresh_app_on_terminal=refresh_app_on_terminal,
++    )
+ 
+ 
+ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
+--- a/market_intelligence.py
++++ b/market_intelligence.py
+@@ -4992,9 +4992,13 @@
+             unavailable.append("nattanalyse")
+         if unavailable:
+             st.caption("Ikke konfigurert som aktiv jobbprofil: " + ", ".join(unavailable) + ". Opprett eller aktiver profilen under avanserte innstillinger.")
+-        # RC16.1: do not silently degrade to a one-shot renderer. A fragment
+-        # failure must be visible instead of masquerading as working polling.
+-        _live_report_progress_fragment_v19220_rc161()
++        # RC16.2: Rapporter uses the exact same live progress fragment as
++        # Autonomi Oversikt. Do not maintain a second polling implementation.
++        from autonomy_overview import render_shared_manual_job_progress
++        render_shared_manual_job_progress(
++            allow_quick_start=False,
++            refresh_app_on_terminal=False,
++        )
+ 
+     with st.container(border=True):
+         st.markdown("##### 3. Siste rapporter")

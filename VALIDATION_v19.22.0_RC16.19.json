@@ -1,0 +1,31 @@
+{
+  "version": "v19.22.0-rc16.19",
+  "status": "LOCAL_PASS_LIVE_REQUIRED",
+  "compiled": true,
+  "targeted_tests": {
+    "passed": 75,
+    "failed": 0
+  },
+  "full_regression": {
+    "completed": true,
+    "passed": 748,
+    "failed": 35,
+    "note": "Feilene gjelder eldre versjonsforventninger og tidligere rapportlayout/-semantikk; målrettede RC16.19-, replay-, eksport-, Autonomi- og læringstester består."
+  },
+  "full_replay_contract": {
+    "schema_version": "2.0",
+    "checksums_required": true,
+    "offline_rerun_required": true,
+    "action_integrity_required": true,
+    "portfolio_reconciliation_required": true,
+    "durable_storage_required": true,
+    "fail_closed": true
+  },
+  "archive": {
+    "content_addressed": true,
+    "baseline_then_delta": true,
+    "inventory_commit_after_zip_verification": true
+  },
+  "production_thresholds_changed": false,
+  "live_requirement": "Kjør én ny komplett Autonomi-analyse på Render og bekreft første verifiserte FULL_REPLAY."
+}

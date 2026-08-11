@@ -1,0 +1,123 @@
+{
+  "version": "v19.22.0-rc16.3",
+  "baseline": "v19.22.0-rc16.2",
+  "ok": true,
+  "protected_files": [
+    {
+      "path": "investment_pipeline.py",
+      "baseline_sha256": "18ff8de17aab6c0e05d27b65ad48a9779317b89cb79db69aefe7db37cd5afb5d",
+      "hotfix_sha256": "18ff8de17aab6c0e05d27b65ad48a9779317b89cb79db69aefe7db37cd5afb5d",
+      "unchanged": true
+    },
+    {
+      "path": "trading_engine.py",
+      "baseline_sha256": "b25f80b39fd33be4232bf19f7a1005ad50907993adb86f711c401d6a2d6733bc",
+      "hotfix_sha256": "b25f80b39fd33be4232bf19f7a1005ad50907993adb86f711c401d6a2d6733bc",
+      "unchanged": true
+    },
+    {
+      "path": "execution_control.py",
+      "baseline_sha256": "b98598cc91365073b64e102cca9853235ef6f7d50526001ca355a41f2d198182",
+      "hotfix_sha256": "b98598cc91365073b64e102cca9853235ef6f7d50526001ca355a41f2d198182",
+      "unchanged": true
+    },
+    {
+      "path": "paper_trading.py",
+      "baseline_sha256": "c75c5dcd9c2f9ff2fbd760c476678eafd6cd5ef54226d41ddabfbbb7b9c26368",
+      "hotfix_sha256": "c75c5dcd9c2f9ff2fbd760c476678eafd6cd5ef54226d41ddabfbbb7b9c26368",
+      "unchanged": true
+    },
+    {
+      "path": "paper_store.py",
+      "baseline_sha256": "60a048bdef6be4ada0478f62bbcc586f09eb5ad4e17e241a743d5eb707563f7d",
+      "hotfix_sha256": "60a048bdef6be4ada0478f62bbcc586f09eb5ad4e17e241a743d5eb707563f7d",
+      "unchanged": true
+    },
+    {
+      "path": "scheduler_background.py",
+      "baseline_sha256": "2b7eecee727baa7f68089c5fd9ff476cbe825b2551e3d757edba28e4d4b0d8fb",
+      "hotfix_sha256": "2b7eecee727baa7f68089c5fd9ff476cbe825b2551e3d757edba28e4d4b0d8fb",
+      "unchanged": true
+    },
+    {
+      "path": "scheduled_runner.py",
+      "baseline_sha256": "44cb4195b24503adf0b57179e851d2a9f52f707dfb142b187726d359353d75ff",
+      "hotfix_sha256": "44cb4195b24503adf0b57179e851d2a9f52f707dfb142b187726d359353d75ff",
+      "unchanged": true
+    },
+    {
+      "path": "autonomous_orchestrator.py",
+      "baseline_sha256": "c7a18376245e5b88a220ad719db6068d20a0fee743096fee4e5809eebf332dce",
+      "hotfix_sha256": "c7a18376245e5b88a220ad719db6068d20a0fee743096fee4e5809eebf332dce",
+      "unchanged": true
+    },
+    {
+      "path": "autonomous_portfolio.py",
+      "baseline_sha256": "47bc78dc7ecdafc1496d8090946e12bb1af83bd4a9ccac121ef62116cfb4c094",
+      "hotfix_sha256": "47bc78dc7ecdafc1496d8090946e12bb1af83bd4a9ccac121ef62116cfb4c094",
+      "unchanged": true
+    },
+    {
+      "path": "autonomi_core/portfolio_decisions/layer.py",
+      "baseline_sha256": "a3333e7aa89bc6156f6e9a17be09384d176d519c4adf8bf65e48fdb59c6ae0e5",
+      "hotfix_sha256": "a3333e7aa89bc6156f6e9a17be09384d176d519c4adf8bf65e48fdb59c6ae0e5",
+      "unchanged": true
+    },
+    {
+      "path": "autonomi_core/runtime/orchestrator.py",
+      "baseline_sha256": "862e75575ee8779362d38f1ee2d1b90476431bada235b03ab8bfb2d83477e897",
+      "hotfix_sha256": "862e75575ee8779362d38f1ee2d1b90476431bada235b03ab8bfb2d83477e897",
+      "unchanged": true
+    },
+    {
+      "path": "settings_store.py",
+      "baseline_sha256": "6beb4e95f8020b87b21c1f401d2aa9c46c3828b955ba3938c5ba03e377c0d4cd",
+      "hotfix_sha256": "6beb4e95f8020b87b21c1f401d2aa9c46c3828b955ba3938c5ba03e377c0d4cd",
+      "unchanged": true
+    },
+    {
+      "path": "persistent_config_store.py",
+      "baseline_sha256": "99cf5d2eabba221b16e9eec7e7a803a186ea97c08bd39808bfcbc37a639aab82",
+      "hotfix_sha256": "99cf5d2eabba221b16e9eec7e7a803a186ea97c08bd39808bfcbc37a639aab82",
+      "unchanged": true
+    },
+    {
+      "path": "navigation_state.py",
+      "baseline_sha256": "df1589af491b21836d1ea136d6e67e38a4044600a7d66e45a76018ce23f962d9",
+      "hotfix_sha256": "df1589af491b21836d1ea136d6e67e38a4044600a7d66e45a76018ce23f962d9",
+      "unchanged": true
+    },
+    {
+      "path": "ui_sidebar_stable.py",
+      "baseline_sha256": "14243f913540c3c6eaa945fff3338d222197d28b50dc419dad7eeee4d25ff871",
+      "hotfix_sha256": "14243f913540c3c6eaa945fff3338d222197d28b50dc419dad7eeee4d25ff871",
+      "unchanged": true
+    },
+    {
+      "path": "requirements.txt",
+      "baseline_sha256": "548bd329ec0352c81ce77f0d10fb50bbe623a55887beed3e6a7d172dfe384183",
+      "hotfix_sha256": "548bd329ec0352c81ce77f0d10fb50bbe623a55887beed3e6a7d172dfe384183",
+      "unchanged": true
+    },
+    {
+      "path": "render.yaml",
+      "baseline_sha256": "d51c21d55bc1430a4786fa4781fec61d9276c3955253b1e14ce997a393d342b9",
+      "hotfix_sha256": "d51c21d55bc1430a4786fa4781fec61d9276c3955253b1e14ce997a393d342b9",
+      "unchanged": true
+    },
+    {
+      "path": "market_intelligence.py",
+      "baseline_sha256": "5850f9c406ce02d00ef32e0d19bb036a09a0c2da7444007157aeb81be1562738",
+      "hotfix_sha256": "5850f9c406ce02d00ef32e0d19bb036a09a0c2da7444007157aeb81be1562738",
+      "unchanged": true
+    }
+  ],
+  "allowed_changed_files": [
+    "app.py",
+    "app_version.py",
+    "local_time.py",
+    "ui_clock.py",
+    "tests and release documentation"
+  ],
+  "statement": "Score-, scheduler-, portefølje-, rapportmotor-, navigasjons-, avhengighets- og handelskontrakter er uendret. Bare presentasjonstid, lagringsflyt og klokke-UI er endret."
+}

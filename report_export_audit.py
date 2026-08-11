@@ -35,11 +35,23 @@ def canonical_public_run(run: Mapping[str, Any]) -> dict[str, Any]:
 
 def expected_contract(run: Mapping[str, Any]) -> dict[str, Any]:
     projection = dict(run.get("public_report_contract") or run.get("channel_consistency") or {})
+    learning = run.get("learning_portfolio_summary") if isinstance(run.get("learning_portfolio_summary"), Mapping) else {}
+    learning_fills = []
+    for row in learning.get("learning_fills") or []:
+        if not isinstance(row, Mapping):
+            continue
+        learning_fills.append({
+            "ticker": str(row.get("ticker") or "").upper(),
+            "action": str(row.get("side") or row.get("action") or "").upper(),
+            "quantity": round(float(row.get("quantity") or 0), 8),
+            "price": round(float(row.get("price", row.get("fill_price")) or 0), 4),
+        })
     return {
         "report_id": str(projection.get("report_id") or run.get("report_id") or run.get("run_id") or ""),
         "app_version": str(run.get("app_version") or run.get("version") or ""),
         "ranking": list(projection.get("ranking") or []),
         "decision_count": int(projection.get("decision_count") or 0),
+        "learning_fills": learning_fills,
     }
 
 def _text_contract(text: str) -> dict[str, Any]:
@@ -49,7 +61,10 @@ def _text_contract(text: str) -> dict[str, Any]:
     # Canonical TXT rows use '#<rank> TICKER ... Beslutning: <label>'.
     for m in re.finditer(r"^#(\d+)\s+([A-Z0-9.\-]+).*?Beslutning:\s*([^\n\r]+)$", text, re.I|re.M):
         ranking.append({"rank":int(m.group(1)),"ticker":m.group(2).upper(),"decision_label":m.group(3).strip()})
-    return {"report_id": rid.group(1).strip() if rid else "", "app_version": ver.group(1).strip() if ver else "", "ranking": ranking}
+    learning=[]
+    for m in re.finditer(r"^-\s+([A-Z0-9.\-]+)\s+·\s+(BUY|SELL)\s+·\s+antall\s+([0-9.]+)\s+·\s+pris\s+([0-9.]+)", text, re.I|re.M):
+        learning.append({"ticker":m.group(1).upper(),"action":m.group(2).upper(),"quantity":round(float(m.group(3)),8),"price":round(float(m.group(4)),4)})
+    return {"report_id": rid.group(1).strip() if rid else "", "app_version": ver.group(1).strip() if ver else "", "ranking": ranking, "learning_fills": learning}
 
 def validate_artifacts(*, run: Mapping[str, Any], pdf: bytes, txt: bytes, json_bytes: bytes) -> dict[str, Any]:
     errors=[]
@@ -61,7 +76,7 @@ def validate_artifacts(*, run: Mapping[str, Any], pdf: bytes, txt: bytes, json_b
     try: payload=json.loads(json_bytes.decode("utf-8"))
     except Exception as exc: return {"ok":False,"errors":[f"JSON kan ikke leses: {exc}"]}
     actual=expected_contract(payload)
-    for key in ("report_id","app_version","ranking","decision_count"):
+    for key in ("report_id","app_version","ranking","decision_count","learning_fills"):
         if actual.get(key)!=expected.get(key): errors.append(f"JSON {key} avviker fra canonical kontrakt")
     text=txt.decode("utf-8",errors="replace")
     tc=_text_contract(text)
@@ -74,6 +89,8 @@ def validate_artifacts(*, run: Mapping[str, Any], pdf: bytes, txt: bytes, json_b
     } for index, row in enumerate(expected["ranking"], 1)]
     if tc["ranking"] != expected_text_ranking:
         errors.append("TXT kjøpsrangering eller beslutninger avviker")
+    if tc["learning_fills"] != expected["learning_fills"]:
+        errors.append("TXT læringshandler avviker fra canonical fills")
     # PDF text verification when pypdf is available.
     try:
         from pypdf import PdfReader
@@ -85,6 +102,12 @@ def validate_artifacts(*, run: Mapping[str, Any], pdf: bytes, txt: bytes, json_b
             decision_label = str(row.get("decision_label") or row.get("decision") or "").strip()
             if decision_label and decision_label not in pdf_text:
                 errors.append(f"PDF mangler beslutning for {row.get('ticker')}")
+        for row in expected["learning_fills"]:
+            if row["ticker"] not in pdf_text:
+                errors.append(f"PDF mangler læringshandler for {row['ticker']}")
+            price_no = f"{row['price']:.2f}".replace(".", ",")
+            if price_no not in pdf_text:
+                errors.append(f"PDF mangler læringspris for {row['ticker']}")
         fonts=set()
         for page in PdfReader(io.BytesIO(pdf)).pages:
             resources=page.get("/Resources") or {}

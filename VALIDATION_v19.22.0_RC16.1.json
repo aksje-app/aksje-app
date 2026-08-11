@@ -1,0 +1,25 @@
+{
+  "version": "v19.22.0-rc16.1",
+  "baseline": "v19.22.0-rc16",
+  "status": "LOCALLY_VALIDATED_NOT_LIVE_APPROVED",
+  "scope": [
+    "manual_job_background.py",
+    "market_intelligence.py",
+    "app_version.py",
+    "release documentation",
+    "tests"
+  ],
+  "tests": {
+    "official": 727,
+    "subtests": 4,
+    "extra": 7,
+    "failures": 0
+  },
+  "audits": {
+    "full_system": "PASS",
+    "navigation_rerun": "PASS",
+    "protected_rules": "PASS"
+  },
+  "production_readiness": false,
+  "reason": "Automatisk polling må bekreftes i faktisk Render-nettlesersesjon før hotfixen kan godkjennes."
+}
