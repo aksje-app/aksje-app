@@ -1021,7 +1021,9 @@ def _localized_slot(job: JobProfile, local_date: Any) -> list[datetime]:
         parsed = _parse_hhmm(slot)
         if parsed:
             slots.append(datetime.combine(local_date, time(*parsed), tzinfo=local_tz))
-    for window in job.scan_windows or []:
+    required_ids = {spec["job_id"] for spec in REQUIRED_REPORT_SPECS}
+    windows = [] if job.job_id in required_ids else (job.scan_windows or [])
+    for window in windows:
         start_v, end_v = _parse_hhmm(window.get("start", "")), _parse_hhmm(window.get("end", ""))
         if not start_v or not end_v:
             continue
@@ -5325,6 +5327,7 @@ def revalidate_provisional_reports(
                 trigger="REVALIDATION",
                 force_refresh=True,
                 revision_parent=parent,
+                send_notifications=False,
             )
             results.append({
                 "parent_run_id": parent.get("run_id"),
@@ -6207,7 +6210,7 @@ def render_market_intelligence() -> None:
                 channel_projection = projection_from_run(latest)
                 by_ticker = {str(row.get("ticker") or "").upper(): dict(row) for row in candidates}
                 displayed_candidates = []
-                for projected in list(channel_projection.get("ranking") or [])[:3]:
+                for projected in list(channel_projection.get("review_ranking") or channel_projection.get("ranking") or [])[:3]:
                     row = dict(by_ticker.get(str(projected.get("ticker") or "").upper()) or projected)
                     row["rank"] = projected.get("rank")
                     row["investment_score"] = projected.get("score")

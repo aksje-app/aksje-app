@@ -29,6 +29,17 @@ def load_scanner_status() -> dict:
     value = read_json(PAPER_SCANNER_STATUS_KEY, PAPER_SCANNER_STATUS_PATH, {})
     return dict(value) if isinstance(value, dict) else {}
 
+def scanner_worker_is_stale(max_age_minutes: int = 45) -> bool:
+    status = load_scanner_status()
+    raw = str(status.get("heartbeat_at") or status.get("completed_at") or "").strip()
+    if not raw: return True
+    try:
+        heartbeat = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        heartbeat = heartbeat.replace(tzinfo=heartbeat.tzinfo or timezone.utc).astimezone(timezone.utc)
+        return (datetime.now(timezone.utc) - heartbeat).total_seconds() > max(15, int(max_age_minutes)) * 60
+    except Exception:
+        return True
+
 
 def update_scanner_status(**values) -> dict:
     status = load_scanner_status()

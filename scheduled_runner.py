@@ -176,6 +176,18 @@ def _run_once_locked() -> dict[str, Any]:
         # A provider failure must be visible, but must not suppress scheduled reports.
         state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
 
+    # Fallback for deployments where the dedicated Paper cron is missing or
+    # stale. Paper's separate advisory lock prevents duplicate orders.
+    try:
+        from paper_scanner_runtime import scanner_worker_is_stale
+        if scanner_worker_is_stale(max_age_minutes=45):
+            from scanner_worker import run_once as run_paper_scanner
+            state["paper_scanner_failover"] = {"state": "EXECUTED", "trades": int(run_paper_scanner(force=False) or 0)}
+        else:
+            state["paper_scanner_failover"] = {"state": "HEALTHY_DEDICATED_WORKER"}
+    except Exception as exc:
+        state["paper_scanner_failover"] = {"state": "FAILED", "error": str(exc)[:500]}
+
     # Repair delivery artifacts, but never let this maintenance step block the
     # actual schedule check.
     if _maintenance_due(previous, "report_repair", default_minutes=360):
@@ -205,6 +217,15 @@ def _run_once_locked() -> dict[str, Any]:
             state["report_revalidation"] = {"state": "FAILED", "completed_at": _now(), "error": str(exc)[:500]}
     else:
         state["report_revalidation"] = {**dict(previous.get("report_revalidation") or {}), "state": "NOT_DUE"}
+
+    if _maintenance_due(previous, "storage_retention", default_minutes=1440):
+        try:
+            from storage_retention import run_storage_retention
+            state["storage_retention"] = dict(run_storage_retention() or {})
+        except Exception as exc:
+            state["storage_retention"] = {"state": "FAILED", "completed_at": _now(), "error": str(exc)[:500]}
+    else:
+        state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "state": "NOT_DUE"}
 
     state["completed_at"] = _now()
     _save(state)

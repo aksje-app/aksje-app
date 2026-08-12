@@ -104,18 +104,26 @@ def _send_terminal_summary(state: dict[str, Any], *, passed: bool, reason: str) 
 def load_report_test_mode() -> dict[str, Any]:
     value = read_json(STATE_KEY, STATE_PATH, {})
     state = dict(value) if isinstance(value, Mapping) else {}
-    return {
+    result = {
         "enabled": False, "successes": 0, "failures": 0,
         "phase": "INACTIVE", "status_message": "Testserien er ikke aktiv.",
         "expected_first_start_at": "", "expected_result_at": "",
         **state,
     }
+    from app_version import APP_VERSION
+    armed_version = str(result.get("program_version") or "")
+    if result.get("enabled") and armed_version != APP_VERSION:
+        result.update({"enabled": False, "phase": "INACTIVE", "disabled_reason": "VERSION_CHANGED",
+                       "status_message": f"Testserien tilhørte {armed_version or 'eldre versjon'} og ble stoppet ved deploy av {APP_VERSION}."})
+        _persist_state(result)
+    return result
 
 
 def set_report_test_mode(enabled: bool) -> dict[str, Any]:
     current = load_report_test_mode()
     now = _now().isoformat(timespec="seconds")
     if enabled and not current.get("enabled"):
+        from app_version import APP_VERSION
         current = {
             "enabled": True, "enabled_at": now, "updated_at": now,
             "series_id": _new_series_id(),
@@ -127,6 +135,7 @@ def set_report_test_mode(enabled: bool) -> dict[str, Any]:
             "status_message": "Testserien er aktivert. Første rapport starter ved neste schedulerkjøring.",
             "expected_first_start_at": now,
             "expected_result_at": "",
+            "program_version": APP_VERSION,
         }
         _add_event(current, "SERIES_ENABLED", part="0/4")
     elif not enabled:

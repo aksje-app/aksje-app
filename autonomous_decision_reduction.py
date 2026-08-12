@@ -310,15 +310,14 @@ def apply_decision_reduction(candidates: Sequence[Mapping[str, Any]], *, thresho
         row["manual_task_summary"] = "Ingen manuell handling nødvendig nå"
 
     counts = {code: sum(1 for row in rows if row.get("autonomy_outcome_code") == code) for code in OUTCOME_LABELS}
-    # The report candidate ranking is strictly reserved for real buy recommendations.
-    # Watch, manual-review and rejected rows are operational/control outcomes and
-    # must never backfill an investment ranking.
-    buy_priority = sorted(
-        (row for row in rows if row.get("autonomy_outcome_code") == OUTCOME_BUY
-         and str(row.get("portfolio_action") or "").upper() in {"BUY", "KJØP"}),
+    # Review ranking, not a buy list. Even rejected rows can be shown as the
+    # best analysed alternatives when nothing passes; the actual outcome label
+    # makes the rejection explicit and prevents this becoming a buy signal.
+    review_priority = sorted(
+        rows,
         key=lambda row: _float(row.get("investment_score")), reverse=True,
     )
-    priority_top3 = [_priority_candidate_view(row) for row in buy_priority[:3]]
+    priority_top3 = [_priority_candidate_view(row) for row in review_priority[:3]]
     for index, row in enumerate(priority_top3, 1):
         row["priority_rank"] = index
     manual_tasks = [deepcopy(task) for row in rows for task in row.get("manual_tasks") or [] if row.get("manual_review_required")]

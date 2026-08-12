@@ -57,12 +57,25 @@ def attach_channel_projection(run: MutableMapping[str, Any], document: Mapping[s
 def projection_from_run(run: Mapping[str, Any]) -> dict[str, Any]:
     stored = run.get("channel_consistency")
     if isinstance(stored, Mapping) and stored.get("contract") == CONTRACT:
-        return deepcopy(dict(stored))
-    document = run.get("report_document")
-    if isinstance(document, Mapping):
-        return build_channel_projection(document)
-    from report_contracts import ensure_report_document
-    return build_channel_projection(ensure_report_document(run))
+        projection = deepcopy(dict(stored))
+    else:
+        document = run.get("report_document")
+        if isinstance(document, Mapping):
+            projection = build_channel_projection(document)
+        else:
+            from report_contracts import ensure_report_document
+            projection = build_channel_projection(ensure_report_document(run))
+    reduction = run.get("autonomous_decision_reduction") or {}
+    review = list(run.get("priority_top3") or reduction.get("priority_top3") or [])[:3]
+    projection["review_ranking"] = [
+        {"rank": index, "ticker": str(row.get("ticker") or ""), "market": str(row.get("market") or ""),
+         "decision": str(row.get("portfolio_action") or row.get("autonomy_outcome_code") or ""),
+         "decision_label": str(row.get("autonomy_outcome_label") or row.get("decision_label") or ""),
+         "score": row.get("investment_score", row.get("score"))}
+        for index, row in enumerate(review, 1) if isinstance(row, Mapping)
+    ]
+    projection["review_count"] = len(projection["review_ranking"])
+    return projection
 
 
 def validate_channel_projection(run: Mapping[str, Any]) -> dict[str, Any]:
