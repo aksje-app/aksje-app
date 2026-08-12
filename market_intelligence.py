@@ -720,6 +720,8 @@ def ensure_required_report_jobs(jobs: Sequence[JobProfile]) -> tuple[list[JobPro
                 schedules=[spec["schedule"]], weekdays=[0, 1, 2, 3, 4],
                 enabled=True, allow_weekends=False, notify_pushover=True,
                 notify_only_changes=False, notification_mode="ALWAYS", save_pdf=True,
+                scan_windows=[], report_test_series_id="", report_test_part=0,
+                report_test_total=0, report_test_attempt=0,
             )
             repaired.append(match)
             changes.append({"job_id": match.job_id, "action": "CREATED", "schedule": spec["schedule"]})
@@ -732,6 +734,8 @@ def ensure_required_report_jobs(jobs: Sequence[JobProfile]) -> tuple[list[JobPro
             timezone_name="Europe/Oslo", enabled=True, allow_weekends=False,
             notify_pushover=True, notify_only_changes=False,
             notification_mode="ALWAYS", include_report_link=True, save_pdf=True,
+            scan_windows=[], report_test_series_id="", report_test_part=0,
+            report_test_total=0, report_test_attempt=0,
         )
         index = repaired.index(match)
         if asdict(updated) != asdict(match):
@@ -892,8 +896,11 @@ def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, An
             if abs((item_planned - planned_utc).total_seconds()) <= 60:
                 candidates.append(dict(item))
         latest = candidates[0] if candidates else {}
-        delivered = latest.get("pushover_sent") is True
-        pdf_created = latest.get("pdf") is True
+        delivered_rows = [item for item in candidates if item.get("pushover_sent") is True]
+        delivered = bool(delivered_rows)
+        pdf_created = any(item.get("pdf") is True for item in candidates)
+        stored_row = next((item for item in candidates if item.get("run_id")), latest)
+        delivered_row = delivered_rows[0] if delivered_rows else stored_row
         grace_end = planned_utc + timedelta(minutes=30)
         if local_now.weekday() >= 5:
             status = "IKKE_PLANLAGT"
@@ -908,9 +915,9 @@ def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, An
         rows.append({
             "job_id": spec["job_id"], "name": spec["name"], "schedule": spec["schedule"],
             "planned_at": planned_utc.isoformat(timespec="seconds"), "status": status,
-            "pdf_created": pdf_created, "stored": bool(latest.get("run_id")),
-            "pushover_sent": delivered, "run_id": latest.get("run_id") or "",
-            "error": str(latest.get("error") or latest.get("notification_detail") or "")[:500],
+            "pdf_created": pdf_created, "stored": bool(stored_row.get("run_id")),
+            "pushover_sent": delivered, "run_id": delivered_row.get("run_id") or "",
+            "error": "" if delivered else str(latest.get("error") or latest.get("notification_detail") or "")[:500],
             "active": bool(job and job.enabled),
         })
     return {
@@ -1971,7 +1978,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
 
     previous_receipt = dict(receipts.get(run_id) or {}) if run_id else {}
     if previous_receipt.get("sent") is True:
-        return False, "Duplikat blokkert: denne rapportkjøringen er allerede varslet"
+        return True, "Allerede levert: eksisterende Pushover-kvittering bekrefter sending"
     created_raw = str(run.get("created_at") or "")
     if created_raw:
         try:
@@ -2018,7 +2025,10 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         channel_projection = projection_from_run(run)
         is_test = bool(run.get("test_run")) or "TEST" in str(run.get("trigger") or "").upper()
         test_series = dict(run.get("report_test_series") or {}) if isinstance(run.get("report_test_series"), Mapping) else {}
-        automatic_test = bool(test_series.get("automatic") and test_series.get("series_id"))
+        automatic_test = bool(
+            str(job.job_id or "").upper() == "MI-AUTONOMY-REPORT-TEST"
+            and test_series.get("automatic") and test_series.get("series_id")
+        )
         test_part = int(test_series.get("part") or 0)
         test_total = int(test_series.get("total") or 0)
         origin = "Planlagt" if str(run.get("trigger") or "").upper() == "SCHEDULED" else ("Test" if is_test else "Manuell")
