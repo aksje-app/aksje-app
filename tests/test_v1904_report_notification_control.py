@@ -31,12 +31,12 @@ class ReportNotificationControlTests(unittest.TestCase):
         )
         self.assertEqual(identity["type"], "UTKAST")
 
-    def test_duplicate_run_notification_is_blocked_before_delivery(self):
+    def test_duplicate_run_notification_preserves_existing_delivery_truth(self):
         job = mi.JobProfile(name="Morgenanalyse", job_id="MIJ-1")
         with patch.object(mi, "_read", return_value={"MI-1": {"sent": True}}):
             ok, detail = mi._notification(job, {"run_id": "MI-1"})
-        self.assertFalse(ok)
-        self.assertIn("Duplikat blokkert", detail)
+        self.assertTrue(ok)
+        self.assertIn("Allerede levert", detail)
 
     def test_polling_exists_only_for_running_status(self):
         source = (ROOT / "autonomy_overview.py").read_text(encoding="utf-8")

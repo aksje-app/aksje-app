@@ -46,7 +46,7 @@ def test_automatic_notification_contains_series_and_part(monkeypatch):
     monkeypatch.setitem(sys.modules, "notifier", SimpleNamespace(
         send_pushover_alert=lambda message, title="", **kwargs: (captured.update(message=message, title=title) or True, None),
     ))
-    job = mi.JobProfile(name="Autonomi rapporttest", notification_mode="ALWAYS", notify_only_changes=False)
+    job = mi.JobProfile(name="Autonomi rapporttest", job_id="MI-AUTONOMY-REPORT-TEST", notification_mode="ALWAYS", notify_only_changes=False)
     ok, _ = mi._notification(job, _notification_run(automatic=True))
     assert ok is True
     assert "AUTOMATISK 2/4" in captured["title"]

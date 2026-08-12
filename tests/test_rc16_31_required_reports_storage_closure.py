@@ -79,6 +79,20 @@ def test_required_report_repair_preserves_analysis_budget():
     assert morning.schedules == ["08:00"] and morning.enabled is True
 
 
+def test_required_report_repair_removes_scan_windows_and_test_metadata():
+    source = mi.JobProfile(
+        job_id="MI-REQUIRED-EVENING", name="Obligatorisk kveldsrapport",
+        schedules=["22:00"], scan_windows=[{"start": "08:00", "end": "11:00", "interval_minutes": 30}],
+        report_test_series_id="RTS-CONTAMINATED", report_test_part=4,
+        report_test_total=4, report_test_attempt=9,
+    )
+    jobs, changes = mi.ensure_required_report_jobs([source])
+    evening = next(job for job in jobs if job.job_id == "MI-REQUIRED-EVENING")
+    assert evening.scan_windows == []
+    assert (evening.report_test_series_id, evening.report_test_part, evening.report_test_total, evening.report_test_attempt) == ("", 0, 0, 0)
+    assert any(change["action"] == "REPAIRED" for change in changes)
+
+
 def test_daily_ledger_tracks_all_three_deliveries(monkeypatch):
     jobs, _ = mi.ensure_required_report_jobs([])
     monkeypatch.setattr(mi, "load_jobs", lambda: jobs)
@@ -92,6 +106,27 @@ def test_daily_ledger_tracks_all_three_deliveries(monkeypatch):
     ledger = mi.required_report_delivery_ledger(datetime(2026, 8, 11, 21, 0, tzinfo=timezone.utc))
     assert ledger["complete"] is True
     assert [row["status"] for row in ledger["rows"]] == ["SENDT", "SENDT", "SENDT"]
+
+
+def test_daily_ledger_keeps_success_when_newer_retry_row_is_false(monkeypatch):
+    jobs, _ = mi.ensure_required_report_jobs([])
+    monkeypatch.setattr(mi, "load_jobs", lambda: jobs)
+    monkeypatch.setattr(mi, "load_job_history", lambda limit=2000: [
+        {
+            "job_id": "MI-REQUIRED-MORNING", "planned_at": "2026-08-11T06:00:00+00:00",
+            "type": "Leveringsretry", "pdf": True, "pushover_sent": False,
+            "run_id": "RUN-MORNING", "notification_detail": "Duplikat blokkert",
+        },
+        {
+            "job_id": "MI-REQUIRED-MORNING", "planned_at": "2026-08-11T06:00:00+00:00",
+            "type": "Planlagt", "pdf": True, "pushover_sent": True, "run_id": "RUN-MORNING",
+        },
+    ])
+    ledger = mi.required_report_delivery_ledger(datetime(2026, 8, 11, 7, 0, tzinfo=timezone.utc))
+    morning = ledger["rows"][0]
+    assert morning["status"] == "SENDT"
+    assert morning["pushover_sent"] is True and morning["pdf_created"] is True
+    assert morning["error"] == ""
 
 
 def test_all_three_due_jobs_are_attempted_even_when_middle_one_fails(monkeypatch):
@@ -192,7 +227,8 @@ def test_automatic_test_has_isolated_identity(monkeypatch):
     job = build_test_job(series_id="RTS-1", part=1, total=4, attempt=1)
     assert job.job_id == "MI-AUTONOMY-REPORT-TEST"
     assert job.name == "Autonomi rapporttest"
-    assert job.schedules == [] and job.enabled is False
+    assert job.schedules == [] and job.scan_windows == [] and job.enabled is False
+    assert job.scan_limit == 25
 
 
 def test_required_ledger_ignores_test_history_using_production_job_id(monkeypatch):
