@@ -1735,7 +1735,9 @@ def archive_report(run: Mapping[str, Any]) -> None:
         entry = _archive_entry(run)
         rows = [x for x in _load_report_archive() if x.get("run_id") != entry.get("run_id")]
         rows.insert(0, entry)
-        _save_report_archive(rows[:1000])
+        # Compact searchable history. Canonical runs and protected decision /
+        # portfolio ledgers remain in their dedicated stores.
+        _save_report_archive(rows[:180])
 
 
 def verify_report_persistence(run_id: str) -> dict[str, Any]:
@@ -2056,7 +2058,6 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             lines.append(
                 "Planlagt tidspunkt: "
                 + local_display(run.get("scheduled_for"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
-                + f" ({valid_timezone(run.get('timezone_name'))})"
             )
         report_summary_notice = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
         quality_notice = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
@@ -2854,23 +2855,43 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         ),
     ]
 
-    candidate_rows = [["#", "Ticker", "Score / beslutning", "Hovedgrunn", "Viktigste risiko", "Kilder / dokumentasjon"]]
-    for candidate in list(decision_candidates)[:3]:
+    # The first-page 1-3 table is a transparent review order, not a buy list.
+    # Hydrate its compact reduction rows from the canonical candidates so the
+    # reasons, blockers and source coverage remain available in the PDF.
+    review_candidates = list(run.get("priority_top3") or [])[:3]
+    if not review_candidates:
+        reduction_early = run.get("autonomous_decision_reduction") if isinstance(run.get("autonomous_decision_reduction"), Mapping) else {}
+        review_candidates = list(reduction_early.get("priority_top3") or [])[:3]
+    if not review_candidates:
+        review_candidates = sorted(
+            (dict(row) for row in (run.get("candidates") or []) if isinstance(row, Mapping)),
+            key=lambda row: float(row.get("investment_score") or 0), reverse=True,
+        )[:3]
+    canonical_by_ticker = {
+        str(row.get("ticker") or "").upper(): row
+        for row in (run.get("candidates") or []) if isinstance(row, Mapping)
+    }
+    candidate_rows = [["#", "Ticker", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Kilder / dokumentasjon"]]
+    for index, compact_candidate in enumerate(review_candidates, 1):
+        ticker = str(compact_candidate.get("ticker") or "").upper()
+        candidate = {**dict(canonical_by_ticker.get(ticker, {})), **dict(compact_candidate)}
         profile = candidate.get("confidence") if isinstance(candidate.get("confidence"), Mapping) else {}
+        if not profile and isinstance(candidate.get("confidence_profile"), Mapping):
+            profile = candidate.get("confidence_profile")
         consensus = candidate.get("source_consensus") if isinstance(candidate.get("source_consensus"), Mapping) else {}
         blockers = [str(value) for value in (candidate.get("blockers") or []) if str(value).strip()]
         rationale = [str(value) for value in (candidate.get("rationale") or []) if str(value).strip()]
         counter = candidate.get("counter_hypothesis") if isinstance(candidate.get("counter_hypothesis"), Mapping) else {}
-        main_reason = "; ".join(rationale[:2]) or str(candidate.get("status") or "Ingen hovedgrunn registrert")
+        main_reason = str(candidate.get("autonomy_outcome_reason") or "") or "; ".join(rationale[:2]) or str(candidate.get("status") or "Ingen hovedgrunn registrert")
         main_risk = str(counter.get("strongest_argument") or (blockers[0] if blockers else "Ingen kritisk risiko registrert"))
         source_text = (
             f"{consensus.get('level', '-')} · {consensus.get('independent_sources', 0)} uavh. kilde(r) · "
             f"dok. {profile.get('documentation_coverage', profile.get('data_coverage', 0))}/100"
         )
         candidate_rows.append([
-            candidate.get("rank") or "-",
+            candidate.get("priority_rank") or index,
             _rawp(candidate.get("ticker") or "-", "Tiny"),
-            _p(f"{_fmt(candidate.get('score'))} · {_decision_label(candidate.get('action'))}", "Tiny"),
+            _p(f"{_fmt(candidate.get('investment_score', candidate.get('score')))} · {candidate.get('autonomy_outcome_label') or _decision_label(candidate.get('portfolio_action') or candidate.get('action'))}", "Tiny"),
             _p(_short(main_reason, 115), "Tiny"),
             _p(_short(main_risk, 135), "Tiny"),
             _p(_short(source_text, 105), "Tiny"),
@@ -2884,10 +2905,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     )
     candidate_table_decision.setStyle(_table_style(5.2, padding=1.25))
     decision_story += [
-        Paragraph("Top 1-3 - investeringsrangering", styles["Section"]),
+        Paragraph("Prioritert vurderingsrekkefølge 1-3", styles["Section"]),
         candidate_table_decision,
         Paragraph(
-            "Listen inneholder bare reelle, endelig kjøpsgodkjente anbefalinger. Avviste aksjer rangeres ikke som kandidater.",
+            "Dette er de høyest rangerte analysene for videre vurdering, med faktisk utfall synlig. "
+            "Listen er ikke en kjøpsanbefaling; kjøpsgodkjent antall vises separat.",
             styles["Small"],
         ),
     ]
@@ -3009,13 +3031,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         f"−{abs(float(row.get('points') or 0)):g} poeng: {row.get('reason') or '-'}"
         for row in deductions
     ) or "Ingen eksplisitte trekk."
-    decision_story += [
+    decision_audit_story = [
         Paragraph("Historisk evaluering / læringsvern", styles["Subsection"]),
         Paragraph(escape(historical_text + " | " + guard_text), styles["Small"]),
         Paragraph("Kvalitetsavvik og forbedringspunkter", styles["Subsection"]),
         Paragraph(escape(_norwegian_decimal_text(deduction_text)), styles["Small"]),
-        Paragraph(f"Sporbarhet: program {APP_VERSION} · rapportskjema {REPORT_SCHEMA_VERSION} · rapport-ID {report_metadata.get('report_id') or run.get('run_id') or '-'} · generert {report_metadata.get('created_at_local') or local_display(run.get('created_at'), str(run.get('timezone_name') or DEFAULT_TIMEZONE))}.", styles["Footer"]),
-        Paragraph("Vurderinger utløper ved oppgitt tidspunkt eller tidligere ved vesentlig kurs-, kilde-, data- eller hendelsesendring.", styles["Footer"]),
+        Paragraph(
+            f"Sporbarhet: program {APP_VERSION} · rapportskjema {REPORT_SCHEMA_VERSION} · rapport-ID "
+            f"{report_metadata.get('report_id') or run.get('run_id') or '-'} · generert "
+            f"{report_metadata.get('created_at_local') or local_display(run.get('created_at'), str(run.get('timezone_name') or DEFAULT_TIMEZONE))}. "
+            "Vurderinger utløper ved oppgitt tidspunkt eller tidligere ved vesentlig kurs-, kilde-, data- eller hendelsesendring.",
+            styles["Footer"],
+        ),
     ]
 
     story = [Paragraph("AI Aksje Analyzer Pro", styles["ReportTitle"]), Paragraph(escape(report_type), styles["Section"]), meta, Spacer(1, 2*mm)]
@@ -4033,13 +4060,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             PageBreak(),
             Paragraph("Teknisk vedlegg", styles["ReportTitle"]),
             Paragraph("Full rangering, datakontrakter, kildelogger, bevis, modellbidrag, porteføljelag og revisjonsspor.", styles["BodyCompact"]),
-        ] + technical_story[2:]
+        ] + decision_audit_story + technical_story[2:]
     else:
         has_followup_content_v1924 = bool(
             run.get("candidates") or run.get("changes") or decision_tasks or decision_events
             or decision_historical or decision_diffs or decision_counter_hypotheses
         )
-        story = decision_story if has_followup_content_v1924 else decision_story[:decision_page_one_end_v1924]
+        story = (decision_story + decision_audit_story) if has_followup_content_v1924 else decision_story[:decision_page_one_end_v1924]
     doc.build(story, onFirstPage=_page, onLaterPages=_page)
     pdf_bytes = buf.getvalue()
     # ReportLab inherits the Render host timezone for PDF metadata. Rewrite the

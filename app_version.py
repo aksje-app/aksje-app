@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31c"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31c Runtime Recovery"
+APP_VERSION = "v19.22.0-rc16.31d"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31d Report and Storage Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31b"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31c"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -143,6 +143,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31d: Skiller prioritert vurderingsrekkefølge 1–3 fra den faktiske kjøpslisten, viser score og reelt Autonomi-utfall også når ingen kjøp godkjennes, komprimerer beslutningsdelen tilbake mot seks sider og fjerner dobbelt tidssone i varsler. Lagringsvedlikeholdet sletter utløpte offentlige PDF-token, reduserer ubegrenset rapport-/kjøringshistorikk og rapporterer faktisk databasebruk uten å slette portefølje, handler, beslutninger, innstillinger eller audit. Paper-skanner og rapportmotor forblir låsisolert, og testkjøringer er fortsatt blokkert fra porteføljehandlinger.",
     "v19.22.0-rc16.31b: Isolerer faste rapporttidspunkt fra skanningsvinduer og rapporttestmetadata, bygger testjobben fra en ren profil og bevarer dokumentert leveringssuksess gjennom retry og leveransetabell.",
     "v19.22.0-rc16.31a: Skiller rapport- og Paper-skannerlås, gjør Paper-status persistent med heartbeat, skann-ID og handelsspor, definerer Paper-cron i deploy, rydder midlertidige testprofiler og vurderer THEORETICAL_DECISIONS fra det faktiske beslutningssteget i stedet for uvedkommende senere kjedefeil.",
     "v19.22.0-rc16.31: Lukker den dokumenterte rapporttestfeilen: automatisk serie bruker eksplisitt neste halvtime uten sekunddrift, varig statuslagring har avgrenset retry og kan ikke maskere opprinnelig feil, og bare faktisk sendt Pushover teller som bestått. Hvert varsel viser stabil testserie-ID og automatisk 1/4–4/4, manuell test merkes separat, terminalt sammendrag sendes, rapportsenteret viser tidslinje og neste forsøk, og en rask systemkontroll verifiserer database, rapportlås, PDF, offentlig lenke og Pushover uten markedsskann eller portefølje-/læringshandling. Diagnosepakken inkluderer tidslinje, systemkontroll og Pushover-audit. Ingen kjøps-, salgs-, score-, risiko-, portefølje- eller læringsterskler er endret.",

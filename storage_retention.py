@@ -8,16 +8,16 @@ from storage_architecture import runtime_data_path
 
 STATE_KEY = "maintenance/storage_retention.json"
 STATE_PATH = runtime_data_path("maintenance", "storage_retention.json")
-KV_LIMITS = {"operations/run_traces/": 500, "investment_pipeline/runs/": 120,
-             "investment_pipeline/proposals/": 120, "market_intelligence/runs/": 90,
-             "market_intelligence/summaries/": 90, "autonomous_orchestrator/runs/": 120,
-             "autonomi_core/parallel_validation/": 120, "autonomi_core/learning_reporting/": 120,
-             "full_replay/": 180}
-JSONL_LIMITS = {"operations/run_traces.jsonl": 1000,
-                "market_intelligence/job_history.jsonl": 1000}
+KV_LIMITS = {"operations/run_traces/": 240, "investment_pipeline/runs/": 90,
+             "investment_pipeline/proposals/": 90, "market_intelligence/runs/": 60,
+             "market_intelligence/summaries/": 60, "autonomous_orchestrator/runs/": 90,
+             "autonomi_core/parallel_validation/": 90, "autonomi_core/learning_reporting/": 90,
+             "full_replay/": 60}
+JSONL_LIMITS = {"operations/run_traces.jsonl": 600,
+                "market_intelligence/job_history.jsonl": 500}
 
 def run_storage_retention() -> dict[str, Any]:
-    storage = get_storage_service(); deleted: dict[str, int] = {}
+    storage = get_storage_service(); before = storage.storage_usage_report(); deleted: dict[str, int] = {}
     names = storage.list_json_names()
     for prefix, keep in KV_LIMITS.items():
         victims = sorted((n for n in names if n.startswith(prefix)), reverse=True)[max(1, keep):]
@@ -27,9 +27,13 @@ def run_storage_retention() -> dict[str, Any]:
     for name, keep in JSONL_LIMITS.items():
         if name in logs:
             rows = storage.read_jsonl(name, limit=keep); storage.replace_jsonl(name, rows); trimmed[name] = len(rows)
+    from public_report_store import prune_expired_public_reports
+    public_reports = prune_expired_public_reports()
+    after = storage.storage_usage_report()
     state = {"state": "COMPLETED", "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
              "deleted_keys": deleted, "retained_event_rows": trimmed,
-             "protected": ["portfolio", "trades", "decisions", "settings", "audit"]}
+             "public_reports": public_reports, "usage_before": before, "usage_after": after,
+             "protected": ["portfolio", "trades", "positions", "decisions", "settings", "audit"]}
     write_json(STATE_KEY, STATE_PATH, state); return state
 
 def load_storage_retention_state() -> dict[str, Any]:

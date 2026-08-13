@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
 from durable_runtime import read_json, write_json
+from services.storage_service import get_storage_service
 from storage_architecture import runtime_data_path
 
 INDEX_KEY = "public_reports/index.json"
@@ -67,3 +68,37 @@ def load_public_pdf(token: str) -> dict[str, Any]:
     if not data.startswith(b"%PDF-"):
         return {}
     return {**dict(payload), "data": data}
+
+
+def prune_expired_public_reports(*, now: datetime | None = None) -> dict[str, int]:
+    """Remove expired/unindexed PDF payloads while retaining current links."""
+    current = (now or _now()).astimezone(timezone.utc)
+    storage = get_storage_service()
+    index = storage.read_json(INDEX_KEY, [])
+    retained: list[dict[str, Any]] = []
+    expired_tokens: set[str] = set()
+    for value in index if isinstance(index, list) else []:
+        if not isinstance(value, Mapping):
+            continue
+        token = str(value.get("token") or "").strip()
+        try:
+            expires = datetime.fromisoformat(str(value.get("expires_at") or "").replace("Z", "+00:00"))
+            expired = expires.astimezone(timezone.utc) < current
+        except Exception:
+            expired = True
+        if token and expired:
+            expired_tokens.add(token)
+        elif token:
+            retained.append(dict(value))
+    live_tokens = {str(row.get("token") or "") for row in retained[:MAX_REPORTS]}
+    deleted = 0
+    for name in storage.list_json_names():
+        if not name.startswith("public_reports/") or name == INDEX_KEY:
+            continue
+        token = Path(name).stem
+        if token in expired_tokens or token not in live_tokens:
+            existed = storage.read_json(name, None) is not None
+            storage.delete_json(name)
+            deleted += int(existed)
+    storage.write_json(INDEX_KEY, retained[:MAX_REPORTS])
+    return {"deleted_payloads": deleted, "retained_links": len(retained[:MAX_REPORTS])}
