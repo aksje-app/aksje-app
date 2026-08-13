@@ -471,6 +471,43 @@ class StorageService:
             )
         return sorted(names)
 
+    def storage_usage_report(self) -> Dict[str, Any]:
+        """Small, read-only capacity report without loading stored payloads."""
+        if self.using_postgres():
+            self.init_db(); conn = self._conn()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """SELECT COUNT(*), COALESCE(SUM(octet_length(payload)), 0),
+                              pg_total_relation_size('app_kv_store')
+                       FROM app_kv_store"""
+                )
+                kv_count, kv_payload, kv_relation = cur.fetchone()
+                cur.execute(
+                    """SELECT COUNT(*), COALESCE(SUM(octet_length(payload)), 0),
+                              pg_total_relation_size('app_jsonl_store')
+                       FROM app_jsonl_store"""
+                )
+                event_count, event_payload, event_relation = cur.fetchone()
+                cur.execute("SELECT pg_database_size(current_database())")
+                database_bytes = int(cur.fetchone()[0] or 0)
+                return {
+                    "backend": "postgres", "database_bytes": database_bytes,
+                    "kv_rows": int(kv_count or 0), "kv_payload_bytes": int(kv_payload or 0),
+                    "kv_relation_bytes": int(kv_relation or 0),
+                    "event_rows": int(event_count or 0), "event_payload_bytes": int(event_payload or 0),
+                    "event_relation_bytes": int(event_relation or 0),
+                }
+            finally:
+                conn.close()
+        self._require_local_allowed("storage_usage_report")
+        files = [path for path in self.base_dir.rglob("*") if path.is_file()]
+        return {
+            "backend": "local_json_fallback",
+            "database_bytes": sum(path.stat().st_size for path in files),
+            "file_count": len(files),
+        }
+
 
 _default_storage = StorageService()
 
