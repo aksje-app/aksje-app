@@ -48,6 +48,7 @@ LEARNING_TRADES_PATH = ROOT / "learning_trades.json"
 LEARNING_DECISIONS_PATH = ROOT / "learning_decisions.json"
 LEARNING_EQUITY_HISTORY_PATH = ROOT / "learning_equity_history.json"
 LEARNING_PERFORMANCE_PATH = ROOT / "learning_performance.json"
+LEARNING_OBSERVATIONS_PATH = ROOT / "learning_observations.json"
 LEGACY_MIXED_EQUITY_HISTORY_PATH = ROOT / "equity_history_pre_separation.json"
 LATEST_PIPELINE_PATH = runtime_data_path("investment_pipeline") / "latest_run.json"
 
@@ -69,6 +70,7 @@ _PERSISTENT_PATH_KEYS = {
     LEARNING_DECISIONS_PATH: "autonomous_portfolio/learning_decisions.json",
     LEARNING_EQUITY_HISTORY_PATH: "autonomous_portfolio/learning_equity_history.json",
     LEARNING_PERFORMANCE_PATH: "autonomous_portfolio/learning_performance.json",
+    LEARNING_OBSERVATIONS_PATH: "autonomous_portfolio/learning_observations.json",
     LEGACY_MIXED_EQUITY_HISTORY_PATH: "autonomous_portfolio/equity_history_pre_separation.json",
     LATEST_PIPELINE_PATH: "investment_pipeline/latest_run.json",
 }
@@ -536,7 +538,126 @@ def _production_blockers_for_learning(candidate: Mapping[str, Any], params: "Aut
     return list(dict.fromkeys(blockers))
 
 
-LEARNING_OUTCOME_HORIZONS = (1, 5, 10, 20, 60)
+LEARNING_OUTCOME_HORIZONS = (5, 10, 20, 60)
+
+
+def load_learning_observations(limit: int = 5000) -> list[dict[str, Any]]:
+    """Return isolated, non-trading candidate observations.
+
+    These rows are evidence for controlled learning only. They never reserve
+    cash, create an order, or enter either the ordinary or Paper portfolio.
+    """
+    rows = _read(LEARNING_OBSERVATIONS_PATH, [])
+    return [dict(row) for row in rows[:max(0, limit)] if isinstance(row, Mapping)] if isinstance(rows, list) else []
+
+
+def _update_candidate_observations(
+    candidates: Sequence[Mapping[str, Any]], decisions: Sequence[Mapping[str, Any]],
+    run_id: str, market_snapshot: Mapping[str, Any] | None,
+) -> dict[str, int]:
+    rows = load_learning_observations()
+    params = load_parameters().normalized()
+    # Production decisions are passed first and must win over an optional
+    # LEARNING_ONLY decision for the same ticker.
+    decision_by_ticker: dict[str, dict[str, Any]] = {}
+    for row in decisions:
+        if not isinstance(row, Mapping):
+            continue
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker and ticker not in decision_by_ticker:
+            decision_by_ticker[ticker] = dict(row)
+    candidate_by_ticker = {
+        str(row.get("ticker") or "").upper(): dict(row) for row in candidates if isinstance(row, Mapping) and row.get("ticker")
+    }
+    today = str((market_snapshot or {}).get("market_date") or (market_snapshot or {}).get("as_of_date") or _now()[:10])[:10]
+    updated = matured = 0
+    # Update every still-open cohort with a current price when the ticker is present.
+    for obs in rows:
+        if obs.get("status") == "CLOSED":
+            continue
+        candidate = candidate_by_ticker.get(str(obs.get("ticker") or "").upper())
+        if not candidate:
+            continue
+        price = _candidate_price(candidate)
+        if price <= 0:
+            continue
+        dates = list(obs.get("evaluation_dates") or [])
+        if today and today not in dates:
+            dates.append(today)
+        obs["evaluation_dates"] = dates[-120:]
+        obs["observation_days"] = len(dates)
+        obs["last_price"] = round(price, 4)
+        obs["last_evaluated_at"] = _now()
+        entry = _f(obs.get("entry_price"), price)
+        obs["highest_price"] = round(max(_f(obs.get("highest_price"), entry), price), 4)
+        obs["lowest_price"] = round(min(_f(obs.get("lowest_price"), entry), price), 4)
+        obs["maximum_gain_pct"] = round((obs["highest_price"] / entry - 1) * 100, 4) if entry else 0.0
+        obs["maximum_drawdown_pct"] = round((obs["lowest_price"] / entry - 1) * 100, 4) if entry else 0.0
+        current_return = round((price / entry - 1) * 100, 4) if entry else 0.0
+        peak_drawdown = round((price / _f(obs.get("highest_price"), price) - 1) * 100, 4)
+        simulated_exits = dict(obs.get("simulated_exit_outcomes") or {})
+        exit_rules = (
+            ("STOP_LOSS", current_return <= -params.stop_loss_pct, f"Avkastning {current_return:.2f}% <= -{params.stop_loss_pct:.2f}%"),
+            ("TAKE_PROFIT", current_return >= params.take_profit_pct, f"Avkastning {current_return:.2f}% >= {params.take_profit_pct:.2f}%"),
+            ("TRAILING_STOP", peak_drawdown <= -params.trailing_stop_pct, f"Fall fra topp {peak_drawdown:.2f}% <= -{params.trailing_stop_pct:.2f}%"),
+        )
+        for rule, triggered, reason in exit_rules:
+            if triggered and rule not in simulated_exits:
+                simulated_exits[rule] = {
+                    "triggered_at": _now(), "market_date": today,
+                    "price": round(price, 4), "return_pct": current_return,
+                    "reason": reason, "production_applied": False,
+                }
+        obs["simulated_exit_outcomes"] = simulated_exits
+        measurements = list(obs.get("outcome_measurements") or [])
+        measured = {int(item.get("horizon_days") or 0) for item in measurements if isinstance(item, Mapping)}
+        for horizon in LEARNING_OUTCOME_HORIZONS:
+            if len(dates) >= horizon and horizon not in measured:
+                measurements.append({
+                    "horizon_days": horizon, "measured_at": _now(), "market_date": today,
+                    "price": round(price, 4),
+                    "return_pct": round((price / entry - 1) * 100, 4) if entry else 0.0,
+                    "maximum_gain_pct": obs["maximum_gain_pct"],
+                    "maximum_drawdown_pct": obs["maximum_drawdown_pct"],
+                })
+                matured += 1
+        obs["outcome_measurements"] = measurements
+        if 60 in {int(item.get("horizon_days") or 0) for item in measurements if isinstance(item, Mapping)}:
+            obs["status"] = "MATURED"
+        updated += 1
+    # One cohort per ticker and source run; retries are therefore idempotent.
+    existing = {(str(row.get("ticker") or "").upper(), str(row.get("source_run_id") or "")) for row in rows}
+    created = 0
+    for ticker, candidate in candidate_by_ticker.items():
+        if (ticker, run_id) in existing:
+            continue
+        price = _candidate_price(candidate)
+        if price <= 0:
+            continue
+        decision = decision_by_ticker.get(ticker, {})
+        action = str(decision.get("action") or "OBSERVE").upper()
+        outcome = "PRODUCTION_BUY" if action == "BUY" else ("MONITOR" if action in {"WAIT", "HOLD", "OBSERVE"} else "REJECTED")
+        rows.insert(0, {
+            "observation_id": f"LO-{run_id}-{ticker}", "ticker": ticker, "created_at": _now(),
+            "source_run_id": run_id, "program_version": APP_VERSION, "status": "OPEN",
+            "decision_outcome": outcome, "decision_action": action,
+            "decision_reason": str(decision.get("reason") or "Ingen eksplisitt beslutningsrad"),
+            "entry_price": round(price, 4), "last_price": round(price, 4),
+            "highest_price": round(price, 4), "lowest_price": round(price, 4),
+            "maximum_gain_pct": 0.0, "maximum_drawdown_pct": 0.0,
+            "entry_score": round(_candidate_entry_score(candidate), 2),
+            "entry_risk": round(_candidate_risk(candidate), 2),
+            "entry_data_quality": round(_candidate_quality(candidate), 2),
+            "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
+            "evaluation_dates": [today] if today else [], "observation_days": 1 if today else 0,
+            "outcome_measurements": [], "production_applied": False,
+            "simulated_exit_outcomes": {},
+            **_candidate_snapshot_metadata(candidate, market_snapshot),
+        })
+        created += 1
+    # Keep detailed recent cohorts bounded; matured aggregate evidence remains in each row.
+    _write(LEARNING_OBSERVATIONS_PATH, rows[:2000])
+    return {"created": created, "updated": updated, "matured_measurements": matured, "total": min(len(rows), 2000)}
 
 
 def _record_learning_outcome_measurement(position: dict[str, Any], candidate: Mapping[str, Any], price: float) -> None:
@@ -1388,6 +1509,7 @@ def run_autonomous_cycle(
     _write(LEARNING_PORTFOLIO_PATH, learning_portfolio)
     decisions = _attach_snapshot_metadata(decisions, candidate_map, market_snapshot_row)
     learning_decisions = _attach_snapshot_metadata(learning_decisions, candidate_map, market_snapshot_row)
+    observation_progress = _update_candidate_observations(candidates, decisions + learning_decisions, run_id, market_snapshot_row)
     _record_decisions(decisions)
     _record_learning_decisions(learning_decisions)
     _append_equity_history(portfolio, run_id, trades=len(trades), decisions=len(decisions))
@@ -1540,7 +1662,7 @@ def run_autonomous_cycle(
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity, "full_replay": replay_snapshot_result, "replay_level": replay_snapshot_result.get("replay_level", "DECISION_REPLAY")}
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "learning_observations": observation_progress, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity, "full_replay": replay_snapshot_result, "replay_level": replay_snapshot_result.get("replay_level", "DECISION_REPLAY")}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:

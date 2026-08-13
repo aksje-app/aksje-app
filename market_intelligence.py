@@ -3493,7 +3493,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         priority_candidates = hydrated_priority
         shortlist_mode = "BUY_RECOMMENDATIONS_ONLY"
         medal_candidates = priority_candidates
-        shortlist_heading = f"Kjøpsanbefalinger 1-3 ({len(medal_candidates)} kandidat(er))"
+        shortlist_heading = f"Kjøpsgodkjente kandidater ({len(medal_candidates)})"
         shortlist_labels = [f"PRIORITET {index}" for index in range(1, len(medal_candidates) + 1)]
         shortlist_note = (
             "Rangeringen viser bare aksjer som er endelig kjøpsgodkjent av data-, evidens-, portefølje- og risikoportene. "

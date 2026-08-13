@@ -41,7 +41,7 @@ REPORT_SPECS: dict[str, ReportSpec] = {
         "Oppsummer hendelser siden forrige markedsslutt og gjør kandidater, risiko og dagens hendelser klare før åpning.",
     ),
     "DAGSRAPPORT": ReportSpec(
-        "DAGSRAPPORT", "Dagsrapport", "Dagsrapport",
+        "DAGSRAPPORT", "Ettermiddagsrapport", "Ettermiddagsrapport",
         "MONITOR_INTRADAY", "Overvåk utviklingen intradag",
         "Forklar markedsbevegelser siden åpning og identifiser kandidater, risiko eller datagrunnlag som har endret seg.",
     ),
@@ -69,7 +69,7 @@ REPORT_SPECS: dict[str, ReportSpec] = {
 
 PERIOD_LABELS = {
     "MORGENRAPPORT": "Morgenrapport",
-    "DAGSRAPPORT": "Dagsrapport",
+    "DAGSRAPPORT": "Ettermiddagsrapport",
     "KVELDSRAPPORT": "Kveldsrapport",
     "NATTRAPPORT": "Nattrapport",
 }

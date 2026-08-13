@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31d"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31d Report and Storage Closure"
+APP_VERSION = "v19.22.0-rc16.31e"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31e Observable Autonomy Learning"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31c"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31d"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -39,6 +39,11 @@ STRATEGY_OUTCOME_SERVICE_VERSION = "1.0"
 STRATEGY_PROMOTION_SERVICE_VERSION = "1.0"
 PRODUCTION_STRATEGY_ROUTER_VERSION = "1.0"
 VERSION_CONTRACT_SCHEMA = "1.0"
+
+
+def get_app_version() -> str:
+    """Compatibility accessor used by modular services."""
+    return APP_VERSION
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31e: Autonomi samler nå isolerte, ikke-handlende observasjoner for alle vurderte kandidater og måler faktisk utfall etter 5, 10, 20 og 60 handelsdager. Modne observasjoner kan opprette en avgrenset skyggehypotese uten å svekke produksjonsporter eller endre parametere automatisk. Læringsvarsler sendes bare ved endring eller ukentlig livstegn. Ettermiddagsrapporten navngis konsekvent, og den faktiske kjøpslisten heter Kjøpsgodkjente kandidater. Detaljobservasjoner er idempotente og avgrenset til 2 000 rader; portefølje, handler, beslutninger og audit slettes ikke.",
     "v19.22.0-rc16.31d: Skiller prioritert vurderingsrekkefølge 1–3 fra den faktiske kjøpslisten, viser score og reelt Autonomi-utfall også når ingen kjøp godkjennes, komprimerer beslutningsdelen tilbake mot seks sider og fjerner dobbelt tidssone i varsler. Lagringsvedlikeholdet sletter utløpte offentlige PDF-token, reduserer ubegrenset rapport-/kjøringshistorikk og rapporterer faktisk databasebruk uten å slette portefølje, handler, beslutninger, innstillinger eller audit. Paper-skanner og rapportmotor forblir låsisolert, og testkjøringer er fortsatt blokkert fra porteføljehandlinger.",
     "v19.22.0-rc16.31b: Isolerer faste rapporttidspunkt fra skanningsvinduer og rapporttestmetadata, bygger testjobben fra en ren profil og bevarer dokumentert leveringssuksess gjennom retry og leveransetabell.",
     "v19.22.0-rc16.31a: Skiller rapport- og Paper-skannerlås, gjør Paper-status persistent med heartbeat, skann-ID og handelsspor, definerer Paper-cron i deploy, rydder midlertidige testprofiler og vurderer THEORETICAL_DECISIONS fra det faktiske beslutningssteget i stedet for uvedkommende senere kjedefeil.",
@@ -315,27 +321,4 @@ CHANGELOG = [
     "v18.6.63: Navigation Repair: menyklikk rydder gammel Long Engine-state før nytt panel åpnes; Dashboard/Analyse/Top Picks/Long/AI/System skal ikke låses til Long. Long Engine-søk får progressbar.",
     "v18.6.62: Long Engine får aktiv horisontvelger 1M/3M/6M med standard 3M, manuelle confidence-terskler, rangering etter valgt horisont og strammere grønn/gul/rød-kalibrering.",
     "v18.6.61: Navigation Session Lock Fix: URL-panel låser ikke lenger appen til Long Engine; venstremeny og Lukk oppgave skal fungere uten ny login, mens refresh/new login fortsatt huskes via fil-state.",
-    "v18.6.60: Navigation Hotfix: menyknapper holder login/session, layout er komprimert, Long Engine confidence/risiko kalibrert og Paper Trading får stop-loss cooldown.",
-    "v18.6.59: Navigation State Fix: venstremenyen bruker ekte URL-lenker slik at Dashboard, Analyse, Top Picks, AI og System reagerer igjen samtidig som Long Engine og persistent state beholdes.",
-    "v18.6.58: Persistent UI State slik at refresh beholder aktiv side/motor og Long Engine kan lese siste resultater fra cache.",
-    "v18.6.57: Long Engine Decision View med 1M/3M/6M-horisonter, kompakt/detaljvisning, tydelig land/børs/sektor, datakvalitet, exclusive-badge og forbedret kandidatforklaring.",
-    "v18.6.56: Long Engine Professional Table med land/flagg, selskapsnavn, børs, sektor, kompakte kolonner, filtre for land/sektor/risiko/exclusive og bedre kandidatkort.",
-    "v18.6.54: Long Engine flyttet til egen hovedgruppe, venstre/mobilknapp åpner direkte, kandidatkort, confidence/risiko/forklaring og CSV/Excel/Print-PDF/JSON eksport lagt til.",
-    "v18.6.53: Long Engine Alpha gjort synlig i UI med egen Kontrollsenter-fane, kjør-knapp, Top Long USA Alpha-tabell og overlap-score mot Top Picks.",
-    "v18.6.50: Venstremeny bygget om til ekte Streamlit-knapper; HTML-kort som så klikkbare ut, men var døde, er fjernet fra sidebar-renderingen; Admin/Drift ligger fortsatt i toppmeny.",
-    "v18.6.49: Admin/Drift fjernet helt fra venstremeny etter TRACE; Admin/Drift styres kun fra toppmenyen; sidebar trace fjernet.",
-    "v18.6.47: Admin/Drift flyttet ut av sidebar til toppmeny; Auto/Paper Trading-status vises i toppstatus; sidebar holdes ren; runtime/cache ryddet uten å slette viktige tjenestedata.",
-    "v18.6.46: Mobil bunnmeny bruker ekte lenker/query-param og setter Kontrollsenter-state; Admin/Drift-sidebar bredde/tekstklipping strammet opp; KPI debug skjult bak kpi_debug=1.",
-    "v18.6.45: Midlertidig KPI DEBUG-panel viste råfelt, kilde, snapshot og klassifisering fra Top Picks/ranking.",
 ]
-
-def get_app_version():
-    return APP_VERSION
-
-
-def get_app_version_label():
-    return APP_VERSION
-
-
-def get_app_build_label():
-    return APP_BUILD_LABEL

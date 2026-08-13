@@ -33,7 +33,8 @@ def run_storage_retention() -> dict[str, Any]:
     state = {"state": "COMPLETED", "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
              "deleted_keys": deleted, "retained_event_rows": trimmed,
              "public_reports": public_reports, "usage_before": before, "usage_after": after,
-             "protected": ["portfolio", "trades", "positions", "decisions", "settings", "audit"]}
+             "protected": ["portfolio", "trades", "positions", "decisions", "settings", "audit",
+                           "bounded_learning_observations"]}
     write_json(STATE_KEY, STATE_PATH, state); return state
 
 def load_storage_retention_state() -> dict[str, Any]:
