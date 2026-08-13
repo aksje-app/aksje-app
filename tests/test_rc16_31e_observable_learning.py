@@ -14,8 +14,8 @@ def _candidate(ticker="AAA", price=100.0, score=70.0):
 
 
 def test_release_identity_is_explicit():
-    assert APP_VERSION == "v19.22.0-rc16.31e"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31d"
+    assert APP_VERSION == "v19.22.0-rc16.31f"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31e"
 
 
 def test_observations_are_isolated_idempotent_and_mature(monkeypatch):
