@@ -1,0 +1,24 @@
+{
+  "version": "v19.22.0-rc16.31d",
+  "base_version": "v19.22.0-rc16.31c",
+  "changed_files": [
+    "app_version.py",
+    "market_intelligence.py",
+    "public_report_store.py",
+    "services/storage_service.py",
+    "storage_retention.py",
+    "tests/test_rc16_31c_runtime_recovery.py",
+    "tests/test_rc16_31d_report_storage_closure.py",
+    "tests/test_v1921_decision_report.py",
+    "tests/test_v19220_rc1631b_report_schedule_isolation.py",
+    "RELEASE_NOTES_v19.22.0_RC16.31d.md",
+    "ACCEPTANCE_v19.22.0_RC16.31d.md",
+    "DEPLOY_v19.22.0_RC16.31d.md",
+    "CHANGE_INVENTORY_v19.22.0_RC16.31d.json",
+    "DISTRIBUTION_MANIFEST.json"
+  ],
+  "deleted_files": [],
+  "protected_runtime_data": [
+    "portfolio", "positions", "trades", "decisions", "settings", "audit"
+  ]
+}
