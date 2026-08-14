@@ -741,13 +741,16 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     # evidence search was started for their rank.
     evidence_order = [item.ticker.upper() for item in preliminary[: cfg.evidence_analysis_count]]
     evidence_tickers = set(evidence_order)
-    evidence_rows = [
-        source_by_ticker[ticker]
-        for ticker in evidence_order
-        if ticker in source_by_ticker and not bool(source_by_ticker[ticker].get("analysis_quarantine"))
-    ]
+    # A data quarantine may block a trading decision, but must not silently
+    # suppress the very evidence collection that can explain or clear it.
+    # Keep the bounded rank/budget guard, and attempt evidence for every
+    # selected candidate.  Decision gating remains unchanged.
+    evidence_rows = [source_by_ticker[ticker] for ticker in evidence_order if ticker in source_by_ticker]
     for row in evidence_rows:
         row["analysis_stage"] = "EVIDENCE_CONTROLLED"
+        if bool(row.get("analysis_quarantine")):
+            row["evidence_quarantine_override"] = True
+            row["evidence_refresh_reason"] = "TOP_RANKED_MINIMUM"
         # Only this bounded top-ranked set may spend the per-report NewsAPI
         # budget. Other consumers retain the conservative fallback policy.
         row["newsapi_priority"] = True
@@ -767,15 +770,9 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             )
     for row in extended_source_rows:
         ticker = str(row.get("ticker") or "").upper()
-        quarantined = bool(row.get("analysis_quarantine"))
-        if ticker not in evidence_tickers or quarantined:
-            reason = (
-                "Kandidaten var prioritert, men automatisk evidenskontroll ble stoppet av datakarantene; "
-                "programmet forsøker igjen ved neste relevante kjøring."
-                if quarantined and ticker in evidence_tickers
-                else "Ikke prioritert til full evidenskontroll etter rask og utvidet rangering; programmet vurderer kandidaten på nytt senere."
-            )
-            reason_code = "DATA_QUARANTINE" if quarantined and ticker in evidence_tickers else "RANK_LIMIT"
+        if ticker not in evidence_tickers:
+            reason = "Ikke prioritert til full evidenskontroll etter rask og utvidet rangering; programmet vurderer kandidaten på nytt senere."
+            reason_code = "RANK_LIMIT"
             if cfg.use_insider_intelligence:
                 _mark_intelligence_not_searched(row, "insider", reason, reason_code=reason_code)
             else:
@@ -831,6 +828,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         return attempted or status in terminal
 
     stage3_completed_tickers: set[str] = set()
+    evidence_diagnostics: list[dict[str, Any]] = []
     for row in evidence_rows:
         ticker_key = str(row.get("ticker") or "").upper()
         complete = (
@@ -840,6 +838,18 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         row["evidence_control_completed"] = complete
         if complete and ticker_key:
             stage3_completed_tickers.add(ticker_key)
+        news_payload = row.get("news_intelligence") if isinstance(row.get("news_intelligence"), Mapping) else {}
+        insider_payload = row.get("insider_intelligence") if isinstance(row.get("insider_intelligence"), Mapping) else {}
+        evidence_diagnostics.append({
+            "ticker": ticker_key,
+            "rank_selected": evidence_order.index(ticker_key) + 1 if ticker_key in evidence_order else None,
+            "completed": complete,
+            "news_status": str(news_payload.get("coverage") or news_payload.get("status") or "NOT_SEARCHED").upper(),
+            "insider_status": str(insider_payload.get("coverage") or insider_payload.get("status") or "NOT_SEARCHED").upper(),
+            "news_attempted": any(isinstance(item, Mapping) and bool(item.get("attempted")) for item in news_payload.get("search_log") or []),
+            "insider_attempted": any(isinstance(item, Mapping) and bool(item.get("attempted")) for item in insider_payload.get("search_log") or []),
+            "quarantine_override": bool(row.get("evidence_quarantine_override")),
+        })
 
     final_source_rows: list[dict[str, Any]] = []
     for row in extended_source_rows:
@@ -929,6 +939,14 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
                 "completion_rule": "Faktisk kildeforsøk eller eksplisitt terminal kilde-/støttestatus for alle aktiverte evidensområder",
             },
         },
+        "evidence_observability": {
+            "selected": len(evidence_order),
+            "attempted_or_terminal": len(stage3_completed_tickers),
+            "coverage_pct": round(100.0 * len(stage3_completed_tickers) / max(1, len(evidence_order)), 1),
+            "top3_complete": all(ticker in stage3_completed_tickers for ticker in evidence_order[:3]),
+            "top3_tickers": evidence_order[:3],
+            "candidates": evidence_diagnostics,
+        },
         "universe_contract": universe_contract,
         "sector_selection": sector_selection,
         "selection_trace": selection_trace,
@@ -943,7 +961,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "loader_diagnostics": {
             "prepared_count": len(sanitized_rows), "scored_count": len(assessments), "skipped_count": len(candidate_errors),
             "analysis_quarantine_count": sum(bool(row.get("analysis_quarantine")) for row in extended_source_rows),
-            "analysis_quarantine_effect": "Dyr insider-/nyhetsinnhenting hoppes over; kandidaten kan fortsatt hurtigvurderes",
+            "analysis_quarantine_effect": "Beslutningen blokkeres, men prioritert evidensinnhenting forsøkes innenfor eksisterende budsjett",
             "stage1_screened_out": len(screened_out_rows),
         },
     }

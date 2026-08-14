@@ -258,7 +258,7 @@ def _render_report_link(url: Any) -> bool:
     st.markdown(
         '<a class="autonomy-report-link-v1901" '
         f'href="{escape(safe_url, quote=True)}" target="_blank" rel="noopener noreferrer" '
-        'aria-label="Åpne offentlig PDF i ny fane">↗ Åpne offentlig PDF</a>',
+        'aria-label="Åpne offentlig PDF utenfor appen">↗ Ekstern PDF (kan forlate appen)</a>',
         unsafe_allow_html=True,
     )
     return True
@@ -270,9 +270,9 @@ def _render_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any], *,
     if not delivery.get("ok"):
         st.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes fra rapportdataene."))
         return False
-    left, middle, right = st.columns(3)
+    left, middle = st.columns(2)
     left.download_button(
-        "📄 Last ned PDF",
+        "📄 Last ned PDF – kan deles",
         data=delivery["data"],
         file_name=delivery["filename"],
         mime="application/pdf",
@@ -287,11 +287,13 @@ def _render_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any], *,
         key=f"{key}_json",
         width="stretch",
     )
+    st.caption("På mobil: bruk Last ned PDF for å beholde appen åpen og dele filen fra telefonens delingsmeny.")
     if delivery.get("url"):
-        with right:
+        with st.expander("Ekstern offentlig PDF", expanded=False):
+            st.warning("Denne lenken kan åpne rapporten utenfor appen på iPhone/PWA. Bruk nettleserens tilbakeknapp for å returnere.")
             _render_report_link(delivery["url"])
     else:
-        right.caption("Offentlig rapportlenke er ikke tilgjengelig. PDF kan fortsatt lastes ned direkte.")
+        st.caption("Offentlig rapportlenke er ikke tilgjengelig; den nedlastede PDF-filen kan fortsatt deles.")
     status = "Regenerert og validert" if delivery.get("regenerated") else "Generert og validert"
     st.caption(f"PDF-status: {status} · rapport-ID {run.get('run_id') or '-'}")
     return True
@@ -552,9 +554,27 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             comparison = dict(parallel.get("comparison") or {})
             candidate_cmp = dict(comparison.get("candidates") or {})
             decision_cmp = dict(comparison.get("decisions") or {})
-            st.info(f"Shadow Mode {parallel.get('version')}: gammel kjede er autoritativ · kandidatoverlapping {candidate_cmp.get('jaccard_pct', 0)} % · beslutningssamsvar {decision_cmp.get('agreement_pct', 0)} %")
+            gate = dict(parallel.get("validation_gate") or {})
+            shadow_summary = (
+                f"Shadow Mode {parallel.get('version')}: gammel kjede er autoritativ · "
+                f"kandidatoverlapping {candidate_cmp.get('jaccard_pct', 0)} % · "
+                f"beslutningssamsvar {decision_cmp.get('agreement_pct', 0)} %"
+            )
+            if gate.get("status") == "RED":
+                st.error("🔴 " + shadow_summary + " · aktivering sperret")
+                for warning in gate.get("warnings") or []:
+                    st.caption(str(warning))
+            elif gate.get("status") == "YELLOW":
+                st.warning("🟡 " + shadow_summary + " · avvik krever forklaring")
+            else:
+                st.success("🟢 " + shadow_summary)
             with st.expander("Vis Parallel Validation", expanded=False):
-                st.json({"autoritet": parallel.get("authoritative_chain"), "modus": parallel.get("mode"), "sammenligning": comparison})
+                st.json({"autoritet": parallel.get("authoritative_chain"), "modus": parallel.get("mode"), "kontrollport": gate})
+                decision_diff = list(decision_cmp.get("diff") or [])
+                if decision_diff:
+                    st.dataframe(pd.DataFrame(decision_diff), width="stretch", hide_index=True)
+                else:
+                    st.caption("Ingen kandidatvis beslutningsdiff er tilgjengelig for denne eldre kjøringen.")
         discovery_learning = dict(latest.get("controlled_discovery_learning") or {})
         if discovery_learning:
             created = list(discovery_learning.get("created_challengers") or [])

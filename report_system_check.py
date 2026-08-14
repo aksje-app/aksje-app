@@ -25,6 +25,58 @@ def _row(name: str, status: str, detail: str) -> dict[str, str]:
     return {"name": name, "status": status, "detail": str(detail)[:1000]}
 
 
+def _operational_observability_checks() -> list[dict[str, str]]:
+    """Read-only production signals kept separate from the legacy quick check."""
+    rows: list[dict[str, str]] = []
+
+    try:
+        from paper_scanner_runtime import load_scanner_status, scanner_worker_is_stale
+        scanner = load_scanner_status()
+        stale = scanner_worker_is_stale(45)
+        rows.append(_row(
+            "Paper-skanner", "WARN" if stale else "PASS",
+            ("Heartbeat mangler eller er eldre enn 45 minutter" if stale else
+             f"Heartbeat OK · siste vellykkede skann {scanner.get('last_successful_scan_at') or '-'}"),
+        ))
+    except Exception as exc:
+        rows.append(_row("Paper-skanner", "FAIL", f"{type(exc).__name__}: {exc}"))
+
+    try:
+        from autonomi_core.runtime.parallel_validation import load_latest_parallel_validation
+        parallel = load_latest_parallel_validation()
+        gate = dict(parallel.get("validation_gate") or {})
+        gate_state = str(gate.get("status") or "UNKNOWN").upper()
+        rows.append(_row(
+            "Shadow-avviksport", "FAIL" if gate_state == "RED" else "WARN" if gate_state in {"YELLOW", "UNKNOWN"} else "PASS",
+            "; ".join(str(item) for item in gate.get("warnings") or []) or f"Status {gate_state}",
+        ))
+    except Exception as exc:
+        rows.append(_row("Shadow-avviksport", "FAIL", f"{type(exc).__name__}: {exc}"))
+
+    try:
+        latest = read_json("investment_pipeline/latest_run.json", runtime_data_path("investment_pipeline", "latest_run.json"), {}) or {}
+        evidence = dict(latest.get("evidence_observability") or {})
+        coverage = float(evidence.get("coverage_pct") or 0.0)
+        top3 = bool(evidence.get("top3_complete"))
+        rows.append(_row(
+            "Kandidatevidens", "PASS" if coverage >= 80.0 and top3 else "WARN",
+            f"Dekning {coverage:.1f}% · topp 3 {'fullført' if top3 else 'ufullstendig'} · kjøring {latest.get('run_id') or '-'}",
+        ))
+    except Exception as exc:
+        rows.append(_row("Kandidatevidens", "FAIL", f"{type(exc).__name__}: {exc}"))
+
+    try:
+        from storage_retention import load_storage_retention_state
+        retention = load_storage_retention_state()
+        rows.append(_row(
+            "Lagringsretensjon", "PASS" if retention.get("completed_at") else "WARN",
+            f"Sist fullført {retention.get('completed_at') or 'ikke registrert'}",
+        ))
+    except Exception as exc:
+        rows.append(_row("Lagringsretensjon", "FAIL", f"{type(exc).__name__}: {exc}"))
+    return rows
+
+
 def run_report_system_check(*, send_notification: bool = True) -> dict[str, Any]:
     """Verify the delivery chain without scanning markets or changing portfolios."""
     started = _now()
@@ -97,6 +149,31 @@ def run_report_system_check(*, send_notification: bool = True) -> dict[str, Any]
         "summary": {"passed": sum(row["status"] == "PASS" for row in rows), "failed": len(failed), "warnings": len(warned)},
         "safe_scope": "NO_MARKET_SCAN_NO_PORTFOLIO_ACTION_NO_LEARNING_ACTION",
     }
+    try:
+        write_json(STATE_KEY, STATE_PATH, result)
+    except Exception as exc:
+        result["state"] = "FAIL"
+        result["persistence_error"] = f"{type(exc).__name__}: {exc}"
+    return result
+
+
+def run_full_system_check(*, send_notification: bool = True) -> dict[str, Any]:
+    """Run the compatible quick check plus read-only operational watchdogs."""
+    result = run_report_system_check(send_notification=send_notification)
+    rows = list(result.get("checks") or []) + _operational_observability_checks()
+    failed = [row for row in rows if row.get("status") == "FAIL"]
+    warned = [row for row in rows if row.get("status") == "WARN"]
+    result.update({
+        "state": "FAIL" if failed else ("DEGRADED" if warned else "PASS"),
+        "completed_at": _now(),
+        "checks": rows,
+        "summary": {
+            "passed": sum(row.get("status") == "PASS" for row in rows),
+            "failed": len(failed),
+            "warnings": len(warned),
+        },
+        "scope": "DELIVERY_PLUS_OPERATIONAL_OBSERVABILITY_READ_ONLY",
+    })
     try:
         write_json(STATE_KEY, STATE_PATH, result)
     except Exception as exc:

@@ -5929,12 +5929,12 @@ def render_market_intelligence() -> None:
                 st.success("Testmodus er slått av. En allerede startet rapport får fullføre; eventuelle posisjoner er kun LEARNING_ONLY.")
                 _rerun_reports_v19220_rc11(st)
             st.info("Automatisk sikkerhetsstopp: etter fire vellykkede automatiske tester, tre feil eller fire timer.")
-            from report_system_check import load_report_system_check, run_report_system_check
-            st.markdown("###### 🩺 Rask systemkontroll")
+            from report_system_check import load_report_system_check, run_full_system_check
+            st.markdown("###### 🩺 Full systemkontroll")
             st.caption("Tester database, rapportlås, PDF-motor, offentlig lenke og Pushover uten markedsskann, porteføljehandling eller læringshandling.")
             if st.button("Kjør systemkontroll", key="mi_report_system_check_v19220_rc1631"):
                 with st.spinner("Kontrollerer rapportleveransen …"):
-                    st.session_state["mi_report_system_check_result_v19220_rc1631"] = run_report_system_check(send_notification=True)
+                    st.session_state["mi_report_system_check_result_v19220_rc1631"] = run_full_system_check(send_notification=True)
             system_check = dict(st.session_state.get("mi_report_system_check_result_v19220_rc1631") or load_report_system_check() or {})
             if system_check:
                 check_state = str(system_check.get("state") or "UKJENT")
@@ -6383,17 +6383,19 @@ def render_market_intelligence() -> None:
             e1,e2 = st.columns(2)
             if delivery.get("ok"):
                 e1.download_button(
-                    "Last ned PDF – behold appen åpen", delivery["data"],
+                    "Last ned PDF – behold appen åpen og del filen", delivery["data"],
                     file_name=delivery["filename"], mime="application/pdf",
                     width="stretch", key="mi_download_pdf_v19132",
                 )
                 if delivery.get("url"):
                     safe_url = html_escape(str(delivery["url"]), quote=True)
-                    e1.markdown(
-                        f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">Åpne offentlig PDF i ny fane</a>',
-                        unsafe_allow_html=True,
-                    )
-                e1.caption("På mobil: bruk nedlastingsknappen for å beholde appøkten og navigasjonen.")
+                    with e1.expander("Ekstern offentlig PDF", expanded=False):
+                        st.warning("På iPhone/PWA kan denne lenken forlate appen. Bruk nedlastingsknappen over når rapporten skal deles.")
+                        st.markdown(
+                            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">Åpne ekstern PDF</a>',
+                            unsafe_allow_html=True,
+                        )
+                e1.caption("På mobil: last ned filen for å beholde appøkten; del deretter PDF-en fra telefonens delingsmeny.")
             else:
                 e1.error(str(delivery.get("error") or "PDF-rapporten er ikke tilgjengelig."))
             ensure_report_document(latest)
@@ -6590,7 +6592,7 @@ def render_market_intelligence() -> None:
                 delivery = resolve_report_delivery(saved_run, row)
                 json_data = json_path.read_bytes() if json_path.exists() else (json.dumps(saved_run, ensure_ascii=False, indent=2, default=str).encode("utf-8") if saved_run else None)
                 if delivery.get("ok"):
-                    a.download_button("📄 Last ned PDF", data=delivery["data"], file_name=delivery["filename"],
+                    a.download_button("📄 Last ned PDF – kan deles", data=delivery["data"], file_name=delivery["filename"],
                                       mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", width="stretch")
                 else:
                     a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
