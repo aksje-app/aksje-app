@@ -20,6 +20,7 @@ from app_version import APP_VERSION
 VERSION = APP_VERSION
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = 24 * 3600
+INSIDER_CACHE_SCHEMA_VERSION = 2
 MAX_WORKERS = 4
 _CACHE_LOCK = threading.RLock()
 
@@ -50,7 +51,10 @@ def _save_cache(data: Mapping[str, Any]) -> None:
 def _store_cached_result(ticker: str, result: Mapping[str, Any]) -> None:
     with _CACHE_LOCK:
         cache = _load_cache()
-        cache[ticker] = {"cached_at": time.time(), "result": dict(result)}
+        cache[ticker] = {
+            "cached_at": time.time(), "schema_version": INSIDER_CACHE_SCHEMA_VERSION,
+            "app_version": APP_VERSION, "result": dict(result),
+        }
         _save_cache(cache)
 
 
@@ -98,13 +102,8 @@ def _parse_date(value: Any) -> datetime | None:
 
 
 def _transaction_type(row: Mapping[str, Any]) -> str:
-    text = " ".join(str(_pick(row, x) or "") for x in ("transaction", "text", "type", "transaction type")).lower()
-    shares = _f(_pick(row, "shares", "shares traded", "position change"), 0.0)
-    if any(x in text for x in ("sale", "sell", "disposed", "disposition")) or shares < 0:
-        return "SELL"
-    if any(x in text for x in ("purchase", "buy", "acquired", "acquisition")) or shares > 0:
-        return "BUY"
-    return "OTHER"
+    from insider_transaction_semantics import transaction_type
+    return transaction_type(row)
 
 
 def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days: int = 90) -> dict[str, Any]:
@@ -207,9 +206,10 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
     cached_logs = (cached.get("result") or {}).get("search_log") if cached else []
     brazil_primary_cached = any("CVM" in str(row.get("source") or "") for row in cached_logs or [])
     direct_primary_cached = any(bool(row.get("direct_primary_source_checked")) for row in cached_logs or [])
-    requires_direct_primary = str(market or "") in {"Norge", "Sverige", "Finland", "Danmark"}
+    requires_direct_primary = str(market or "") in {"Norge", "Sverige", "Finland", "Danmark", "USA"}
     cache_has_required_primary = (market != "Brasil" or brazil_primary_cached) and (not requires_direct_primary or direct_primary_cached)
-    if cached and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and cached_logs and cache_has_required_primary:
+    cache_schema_current = bool(cached and int(_f(cached.get("schema_version"), 0)) == INSIDER_CACHE_SCHEMA_VERSION)
+    if cached and cache_schema_current and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and cached_logs and cache_has_required_primary:
         result = dict(cached.get("result") or {})
         source = source_for_market(market)
         result.setdefault("currency", source.get("currency", ""))
@@ -320,6 +320,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
     })
     verified_rows.extend(provider_rows)
 
+    sec: dict[str, Any] = {}
     if str(market or "") == "USA":
         try:
             from sec_form4_source import fetch_sec_form4
@@ -331,9 +332,11 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "error": str(exc)[:500], "transactions": [],
             }
-        search_log.append({key: sec.get(key) for key in (
+        sec_attempt = {key: sec.get(key) for key in (
             "source", "source_type", "attempted", "status", "results", "filings_found", "checked_at", "error"
-        )})
+        )}
+        sec_attempt["direct_primary_source_checked"] = bool(sec.get("attempted"))
+        search_log.append(sec_attempt)
         verified_rows.extend(
             dict(row) for row in (sec.get("transactions") or []) if isinstance(row, Mapping)
         )
@@ -359,15 +362,21 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         )
 
     result = score_transactions(ticker, verified_rows, lookback_days=lookback_days)
-    official_status = str(official_result.get("status") or "NOT_SUPPORTED")
-    if not result.get("evidence") and official_status == "SUCCESS_NO_RESULTS":
+    official_statuses = {str(official_result.get("status") or "NOT_SUPPORTED").upper()}
+    if sec:
+        official_statuses.add(str(sec.get("status") or "NOT_SUPPORTED").upper())
+    official_completed_no_events = bool(
+        official_statuses & {"SUCCESS_NO_RESULTS", "CHECKED_NO_EVENTS"}
+        and not official_statuses & {"SOURCE_ERROR", "ERROR", "RATE_LIMITED"}
+    )
+    if not result.get("evidence") and official_completed_no_events:
         result.update({
             "score": 50.0, "signal": "KONTROLLERT – INGEN HENDELSER",
             "coverage": "CHECKED_NO_EVENTS", "buy_count": 0, "sell_count": 0,
             "net_value": 0.0, "evidence": [],
             "reason": "Offisiell primærkilde ble kontrollert direkte uten relevante innsidetransaksjoner i perioden.",
         })
-    elif not result.get("evidence") and official_status == "DISCOVERY_ONLY":
+    elif not result.get("evidence") and "DISCOVERY_ONLY" in official_statuses:
         result.update({
             "score": 50.0, "signal": "OFFISIELL MELDING FUNNET",
             "coverage": "DISCOVERY_ONLY",

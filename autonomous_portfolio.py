@@ -510,17 +510,9 @@ def _normalise_runtime_positions(value: Any) -> dict[str, dict[str, Any]]:
 
 
 def candidate_price(candidate: Mapping[str, Any], existing: Mapping[str, Any] | None = None) -> float:
-    """Resolve the canonical execution price used by every purchase gate."""
-    raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
-    for key in ("price", "current_price", "last_price", "close", "regularMarketPrice", "last"):
-        value = _f(candidate.get(key, raw.get(key)), 0.0)
-        if value > 0:
-            return value
-    if existing:
-        value = _f(existing.get("last_price", existing.get("average_price")), 0.0)
-        if value > 0:
-            return value
-    return 0.0
+    """Backward-compatible public alias for the shared price resolver."""
+    from decision_inputs import candidate_price as resolve_candidate_price
+    return resolve_candidate_price(candidate, existing)
 
 
 # Backwards-compatible private name used by the established execution engine.
@@ -529,17 +521,14 @@ _candidate_price = candidate_price
 
 def _candidate_score(candidate: Mapping[str, Any], default: float = 0.0) -> float:
     """Original Autonomi score. Existing-position exits remain bound to this score."""
-    for key in ("autonomy_base_investment_score", "investment_score", "score", "combined_score", "decision_score"):
-        value = _f(candidate.get(key), float("nan"))
-        if math.isfinite(value):
-            return value
-    return default
+    from decision_inputs import candidate_base_score
+    return candidate_base_score(candidate, default)
 
 
 def _candidate_entry_score(candidate: Mapping[str, Any], default: float = 0.0) -> float:
     """Entry-only score after the bounded v19.9.0 technical contribution."""
-    value = _f(candidate.get("autonomy_adjusted_investment_score"), float("nan"))
-    return value if math.isfinite(value) else _candidate_score(candidate, default)
+    from decision_inputs import candidate_entry_score
+    return candidate_entry_score(candidate, default)
 
 
 def _technical_contribution_metadata(candidate: Mapping[str, Any] | None) -> dict[str, Any]:

@@ -297,15 +297,8 @@ COMPANY_TICKER_ALIASES = {
 
 def company_identity(candidate: Mapping[str, Any]) -> str:
     """Return a stable company key so share classes do not occupy multiple medal/portfolio slots."""
-    ticker = str(candidate.get("ticker") or "").upper().strip()
-    if ticker in COMPANY_TICKER_ALIASES:
-        return COMPANY_TICKER_ALIASES[ticker]
-    raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
-    name = str(candidate.get("name") or raw.get("longName") or raw.get("shortName") or ticker).upper()
-    for suffix in (" CLASS A", " CLASS B", " CLASS C", " A-SHARE", " B-SHARE", " ADR", " PLC", " INC.", " INC", " CORP.", " CORP", " LTD.", " LTD"):
-        name = name.replace(suffix, "")
-    compact = "".join(ch for ch in name if ch.isalnum())
-    return compact or ticker
+    from issuer_identity import issuer_identity
+    return issuer_identity(candidate)
 
 def select_diverse_candidates(candidates: Sequence[Mapping[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
     selected, seen = [], set()
@@ -567,6 +560,7 @@ def _allocated_market_budget(total: int, market_index: int, market_count: int, *
 
 
 MINIMUM_GLOBAL_CANDIDATE_SHORTLIST = 60
+MINIMUM_GLOBAL_EVIDENCE_SHORTLIST = 20
 
 
 def _full_score_budget(candidate_count: int) -> int:
@@ -586,6 +580,20 @@ def _effective_global_shortlist_size(configured: int, available: int) -> int:
     if available == 0:
         return 0
     return min(available, max(MINIMUM_GLOBAL_CANDIDATE_SHORTLIST, int(configured or 0)))
+
+
+def _effective_global_evidence_size(configured: int, available: int) -> int:
+    """Upgrade legacy evidence budgets so the global Top 20 is always searched.
+
+    Evidence is currently collected inside each market pipeline.  Searching the
+    local Top N in every market guarantees that every member of the later
+    global Top N has already been controlled, regardless of market mix.  Extra
+    locally searched rows are retained as useful evidence rather than hidden.
+    """
+    available = max(0, int(available))
+    if available == 0:
+        return 0
+    return min(available, max(MINIMUM_GLOBAL_EVIDENCE_SHORTLIST, int(configured or 0)))
 
 
 def report_identity(trigger: str, job_name: str = "", job_id: str = "", *,
@@ -4522,9 +4530,11 @@ def _run_job_impl(
             _allocated_market_budget(job.proposal_count, market_index, len(markets), minimum=0),
         )
         market_deep_budget = _allocated_market_budget(job.deep_count, market_index, len(markets), minimum=1)
-        market_evidence_analysis_budget = min(
-            market_deep_budget,
-            _allocated_market_budget(job.evidence_analysis_count, market_index, len(markets), minimum=0),
+        # Evidence must follow quality, not a 4/3/3-style market quota.  Taking
+        # the local Top N in each market is the bounded one-pass guarantee that
+        # the later global Top N has complete evidence coverage.
+        market_evidence_analysis_budget = _effective_global_evidence_size(
+            job.evidence_analysis_count, market_deep_budget,
         )
         cfg = PipelineConfig(market_scope=market, scan_limit=job.scan_limit, deep_analysis_count=market_deep_budget,
                              proposal_count=market_evidence_budget, use_research="AI Research Assistant" in job.modules,
@@ -4564,7 +4574,11 @@ def _run_job_impl(
             # these rows, so calculate the deterministic local score for every
             # fetched candidate.  Expensive evidence collection remains bounded
             # by evidence_analysis_count/proposal_count.
-            cfg = replace(cfg, deep_analysis_count=_full_score_budget(len(rows))).normalized()
+            cfg = replace(
+                cfg,
+                deep_analysis_count=_full_score_budget(len(rows)),
+                evidence_analysis_count=_effective_global_evidence_size(job.evidence_analysis_count, len(rows)),
+            ).normalized()
             def _pipeline_progress(event: Mapping[str, Any]) -> None:
                 e = dict(event)
                 e["market"] = market
@@ -4883,6 +4897,8 @@ def _run_job_impl(
                "planned_maximum": sum(int((item.get("universe_contract") or {}).get("configured_universe", 0)) for item in market_runs),
                "deep_analysis_total_budget": int(job.deep_count),
                "evidence_analysis_total_budget": int(job.evidence_analysis_count),
+               "effective_global_evidence_minimum": int(MINIMUM_GLOBAL_EVIDENCE_SHORTLIST),
+               "evidence_selection_policy": "LOCAL_TOP_N_GUARANTEES_GLOBAL_TOP_N",
                "newsapi_per_report_hard_cap": 5 if "TEST" in str(trigger or "").upper() or "TEST" in str(job.name or "").upper() else 15,
                "actual_by_market": {
                    str(item.get("config", {}).get("market_scope") or "Ukjent"): int((item.get("summary") or {}).get("scanned", 0))
@@ -6077,7 +6093,7 @@ def render_market_intelligence() -> None:
             if int(scan_limit) == 250:
                 st.warning(f"Maksprofil: opptil {250 * len(normalize_markets(markets or ['Norge']))} aksjer. Dette kan gi lang kjøretid og høy API-bruk.")
             deep = st.number_input("Utvidet analyse - totalt antall kandidater", 3, 100, current.deep_count if current else 18, 1, key="mi_deep_v18687")
-            evidence_count = st.number_input("Evidenskontroll - totalt antall kandidater", 1, 20, min(current.evidence_analysis_count, current.deep_count) if current else 15, 1, key="mi_evidence_count_v19220_rc1627")
+            evidence_count = st.number_input("Evidenskontroll - global Top N (garantert)", 1, 60, max(MINIMUM_GLOBAL_EVIDENCE_SHORTLIST, min(current.evidence_analysis_count, max(current.deep_count, MINIMUM_GLOBAL_EVIDENCE_SHORTLIST))) if current else 20, 1, key="mi_evidence_count_v19220_rc1631l")
             proposals = st.number_input("Grundig evidenskontroll - totalt antall", 1, 15, min(current.proposal_count, current.deep_count) if current else 5, 1, key="mi_prop_v18687")
         st.markdown("##### Varsling, lagring og aktivering")
         delivery_settings, notification_settings = st.columns(2, gap="large", vertical_alignment="top")
