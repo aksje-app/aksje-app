@@ -21,8 +21,9 @@ import uuid
 from durable_runtime import append_event, read_events, read_json, write_json
 from runtime_env import redact_secrets
 from storage_architecture import runtime_data_path, runtime_log_path
+from app_version import OPERATIONS_TELEMETRY_VERSION
 
-COMPONENT_VERSION = "v19.2.0"
+COMPONENT_VERSION = OPERATIONS_TELEMETRY_VERSION
 EVENTS_PATH = runtime_log_path("operations", "events.jsonl")
 ERRORS_PATH = runtime_log_path("operations", "errors.jsonl")
 SOURCE_EVENTS_PATH = runtime_log_path("operations", "source_health.jsonl")

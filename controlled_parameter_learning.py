@@ -24,9 +24,9 @@ from autonomous_portfolio import (
     TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
 )
 from durable_runtime import append_event, read_events
-from app_version import APP_VERSION
+from app_version import APP_VERSION, CONTROLLED_LEARNING_POLICY_VERSION
 
-VERSION = "v19.3.1"
+VERSION = CONTROLLED_LEARNING_POLICY_VERSION
 ROOT = runtime_data_path("controlled_learning")
 STATE_PATH = ROOT / "state.json"
 HYPOTHESES_PATH = ROOT / "hypotheses.json"
