@@ -12,6 +12,7 @@ from domain.strategy_account import (
 )
 from repositories.application import RepositoryRegistry, get_repository_registry
 from services.strategy_registry_service import StrategyRegistryService
+from app_version import AUTONOMY_POLICY_VERSION, AUTONOMY_STRATEGY_VERSION_ID
 
 STRATEGY_ACCOUNT_SERVICE_VERSION = "1.0"
 
@@ -90,14 +91,14 @@ class StrategyAccountService:
                 display_name="Autonomi hovedstrategi",
                 strategy_family="autonomy",
                 strategy_id=str(autonomy.get("strategy_id") or "autonomy_main"),
-                strategy_version_id=str(autonomy.get("version_id") or "autonomy_main@1.0.0"),
+                strategy_version_id=str(autonomy.get("version_id") or AUTONOMY_STRATEGY_VERSION_ID),
                 role=AccountRole.PRODUCTION.value,
                 status=AccountStatus.PAUSED.value,
                 execution_mode="PAPER",
                 initial_cash=500000.0,
                 cash=500000.0,
                 high_watermark=500000.0,
-                parameter_version=str(autonomy.get("parameter_version") or "v19.3.0"),
+                parameter_version=str(autonomy.get("parameter_version") or AUTONOMY_POLICY_VERSION),
                 metadata={"legacy_source": "autonomous_portfolio", "canonical_execution": True},
             ),
             StrategyAccount(
@@ -159,6 +160,7 @@ class StrategyAccountService:
         initial_cash = _f(legacy_portfolio.get("initial_cash"), _f(current.get("initial_cash"), cash))
         market_value = sum(_f(row.get("market_value")) for row in positions.values())
         equity = cash + market_value
+        strategy = self.registry.get(strategy_version_id) or {}
         row = StrategyAccount(
             account_id=account_id,
             display_name=display_name,
@@ -178,7 +180,7 @@ class StrategyAccountService:
             created_at=str(current.get("created_at") or _now()),
             updated_at=_now(),
             last_run_id=run_id or str(legacy_portfolio.get("last_run_id") or current.get("last_run_id") or ""),
-            parameter_version=str(current.get("parameter_version") or "legacy-current"),
+            parameter_version=str(strategy.get("parameter_version") or current.get("parameter_version") or "legacy-current"),
             metadata={**dict(current.get("metadata") or {}), **dict(metadata or {}), "legacy_sync": True, "equity": round(equity, 2)},
         ).to_dict()
         saved = self.upsert(row)
