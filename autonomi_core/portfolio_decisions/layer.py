@@ -132,7 +132,9 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
     """
     ticker, sector, country, currency = _identity(candidate)
     positions = list(context.get("positions") or [])
-    existing = next((row for row in positions if str(row.get("ticker")) == ticker), None)
+    from issuer_identity import issuer_identity
+    candidate_issuer = issuer_identity(candidate)
+    existing = next((row for row in positions if issuer_identity(row) == candidate_issuer), None)
     total = _num(context.get("total_value")); cash = _num(context.get("cash"))
     limits = dict(context.get("limits") or {})
     sector_now = _num((context.get("sector_exposure") or {}).get(sector))
@@ -146,10 +148,12 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
     reserve = _num(limits.get("min_cash_pct"), 15)
     raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
     data_contract = candidate.get("data_contract") if isinstance(candidate.get("data_contract"), Mapping) else {}
-    price = _num(candidate.get("price") or raw.get("current_price") or raw.get("regularMarketPrice"))
+    from decision_inputs import candidate_price
+    price = candidate_price(candidate, existing)
     liquidity = _num(candidate.get("liquidity_score"), 0)
     risk = _num(candidate.get("risk_score"), 100)
-    score = _num(candidate.get("investment_score"), 0)
+    from decision_inputs import candidate_entry_score
+    score = candidate_entry_score(candidate, 0.0)
     data_quality = _num(
         candidate.get("data_quality")
         or candidate.get("data_quality_score")
@@ -242,6 +246,8 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
         "blocker_codes": [row["code"] for row in blocker_rows],
         "blocker_details": blocker_rows,
         "existing_position": bool(existing),
+        "issuer_identity": candidate_issuer,
+        "existing_position_ticker": str((existing or {}).get("ticker") or ""),
         "portfolio_assessed": True,
         "sector": sector,
         "country": country,

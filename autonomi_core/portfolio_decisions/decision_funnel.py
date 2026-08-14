@@ -91,7 +91,7 @@ def build_decision_funnel(
     simulated portfolio. Existing ``gates`` and ``decision`` fields are kept as
     compatibility mirrors of the complete production gate set.
     """
-    from autonomous_portfolio import candidate_price
+    from decision_inputs import candidate_entry_score, candidate_price
 
     production_threshold = _num(getattr(parameters, "minimum_investment_score", 78.0), 78.0)
     min_quality = _num(getattr(parameters, "minimum_data_quality", 55.0), 55.0)
@@ -108,7 +108,7 @@ def build_decision_funnel(
 
     for candidate in sorted(candidates, key=lambda row: _num(row.get("investment_score")), reverse=True):
         ticker = str(candidate.get("ticker") or "").upper()
-        score = _num(candidate.get("investment_score"))
+        score = candidate_entry_score(candidate)
         quality, quality_source = _quality(candidate)
         risk = _num(candidate.get("risk_score"), 100.0)
         price = candidate_price(candidate, open_positions.get(ticker))
