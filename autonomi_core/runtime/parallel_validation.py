@@ -4,6 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 from time import perf_counter
 from typing import Any, Mapping, Sequence
 
@@ -16,6 +17,8 @@ LATEST_PATH = ROOT / "latest.json"
 HISTORY_KEY = "autonomi_core/parallel_validation/history.json"
 HISTORY_PATH = ROOT / "history.json"
 HORIZONS = (5, 30, 90)
+MIN_DECISION_AGREEMENT_PCT = float(os.getenv("SHADOW_MIN_DECISION_AGREEMENT_PCT", "80"))
+MIN_CANDIDATE_OVERLAP_PCT = float(os.getenv("SHADOW_MIN_CANDIDATE_OVERLAP_PCT", "90"))
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -70,6 +73,60 @@ def _api_usage(run: Mapping[str, Any]) -> dict[str, Any]:
             "note": "Shadow gjenbruker samme innhentede datasett og utløser ingen ekstra API-kall."}
 
 
+def _first_reason(row: Mapping[str, Any]) -> tuple[str, str]:
+    """Return a stable category and an auditable reason for one decision."""
+    gates = row.get("decision_gates") or row.get("buy_gates") or row.get("gate_results") or []
+    if isinstance(gates, Mapping):
+        gates = [dict(value, gate=key) if isinstance(value, Mapping) else {"gate": key, "passed": bool(value)} for key, value in gates.items()]
+    for gate in gates if isinstance(gates, Sequence) and not isinstance(gates, (str, bytes)) else []:
+        if not isinstance(gate, Mapping) or gate.get("passed") is not False:
+            continue
+        name = str(gate.get("gate") or gate.get("name") or gate.get("code") or "RULE").upper()
+        detail = str(gate.get("reason") or gate.get("detail") or name)
+        if "EVID" in name or "SOURCE" in name or "NEWS" in name or "INSIDER" in name:
+            return "EVIDENCE", detail
+        if "RISK" in name:
+            return "RISK", detail
+        if "PORTFOLIO" in name or "POSITION" in name or "CASH" in name:
+            return "PORTFOLIO", detail
+        if "SCORE" in name or "THRESHOLD" in name:
+            return "SCORE", detail
+        if "DATA" in name or "FRESH" in name:
+            return "DATA", detail
+        return "RULE", detail
+    explicit = str(row.get("block_reason") or row.get("decision_reason") or row.get("reason") or "").strip()
+    return ("EXPLICIT", explicit) if explicit else ("MODEL_LOGIC", "Kjedene anvendte ulike beslutningsregler på samme kandidat.")
+
+
+def _decision_differences(
+    run: Mapping[str, Any], old: Mapping[str, Any], shadow: Mapping[str, Any], common: set[str]
+) -> list[dict[str, Any]]:
+    source = {_ticker(row): dict(row) for row in run.get("candidates") or [] if isinstance(row, Mapping)}
+    shadow_rows = {_ticker(row): dict(row) for row in shadow.get("candidates") or [] if isinstance(row, Mapping)}
+    rows: list[dict[str, Any]] = []
+    for ticker in sorted(common):
+        legacy_action = str((old.get("decisions") or {}).get(ticker) or "MISSING").upper()
+        shadow_action = str((shadow.get("decisions") or {}).get(ticker) or "MISSING").upper()
+        base = source.get(ticker, {})
+        category, reason = _first_reason(base)
+        production_score = _num(base.get("investment_score"))
+        shadow_score = _num(shadow_rows.get(ticker, {}).get("shadow_score"))
+        rows.append({
+            "ticker": ticker,
+            "legacy_action": legacy_action,
+            "shadow_action": shadow_action,
+            "agreement": legacy_action == shadow_action,
+            "production_score": round(production_score, 2),
+            "shadow_score": round(shadow_score, 2),
+            "score_delta": round(shadow_score - production_score, 2),
+            "distance_to_production_threshold": round(production_score - _num(run.get("production_threshold"), 73.0), 2),
+            "reason_category": "AGREEMENT" if legacy_action == shadow_action else category,
+            "reason": "Samme beslutning i begge kjeder." if legacy_action == shadow_action else reason,
+            "same_input_snapshot": True,
+        })
+    return rows
+
+
 def build_parallel_validation(run: Mapping[str, Any], *, total_runtime_seconds: float | None = None) -> dict[str, Any]:
     """Run both pure evaluators concurrently; legacy output remains authoritative."""
     started = perf_counter()
@@ -82,6 +139,16 @@ def build_parallel_validation(run: Mapping[str, Any], *, total_runtime_seconds: 
     new_rank = {ticker: i + 1 for i, ticker in enumerate(shadow["tickers"])}
     rank_delta = {ticker: new_rank[ticker] - old_rank[ticker] for ticker in sorted(common)}
     agreements = sum(old["decisions"].get(t) == shadow["decisions"].get(t) for t in common)
+    agreement_pct = round(100*agreements/max(1, len(common)), 2)
+    jaccard_pct = round(100*len(common)/max(1, len(old_set|new_set)), 2)
+    decision_diff = _decision_differences(run, old, shadow, common)
+    disagreement_count = sum(not row["agreement"] for row in decision_diff)
+    warnings = []
+    if jaccard_pct < MIN_CANDIDATE_OVERLAP_PCT:
+        warnings.append(f"Kandidatoverlapping {jaccard_pct:.1f}% er under kravet {MIN_CANDIDATE_OVERLAP_PCT:.1f}%.")
+    if agreement_pct < MIN_DECISION_AGREEMENT_PCT:
+        warnings.append(f"Beslutningssamsvar {agreement_pct:.1f}% er under kravet {MIN_DECISION_AGREEMENT_PCT:.1f}%.")
+    status = "RED" if warnings else ("YELLOW" if disagreement_count else "GREEN")
     contracts = dict(run.get("data_contract") or {}); portfolio = dict(run.get("portfolio_decisions") or {})
     validation_id = f"PV-{run.get('run_id')}"
     return {
@@ -90,16 +157,19 @@ def build_parallel_validation(run: Mapping[str, Any], *, total_runtime_seconds: 
         "mode": "SHADOW_READ_ONLY", "authoritative_chain": "LEGACY", "shadow_chain": "AUTONOMY_CORE",
         "authority_preserved": True, "writes_blocked": ["TOP_PICKS", "DASHBOARD", "PORTFOLIO", "DECISIONS", "NOTIFICATIONS"],
         "comparison": {
-            "candidates": {"authoritative": len(old_set), "shadow": len(new_set), "overlap": len(common), "only_authoritative": sorted(old_set-new_set), "only_shadow": sorted(new_set-old_set), "jaccard_pct": round(100*len(common)/max(1, len(old_set|new_set)), 2)},
+            "candidates": {"authoritative": len(old_set), "shadow": len(new_set), "overlap": len(common), "only_authoritative": sorted(old_set-new_set), "only_shadow": sorted(new_set-old_set), "jaccard_pct": jaccard_pct},
             "source_and_search": {"authoritative": _source_strategy(old["candidates"]), "shadow": _source_strategy(shadow["candidates"])},
             "ranking": {"common": len(common), "mean_absolute_rank_delta": round(sum(abs(v) for v in rank_delta.values())/max(1, len(rank_delta)), 3), "rank_delta": rank_delta},
-            "decisions": {"compared": len(common), "agreements": agreements, "agreement_pct": round(100*agreements/max(1, len(common)), 2)},
+            "decisions": {"compared": len(common), "agreements": agreements, "disagreements": disagreement_count, "agreement_pct": agreement_pct, "minimum_pct": MIN_DECISION_AGREEMENT_PCT, "diff": decision_diff},
             "data_quality": {"evaluated": contracts.get("evaluated", 0), "valid": contracts.get("valid_for_decision", 0), "blocked": len(contracts.get("blocked") or []), "same_input_snapshot": True},
             "portfolio_risk": {"authoritative_actions": portfolio.get("actions") or {}, "shadow_read_only": True, "context_source": (portfolio.get("portfolio_context") or {}).get("source")},
             "runtime": {"authoritative_seconds": total_runtime_seconds, "legacy_evaluator_ms": old["duration_ms"], "shadow_evaluator_ms": shadow["duration_ms"], "comparison_ms": round((perf_counter()-started)*1000, 3)},
             "api_usage": _api_usage(run),
             "outcomes": {str(h): {"status": "PENDING", "trading_days": h, "authoritative_run_id": run.get("run_id"), "shadow_run_id": f"SHADOW-{run.get('run_id')}"} for h in HORIZONS},
         },
+        "validation_gate": {"status": status, "warnings": warnings, "promotion_blocked": bool(warnings),
+                            "minimum_candidate_overlap_pct": MIN_CANDIDATE_OVERLAP_PCT,
+                            "minimum_decision_agreement_pct": MIN_DECISION_AGREEMENT_PCT},
         "shadow_candidates": [{"ticker": _ticker(x), "market": x.get("market"), "sector": x.get("sector"), "source": (x.get("data_contract") or {}).get("source") if isinstance(x.get("data_contract"), Mapping) else x.get("source"), "discovery_bucket": x.get("discovery_bucket"), "strategies": list(x.get("strategy_matches") or []), "rank": i+1, "shadow_score": x.get("shadow_score"), "investment_score": x.get("shadow_score"), "action": x.get("shadow_action"), "status": "ANBEFALT FOR VURDERING" if x.get("shadow_action") in {"BUY", "REVIEW"} else "SKIP", "entry_price": x.get("current_price") or ((x.get("raw") or {}).get("current_price") if isinstance(x.get("raw"), Mapping) else None)} for i, x in enumerate(shadow["candidates"])],
         "approval_rule": "Gammel kjede er autoritativ; Shadow kan bare observere og sammenligne.",
     }
