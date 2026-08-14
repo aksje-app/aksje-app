@@ -311,7 +311,11 @@ class PipelineConfig:
     def normalized(self) -> "PipelineConfig":
         valid = market_scope_options(include_aggregate=True)
         market = self.market_scope if self.market_scope in valid else "Alle"
-        deep = max(1, min(int(self.deep_analysis_count), 100))
+        # Scheduled candidate-recall runs may score the complete fetched
+        # universe (up to scan_limit=500).  Evidence remains independently
+        # bounded, so raising this local deterministic score ceiling does not
+        # multiply external intelligence calls.
+        deep = max(1, min(int(self.deep_analysis_count), 500))
         scan = 500 if self.full_universe_scan else max(deep, min(int(self.scan_limit), 500))
         proposals = max(0, min(int(self.proposal_count), deep))
         evidence_count = max(proposals, min(max(1, int(self.evidence_analysis_count)), deep))

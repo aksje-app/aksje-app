@@ -566,6 +566,28 @@ def _allocated_market_budget(total: int, market_index: int, market_count: int, *
     return max(minimum, base + (1 if market_index <= remainder else 0))
 
 
+MINIMUM_GLOBAL_CANDIDATE_SHORTLIST = 60
+
+
+def _full_score_budget(candidate_count: int) -> int:
+    """Score every fetched candidate before any cross-market shortlist cut."""
+    return max(1, int(candidate_count))
+
+
+def _effective_global_shortlist_size(configured: int, available: int) -> int:
+    """Protect candidate recall while retaining a bounded global result set.
+
+    Legacy fixed jobs persisted ``deep_count=10``.  That value was divided
+    across markets before scoring and silently discarded most candidates.  The
+    configured value is still honoured when it is larger, while the recall
+    floor upgrades old jobs without touching evidence or trading budgets.
+    """
+    available = max(0, int(available))
+    if available == 0:
+        return 0
+    return min(available, max(MINIMUM_GLOBAL_CANDIDATE_SHORTLIST, int(configured or 0)))
+
+
 def report_identity(trigger: str, job_name: str = "", job_id: str = "", *,
                     created_at: datetime | str | None = None,
                     timezone_name: str = DEFAULT_TIMEZONE) -> dict[str, str]:
@@ -4538,6 +4560,11 @@ def _run_job_impl(
                 market_diagnostics.append({"market": market, "scanned": 0, "analyzed": 0, "live": 0,
                                            "errors": 1, "status": "FEIL: INGEN KANDIDATER", "error_detail": error})
                 continue
+            # Candidate-recall repair: market data has already been fetched for
+            # these rows, so calculate the deterministic local score for every
+            # fetched candidate.  Expensive evidence collection remains bounded
+            # by evidence_analysis_count/proposal_count.
+            cfg = replace(cfg, deep_analysis_count=_full_score_budget(len(rows))).normalized()
             def _pipeline_progress(event: Mapping[str, Any]) -> None:
                 e = dict(event)
                 e["market"] = market
@@ -4618,9 +4645,11 @@ def _run_job_impl(
             deduped[ticker] = candidate
     all_candidates = list(deduped.values())
     all_candidates.sort(key=lambda x: float(x.get("investment_score", 0)), reverse=True)
-    # deep_count is a total cross-market budget in v19.14.0, not a per-market
-    # multiplier.  This keeps core-market runs around 10-15 extended candidates.
-    all_candidates = all_candidates[: max(1, int(job.deep_count))]
+    # Select globally only after every fetched candidate has received the same
+    # local scoring treatment.  A legacy deep_count of 10 can no longer create
+    # a hidden 4/3/3 market quota.
+    global_shortlist_size = _effective_global_shortlist_size(job.deep_count, len(all_candidates))
+    all_candidates = all_candidates[:global_shortlist_size]
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
         row["raw_rank"] = idx
@@ -4828,6 +4857,15 @@ def _run_job_impl(
            "execution_mode": "UNIFIED_PIPELINE",
            "configuration_handoff": handoff,
            "market_diagnostics": market_diagnostics,
+           "candidate_selection": {
+               "policy": "FULL_LOCAL_SCORE_THEN_GLOBAL_SHORTLIST",
+               "available_after_deduplication": len(deduped),
+               "selected": len(all_candidates),
+               "configured_legacy_deep_count": int(job.deep_count),
+               "minimum_global_shortlist": MINIMUM_GLOBAL_CANDIDATE_SHORTLIST,
+               "production_threshold_changed": False,
+               "shadow_thresholds": [73.0, 70.0, 68.0, 65.0],
+           },
            "validation": {
                "unique_tickers": len(all_candidates),
                "identity_rejections": identity_rejections,
