@@ -15,7 +15,10 @@ from typing import Any, Mapping, MutableMapping, Sequence
 from app_version import APP_VERSION
 
 VERSION = APP_VERSION
-SHADOW_THRESHOLDS = (78.0, 76.0, 74.0, 72.0)
+# Calibration challengers are observational.  They never change production.
+# The range deliberately brackets the current score distribution so candidate
+# recall can be measured before a new production threshold is approved.
+SHADOW_THRESHOLDS = (78.0, 76.0, 74.0, 73.0, 72.0, 70.0, 68.0, 65.0)
 PORTFOLIO_NAME = "Autonomis primære simulerte portefølje"
 
 
