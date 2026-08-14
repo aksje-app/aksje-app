@@ -2832,6 +2832,19 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
          _p("Feilet / hoppet over", "Tiny"), _p(", ".join(coverage.get("failed_or_skipped_markets") or []) or "Ingen", "Tiny")],
     ], colWidths=[24*mm, 66*mm, 30*mm, 64*mm])
     coverage_table.setStyle(_table_style(5.7, header=False, padding=1.3))
+    universe_rows = [row for row in (run.get("universe_coverage") or []) if isinstance(row, Mapping)]
+    universe_table = None
+    if universe_rows:
+        universe_data = [["Marked", "Univers", "Grovskann", "Sektorer", "Dekning", "Kilde"]]
+        for row in universe_rows:
+            universe_data.append([
+                str(row.get("market") or "-"), str(row.get("configured_universe") or 0),
+                str(row.get("rough_scanned") or 0), str(row.get("known_sector_coverage") or "-"),
+                f"{float(row.get('coverage_pct') or 0):.0f}%",
+                "Autoritativ" if row.get("source_authoritative_exchange_master") else "Kontrolliste",
+            ])
+        universe_table = Table(universe_data, repeatRows=1, colWidths=[24*mm, 24*mm, 26*mm, 24*mm, 20*mm, 38*mm])
+        universe_table.setStyle(_table_style(6.0, padding=1.4))
 
     decision_story = [
         title_table,
@@ -2843,6 +2856,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         decision_meta,
         Paragraph("Markedsdekning", styles["Subsection"]),
         coverage_table,
+        *([Paragraph("Univers- og sektordekning", styles["Subsection"]), universe_table,
+           Paragraph("Kontrollert applikasjonsunivers er ikke det samme som en komplett offisiell børsliste.", styles["Tiny"])] if universe_table is not None else []),
         Paragraph("Hovedkonklusjon", styles["Subsection"]),
         Paragraph(escape(str(decision_overview.get("conclusion") or "Ingen konklusjon registrert.")), styles["BodyCompact"]),
         executive_table,
@@ -4500,7 +4515,8 @@ def _run_job_impl(
                              min_data_quality=float(investment_mission.get("minimum_data_quality", 45.0)),
                              max_risk_score=float(investment_mission.get("risk_ceiling", 75.0)),
                              mission_id=str(investment_mission.get("mission_id") or ""),
-                             configuration_version=str(investment_mission.get("configuration_version") or "")).normalized()
+                             configuration_version=str(investment_mission.get("configuration_version") or ""),
+                             full_universe_scan=market in {"Norge", "Sverige", "USA"}).normalized()
         try:
             emit("MARKET", market_index - 1, len(markets), f"Forbereder marked {market_index}/{len(markets)}: {market}", market=market)
             try:
@@ -4569,6 +4585,8 @@ def _run_job_impl(
                 "skipped_tickers": skipped_tickers,
                 "status": ("OK" if int(market_refresh.get("live_count", 0)) > 0 else "INGEN LIVE-DATA") + (f" · {skipped_count} kandidat(er) hoppet over" if skipped_count else ""),
                 "candidate_errors": candidate_errors[:10],
+                "universe_contract": result.get("universe_contract") or {},
+                "sector_selection": result.get("sector_selection") or {},
             })
             for item in candidate_errors:
                 warnings.append(f"{market}/{item.get('ticker') or 'ukjent'} ({item.get('stage')}): {item.get('error')}")
@@ -4761,6 +4779,9 @@ def _run_job_impl(
                "stage2_extended": len(all_candidates),
                "stage3_evidence_controlled": sum(int((item.get("summary") or {}).get("stage3_evidence_controlled", 0)) for item in market_runs),
            },
+           "universe_coverage": [dict(item.get("universe_contract") or {}) for item in market_runs],
+           "sector_selection": [dict(item.get("sector_selection") or {}) for item in market_runs],
+           "detection_audit": [dict(item.get("detection_audit") or {}) for item in market_runs],
            "discovery_data": {
                "version": "v18.8.7", "markets": [dict(item.get("discovery_data") or {}) for item in market_runs],
                "selected": sum(int((item.get("discovery_data") or {}).get("selected", 0)) for item in market_runs),
@@ -4819,9 +4840,9 @@ def _run_job_impl(
                "valid_for_ranking": not analysis_aborted and bool(all_candidates),
            },
            "scan_configuration": {
-               "per_market": job.scan_limit,
+               "per_market": "Hele konfigurert univers" if set(markets).issubset({"Norge", "Sverige", "USA"}) else job.scan_limit,
                "market_count": len(markets),
-               "planned_maximum": job.scan_limit * len(markets),
+               "planned_maximum": sum(int((item.get("universe_contract") or {}).get("configured_universe", 0)) for item in market_runs),
                "deep_analysis_total_budget": int(job.deep_count),
                "evidence_analysis_total_budget": int(job.evidence_analysis_count),
                "newsapi_per_report_hard_cap": 5 if "TEST" in str(trigger or "").upper() or "TEST" in str(job.name or "").upper() else 15,
@@ -4844,6 +4865,10 @@ def _run_job_impl(
         _update_history(run)
     from evidence_integrity import finalize_run_integrity
     apply_report_integrity(run)
+    from universe_coverage import build_buy_gate_audit
+    canonical_candidates = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
+    production_threshold = float((run.get("report_summary") or {}).get("production_buy_threshold") or 78.0)
+    run["buy_gate_audit"] = build_buy_gate_audit(canonical_candidates, production_threshold)
     finalize_run_integrity(run, previous)
     ensure_report_document(run, previous)
     # Stable identity is known before Controlled Learning runs. The immutable
@@ -6197,6 +6222,50 @@ def render_market_intelligence() -> None:
             actual_by_market = scan_cfg.get("actual_by_market") or {}
             if actual_by_market:
                 st.caption("Faktisk skannet per marked: " + " · ".join(f"{market}: {count}" for market, count in actual_by_market.items()))
+            universe_coverage = [row for row in (latest.get("universe_coverage") or []) if isinstance(row, Mapping)]
+            if universe_coverage:
+                st.markdown("#### Univers- og dekningsrapport")
+                coverage_rows = [{
+                    "Marked": row.get("market"),
+                    "Konfigurert univers": row.get("configured_universe", 0),
+                    "Grovskannet": row.get("rough_scanned", 0),
+                    "Utvidet analysert": row.get("extended_analyzed", 0),
+                    "Evidenskontrollert": row.get("evidence_controlled", 0),
+                    "Sektorer med data": row.get("known_sector_coverage", "-"),
+                    "Dekning %": row.get("coverage_pct", 0),
+                    "Manglende symboler": len(row.get("missing_symbols") or []),
+                    "Manglende sektormetadata": len(row.get("missing_sector_metadata") or []),
+                    "Kildetype": "Autoritativ børsliste" if row.get("source_authoritative_exchange_master") else "Kontrollert applikasjonsunivers",
+                } for row in universe_coverage]
+                st.dataframe(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
+                failures = [str(row.get("market")) for row in universe_coverage if row.get("coverage_failure")]
+                if failures:
+                    st.error("Reell dekningsfeil i: " + ", ".join(failures))
+                else:
+                    st.success("Hele det konfigurerte universet ble grovskannet.")
+                st.caption("Dette dokumenterer applikasjonens kontrolliste, ikke en komplett offisiell børsliste uten separat autoritativ kilde.")
+                with st.expander("Vis sektorfordeling, mangler og oppdagelseskontroll", expanded=False):
+                    for row in universe_coverage:
+                        st.markdown(f"**{row.get('market')}**")
+                        st.json({
+                            "sektorfordeling": row.get("sector_counts") or {},
+                            "manglende_standardsektorer": row.get("missing_canonical_sectors") or [],
+                            "manglende_symboler": row.get("missing_symbols") or [],
+                            "manglende_sektormetadata": row.get("missing_sector_metadata") or [],
+                        })
+                    audits = latest.get("detection_audit") or []
+                    if audits:
+                        st.markdown("**Etterkontroll av observerte vinnere**")
+                        st.json(audits)
+                gate_audit = [row for row in (latest.get("buy_gate_audit") or []) if isinstance(row, Mapping)]
+                if gate_audit:
+                    with st.expander("Vis hvorfor kandidater ikke ble BUY", expanded=False):
+                        st.dataframe(pd.DataFrame([{
+                            "Ticker": row.get("ticker"), "Marked": row.get("market"),
+                            "Sektor": row.get("sector"), "Score": row.get("score"),
+                            "Terskel": row.get("threshold"), "Handling": row.get("portfolio_action"),
+                            "Første blocker": row.get("first_blocker"),
+                        } for row in gate_audit]), width="stretch", hide_index=True)
             statuses = latest.get("market_status") or []
             if statuses:
                 st.markdown("#### 🌍 Markedsstatus")

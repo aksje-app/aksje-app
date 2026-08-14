@@ -8,13 +8,13 @@ from storage_architecture import runtime_data_path
 
 STATE_KEY = "maintenance/storage_retention.json"
 STATE_PATH = runtime_data_path("maintenance", "storage_retention.json")
-KV_LIMITS = {"operations/run_traces/": 240, "investment_pipeline/runs/": 90,
+KV_LIMITS = {"operations/run_traces/": 180, "investment_pipeline/runs/": 60,
              "investment_pipeline/proposals/": 90, "market_intelligence/runs/": 60,
              "market_intelligence/summaries/": 60, "autonomous_orchestrator/runs/": 90,
              "autonomi_core/parallel_validation/": 90, "autonomi_core/learning_reporting/": 90,
              "full_replay/": 60}
-JSONL_LIMITS = {"operations/run_traces.jsonl": 600,
-                "market_intelligence/job_history.jsonl": 500}
+JSONL_LIMITS = {"operations/run_traces.jsonl": 400,
+                "market_intelligence/job_history.jsonl": 300}
 
 def run_storage_retention() -> dict[str, Any]:
     storage = get_storage_service(); before = storage.storage_usage_report(); deleted: dict[str, int] = {}

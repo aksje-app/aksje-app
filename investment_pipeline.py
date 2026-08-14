@@ -296,6 +296,7 @@ class PipelineConfig:
     use_news_intelligence: bool = True
     mission_id: str = ""
     configuration_version: str = ""
+    full_universe_scan: bool = False
     weights: dict[str, float] = field(default_factory=lambda: {
         "discovery": 0.28,
         "fundamental": 0.18,
@@ -311,7 +312,7 @@ class PipelineConfig:
         valid = market_scope_options(include_aggregate=True)
         market = self.market_scope if self.market_scope in valid else "Alle"
         deep = max(1, min(int(self.deep_analysis_count), 100))
-        scan = max(deep, min(int(self.scan_limit), 500))
+        scan = 500 if self.full_universe_scan else max(deep, min(int(self.scan_limit), 500))
         proposals = max(0, min(int(self.proposal_count), deep))
         evidence_count = max(proposals, min(max(1, int(self.evidence_analysis_count)), deep))
         weights = {k: max(0.0, _f(v)) for k, v in self.weights.items()}
@@ -334,6 +335,7 @@ class PipelineConfig:
             use_news_intelligence=bool(self.use_news_intelligence),
             mission_id=str(self.mission_id or ""),
             configuration_version=str(self.configuration_version or ""),
+            full_universe_scan=bool(self.full_universe_scan),
             weights=weights,
         )
 
@@ -484,7 +486,12 @@ def _prepare_candidate_rows(rows: Sequence[Mapping[str, Any]], config: PipelineC
         seen.add(ticker)
         unique.append(row)
     from candidate_market_data import enrich_candidate_rows
-    return enrich_candidate_rows(unique[: config.scan_limit], max_workers=2, progress_callback=progress_callback, force_refresh=force_refresh)
+    # A complete controlled-universe pass must not serialize hundreds of
+    # independent quote lookups.  Eight bounded workers stay below the
+    # enricher's own global deadline while the ordinary compact scan keeps its
+    # conservative two-worker behaviour.
+    workers = 8 if config.full_universe_scan else 2
+    return enrich_candidate_rows(unique[: config.scan_limit], max_workers=workers, progress_callback=progress_callback, force_refresh=force_refresh)
 
 
 def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> CandidateAssessment:
@@ -685,8 +692,10 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
 
     # Stage 1 ends here. Only the strongest rows proceed to extended analysis.
     sanitized_rows.sort(key=lambda row: (_f(row.get("stage1_prefilter_score")), _f(row.get("scanner_score"))), reverse=True)
-    extended_source_rows = sanitized_rows[: cfg.deep_analysis_count]
-    screened_out_rows = sanitized_rows[cfg.deep_analysis_count :]
+    from universe_coverage import select_sector_balanced_rows
+    extended_source_rows, sector_selection = select_sector_balanced_rows(sanitized_rows, cfg.deep_analysis_count)
+    extended_tickers = {str(row.get("ticker") or "").upper() for row in extended_source_rows}
+    screened_out_rows = [row for row in sanitized_rows if str(row.get("ticker") or "").upper() not in extended_tickers]
     for row in extended_source_rows:
         row["analysis_stage"] = "EXTENDED_ANALYSIS"
 
@@ -888,6 +897,13 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         }
 
     run_id = datetime.now().strftime("IP-%Y%m%d-%H%M%S")
+    from universe_coverage import build_detection_audit, build_selection_trace, build_universe_contract
+    universe_contract = build_universe_contract(
+        cfg.market_scope, sanitized_rows,
+        advanced_tickers=sorted(extended_tickers), evidence_tickers=sorted(evidence_tickers),
+    )
+    selection_trace = build_selection_trace(sanitized_rows, sorted(extended_tickers), sorted(evidence_tickers))
+    detection_audit = build_detection_audit(selection_trace, sanitized_rows)
     payload = {
         "version": VERSION,
         "run_id": run_id,
@@ -913,6 +929,10 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
                 "completion_rule": "Faktisk kildeforsøk eller eksplisitt terminal kilde-/støttestatus for alle aktiverte evidensområder",
             },
         },
+        "universe_contract": universe_contract,
+        "sector_selection": sector_selection,
+        "selection_trace": selection_trace,
+        "detection_audit": detection_audit,
         "candidates": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EXTENDED_ANALYSIS")} for x in assessments],
         "proposals": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EVIDENCE_CONTROLLED")} for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
@@ -1067,11 +1087,21 @@ def _load_candidate_rows_from_app(config: PipelineConfig, *, return_discovery: b
     if rejected_rows:
         source_parts.append(f"{len(rejected_rows)} ugyldige/kryssmarkeds-symboler filtrert")
 
-    from autonomi_core.discovery_data.layer import select_discovery_candidates
-    rows, discovery = select_discovery_candidates(
-        primary, fallback_rows, market=cfg.market_scope, limit=cfg.scan_limit,
-        mission_id=cfg.mission_id, configuration_version=cfg.configuration_version,
-    )
+    if cfg.full_universe_scan:
+        rows = _merge_candidate_rows(primary, fallback_rows, cfg.market_scope, cfg.scan_limit)
+        discovery = {
+            "version": "CONTROLLED-FULL-UNIVERSE-v1",
+            "market": cfg.market_scope,
+            "selected": len(rows),
+            "rotated_from_previous": False,
+            "selection_rule": "Alle gyldige symboler i det konfigurerte universet; ingen rotasjon før grovskann.",
+        }
+    else:
+        from autonomi_core.discovery_data.layer import select_discovery_candidates
+        rows, discovery = select_discovery_candidates(
+            primary, fallback_rows, market=cfg.market_scope, limit=cfg.scan_limit,
+            mission_id=cfg.mission_id, configuration_version=cfg.configuration_version,
+        )
     discovery = dict(discovery or {})
     discovery["symbol_filter"] = {
         "accepted_primary": len(primary),
