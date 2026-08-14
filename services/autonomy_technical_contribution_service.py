@@ -198,6 +198,11 @@ class AutonomyTechnicalContributionService:
             tech_confidence = _clamp(_f(decision.get("confidence"), 0.0), 0.0, 100.0)
             action = str(decision.get("action") or decision.get("raw_decision") or "HOLD").upper()
             raw_delta = (tech_score - policy["neutral_technical_score"]) * policy["weight_pct"] / 100.0
+            # HOLD/WAIT is observationally neutral.  It may neither add entry
+            # points nor independently authorise execution.  Explicit SELL or
+            # AVOID signals may still contribute a negative adjustment below.
+            if action in {"HOLD", "WAIT", "NEUTRAL"} and raw_delta > 0:
+                raw_delta = 0.0
             if raw_delta >= 0:
                 delta = min(raw_delta, policy["maximum_positive_points"])
                 if base < policy["minimum_base_score_floor"]:
