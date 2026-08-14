@@ -448,9 +448,9 @@ def _run_currency_alert_checks_locked(
         )
 
         if should_send and pushover_requested:
-            relation = f"{rate:.4f} <= {lower:.4f}" if status == "breach_lower" else f"{rate:.4f} >= {upper:.4f}"
+            relation = f"{rate:.3f} <= {lower:.3f}" if status == "breach_lower" else f"{rate:.3f} >= {upper:.3f}"
             prefix = "DIAGNOSETEST - " if diagnostic_test else ""
-            message = f"{prefix}{pair} har brutt grensen\nKurs: {rate:.4f}\nGrense: {relation}\nStatus: {status}"
+            message = f"{prefix}{pair} har brutt grensen\nKurs: {rate:.3f}\nGrense: {relation}\nStatus: {status}"
             _event("pushover_send_started", **base, rate=rate, status=status, diagnostic_test=bool(diagnostic_test))
             try:
                 response = sender(message, title=f"Valutavarsel {pair}")

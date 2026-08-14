@@ -177,16 +177,16 @@ def _validate_execution_integrity(
 @dataclass
 class AutonomousParameters:
     initial_cash: float = 500000.0
-    minimum_investment_score: float = 78.0
-    minimum_data_quality: float = 55.0
+    minimum_investment_score: float = 73.0
+    minimum_data_quality: float = 70.0
     maximum_risk_score: float = 65.0
-    maximum_position_pct: float = 5.0
+    maximum_position_pct: float = 3.0
     maximum_sector_pct: float = 20.0
-    maximum_open_positions: int = 12
+    maximum_open_positions: int = 20
     reserve_cash_pct: float = 10.0
-    stop_loss_pct: float = 8.0
-    trailing_stop_pct: float = 10.0
-    take_profit_pct: float = 22.0
+    stop_loss_pct: float = 5.0
+    trailing_stop_pct: float = 7.0
+    take_profit_pct: float = 14.0
     score_exit_threshold: float = 55.0
     maximum_drawdown_pct: float = 12.0
     daily_loss_limit_pct: float = 4.0
@@ -204,16 +204,16 @@ class AutonomousParameters:
     def normalized(self) -> "AutonomousParameters":
         return AutonomousParameters(
             initial_cash=max(1000.0, _f(self.initial_cash, 500000.0)),
-            minimum_investment_score=max(0.0, min(100.0, _f(self.minimum_investment_score, 78.0))),
-            minimum_data_quality=max(0.0, min(100.0, _f(self.minimum_data_quality, 55.0))),
+            minimum_investment_score=max(0.0, min(100.0, _f(self.minimum_investment_score, 73.0))),
+            minimum_data_quality=max(0.0, min(100.0, _f(self.minimum_data_quality, 70.0))),
             maximum_risk_score=max(0.0, min(100.0, _f(self.maximum_risk_score, 65.0))),
-            maximum_position_pct=max(0.1, min(25.0, _f(self.maximum_position_pct, 5.0))),
+            maximum_position_pct=max(0.1, min(25.0, _f(self.maximum_position_pct, 3.0))),
             maximum_sector_pct=max(1.0, min(100.0, _f(self.maximum_sector_pct, 20.0))),
             maximum_open_positions=max(1, min(100, int(self.maximum_open_positions))),
             reserve_cash_pct=max(0.0, min(95.0, _f(self.reserve_cash_pct, 10.0))),
-            stop_loss_pct=max(0.1, min(50.0, _f(self.stop_loss_pct, 8.0))),
-            trailing_stop_pct=max(0.1, min(50.0, _f(self.trailing_stop_pct, 10.0))),
-            take_profit_pct=max(0.1, min(300.0, _f(self.take_profit_pct, 22.0))),
+            stop_loss_pct=max(0.1, min(50.0, _f(self.stop_loss_pct, 5.0))),
+            trailing_stop_pct=max(0.1, min(50.0, _f(self.trailing_stop_pct, 7.0))),
+            take_profit_pct=max(0.1, min(300.0, _f(self.take_profit_pct, 14.0))),
             score_exit_threshold=max(0.0, min(100.0, _f(self.score_exit_threshold, 55.0))),
             maximum_drawdown_pct=max(0.5, min(80.0, _f(self.maximum_drawdown_pct, 12.0))),
             daily_loss_limit_pct=max(0.1, min(50.0, _f(self.daily_loss_limit_pct, 4.0))),
@@ -244,7 +244,32 @@ def load_parameters() -> AutonomousParameters:
                 "learning_probe_horizon_days": 60,
                 "learning_policy_profile_version": "2.0",
             })
-        return AutonomousParameters(**values).normalized()
+        loaded = AutonomousParameters(**values).normalized()
+        legacy_signature = {
+            "minimum_investment_score": 73.0,
+            "minimum_data_quality": 55.0,
+            "maximum_risk_score": 65.0,
+            "maximum_position_pct": 3.0,
+            "maximum_sector_pct": 20.0,
+            "maximum_open_positions": 30.0,
+            "reserve_cash_pct": 5.0,
+            "stop_loss_pct": 3.5,
+            "trailing_stop_pct": 4.5,
+            "take_profit_pct": 14.0,
+        }
+        if raw and all(
+            key in raw and abs(_f(raw.get(key), expected) - expected) < 0.0001
+            for key, expected in legacy_signature.items()
+        ):
+            migrated = recommended_production_profile(loaded)
+            _write(PARAMETERS_PATH, asdict(migrated))
+            _append_audit("PARAMETERS_MIGRATED_RC16_31H", {
+                "reason": "Kjent eldre produksjonsprofil hadde for lav datakvalitet, reserve og tapsmarginer.",
+                "before": asdict(loaded),
+                "after": asdict(migrated),
+            })
+            return migrated
+        return loaded
     except Exception:
         return AutonomousParameters()
 
@@ -256,6 +281,36 @@ def save_parameters(params: AutonomousParameters) -> AutonomousParameters:
     if previous and previous != asdict(params):
         _append_audit("PARAMETERS_CHANGED_BY_USER", {"before": previous, "after": asdict(params)})
     return params
+
+
+def recommended_production_profile(current: AutonomousParameters) -> AutonomousParameters:
+    """Return the reviewed production profile without changing reset capital or notifications."""
+    return AutonomousParameters(
+        initial_cash=current.initial_cash,
+        minimum_investment_score=73.0,
+        minimum_data_quality=70.0,
+        maximum_risk_score=65.0,
+        maximum_position_pct=3.0,
+        maximum_sector_pct=20.0,
+        maximum_open_positions=20,
+        reserve_cash_pct=10.0,
+        stop_loss_pct=5.0,
+        trailing_stop_pct=7.0,
+        take_profit_pct=14.0,
+        score_exit_threshold=55.0,
+        maximum_drawdown_pct=12.0,
+        daily_loss_limit_pct=current.daily_loss_limit_pct,
+        allow_additions=current.allow_additions,
+        enable_learning_probe_buys=current.enable_learning_probe_buys,
+        learning_probe_minimum_score=current.learning_probe_minimum_score,
+        learning_probe_maximum_risk_score=current.learning_probe_maximum_risk_score,
+        learning_probe_max_buys=current.learning_probe_max_buys,
+        learning_probe_notional_value=current.learning_probe_notional_value,
+        learning_probe_horizon_days=current.learning_probe_horizon_days,
+        learning_policy_profile_version=current.learning_policy_profile_version,
+        notify_trades=current.notify_trades,
+        notify_risk_events=current.notify_risk_events,
+    ).normalized()
 
 
 
@@ -1835,16 +1890,29 @@ def render_learning_portfolio() -> None:
 
 def _fmt_nb_money(value: Any) -> str:
     try:
-        return f"{float(value):,.0f} kr".replace(",", " ")
+        whole, decimals = f"{float(value):,.2f}".split(".")
+        return f"{whole.replace(',', ' ')},{decimals} kr"
     except Exception:
         return "-"
 
 
 def _fmt_nb_number(value: Any, decimals: int = 2) -> str:
     try:
-        return f"{float(value):,.{decimals}f}".replace(",", " ")
+        whole, fraction = f"{float(value):,.{decimals}f}".split(".")
+        return f"{whole.replace(',', ' ')},{fraction}"
     except Exception:
         return "-"
+
+
+def _round_financial_columns(frame: Any, columns: Sequence[str], decimals: int = 2) -> Any:
+    """Round financial display columns while leaving counts and identifiers as integers/text."""
+    view = frame.copy()
+    for column in columns:
+        if column in view.columns:
+            view[column] = view[column].map(
+                lambda value: round(float(value), decimals) if value is not None and str(value).strip() not in {"", "-"} else value
+            )
+    return view
 
 
 def _short_local_time(value: Any) -> str:
@@ -1992,6 +2060,13 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         a5.metric("Ordreintensjoner", funnel.get("order_intents_created", 0))
         a6.metric("Utførte ordre", funnel.get("orders_executed", 0))
         st.info(str(analysis.get("recommendation") or "Ingen anbefaling tilgjengelig."))
+        st.caption("Slik leses kjeden: Kandidat → datakontroll → risikokontroll → score → ordreintensjon → simulert ordre. Et lavere tall viser nøyaktig hvilket trinn som stopper kandidatene.")
+        if int(funnel.get("passed_score") or 0) > 0 and int(funnel.get("order_intents_created") or 0) == 0:
+            st.warning(
+                f"Nåkonklusjon: {int(funnel.get('passed_score') or 0)} kandidater bestod scorekravet, "
+                "men ingen ordreintensjon ble opprettet. Scoregrensen er derfor ikke hovedblokkeringen. "
+                "Se kandidatbeslutningene for den konkrete ordre- eller porteføljeregelen."
+            )
 
         technical_service = get_autonomy_technical_contribution_service()
         technical_policy = technical_service.policy()
@@ -2048,12 +2123,14 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         blockers = list(analysis.get("top_blockers") or [])
         with left:
             st.markdown("**Vanligste blokkeringer**")
+            st.caption("Viser første registrerte stoppårsak. Koden er sporbar diagnose; Årsak er forklaringen som skal brukes i vurderingen.")
             if blockers:
                 st.dataframe(pd.DataFrame(blockers).rename(columns={"label":"Årsak","count":"Antall","share_pct":"Andel %","code":"Kode"}), width="stretch", hide_index=True)
             else:
                 st.caption("Ingen blokkeringer registrert.")
         with right:
             st.markdown("**Simulerte scoregrenser**")
+            st.caption("En følsomhetsanalyse av scorekravet – ikke et kjøpssignal. Data-, risiko-, kapital-, sektor-, timing- og ordrekrav gjelder fortsatt.")
             simulations = list(analysis.get("threshold_simulations") or [])
             if simulations:
                 st.dataframe(pd.DataFrame(simulations)[["minimum_score","eligible_candidates","tickers"]].rename(columns={"minimum_score":"Minimum score","eligible_candidates":"Mulige kandidater","tickers":"Toppkandidater"}), width="stretch", hide_index=True)
@@ -2064,6 +2141,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         accounts.ensure_defaults()
         comparison = accounts.comparison()
         st.markdown("**Separate strategikontoer**")
+        st.caption("Produksjon er den ordinære Autonomi-kontoen. Læring bruker små teoretiske posisjoner. Benchmark er kun sammenligningsgrunnlag.")
         if comparison:
             view = pd.DataFrame(comparison).rename(columns={
                 "display_name":"Konto", "role":"Rolle", "status":"Status", "equity":"Porteføljeverdi",
@@ -2071,6 +2149,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
                 "cash":"Kontanter", "last_run_id":"Siste kjøring",
             })
             keep = [c for c in ["Konto","Rolle","Status","Porteføljeverdi","Avkastning %","Drawdown %","Posisjoner","Kontanter","Siste kjøring"] if c in view.columns]
+            view = _round_financial_columns(view, ["Porteføljeverdi", "Avkastning %", "Drawdown %", "Kontanter"])
             st.dataframe(view[keep], width="stretch", hide_index=True)
         st.caption("Teknisk benchmark, autonomy_main og autonomy_learning har separate kontanter, posisjoner og handler. Ingen konto kan bruke en annen kontos kapital.")
 
@@ -2142,7 +2221,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Status", portfolio.get("status", "PAUSED"))
-    c2.metric("Porteføljeverdi", f"{perf['equity']:,.0f}")
+    c2.metric("Porteføljeverdi", _fmt_nb_money(perf["equity"]))
     c3.metric("Avkastning", f"{perf['total_return_pct']:+.2f}%")
     c4.metric("Åpne posisjoner", perf["open_positions"])
     c5.metric("Drawdown", f"{perf['drawdown_pct']:.2f}%")
@@ -2240,8 +2319,19 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     _render_activation_analysis_v1980(st, pd)
 
     with st.expander("Faste parametere", expanded=False):
+        portfolio_initial_cash = _f(portfolio.get("initial_cash"), params.initial_cash)
+        st.info(
+            "Disse grensene styrer nye teoretiske beslutninger. Startkapital er bare reset-verdi for en ny konto; "
+            "den endrer aldri avkastningsgrunnlaget til en eksisterende portefølje."
+        )
+        st.caption(
+            f"Faktisk avkastningsgrunnlag for aktiv konto: {_fmt_nb_money(portfolio_initial_cash)} · "
+            f"valgt reset-verdi: {_fmt_nb_money(params.initial_cash)}."
+        )
+        if abs(float(params.initial_cash) - portfolio_initial_cash) > 0.01:
+            st.warning("Reset-verdien avviker fra aktiv kontos startkapital. Dette er tillatt, men får først virkning etter en uttrykkelig RESET.")
         p1, p2, p3, p4 = st.columns(4)
-        initial_cash = p1.number_input("Startkapital", 1000.0, 100000000.0, float(params.initial_cash), 10000.0, key="alp_initial_v18688")
+        initial_cash = p1.number_input("Startkapital ved neste RESET", 1000.0, 100000000.0, float(params.initial_cash), 10000.0, key="alp_initial_v18688")
         min_score = p2.slider("Minimum investeringsscore", 0.0, 100.0, float(params.minimum_investment_score), 1.0, key="alp_minscore_v18688")
         min_quality = p3.slider("Minimum datakvalitet", 0.0, 100.0, float(params.minimum_data_quality), 1.0, key="alp_quality_v18688")
         max_risk = p4.slider("Maks risikoscore", 0.0, 100.0, float(params.maximum_risk_score), 1.0, key="alp_risk_v18688")
@@ -2268,6 +2358,35 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         if st.button("Lagre parametere", key="alp_save_params_v18688"):
             save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_maximum_risk_score=learning_max_risk, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
             st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
+
+        st.markdown("**Kontrollert anbefalt produksjonsprofil**")
+        st.caption("Profilen endrer ikke startkapital, læringskonto, historikk eller eksisterende posisjoner. Den må godkjennes eksplisitt.")
+        recommended = recommended_production_profile(params)
+        profile_rows = [
+            {"Parameter": "Minimum investeringsscore", "Nå": params.minimum_investment_score, "Anbefalt": recommended.minimum_investment_score},
+            {"Parameter": "Minimum datakvalitet", "Nå": params.minimum_data_quality, "Anbefalt": recommended.minimum_data_quality},
+            {"Parameter": "Maks risikoscore", "Nå": params.maximum_risk_score, "Anbefalt": recommended.maximum_risk_score},
+            {"Parameter": "Maks posisjon %", "Nå": params.maximum_position_pct, "Anbefalt": recommended.maximum_position_pct},
+            {"Parameter": "Maks sektor %", "Nå": params.maximum_sector_pct, "Anbefalt": recommended.maximum_sector_pct},
+            {"Parameter": "Maks åpne posisjoner", "Nå": params.maximum_open_positions, "Anbefalt": recommended.maximum_open_positions},
+            {"Parameter": "Kontantreserve %", "Nå": params.reserve_cash_pct, "Anbefalt": recommended.reserve_cash_pct},
+            {"Parameter": "Stop-loss %", "Nå": params.stop_loss_pct, "Anbefalt": recommended.stop_loss_pct},
+            {"Parameter": "Trailing stop %", "Nå": params.trailing_stop_pct, "Anbefalt": recommended.trailing_stop_pct},
+            {"Parameter": "Take profit %", "Nå": params.take_profit_pct, "Anbefalt": recommended.take_profit_pct},
+            {"Parameter": "Score-exit under", "Nå": params.score_exit_threshold, "Anbefalt": recommended.score_exit_threshold},
+            {"Parameter": "Maks drawdown %", "Nå": params.maximum_drawdown_pct, "Anbefalt": recommended.maximum_drawdown_pct},
+        ]
+        profile_view = pd.DataFrame(profile_rows)
+        profile_view[["Nå", "Anbefalt"]] = profile_view[["Nå", "Anbefalt"]].astype(float).round(2)
+        st.dataframe(profile_view, width="stretch", hide_index=True)
+        production_approval = st.text_input("Skriv GODKJENN for å bruke anbefalt produksjonsprofil", key="alp_recommended_profile_approval_v1931h")
+        if st.button("Bruk anbefalt produksjonsprofil", key="alp_apply_recommended_profile_v1931h"):
+            if production_approval.strip().upper() != "GODKJENN":
+                st.error("Skriv GODKJENN før produksjonsprofilen endres.")
+            else:
+                save_parameters(recommended)
+                st.success("Anbefalt produksjonsprofil er lagret og auditført. Aktiv portefølje og historikk er ikke nullstilt.")
+                st.rerun()
 
     with st.expander("🔐 Konfigurasjonsrammeverk", expanded=False):
         cfg = configuration_status()
@@ -2300,9 +2419,13 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     history = load_equity_history(200)
     invested = sum(_f(p.get("quantity")) * _f(p.get("last_price", p.get("average_price"))) for p in (portfolio.get("positions") or {}).values())
     cash = _f(portfolio.get("cash"))
-    start_value = _f(params.initial_cash) or perf["equity"]
-    total_return_value = perf["equity"] - start_value
+    portfolio_initial_cash = _f(portfolio.get("initial_cash")) or perf["equity"]
+    total_return_value = perf["equity"] - portfolio_initial_cash
     st.markdown("##### Porteføljeoversikt")
+    st.caption(
+        f"Avkastning beregnes mot aktiv kontos faktiske startverdi {_fmt_nb_money(portfolio_initial_cash)}. "
+        "En endret reset-verdi påvirker ikke denne historikken."
+    )
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Porteføljeverdi", _fmt_nb_money(perf["equity"]), f"{perf['total_return_pct']:+.2f}%")
     k2.metric("Total avkastning", _fmt_nb_money(total_return_value))
@@ -2317,17 +2440,44 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     st.markdown("##### Porteføljeutvikling")
     if history and len(history) >= 3:
         hist_df = pd.DataFrame(history).sort_values("timestamp")
-        hist_df["Dato"] = hist_df["timestamp"].map(_short_local_time)
-        st.line_chart(hist_df.set_index("Dato")[["equity"]], width="stretch", height=280)
+        hist_df["Tidspunkt"] = pd.to_datetime(hist_df["timestamp"], utc=True, errors="coerce").dt.tz_convert(None)
+        hist_df["Porteføljeverdi"] = pd.to_numeric(hist_df["equity"], errors="coerce")
+        hist_df["Kontanter"] = (
+            pd.to_numeric(hist_df["cash"], errors="coerce")
+            if "cash" in hist_df.columns
+            else float(portfolio.get("cash") or 0.0)
+        )
+        hist_df["Investert"] = hist_df["Porteføljeverdi"] - hist_df["Kontanter"]
+        hist_df["Utvikling %"] = (hist_df["Porteføljeverdi"] / max(portfolio_initial_cash, 1.0) - 1.0) * 100.0
+        valid_history = hist_df.dropna(subset=["Tidspunkt", "Porteføljeverdi"])
+        st.caption("Prosentkurven er normalisert mot kontoens faktiske startverdi, slik at små endringer ikke skjules i en flat millionakse.")
+        st.line_chart(valid_history.set_index("Tidspunkt")[["Utvikling %"]], width="stretch", height=280)
+        with st.expander("Vis kapitalfordeling", expanded=False):
+            st.caption("Porteføljeverdi = kontanter + markedsverdi av åpne posisjoner.")
+            st.line_chart(valid_history.set_index("Tidspunkt")[["Porteføljeverdi", "Kontanter", "Investert"]], width="stretch", height=280)
         with st.expander("Vis historikkdetaljer", expanded=False):
             view = hist_df.sort_values("timestamp", ascending=False).head(25).copy()
-            view = view.rename(columns={"equity":"Porteføljeverdi", "total_return_pct":"Avkastning %", "open_positions":"Posisjoner", "trades":"Handler", "decisions":"Beslutninger", "run_id":"Kjørings-ID"})
+            view["Dato"] = view["timestamp"].map(_short_local_time)
+            view["Kjørings-ID"] = view.get("run_id", "-")
+            view["Avkastning %"] = (
+                pd.to_numeric(view["total_return_pct"], errors="coerce")
+                if "total_return_pct" in view.columns
+                else view["Utvikling %"]
+            )
+            view["Posisjoner"] = view.get("open_positions", 0)
+            view["Handler"] = view.get("trades", 0)
+            view["Beslutninger"] = view.get("decisions", 0)
+            view = _round_financial_columns(view, ["Porteføljeverdi", "Avkastning %"])
             st.dataframe(view[["Dato", "Kjørings-ID", "Porteføljeverdi", "Avkastning %", "Posisjoner", "Handler", "Beslutninger"]], width="stretch", hide_index=True)
     elif history:
         st.info("For få historikkpunkter til en meningsfull graf. Neste autonome kjøringer bygger utviklingskurven.")
         hist_df = pd.DataFrame(history).sort_values("timestamp", ascending=False)
         hist_df["Dato"] = hist_df["timestamp"].map(_short_local_time)
-        st.dataframe(hist_df[["Dato", "run_id", "equity", "total_return_pct"]].rename(columns={"run_id":"Kjørings-ID", "equity":"Porteføljeverdi", "total_return_pct":"Avkastning %"}), width="stretch", hide_index=True)
+        compact = hist_df[["Dato", "run_id", "equity", "total_return_pct"]].rename(
+            columns={"run_id":"Kjørings-ID", "equity":"Porteføljeverdi", "total_return_pct":"Avkastning %"}
+        )
+        compact = _round_financial_columns(compact, ["Porteføljeverdi", "Avkastning %"])
+        st.dataframe(compact, width="stretch", hide_index=True)
     else:
         st.info("Ingen porteføljehistorikk ennå. Historikk opprettes etter neste autonome beslutningssyklus.")
 
@@ -2337,7 +2487,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         _render_position_cards_mobile(position_rows, st)
         desktop_rows = [{k:v for k,v in row.items() if k not in {"Selskap"}} for row in position_rows]
         with st.container(key="autonomous-desktop-positions-v1940"):
-            st.dataframe(pd.DataFrame(desktop_rows), width="stretch", hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Snittkurs": st.column_config.NumberColumn(format="%.2f"), "Siste kurs": st.column_config.NumberColumn(format="%.2f"), "Markedsverdi": st.column_config.NumberColumn(format="%.0f kr"), "Avkastning kr": st.column_config.NumberColumn(format="%+.0f kr"), "Avkastning %": st.column_config.NumberColumn(format="%+.2f%%")})
+            st.dataframe(pd.DataFrame(desktop_rows), width="stretch", hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Snittkurs": st.column_config.NumberColumn(format="%.2f"), "Siste kurs": st.column_config.NumberColumn(format="%.2f"), "Markedsverdi": st.column_config.NumberColumn(format="%.2f kr"), "Avkastning kr": st.column_config.NumberColumn(format="%+.2f kr"), "Avkastning %": st.column_config.NumberColumn(format="%+.2f%%")})
     else:
         st.info("Ingen åpne teoretiske posisjoner.")
 
@@ -2353,7 +2503,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
             trade_rows = autonomous_trade_display_rows(trades, limit=500)
             _render_trade_cards_mobile(trade_rows, st)
             with st.container(key="autonomous-desktop-trades-v1940"):
-                st.dataframe(pd.DataFrame([{k:v for k,v in row.items() if k != "Teknisk ID"} for row in trade_rows]), width="stretch", hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Kurs": st.column_config.NumberColumn(format="%.2f"), "Beløp": st.column_config.NumberColumn(format="%.0f kr")})
+                st.dataframe(pd.DataFrame([{k:v for k,v in row.items() if k != "Teknisk ID"} for row in trade_rows]), width="stretch", hide_index=True, column_config={"Antall": st.column_config.NumberColumn(format="%.2f"), "Kurs": st.column_config.NumberColumn(format="%.2f"), "Beløp": st.column_config.NumberColumn(format="%.2f kr")})
             with st.expander("Tekniske handelsdetaljer", expanded=False):
                 st.dataframe(pd.DataFrame(trade_rows), width="stretch", hide_index=True)
             st.download_button("Eksporter handler JSON", json.dumps(trades, ensure_ascii=False, indent=2), "autonomous_trades.json", "application/json", key="alp_trades_json_v18688")

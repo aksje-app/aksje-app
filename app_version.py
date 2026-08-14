@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31g"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31g Auditable Universe Coverage"
+APP_VERSION = "v19.22.0-rc16.31h"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31h Autonomy Clarity and Precision"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31f"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31g"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -153,6 +153,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31h: Autonomi viser forklarende aktiveringssteg, reelle blokkårsaker og separate kontoroller, retter avkastning i kroner mot aktiv kontos faktiske startverdi og normaliserer utviklingsgrafen i prosent. Den kjente eldre produksjonsprofilen migreres én gang til kontrollert score-, data-, risiko-, reserve- og exitprofil uten å endre læringskontoen eller nullstille porteføljen. Finansielle tall vises med to desimaler, mens valutakurser og valutavarsler bruker tre desimaler.",
     "v19.22.0-rc16.31e: Autonomi samler nå isolerte, ikke-handlende observasjoner for alle vurderte kandidater og måler faktisk utfall etter 5, 10, 20 og 60 handelsdager. Modne observasjoner kan opprette en avgrenset skyggehypotese uten å svekke produksjonsporter eller endre parametere automatisk. Læringsvarsler sendes bare ved endring eller ukentlig livstegn. Ettermiddagsrapporten navngis konsekvent, og den faktiske kjøpslisten heter Kjøpsgodkjente kandidater. Detaljobservasjoner er idempotente og avgrenset til 2 000 rader; portefølje, handler, beslutninger og audit slettes ikke.",
     "v19.22.0-rc16.31d: Skiller prioritert vurderingsrekkefølge 1–3 fra den faktiske kjøpslisten, viser score og reelt Autonomi-utfall også når ingen kjøp godkjennes, komprimerer beslutningsdelen tilbake mot seks sider og fjerner dobbelt tidssone i varsler. Lagringsvedlikeholdet sletter utløpte offentlige PDF-token, reduserer ubegrenset rapport-/kjøringshistorikk og rapporterer faktisk databasebruk uten å slette portefølje, handler, beslutninger, innstillinger eller audit. Paper-skanner og rapportmotor forblir låsisolert, og testkjøringer er fortsatt blokkert fra porteføljehandlinger.",
     "v19.22.0-rc16.31b: Isolerer faste rapporttidspunkt fra skanningsvinduer og rapporttestmetadata, bygger testjobben fra en ren profil og bevarer dokumentert leveringssuksess gjennom retry og leveransetabell.",

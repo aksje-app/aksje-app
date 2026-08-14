@@ -11278,7 +11278,7 @@ def render_currency_alerts_control_center_v1863af():
             else:
                 _flash(
                     "success",
-                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.2f} · "
+                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.3f} · "
                     f"{_status_label(selected.get('status'))} · kurssitat {_fx_local_time(selected.get('quote_time'))}.",
                 )
         except Exception as exc:
@@ -11300,18 +11300,18 @@ def render_currency_alerts_control_center_v1863af():
                 elif selected.get("sent"):
                     _flash(
                         "success",
-                        f"Kurs {float(selected.get('rate')):.2f} ble kontrollert og Pushover-varsel ble sendt.",
+                        f"Kurs {float(selected.get('rate')):.3f} ble kontrollert og Pushover-varsel ble sendt.",
                     )
                 elif selected.get("send_error"):
                     _flash("warning", f"Kursen ble kontrollert, men Pushover feilet: {selected.get('send_error')}")
                 elif selected.get("status") in {"breach_lower", "breach_upper"}:
                     _flash(
                         "warning",
-                        f"Kurs {float(selected.get('rate')):.2f}: {_status_label(selected.get('status'))}. "
+                        f"Kurs {float(selected.get('rate')):.3f}: {_status_label(selected.get('status'))}. "
                         "Nytt varsel er ikke sendt fordi varselpause eller varslingsinnstilling gjelder.",
                     )
                 else:
-                    _flash("success", f"Kurs {float(selected.get('rate')):.2f} er innenfor grensene.")
+                    _flash("success", f"Kurs {float(selected.get('rate')):.3f} er innenfor grensene.")
             except Exception as exc:
                 _flash("error", f"Valutakontrollen feilet: {exc}")
             _rerun_currency_alerts_v19220_rc6()
@@ -11333,14 +11333,14 @@ def render_currency_alerts_control_center_v1863af():
                 rate = float(selected.get("rate"))
                 message = (
                     f"Test fra Valutavarsler: {pair_label} ({symbol_value})\n"
-                    f"Kurs: {rate:.2f}\n"
+                    f"Kurs: {rate:.3f}\n"
                     f"Status: {_status_label(selected.get('status'))}\n"
-                    f"Grenser: {lower_v:.2f} - {upper_v:.2f}\n"
+                    f"Grenser: {lower_v:.3f} - {upper_v:.3f}\n"
                     f"Kurssitat: {_fx_local_time(selected.get('quote_time'))}"
                 )
                 ok, send_err = _send_pushover_safe_v1863af(message, "Pushover-test Valutavarsler")
                 if ok:
-                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.2f} og samme status som i appen.")
+                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.3f} og samme status som i appen.")
                 else:
                     _flash("warning", f"Pushover-test feilet: {send_err or 'ukjent feil'}")
         except Exception as exc:
@@ -11448,9 +11448,9 @@ def render_currency_alerts_control_center_v1863af():
             symbol = st.text_input("Yahoo-symbol", value=str(default_symbol or "BRLNOK=X"))
         c3, c4 = st.columns(2)
         with c3:
-            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.01, format="%.2f")
+            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.001, format="%.3f")
         with c4:
-            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.01, format="%.2f")
+            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.001, format="%.3f")
         i1, i2 = st.columns(2)
         with i1:
             check_label = st.radio(
