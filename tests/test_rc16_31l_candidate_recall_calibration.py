@@ -10,8 +10,8 @@ from autonomi_core.portfolio_decisions.decision_funnel import (
 
 
 def test_full_score_budget_covers_every_fetched_candidate():
-    assert APP_VERSION == "v19.22.0-rc16.31l"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31k"
+    assert APP_VERSION == "v19.22.0-rc16.31m"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31l"
     assert RANKING_MODEL_VERSION == APP_VERSION
     assert mi._full_score_budget(82) == 82
     assert mi._full_score_budget(250) == 250
