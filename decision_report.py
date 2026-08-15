@@ -936,6 +936,11 @@ def build_decision_report(
         "weak_or_unverified": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") in {"SVAK", "IKKE_VERIFISERT"}),
         "conflicting": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") == "MOTSTRIDENDE"),
     }
+    from report_portfolio_intelligence import build_candidate_watch_queue, build_portfolio_report, build_system_anomaly_watch
+    portfolio = _mapping(run.get("autonomous_portfolio_snapshot") or run.get("portfolio_snapshot") or run.get("portfolio_context"))
+    portfolio_intelligence = build_portfolio_report(portfolio, _rows(run.get("candidates")), now=_created_at(run))
+    system_anomaly_watch = build_system_anomaly_watch(_rows(run.get("candidates")))
+    candidate_watch_queue = build_candidate_watch_queue(_rows(run.get("candidates")))
     return {
         "schema_version": DECISION_REPORT_SCHEMA_VERSION,
         "overview": overview,
@@ -949,6 +954,9 @@ def build_decision_report(
         "source_consensus": source_consensus,
         "decision_diffs": decision_diffs,
         "historical_evaluations": historical_evaluations,
+        "portfolio_intelligence": portfolio_intelligence,
+        "system_anomaly_watch": system_anomaly_watch,
+        "candidate_watch_queue": candidate_watch_queue,
         "counter_hypotheses": {
             str(row.get("ticker") or ""): deepcopy(row.get("counter_hypothesis") or {})
             for row in candidate_contracts[:3]

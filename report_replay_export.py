@@ -261,10 +261,17 @@ def _candidate_trace(run: Mapping[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(candidate, Mapping):
             continue
         portfolio = candidate.get("portfolio_decision") if isinstance(candidate.get("portfolio_decision"), Mapping) else {}
+        # portfolio_decision is the sole authoritative final action.  Earlier
+        # exports mixed reduced presentation status with this record and could
+        # consequently show REVIEW/HOLD in one file and SKIP in another.
+        authoritative_action = portfolio.get("action") or candidate.get("portfolio_action")
         rows.append(sanitize_for_export({
             "ticker": candidate.get("ticker"),
             "market": candidate.get("market"),
             "investment_score": candidate.get("investment_score"),
+            "investment_score_before_evidence_neutralisation": candidate.get("investment_score_before_evidence_neutralisation"),
+            "effective_entry_score": candidate.get("effective_entry_score"),
+            "unverified_positive_credit_removed": candidate.get("unverified_positive_credit_removed"),
             "data_quality": candidate.get("data_quality"),
             "risk_score": candidate.get("risk_score"),
             "valid_for_decision": candidate.get("valid_for_decision"),
@@ -273,7 +280,8 @@ def _candidate_trace(run: Mapping[str, Any]) -> list[dict[str, Any]]:
             "status": candidate.get("status"),
             "autonomy_outcome": candidate.get("autonomy_outcome"),
             "autonomy_outcome_label": candidate.get("autonomy_outcome_label"),
-            "portfolio_action": candidate.get("portfolio_action"),
+            "portfolio_action": authoritative_action,
+            "authoritative_final_action": authoritative_action,
             "portfolio_decision": portfolio,
             "decision_blockers": candidate.get("decision_blockers") or portfolio.get("blockers") or [],
             "strategy_matches": candidate.get("strategy_matches") or [],

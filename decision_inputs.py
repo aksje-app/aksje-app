@@ -53,7 +53,26 @@ def candidate_base_score(candidate: Mapping[str, Any], default: float = 0.0) -> 
 
 
 def candidate_entry_score(candidate: Mapping[str, Any], default: float = 0.0) -> float:
-    """Return the canonical entry score after bounded technical adjustment."""
+    """Return the canonical entry score after neutralising unverified credit."""
     if candidate.get("autonomy_adjusted_investment_score") is not None:
-        return _number(candidate.get("autonomy_adjusted_investment_score"), default)
-    return candidate_base_score(candidate, default)
+        score = _number(candidate.get("autonomy_adjusted_investment_score"), default)
+    else:
+        score = candidate_base_score(candidate, default)
+    passport = candidate.get("evidence_passport") if isinstance(candidate.get("evidence_passport"), Mapping) else {}
+    areas = passport.get("areas") if isinstance(passport.get("areas"), Mapping) else {}
+    terminal = {"AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VERIFIED_FACTS_NONE"}
+    neutralised = 0.0
+    for detail in areas.values():
+        if not isinstance(detail, Mapping):
+            continue
+        if str(detail.get("status") or "").upper() not in terminal:
+            neutralised += max(0.0, _number(detail.get("ranking_contribution"), 0.0))
+    return max(0.0, score - neutralised)
+
+
+def candidate_score_audit(candidate: Mapping[str, Any]) -> dict[str, float]:
+    """Expose raw, neutralised and removed score credit for reports/replay."""
+    raw = _number(candidate.get("autonomy_adjusted_investment_score"), candidate_base_score(candidate))
+    effective = candidate_entry_score(candidate)
+    return {"raw_adjusted_score": round(raw, 4), "effective_entry_score": round(effective, 4),
+            "unverified_positive_credit_removed": round(max(0.0, raw - effective), 4)}

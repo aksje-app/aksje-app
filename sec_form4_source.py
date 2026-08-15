@@ -7,12 +7,18 @@ enters insider scoring as a confirmed buy or sale.
 from __future__ import annotations
 
 import os
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from xml.etree import ElementTree
 
 SEC_BASE = "https://www.sec.gov"
 SEC_DATA = "https://data.sec.gov"
+_TICKER_CACHE_LOCK = threading.RLock()
+_TICKER_CACHE: dict[str, tuple[str, str]] = {}
+_TICKER_CACHE_FETCHED_AT = 0.0
+_TICKER_CACHE_TTL_SECONDS = 24 * 3600
 
 
 def _headers() -> dict[str, str]:
@@ -40,14 +46,28 @@ def _number(value: Any) -> float:
         return 0.0
 
 
+def _ticker_registry(session: Any) -> dict[str, tuple[str, str]]:
+    """Fetch the static SEC ticker registry once per process/day."""
+    global _TICKER_CACHE, _TICKER_CACHE_FETCHED_AT
+    with _TICKER_CACHE_LOCK:
+        if _TICKER_CACHE and time.time() - _TICKER_CACHE_FETCHED_AT < _TICKER_CACHE_TTL_SECONDS:
+            return _TICKER_CACHE
+        response = session.get(f"{SEC_BASE}/files/company_tickers.json", headers=_headers(), timeout=15)
+        response.raise_for_status()
+        registry: dict[str, tuple[str, str]] = {}
+        for row in (response.json() or {}).values():
+            key = str(row.get("ticker") or "").upper().replace(".", "-")
+            if key:
+                registry[key] = (str(row.get("cik_str") or "").zfill(10), str(row.get("title") or ""))
+        if registry:
+            _TICKER_CACHE = registry
+            _TICKER_CACHE_FETCHED_AT = time.time()
+        return registry
+
+
 def _ticker_cik(ticker: str, session: Any) -> tuple[str, str]:
-    response = session.get(f"{SEC_BASE}/files/company_tickers.json", headers=_headers(), timeout=15)
-    response.raise_for_status()
     wanted = str(ticker or "").upper().replace(".", "-")
-    for row in (response.json() or {}).values():
-        if str(row.get("ticker") or "").upper().replace(".", "-") == wanted:
-            return str(row.get("cik_str") or "").zfill(10), str(row.get("title") or "")
-    return "", ""
+    return _ticker_registry(session).get(wanted, ("", ""))
 
 
 def _parse_form4(xml_bytes: bytes, *, filing: Mapping[str, Any], filing_url: str) -> list[dict[str, Any]]:

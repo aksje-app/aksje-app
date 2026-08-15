@@ -561,6 +561,7 @@ def _allocated_market_budget(total: int, market_index: int, market_count: int, *
 
 MINIMUM_GLOBAL_CANDIDATE_SHORTLIST = 60
 MINIMUM_GLOBAL_EVIDENCE_SHORTLIST = 20
+MINIMUM_CANDIDATES_PER_SELECTED_MARKET = 10
 
 
 def _full_score_budget(candidate_count: int) -> int:
@@ -594,6 +595,53 @@ def _effective_global_evidence_size(configured: int, available: int) -> int:
     if available == 0:
         return 0
     return min(available, max(MINIMUM_GLOBAL_EVIDENCE_SHORTLIST, int(configured or 0)))
+
+
+def _balanced_global_shortlist(candidates: Sequence[Mapping[str, Any]], size: int,
+                               markets: Sequence[str], minimum_per_market: int = MINIMUM_CANDIDATES_PER_SELECTED_MARKET) -> list[dict[str, Any]]:
+    """Keep global quality ordering while guaranteeing meaningful market recall."""
+    ranked = sorted((dict(row) for row in candidates), key=lambda row: float(row.get("investment_score", 0)), reverse=True)
+    size = min(max(0, int(size)), len(ranked))
+    if not size:
+        return []
+    selected = ranked[:size]
+    selected_tickers = {str(row.get("ticker") or "").upper() for row in selected}
+    for market in markets:
+        available = [row for row in ranked if str(row.get("market") or "") == str(market)]
+        target = min(int(minimum_per_market), len(available))
+        present = sum(str(row.get("market") or "") == str(market) for row in selected)
+        for addition in available:
+            if present >= target:
+                break
+            ticker = str(addition.get("ticker") or "").upper()
+            if ticker in selected_tickers:
+                continue
+            removable = next((row for row in reversed(selected) if sum(str(x.get("market") or "") == str(row.get("market") or "") for x in selected) > min(int(minimum_per_market), len([x for x in ranked if str(x.get("market") or "") == str(row.get("market") or "")]))) , None)
+            if removable is None:
+                break
+            selected.remove(removable)
+            selected_tickers.discard(str(removable.get("ticker") or "").upper())
+            selected.append(addition)
+            selected_tickers.add(ticker)
+            present += 1
+    represented_sectors = {str(row.get("sector") or "Ukjent") for row in selected}
+    for sector in dict.fromkeys(str(row.get("sector") or "Ukjent") for row in ranked):
+        if sector in represented_sectors:
+            continue
+        addition = next((row for row in ranked if str(row.get("sector") or "Ukjent") == sector and str(row.get("ticker") or "").upper() not in selected_tickers), None)
+        if addition is None:
+            continue
+        removable = next((row for row in reversed(selected)
+                          if sum(str(x.get("sector") or "Ukjent") == str(row.get("sector") or "Ukjent") for x in selected) > 1
+                          and sum(str(x.get("market") or "") == str(row.get("market") or "") for x in selected) > min(int(minimum_per_market), len([x for x in ranked if str(x.get("market") or "") == str(row.get("market") or "")]))) , None)
+        if removable is None:
+            continue
+        selected.remove(removable)
+        selected_tickers.discard(str(removable.get("ticker") or "").upper())
+        selected.append(addition)
+        selected_tickers.add(str(addition.get("ticker") or "").upper())
+        represented_sectors.add(sector)
+    return sorted(selected, key=lambda row: float(row.get("investment_score", 0)), reverse=True)
 
 
 def report_identity(trigger: str, job_name: str = "", job_id: str = "", *,
@@ -1243,6 +1291,9 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     confidence = section_payload(document, "confidence_profile", {}) or {}
     reliability = section_payload(document, "report_reliability", {}) or {}
     quality_dimensions = section_payload(document, "quality_dimensions", {}) or {}
+    portfolio_intelligence = section_payload(document, "portfolio_intelligence", {}) or {}
+    system_anomaly_watch = section_payload(document, "system_anomaly_watch", []) or []
+    candidate_watch_queue = section_payload(document, "candidate_watch_queue", []) or []
     changes = section_payload(document, "changes", {}) or {}
     decision_diffs = section_payload(document, "decision_diffs", {}) or {}
     counter_hypotheses = section_payload(document, "counter_hypotheses", {}) or {}
@@ -1292,6 +1343,25 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     ]
     for item in overview.get("focus") or []:
         lines.append(f"- {item}")
+
+    lines.extend(["", "EKSISTERENDE PORTEFØLJE OG KAPITALBINDING"])
+    lines.append(f"- Åpne posisjoner: {portfolio_intelligence.get('open_positions', 0)} av {portfolio_intelligence.get('maximum_open_positions', 20)}")
+    lines.append(f"- Sidelengsposisjoner: {portfolio_intelligence.get('sideways_positions', 0)}")
+    lines.append(f"- Svekket score: {portfolio_intelligence.get('weakened_positions', 0)}")
+    lines.append(f"- Mulige utskiftingsvurderinger: {portfolio_intelligence.get('replacement_review_count', 0)}")
+    for row in portfolio_intelligence.get("positions") or []:
+        lines.append(
+            f"- {row.get('ticker')}: ALLEREDE I PORTEFØLJEN – {row.get('capital_efficiency_status')} · "
+            f"eiertid {row.get('holding_days')} dager · resultat {float(row.get('unrealized_pnl_pct') or 0):+.2f} % · "
+            f"score {row.get('entry_score')} → {row.get('current_score')} · {row.get('addition_policy')}"
+        )
+    if system_anomaly_watch:
+        lines.extend(["", "AUTOMATISK SYSTEMVAKT"])
+        for alert in system_anomaly_watch:
+            lines.append(f"- {alert.get('severity')}: {alert.get('message')} ({alert.get('code')})")
+    lines.extend(["", "OBSERVASJONSKØ 68-73 – IKKE KJØPSANBEFALINGER"])
+    for row in candidate_watch_queue:
+        lines.append(f"- {row.get('ticker')}: score {row.get('score')} · {row.get('distance_to_production_threshold')} poeng til 73 · {', '.join(row.get('blocker_codes') or []) or 'ingen annen blokkering'}")
 
     lines.extend(["", "ENDRINGER SIDEN SIST"])
     if not changes.get("has_previous"):
@@ -2314,26 +2384,29 @@ def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict
         elif critical_failures:
             cap = 75.0
         after = min(cap, max(0.0, round(before - total_penalty, 2)))
+        candidate["evidence_coverage"] = records
+        from evidence_relevance import evidence_decision_assessment
+        relevance = evidence_decision_assessment(candidate)
         review_required = bool(
-            news_status not in valid_completed_states
-            or insider_status not in valid_completed_states
-            or critical_failures >= 1
+            relevance["missing_required_areas"]
             or bool(records["insider"]["conflicts"] or records["news"]["conflicts"])
         )
         candidate["confidence_before_evidence_policy"] = before
         candidate["confidence_score"] = after
-        candidate["evidence_coverage"] = records
+        candidate["evidence_decision_assessment"] = relevance
         candidate["evidence_confidence_penalty"] = total_penalty
         candidate["evidence_confidence_cap"] = cap
         candidate["evidence_review_required"] = review_required
         candidate["evidence_valid_for_decision"] = not review_required
         candidate["evidence_gate_status"] = "MANUAL_REVIEW" if review_required else "PASS"
         candidate["decision_readiness"] = {
-            "status": "IKKE KOMPLETT" if review_required else "KOMPLETT",
+            "status": "IKKE KOMPLETT" if review_required else "KOMPLETT – STRATEGIRELEVANT",
             "market_data": "AVVENTER DATAKONTRAKT",
             "news": news_status,
             "insider": insider_status,
             "conflicts": len(records["insider"]["conflicts"]) + len(records["news"]["conflicts"]),
+            "required_evidence_areas": relevance["required_areas"],
+            "neutralised_optional_areas": relevance["neutralised_optional_areas"],
             "confidence_before": before, "confidence_final": after,
             "allowed_action": "MANUELL VURDERING" if review_required else str(candidate.get("portfolio_action") or "REVIEW"),
         }
@@ -2771,6 +2844,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     decision_confidence = section_payload(report_document, "confidence_profile", {}) or {}
     decision_quality = section_payload(report_document, "quality_dimensions", {}) or {}
     decision_reliability = section_payload(report_document, "report_reliability", {}) or {}
+    decision_portfolio = section_payload(report_document, "portfolio_intelligence", {}) or {}
+    decision_anomalies = section_payload(report_document, "system_anomaly_watch", []) or []
+    decision_watch_queue = section_payload(report_document, "candidate_watch_queue", []) or []
 
     full_checksum = str(report_metadata.get("content_sha256") or report_revision.get("content_sha256") or "-")
     checksum_display = full_checksum if full_checksum == "-" else (full_checksum[:32] + " " + full_checksum[32:])
@@ -2958,6 +3034,44 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             styles["Small"],
         ),
     ]
+    portfolio_rows = [["Ticker", "Merking", "Eiertid", "Resultat", "Score inn/nå", "Kapitalstatus"]]
+    for row in list(decision_portfolio.get("positions") or []):
+        portfolio_rows.append([
+            _rawp(row.get("ticker") or "-", "Tiny"), _p("ALLEREDE I PORTEFØLJEN", "Tiny"),
+            _p(f"{row.get('holding_days', 0)} dager", "Tiny"),
+            _p(f"{float(row.get('unrealized_pnl_pct') or 0):+.2f}%", "Tiny"),
+            _p(f"{row.get('entry_score', 0):.1f} / {row.get('current_score', 0):.1f}", "Tiny"),
+            _p(str(row.get("capital_efficiency_status") or "BEHOLD"), "Tiny"),
+        ])
+    if len(portfolio_rows) == 1:
+        portfolio_rows.append(["-", "Ingen åpne posisjoner", "-", "-", "-", "-"])
+    portfolio_table = Table(portfolio_rows, repeatRows=1, colWidths=[24*mm, 42*mm, 22*mm, 23*mm, 28*mm, 45*mm])
+    portfolio_table.setStyle(_table_style(5.2, padding=1.2))
+    decision_story += [
+        Paragraph("Eksisterende portefølje og kapitalbinding", styles["Section"]),
+        Paragraph(
+            f"Åpne posisjoner {decision_portfolio.get('open_positions', 0)}/{decision_portfolio.get('maximum_open_positions', 20)} · "
+            f"sidelengs {decision_portfolio.get('sideways_positions', 0)} · svekket score {decision_portfolio.get('weakened_positions', 0)} · "
+            f"utskiftingsvurdering {decision_portfolio.get('replacement_review_count', 0)}.", styles["BodyCompact"]),
+        portfolio_table,
+        Paragraph("Sidelengs utvikling er et kapitalvarsel, ikke et automatisk salgssignal.", styles["Small"]),
+    ]
+    if decision_anomalies:
+        decision_story += [Paragraph("Automatisk systemvakt", styles["Section"])]
+        for alert in decision_anomalies:
+            decision_story.append(Paragraph(
+                f"<b>{escape(str(alert.get('severity') or 'WARNING'))}</b> · {escape(str(alert.get('message') or '-'))} "
+                f"({escape(str(alert.get('code') or '-'))})", styles["BodyCompact"]))
+    if decision_watch_queue:
+        watch_rows = [["Ticker", "Marked", "Score", "Til 73", "Andre blokkeringer"]]
+        for row in list(decision_watch_queue)[:15]:
+            watch_rows.append([_rawp(row.get("ticker") or "-", "Tiny"), _p(row.get("market") or "-", "Tiny"),
+                               _p(f"{float(row.get('score') or 0):.2f}", "Tiny"), _p(f"{float(row.get('distance_to_production_threshold') or 0):.2f}", "Tiny"),
+                               _p(", ".join(row.get("blocker_codes") or []) or "Ingen", "Tiny")])
+        watch_table = Table(watch_rows, repeatRows=1, colWidths=[28*mm, 28*mm, 22*mm, 22*mm, 84*mm])
+        watch_table.setStyle(_table_style(5.4, padding=1.2))
+        decision_story += [Paragraph("Observasjonskø 68-73", styles["Section"]), watch_table,
+                           Paragraph("Observasjonskøen er ikke en kjøpsanbefaling. Kandidatene vurderes automatisk på nytt.", styles["Small"])]
     rejected_rows = [["Ticker", "Marked", "Score", "Status / kort grunn"]]
     for row in rejected_control:
         rejected_rows.append([row.get("ticker") or "-", row.get("market") or "-", _fmt(row.get("score")), _p(_short(row.get("reason") or row.get("status") or "Avvist", 120), "Tiny")])
@@ -4648,6 +4762,12 @@ def _run_job_impl(
     identity_rejections: list[dict[str, Any]] = []
     for raw_candidate in all_candidates:
         candidate = normalize_candidate_identity(raw_candidate)
+        from decision_inputs import candidate_entry_score, candidate_score_audit
+        score_audit = candidate_score_audit(candidate)
+        candidate["investment_score_before_evidence_neutralisation"] = score_audit["raw_adjusted_score"]
+        candidate["effective_entry_score"] = score_audit["effective_entry_score"]
+        candidate["unverified_positive_credit_removed"] = score_audit["unverified_positive_credit_removed"]
+        candidate["investment_score"] = candidate_entry_score(candidate)
         ticker = str(candidate.get("ticker") or "").upper()
         if not ticker:
             identity_rejections.append({"reason": "Mangler ticker", "candidate": dict(raw_candidate)})
@@ -4663,7 +4783,7 @@ def _run_job_impl(
     # local scoring treatment.  A legacy deep_count of 10 can no longer create
     # a hidden 4/3/3 market quota.
     global_shortlist_size = _effective_global_shortlist_size(job.deep_count, len(all_candidates))
-    all_candidates = all_candidates[:global_shortlist_size]
+    all_candidates = _balanced_global_shortlist(all_candidates, global_shortlist_size, markets)
     for idx, row in enumerate(all_candidates, 1):
         row["rank"] = idx
         row["raw_rank"] = idx
@@ -4697,9 +4817,11 @@ def _run_job_impl(
         all_candidates, mission_id=str(investment_mission.get("mission_id") or ""),
         configuration_version=str(investment_mission.get("configuration_version") or ""),
     )
-    from autonomous_portfolio import load_parameters
+    from autonomous_portfolio import load_parameters, load_portfolio
     from autonomous_decision_reduction import apply_decision_reduction, MARKET_SOURCE_MATRIX
     autonomy_parameters = load_parameters().normalized()
+    autonomous_portfolio_snapshot = load_portfolio()
+    autonomous_portfolio_snapshot["maximum_open_positions"] = int(autonomy_parameters.maximum_open_positions)
     all_candidates, decision_reduction = apply_decision_reduction(
         all_candidates,
         threshold=float(autonomy_parameters.minimum_investment_score),
@@ -4869,6 +4991,7 @@ def _run_job_impl(
                "attempt": int((previous.get("revalidation") or {}).get("attempt") or 0) + 1 if revision_parent else 0,
            },
            "execution_mode": "UNIFIED_PIPELINE",
+           "autonomous_portfolio_snapshot": autonomous_portfolio_snapshot,
            "configuration_handoff": handoff,
            "market_diagnostics": market_diagnostics,
            "candidate_selection": {
@@ -4877,6 +5000,7 @@ def _run_job_impl(
                "selected": len(all_candidates),
                "configured_legacy_deep_count": int(job.deep_count),
                "minimum_global_shortlist": MINIMUM_GLOBAL_CANDIDATE_SHORTLIST,
+               "minimum_per_selected_market": MINIMUM_CANDIDATES_PER_SELECTED_MARKET,
                "production_threshold_changed": False,
                "shadow_thresholds": [73.0, 70.0, 68.0, 65.0],
            },
