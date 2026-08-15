@@ -34,9 +34,10 @@ _SNAPSHOT_LOCK = threading.Lock()
 _LATEST_ACTIVE_SNAPSHOT: dict[str, Any] = {}
 _THREADS: dict[str, threading.Thread] = {}
 _TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "STALLED"}
-_STAGE_ORDER = ["MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
+_STAGE_ORDER = ["WAITING_FOR_REPORT_LOCK", "MARKET_DATA", "INSIDER", "NEWS", "SCORING", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"]
 _STAGE_PROGRESS_LIMIT_SECONDS = {
     "PREFLIGHT": 150,
+    "WAITING_FOR_REPORT_LOCK": 2100,
     "MARKET_DATA": 600,
     "INSIDER": 360,
     "NEWS": 360,
@@ -490,6 +491,11 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         ) if key in scheduler}
     except Exception as exc:
         scheduler = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from execution_coordination import report_execution_owner
+        lock_owner = report_execution_owner()
+    except Exception as exc:
+        lock_owner = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     readme = (
         "Diagnosepakke for manuell bakgrunnskjøring.\n"
         "Pakken inneholder status, fremdrift og avgrenset Autonomi-læringsbevis. "
@@ -502,6 +508,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "learning/LEARNING_DIAGNOSTICS.json": json.dumps(learning, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scheduler/REPORT_EXECUTION_OWNER.json": json.dumps(lock_owner, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_TIMELINE.json": json.dumps(report_test.get("timeline") or [], ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_SYSTEM_CHECK.json": json.dumps(system_check, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
@@ -601,7 +608,7 @@ def _worker(
                 stage_history.append({"stage": active_stage, "entered_at": now})
             event_run_id = str(event.get("run_id") or current.get("run_id") or "")
             current.update({
-                "state": "RUNNING", "updated_at": now, "heartbeat_at": now,
+                "state": "WAITING" if phase == "WAITING_FOR_REPORT_LOCK" else "RUNNING", "updated_at": now, "heartbeat_at": now,
                 "last_progress_at": _now(),
                 "worker_process_identity": _PROCESS_IDENTITY, "worker_pid": os.getpid(),
                 "worker_thread_name": threading.current_thread().name,
@@ -738,7 +745,13 @@ def start_manual_job(
         timezone_name = str(getattr(job, "timezone_name", "Europe/Oslo") or "Europe/Oslo")
         execution_id = f"MBJ-{as_local(datetime.now(timezone.utc), timezone_name):%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6].upper()}"
         selected_markets = list(getattr(job, "markets", []) or [])
-        market_count = 6 if "Alle" in selected_markets else max(1, len(selected_markets))
+        from market_universe import expand_market_scope
+        expanded_markets: list[str] = []
+        for selected_market in selected_markets:
+            for market in expand_market_scope(selected_market) or [str(selected_market)]:
+                if market not in expanded_markets:
+                    expanded_markets.append(market)
+        market_count = max(1, len(expanded_markets))
         per_market = int(getattr(job, "scan_limit", 25))
         previous_execution_id = str((active or {}).get("execution_id") or "")
         accepted_at = _now()
@@ -753,7 +766,8 @@ def start_manual_job(
             "scan_configuration": {
                 "per_market": per_market, "market_count": market_count,
                 "planned_maximum": per_market * market_count,
-                "markets": selected_markets,
+                "markets": expanded_markets,
+                "market_scope_selection": selected_markets,
             },
             "force_refresh": bool(force_refresh), "scheduled_for": str(scheduled_for or ""), "accepted_at": accepted_at,
             "timezone_name": timezone_name,

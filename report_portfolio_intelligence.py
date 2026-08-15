@@ -61,7 +61,44 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "source_run_id": str(position.get("source_run_id") or ""),
             "addition_policy": "TILLEGGSKJØP DEAKTIVERT",
         })
+    cash = _f(portfolio.get("cash"))
+    initial_cash = _f(portfolio.get("initial_cash"))
+    realized_pnl = _f(portfolio.get("realized_pnl"))
+    total_cost_basis = sum(_f(row.get("entry_price")) * _f(row.get("quantity")) for row in rows)
+    total_market_value = sum(_f(row.get("market_value")) for row in rows)
+    total_unrealized_pnl = sum(_f(row.get("unrealized_pnl")) for row in rows)
+    equity = cash + total_market_value
+    reserve_cash_pct = _f(portfolio.get("reserve_cash_pct"), 10.0)
+    required_reserve = equity * reserve_cash_pct / 100.0
+    available_cash = max(0.0, cash - required_reserve)
+    invested_pct = total_market_value / equity * 100.0 if equity else 0.0
+    cash_pct = cash / equity * 100.0 if equity else 100.0
+    for row in rows:
+        row["portfolio_weight_pct"] = round(_f(row.get("market_value")) / equity * 100.0, 2) if equity else 0.0
+        row["cost_basis"] = round(_f(row.get("entry_price")) * _f(row.get("quantity")), 2)
+        raw_position = positions.get(str(row.get("ticker") or ""), {})
+        row["sector"] = str((raw_position or {}).get("sector") or "Ukjent")
+        row["market"] = str((raw_position or {}).get("market") or (raw_position or {}).get("country") or "Ukjent")
     rows.sort(key=lambda row: (row["capital_efficiency_status"] != "VURDER UTSKIFTING", row["unrealized_pnl_pct"]))
+    sector_values: dict[str, float] = {}
+    market_values: dict[str, float] = {}
+    for row in rows:
+        sector_values[row["sector"]] = sector_values.get(row["sector"], 0.0) + _f(row.get("market_value"))
+        market_values[row["market"]] = market_values.get(row["market"], 0.0) + _f(row.get("market_value"))
+    maximum_open_positions = int(_f(portfolio.get("maximum_open_positions"), _f((portfolio.get("limits") or {}).get("max_positions") if isinstance(portfolio.get("limits"), Mapping) else 20, 20)))
+    account_result = equity - initial_cash if initial_cash else realized_pnl + total_unrealized_pnl
+    accounting_delta = account_result - realized_pnl - total_unrealized_pnl
+    reconciliation = {
+        "position_count_matches": len(rows) == len(positions),
+        "equity_matches_cash_plus_positions": abs(equity - cash - total_market_value) <= 0.02,
+        "weights_match_invested_pct": abs(sum(_f(row.get("portfolio_weight_pct")) for row in rows) - invested_pct) <= max(0.05, 0.01 * len(rows)),
+        "account_result_delta": round(accounting_delta, 2),
+        "account_result_matches_realized_plus_unrealized": abs(accounting_delta) <= 0.05,
+    }
+    reconciliation["ok"] = all(bool(reconciliation[key]) for key in (
+        "position_count_matches", "equity_matches_cash_plus_positions", "weights_match_invested_pct",
+        "account_result_matches_realized_plus_unrealized",
+    ))
     owned_issuers = {issuer_identity(dict(raw) if isinstance(raw, Mapping) else {"ticker": ticker}) for ticker, raw in positions.items()}
     unified = []
     for candidate in candidates:
@@ -73,13 +110,45 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         })
     unified.sort(key=lambda row: row["score"], reverse=True)
     return {
-        "open_positions": len(rows), "maximum_open_positions": int(_f(portfolio.get("maximum_open_positions"), _f((portfolio.get("limits") or {}).get("max_positions") if isinstance(portfolio.get("limits"), Mapping) else 20, 20))),
+        "snapshot_timing": "ETTER_AUTONOMI",
+        "snapshot_run_id": str(portfolio.get("last_run_id") or ""),
+        "valuation_unit": str(portfolio.get("valuation_currency") or "SIMULERT KONTOENHET"),
+        "open_positions": len(rows), "maximum_open_positions": maximum_open_positions,
+        "remaining_position_slots": max(0, maximum_open_positions - len(rows)),
+        "initial_capital": round(initial_cash, 2), "cash": round(cash, 2),
+        "required_cash_reserve": round(required_reserve, 2), "available_purchase_limit": round(available_cash, 2),
+        "total_cost_basis": round(total_cost_basis, 2), "total_market_value": round(total_market_value, 2),
+        "portfolio_equity": round(equity, 2), "realized_pnl": round(realized_pnl, 2),
+        "unrealized_pnl": round(total_unrealized_pnl, 2), "total_result": round(account_result, 2),
+        "total_return_pct": round(account_result / initial_cash * 100.0, 2) if initial_cash else 0.0,
+        "invested_pct": round(invested_pct, 2), "cash_pct": round(cash_pct, 2),
+        "reserve_cash_pct": round(reserve_cash_pct, 2),
         "sideways_positions": sum(row["sideways_20d_proxy"] for row in rows),
         "weakened_positions": sum(row["weakened_score"] for row in rows),
         "replacement_review_count": sum(row["capital_efficiency_status"] == "VURDER UTSKIFTING" for row in rows),
         "positions": rows, "unified_owned_and_candidate_ranking": unified,
+        "sector_exposure": [
+            {"sector": key, "market_value": round(value, 2), "weight_pct": round(value / equity * 100.0, 2) if equity else 0.0}
+            for key, value in sorted(sector_values.items(), key=lambda item: item[1], reverse=True)
+        ],
+        "market_exposure": [
+            {"market": key, "market_value": round(value, 2), "weight_pct": round(value / equity * 100.0, 2) if equity else 0.0}
+            for key, value in sorted(market_values.items(), key=lambda item: item[1], reverse=True)
+        ],
+        "reconciliation": reconciliation,
         "warning": "Sidelengs-proxy er et varsel, ikke et automatisk salgssignal. Indeksrelativ avkastning krever egen benchmarkserie.",
     }
+
+
+def assert_portfolio_report_integrity(report: Mapping[str, Any]) -> None:
+    """Block publication when one portfolio snapshot contradicts itself."""
+    reconciliation = report.get("reconciliation") if isinstance(report.get("reconciliation"), Mapping) else {}
+    if reconciliation.get("ok") is not True:
+        failed = [key for key, value in reconciliation.items() if key != "account_result_delta" and value is False]
+        raise RuntimeError("Porteføljeregnskapet kunne ikke avstemmes: " + ", ".join(failed or ["ukjent avvik"]))
+    rows = list(report.get("positions") or [])
+    if int(report.get("open_positions") or 0) != len(rows):
+        raise RuntimeError("Porteføljeregnskapet har ulikt posisjonsantall i sammendrag og detaljtabell")
 
 
 def build_system_anomaly_watch(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

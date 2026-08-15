@@ -3034,27 +3034,64 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             styles["Small"],
         ),
     ]
-    portfolio_rows = [["Ticker", "Merking", "Eiertid", "Resultat", "Score inn/nå", "Kapitalstatus"]]
+    portfolio_rows = [["Ticker", "Antall", "Inngang", "Nå", "Kostpris", "Markedsverdi", "Vekt %"]]
     for row in list(decision_portfolio.get("positions") or []):
         portfolio_rows.append([
-            _rawp(row.get("ticker") or "-", "Tiny"), _p("ALLEREDE I PORTEFØLJEN", "Tiny"),
-            _p(f"{row.get('holding_days', 0)} dager", "Tiny"),
-            _p(f"{float(row.get('unrealized_pnl_pct') or 0):+.2f}%", "Tiny"),
-            _p(f"{row.get('entry_score', 0):.1f} / {row.get('current_score', 0):.1f}", "Tiny"),
-            _p(str(row.get("capital_efficiency_status") or "BEHOLD"), "Tiny"),
+            _rawp(row.get("ticker") or "-", "Tiny"),
+            _p(_fmt(row.get("quantity", 0)), "Tiny"),
+            _p(_fmt(row.get("entry_price", 0)), "Tiny"),
+            _p(_fmt(row.get("last_price", 0)), "Tiny"),
+            _p(_fmt(row.get("cost_basis", 0)), "Tiny"),
+            _p(_fmt(row.get("market_value", 0)), "Tiny"),
+            _p(f"{float(row.get('portfolio_weight_pct') or 0):.2f}", "Tiny"),
         ])
     if len(portfolio_rows) == 1:
-        portfolio_rows.append(["-", "Ingen åpne posisjoner", "-", "-", "-", "-"])
-    portfolio_table = Table(portfolio_rows, repeatRows=1, colWidths=[24*mm, 42*mm, 22*mm, 23*mm, 28*mm, 45*mm])
+        portfolio_rows.append(["-", "Ingen åpne posisjoner", "-", "-", "-", "-", "-"])
+    portfolio_table = Table(portfolio_rows, repeatRows=1, colWidths=[23*mm, 22*mm, 25*mm, 25*mm, 30*mm, 32*mm, 22*mm])
     portfolio_table.setStyle(_table_style(5.2, padding=1.2))
+    portfolio_result_rows = [["Ticker", "Resultat", "Resultat %", "Eiertid", "Score inn/nå", "Kapitalstatus"]]
+    for row in list(decision_portfolio.get("positions") or []):
+        portfolio_result_rows.append([
+            _rawp(row.get("ticker") or "-", "Tiny"),
+            _p(f"{float(row.get('unrealized_pnl') or 0):+.2f}", "Tiny"),
+            _p(f"{float(row.get('unrealized_pnl_pct') or 0):+.2f}%", "Tiny"),
+            _p(f"{row.get('holding_days', 0)} dager", "Tiny"),
+            _p(f"{float(row.get('entry_score') or 0):.1f} / {float(row.get('current_score') or 0):.1f}", "Tiny"),
+            _p(str(row.get("capital_efficiency_status") or "BEHOLD"), "Tiny"),
+        ])
+    if len(portfolio_result_rows) == 1:
+        portfolio_result_rows.append(["-", "-", "-", "-", "-", "Ingen åpne posisjoner"])
+    portfolio_result_table = Table(portfolio_result_rows, repeatRows=1, colWidths=[24*mm, 27*mm, 24*mm, 24*mm, 31*mm, 49*mm])
+    portfolio_result_table.setStyle(_table_style(5.2, padding=1.2))
+    accounting_rows = [
+        [_p("Startkapital", "Tiny"), _p(_fmt(decision_portfolio.get("initial_capital", 0)), "Tiny"),
+         _p("Porteføljeverdi", "Tiny"), _p(_fmt(decision_portfolio.get("portfolio_equity", 0)), "Tiny")],
+        [_p("Investert", "Tiny"), _p(f"{_fmt(decision_portfolio.get('total_market_value', 0))} ({_fmt(decision_portfolio.get('invested_pct', 0))} %)", "Tiny"),
+         _p("Kontanter", "Tiny"), _p(f"{_fmt(decision_portfolio.get('cash', 0))} ({_fmt(decision_portfolio.get('cash_pct', 0))} %)", "Tiny")],
+        [_p("Ledig kjøpslimit", "Tiny"), _p(_fmt(decision_portfolio.get("available_purchase_limit", 0)), "Tiny"),
+         _p("Påkrevd reserve", "Tiny"), _p(f"{_fmt(decision_portfolio.get('required_cash_reserve', 0))} ({_fmt(decision_portfolio.get('reserve_cash_pct', 0))} %)", "Tiny")],
+        [_p("Realisert resultat", "Tiny"), _p(f"{float(decision_portfolio.get('realized_pnl') or 0):+.2f}", "Tiny"),
+         _p("Urealisert resultat", "Tiny"), _p(f"{float(decision_portfolio.get('unrealized_pnl') or 0):+.2f}", "Tiny")],
+        [_p("Samlet resultat", "Tiny"), _p(f"{float(decision_portfolio.get('total_result') or 0):+.2f} ({float(decision_portfolio.get('total_return_pct') or 0):+.2f} %)", "Tiny"),
+         _p("Ledige posisjonsplasser", "Tiny"), _p(str(decision_portfolio.get("remaining_position_slots", 0)), "Tiny")],
+    ]
+    accounting_table = Table(accounting_rows, colWidths=[39*mm, 50*mm, 39*mm, 51*mm])
+    accounting_table.setStyle(_table_style(5.4, padding=1.5))
     decision_story += [
         Paragraph("Eksisterende portefølje og kapitalbinding", styles["Section"]),
         Paragraph(
             f"Åpne posisjoner {decision_portfolio.get('open_positions', 0)}/{decision_portfolio.get('maximum_open_positions', 20)} · "
             f"sidelengs {decision_portfolio.get('sideways_positions', 0)} · svekket score {decision_portfolio.get('weakened_positions', 0)} · "
             f"utskiftingsvurdering {decision_portfolio.get('replacement_review_count', 0)}.", styles["BodyCompact"]),
+        Paragraph(
+            f"Autoritativt snapshot etter Autonomi · kjøring {escape(str(decision_portfolio.get('snapshot_run_id') or run.get('run_id') or '-'))} · "
+            f"verdsettelse i {escape(str(decision_portfolio.get('valuation_unit') or 'SIMULERT KONTOENHET'))}.", styles["Small"]),
+        accounting_table,
+        Paragraph("Posisjoner, verdi og porteføljevekt", styles["Subsection"]),
         portfolio_table,
-        Paragraph("Sidelengs utvikling er et kapitalvarsel, ikke et automatisk salgssignal.", styles["Small"]),
+        Paragraph("Resultat, eiertid og kapitalstatus", styles["Subsection"]),
+        portfolio_result_table,
+        Paragraph("Alle eksisterende posisjoner er merket som allerede eid; tilleggskjøp er deaktivert. Sidelengs utvikling er et kapitalvarsel, ikke et automatisk salgssignal.", styles["Small"]),
     ]
     if decision_anomalies:
         decision_story += [Paragraph("Automatisk systemvakt", styles["Section"])]
@@ -3323,11 +3360,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         action = str(decision.get("action") or decision.get("decision") or "").upper()
         if action not in {"BUY", "SELL"}:
             continue
+        reason_text = str(decision.get("reason") or "")
+        display_action = "LUKKET VED PROMOTERING" if action == "SELL" and "promot" in reason_text.casefold() else action
         blockers = decision.get("production_blockers_at_entry") or decision.get("production_blockers") or decision.get("blockers") or []
         if isinstance(blockers, str):
             blockers = [blockers]
         learning_rows.append([
-            _p(decision.get("ticker") or "-"), _p(action),
+            _p(decision.get("ticker") or "-"), _p(display_action),
             _p(str(decision.get("quantity") or "-").replace(".", ",")),
             _p((f"{float(decision.get('price')):.2f}".replace(".", ",") if decision.get("price") is not None else "-")),
             _p(_format_summary_value(decision.get("score", decision.get("autonomy_adjusted_investment_score", decision.get("investment_score", 0))))),
@@ -3339,7 +3378,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
             repeatRows=1, colWidths=[22*mm, 18*mm, 22*mm, 20*mm, 17*mm, 69*mm],
         )
         learning_table.setStyle(_table_style(6.3, padding=2))
-        story += [Paragraph("Kanoniske læringshandler i denne kjøringen", styles["Subsection"]), learning_table]
+        story += [Paragraph("Læringskontohandler i denne kjøringen", styles["Subsection"]), learning_table]
     if threshold_explanation:
         story += [Paragraph(escape(_norwegian_decimal_text(threshold_explanation)), styles["Small"])]
     candidate_minutes = int(report_status.get("candidate_validity_minutes") or 60)
@@ -4177,6 +4216,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         shadow_table.setStyle(_table_style(6.3, padding=2))
         story += [Paragraph("Skyggemodus – kjøpsterskel", styles["Subsection"]), shadow_table,
                   Paragraph("Tersklene 76, 74 og 72 er utfordrer-simuleringer. De kan ikke utløse kjøp eller endre produksjonsregelen uten eksplisitt godkjenning.", styles["Small"])]
+        report_summary_v19143 = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+        story += [Paragraph(
+            f"Kandidatavstemming: {len(candidates)} totalt | {int(report_summary_v19143.get('buy_candidates') or 0)} kjøpsgodkjent | "
+            f"{int(report_summary_v19143.get('automatic_watch') or 0)} overvåkes | "
+            f"{int(report_summary_v19143.get('manual_review') or 0)} undersøkes manuelt | "
+            f"{int(report_summary_v19143.get('automatic_rejected') or 0)} avvist | "
+            f"avstemt {int(report_summary_v19143.get('buy_candidates') or 0) + int(report_summary_v19143.get('automatic_watch') or 0) + int(report_summary_v19143.get('manual_review') or 0) + int(report_summary_v19143.get('automatic_rejected') or 0)} av {len(candidates)}",
+            styles["Footer"],
+        )]
         provenance = list(funnel.get("position_provenance") or [])
         if provenance:
             provenance_rows = [["Ticker", "Opprinnelse", "Kildekjøring", "Bevis"]]
@@ -4195,18 +4243,6 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         story += [KeepTogether([Paragraph("Foreløpig modellportefølje før endelig beslutningsport", styles["Section"]),
                                Paragraph(f"Investert: {_fmt(portfolio_proposal.get('invested_pct', 0))} % | Kontanter: {_fmt(portfolio_proposal.get('cash_pct', 100))} %", styles["BodyCompact"]),
                                ptable])]
-
-    report_summary_v19143 = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
-    story += [
-        Paragraph(
-            f"Kandidatavstemming: {len(candidates)} totalt | {int(report_summary_v19143.get('buy_candidates') or 0)} kjøpsgodkjent | "
-            f"{int(report_summary_v19143.get('automatic_watch') or 0)} overvåkes | "
-            f"{int(report_summary_v19143.get('manual_review') or 0)} undersøkes manuelt | "
-            f"{int(report_summary_v19143.get('automatic_rejected') or 0)} avvist | "
-            f"avstemt {int(report_summary_v19143.get('buy_candidates') or 0) + int(report_summary_v19143.get('automatic_watch') or 0) + int(report_summary_v19143.get('manual_review') or 0) + int(report_summary_v19143.get('automatic_rejected') or 0)} av {len(candidates)}",
-            styles["Footer"],
-        ),
-    ]
     technical_story = story
     has_technical_content = bool(
         run.get("candidates") or run.get("errors") or run.get("warnings")
@@ -4822,6 +4858,8 @@ def _run_job_impl(
     autonomy_parameters = load_parameters().normalized()
     autonomous_portfolio_snapshot = load_portfolio()
     autonomous_portfolio_snapshot["maximum_open_positions"] = int(autonomy_parameters.maximum_open_positions)
+    autonomous_portfolio_snapshot["reserve_cash_pct"] = float(autonomy_parameters.reserve_cash_pct)
+    autonomous_portfolio_snapshot["snapshot_timing"] = "FØR_AUTONOMI"
     all_candidates, decision_reduction = apply_decision_reduction(
         all_candidates,
         threshold=float(autonomy_parameters.minimum_investment_score),
@@ -5106,6 +5144,17 @@ def _run_job_impl(
         apply_funnel_annotations(run.get("candidates") or [], run["decision_funnel"])
     except Exception as exc:
         run["decision_funnel"] = {"version": APP_VERSION, "mode": "DIAGNOSTIC_ONLY", "error": str(exc)}
+    # RC16.31n: every report consumer must use one post-trade snapshot.  The
+    # previous implementation retained the pre-trade snapshot while later
+    # sections counted newly executed positions, producing 12/13 conflicts.
+    from autonomous_portfolio import load_parameters as _load_final_parameters, load_portfolio as _load_final_portfolio
+    _final_parameters = _load_final_parameters().normalized()
+    _final_portfolio = _load_final_portfolio()
+    _final_portfolio["maximum_open_positions"] = int(_final_parameters.maximum_open_positions)
+    _final_portfolio["reserve_cash_pct"] = float(_final_parameters.reserve_cash_pct)
+    _final_portfolio["snapshot_timing"] = "ETTER_AUTONOMI"
+    _final_portfolio["snapshot_run_id"] = str(run_id)
+    run["autonomous_portfolio_snapshot"] = _final_portfolio
     # Rebuild the canonical report after Autonomi so production and learning
     # activity is separated in the same document that is persisted and rendered.
     apply_report_integrity(run)
@@ -5116,6 +5165,10 @@ def _run_job_impl(
         raise RuntimeError("Lærings-/rapportkonsistens feilet: " + "; ".join(run["learning_report_consistency"].get("errors") or []))
     run.pop("report_document", None)
     run.pop("decision_report", None)
+    from report_portfolio_intelligence import assert_portfolio_report_integrity, build_portfolio_report
+    _portfolio_report_preflight = build_portfolio_report(_final_portfolio, run.get("candidates") or [], now=_now())
+    assert_portfolio_report_integrity(_portfolio_report_preflight)
+    run["portfolio_accounting_preflight"] = dict(_portfolio_report_preflight.get("reconciliation") or {})
 
     # Persist the domain result exactly once. Every downstream consumer receives
     # a view of this immutable record, not a separately assembled copy.
@@ -5314,19 +5367,44 @@ def run_job(
     mark_run_stage(trace_id, "PREFLIGHT", status="RUNNING", message="Starter forhåndskontroll og klargjøring")
     from newsapi_budget import begin_report_budget, end_report_budget
     report_api_limit = 5 if "TEST" in str(trigger or "").upper() or "TEST" in str(getattr(job, "name", "") or "").upper() else 15
-    begin_report_budget(report_api_limit, label=f"{trigger}:{getattr(job, 'job_id', '')}")
+    manual_wait_seconds = 1800 if str(trigger or "").upper().startswith("MANUAL") else 0
+    wait_deadline = time_module.monotonic() + manual_wait_seconds
+    budget_started = False
     try:
-        with report_execution_lock() as execution_acquired:
+        while True:
+            lock_owner = {
+                "trigger": str(trigger or ""), "job_id": str(getattr(job, "job_id", "") or ""),
+                "job_name": str(getattr(job, "name", "") or ""), "trace_id": trace_id,
+                "scheduled_for": str(scheduled_for or ""), "stage": "PREFLIGHT",
+            }
+            with report_execution_lock(lock_owner) as execution_acquired:
+                if execution_acquired:
+                    begin_report_budget(report_api_limit, label=f"{trigger}:{getattr(job, 'job_id', '')}")
+                    budget_started = True
+                    result = _run_job_traced(
+                        job, trigger, progress_callback, force_refresh, revision_parent,
+                        send_notifications, scheduled_for, trace_id,
+                    )
+                    result["newsapi_report_budget"] = end_report_budget()
+                    budget_started = False
+                    return result
             if not execution_acquired:
-                raise RuntimeError("En annen rapportkjøring er allerede aktiv. Ny kjøring ble ikke startet.")
-            result = _run_job_traced(
-                job, trigger, progress_callback, force_refresh, revision_parent,
-                send_notifications, scheduled_for, trace_id,
-            )
-            result["newsapi_report_budget"] = end_report_budget()
-            return result
+                from execution_coordination import report_execution_owner
+                owner = report_execution_owner()
+                if manual_wait_seconds and time_module.monotonic() < wait_deadline:
+                    if progress_callback:
+                        progress_callback({
+                            "phase": "WAITING_FOR_REPORT_LOCK", "completed": 0, "total": 1,
+                            "message": "Venter i kø på aktiv rapportkjøring",
+                            "lock_owner": owner,
+                        })
+                    time_module.sleep(5)
+                    continue
+                owner_label = str(owner.get("job_name") or owner.get("job_id") or owner.get("trigger") or "ukjent rapportkjøring")
+                raise RuntimeError(f"Rapportmotoren er opptatt av {owner_label}. Kjøringen ble ikke startet.")
     except Exception as exc:
-        end_report_budget()
+        if budget_started:
+            end_report_budget()
         code = stable_error_code("REPORT", "report_run_failed", "RUN")
         mark_run_stage(trace_id, "FAILED", status="ERROR", message="Rapportkjøringen feilet", error_code=code, error=exc)
         complete_run_trace(trace_id, status="FAILED", error_code=code, error=exc)

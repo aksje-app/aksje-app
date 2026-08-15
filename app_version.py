@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31m"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31m Capital Allocation Integrity"
+APP_VERSION = "v19.22.0-rc16.31n"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31n Report Reconciliation Integrity"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31l"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31m"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31n: Fryser analyse- og handelsreglene og retter rapportintegritet. PDF/JSON bruker ett autoritativt porteføljesnapshot etter Autonomi, viser fullstendig porteføljeregnskap, posisjonsverdier, vekter, resultat og ledig kjøpslimit, og blokkerer publisering ved intern avstemmingsfeil. Manuelle rapporter venter nå i kø ved aktiv rapportlås; låseeier og heartbeat lagres og følger diagnosepakken. Produksjonsterskel 73,0 og alle risiko-/porteføljegrenser er uendret.",
     "v19.22.0-rc16.31m: Innfører strategiavhengig evidens, nøytraliserer positive poeng fra uverifiserte kilder, cacher SEC ticker-CIK-registeret, merker eksisterende porteføljeposisjoner eksplisitt, publiserer kapitalbinding og samlet eid/ikke-eid rangering, gir én autoritativ sluttbeslutning, varsler uniforme tekniske signaler og garanterer minst 10 kandidater per valgt kjernemarked når universet tillater det. Produksjonsterskel 73,0 og risiko-/porteføljegrenser er uendret.",
     "v19.22.0-rc16.31l: Samordner hele kjøpskjeden etter produksjonsreplay. Alle beslutningslag bruker samme fail-closed kurs- og inngangsscore, legacy-evidensbudsjett oppgraderes slik at global Top 20 garantert er kildesøkt, ukjente sekundære insidertransaksjoner kan ikke lenger fabrikkere BUY, fullført SEC-kontroll registreres korrekt, HOLD kan ikke gi positivt teknisk scorebidrag, og aksjeklasser deler utstederidentitet i porteføljeporten. Produksjonsterskelen forblir 73,0.",
     "v19.22.0-rc16.31k: Retter kandidatgjenfinningen uten å senke produksjonsporten. Alle aksjer som faktisk er hentet i markedsskanningen får samme lokale grunnscore før global avkorting, eldre Top-10-profiler oppgraderes til en avgrenset global kortliste på minst 60 kandidater, og 65/68/70/73 måles parallelt som ikke-handlende skygg terskler. Evidens-, risiko-, portefølje-, Paper- og produksjonshandel forblir fail-closed; produksjonsterskelen er fortsatt 73,0 inntil reelle utfallsdata begrunner en eksplisitt godkjent endring.",
