@@ -152,8 +152,9 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
     price = candidate_price(candidate, existing)
     liquidity = _num(candidate.get("liquidity_score"), 0)
     risk = _num(candidate.get("risk_score"), 100)
-    from decision_inputs import candidate_entry_score
+    from decision_inputs import candidate_entry_score, candidate_score_audit
     score = candidate_entry_score(candidate, 0.0)
+    score_audit = candidate_score_audit(candidate)
     data_quality = _num(
         candidate.get("data_quality")
         or candidate.get("data_quality_score")
@@ -165,7 +166,9 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
     minimum_data_quality = _num(context.get("minimum_data_quality"), 55)
     min_liquidity = _num(context.get("minimum_liquidity_score"), 40)
     max_candidate_risk = _num(context.get("maximum_candidate_risk_score"), 75)
-    evidence_valid = bool(candidate.get("evidence_valid_for_decision", False))
+    from evidence_relevance import evidence_decision_assessment
+    evidence_assessment = evidence_decision_assessment(candidate)
+    evidence_valid = bool(evidence_assessment["valid_for_decision"])
     valid_for_decision = bool(candidate.get("valid_for_decision", True))
     mission_eligible = bool(candidate.get("mission_eligible", True))
     strategy_matches = bool(candidate.get("strategy_matches"))
@@ -224,6 +227,8 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
             reason = "Eksisterende posisjon beholdes; ingen exitvakt er utløst i porteføljelaget"
         if not bool(context.get("allow_additions", False)):
             blocker_rows = [row for row in blocker_rows if row["code"] not in {"MAX_OPEN_POSITIONS", "PORTFOLIO_ROOM"}]
+            block("EXISTING_POSITION_ADDITIONS_DISABLED", "Allerede i porteføljen; tilleggskjøp er deaktivert")
+            reason = "Allerede i porteføljen – behold; tilleggskjøp er deaktivert"
     elif blocker_rows:
         hard_codes = {
             "DATA_CONTRACT_INVALID", "EVIDENCE_NOT_READY", "MISSION_INELIGIBLE", "STRATEGY_NOT_MATCHED",
@@ -258,6 +263,7 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
         "liquidity_score": liquidity,
         "risk_score": risk,
         "investment_score": score,
+        "score_audit": score_audit,
         "data_quality": data_quality,
         "thresholds": {
             "minimum_investment_score": minimum_score,
@@ -267,7 +273,8 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
         },
         "gates": {
             "valid_for_decision": valid_for_decision,
-            "evidence_valid_for_decision": evidence_valid,
+        "evidence_valid_for_decision": evidence_valid,
+        "evidence_decision_assessment": evidence_assessment,
             "mission_eligible": mission_eligible,
             "strategy_matches": strategy_matches,
             "score_pass": score >= minimum_score,
@@ -276,6 +283,11 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
             "risk_pass": risk <= max_candidate_risk,
             "price_valid": price > 0,
             "technical_entry_ready": not technical_entry_wait,
+            "technical_signal_semantics": (
+                "WAIT_BLOCKING" if technical_entry_wait else
+                "POSITIVE" if str(candidate.get("technical_signal_action") or "").upper() in {"BUY", "KJØP"} else
+                "NEUTRAL_NON_BLOCKING"
+            ),
             "portfolio_room": allowed_pct >= .5 and sizing["amount"] > 0,
         },
         "position_size": {key: round(_num(value), 4) for key, value in sizing.items()},
@@ -285,6 +297,10 @@ def assess_candidate(candidate: MutableMapping[str, Any], context: Mapping[str, 
     }
     candidate["portfolio_decision"] = decision
     candidate["portfolio_action"] = action
+    candidate["original_evidence_valid_for_decision"] = candidate.get("evidence_valid_for_decision")
+    candidate["evidence_valid_for_decision"] = evidence_valid
+    candidate["effective_evidence_valid_for_decision"] = evidence_valid
+    candidate["effective_entry_score"] = score
     return decision
 
 
