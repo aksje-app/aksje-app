@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and isolated-runtime release gate for RC16.31i version identity."""
+"""Static and isolated-runtime release gate for the current version identity."""
 from __future__ import annotations
 
 import json
@@ -26,7 +26,7 @@ def main() -> int:
     def require(ok: bool, label: str) -> None:
         (checks if ok else errors).append(label)
 
-    require(APP_VERSION == "v19.22.0-rc16.31i", "canonical app version")
+    require(APP_VERSION == "v19.22.0-rc16.31q", "canonical app version")
     require(CONTROLLED_LEARNING_POLICY_VERSION == "v19.3.1", "controlled-learning contract")
     require(OPERATIONS_TELEMETRY_VERSION == "v19.2.0", "operations-telemetry contract")
     binding_source = (ROOT / "services/strategy_binding.py").read_text(encoding="utf-8")
