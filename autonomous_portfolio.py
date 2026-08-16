@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
+import sys
+import tempfile
 from copy import deepcopy
 import math
 import zipfile
@@ -52,6 +56,80 @@ LEARNING_PERFORMANCE_PATH = ROOT / "learning_performance.json"
 LEARNING_OBSERVATIONS_PATH = ROOT / "learning_observations.json"
 LEGACY_MIXED_EQUITY_HISTORY_PATH = ROOT / "equity_history_pre_separation.json"
 LATEST_PIPELINE_PATH = runtime_data_path("investment_pipeline") / "latest_run.json"
+
+
+class ParallelStrategyTimeout(RuntimeError):
+    """A read-only parallel comparison exceeded its killable runtime budget."""
+
+
+def _evaluate_parallel_strategies_isolated(
+    market_snapshot: Any,
+    *,
+    run_id: str,
+    autonomy_portfolio: Mapping[str, Any],
+    technical_portfolio: Mapping[str, Any],
+    params: Any,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Evaluate optional parallel strategies in a process that can be killed.
+
+    This comparison is observational and cannot authorize execution.  A
+    timeout therefore fails open to the established Autonomy engine while the
+    child process is terminated before the parent report lock can be stranded.
+    """
+    worker = Path(__file__).with_name("parallel_strategy_isolated_worker.py")
+    if not worker.is_file():
+        raise RuntimeError("Isolert parallellstrategiworker mangler")
+    configured = timeout_seconds
+    if configured is None:
+        try:
+            configured = int(os.getenv("PARALLEL_STRATEGY_TIMEOUT_SECONDS", "300") or 300)
+        except (TypeError, ValueError):
+            configured = 300
+    timeout = max(5, min(600, int(configured)))
+    snapshot_row = market_snapshot.to_dict() if hasattr(market_snapshot, "to_dict") else dict(market_snapshot or {})
+    families=["technical", "autonomy"]
+    payload = {
+        "snapshot": snapshot_row,
+        "run_id": str(run_id or ""),
+        "source": "autonomy_cycle_parallel",
+        "families": families,
+        "portfolio_states": {
+            "autonomy": dict(autonomy_portfolio or {}),
+            "technical": dict(technical_portfolio or {}),
+        },
+        "autonomy_parameters": asdict(params) if hasattr(params, "__dataclass_fields__") else dict(params or {}),
+    }
+    with tempfile.TemporaryDirectory(prefix="parallel-strategy-") as raw_tmp:
+        tmp = Path(raw_tmp)
+        input_path = tmp / "input.json"
+        output_path = tmp / "output.json"
+        error_path = tmp / "error.json"
+        input_path.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [sys.executable, str(worker), str(input_path), str(output_path), str(error_path)],
+                cwd=str(worker.parent),
+                env=dict(os.environ),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ParallelStrategyTimeout(
+                f"Parallelle strategier overskred tidsgrensen på {timeout} sekunder"
+            ) from exc
+        if result.returncode != 0 or not output_path.is_file():
+            detail = ""
+            try:
+                detail = str(json.loads(error_path.read_text(encoding="utf-8")).get("error") or "")
+            except Exception:
+                detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(detail or f"Isolert parallellstrategiworker feilet med kode {result.returncode}")
+        value = json.loads(output_path.read_text(encoding="utf-8"))
+        return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _now() -> str:
@@ -1189,14 +1267,12 @@ def run_autonomous_cycle(
                 technical_portfolio = load_paper_portfolio() or {}
             except Exception:
                 technical_portfolio = {}
-            parallel_strategy_run = get_parallel_strategy_service().evaluate_snapshot(
+            parallel_strategy_run = _evaluate_parallel_strategies_isolated(
                 market_snapshot,
                 run_id=run_id,
-                source="autonomy_cycle_parallel",
-                purpose="AUTONOMY_CYCLE_PARALLEL",
-                portfolio_states={"autonomy": portfolio, "technical": technical_portfolio},
-                families=["technical", "autonomy"],
-                context_metadata={"autonomy_parameters": params},
+                autonomy_portfolio=portfolio,
+                technical_portfolio=technical_portfolio,
+                params=params,
             )
             _append_audit("PARALLEL_STRATEGY_CYCLE_COMPLETED", {
                 "run_id": run_id,
@@ -1210,8 +1286,12 @@ def run_autonomous_cycle(
         except Exception as parallel_exc:
             # A benchmark/challenger failure must never stop Autonomi production.
             _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
-                "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}"
+                "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}",
+                "timeout": isinstance(parallel_exc, ParallelStrategyTimeout),
+                "failed_open": True,
+                "execution_authorized": False,
             })
+            emit_progress(2, progress_total, "Parallelle strategier ble hoppet over etter kontrollert feil/timeout")
         try:
             contribution_result = get_autonomy_technical_contribution_service().apply(
                 candidates, parallel_strategy_run=parallel_strategy_run, run_id=run_id,

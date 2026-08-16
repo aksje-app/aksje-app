@@ -5753,7 +5753,7 @@ def _manual_report_status_label_v1924(state: Any) -> str:
         "COMPLETED": "Fullført",
         "FAILED": "Feilet",
         "CANCELLED": "Avbrutt",
-        "STALLED": "Fastlåst – frigitt",
+        "STALLED": "Fastlåst – stoppmerket",
     }.get(str(state or "").upper(), str(state or "Ikke startet"))
 
 

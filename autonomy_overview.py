@@ -389,7 +389,10 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
             release_confirm = st.checkbox("Bekreft sikker frigivelse av fastlåst jobb", key=f"manual_release_confirm_{execution_id}")
             if st.button("🔓 Frigi fastlåst jobb", disabled=not release_confirm, key=f"manual_release_{execution_id}"):
                 force_release(execution_id, requested_by="AUTONOMY_OVERVIEW")
-                st.warning("Jobblåsen er frigitt. Den gamle workeren kan ikke publisere resultater, og en ny kjøring kan startes.")
+                st.warning(
+                    "Publiseringsretten er tilbakekalt. Vent til workeren og rapportlåsen er avsluttet "
+                    "før en ny kjøring startes; ved vedvarende heng må webtjenesten restartes."
+                )
                 st.rerun()
     elif allow_quick_start:
         if st.button("▶ Start utkastkjøring", type="primary", key="autonomy_overview_start_v1883"):

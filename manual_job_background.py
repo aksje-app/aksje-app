@@ -226,13 +226,16 @@ def reconcile_orphaned_status(
             now = _now()
             current.update({
                 "state": "STALLED",
-                "message": f"Kjøringen er frigitt: ingen reell fremdrift i {stage}",
+                "message": f"Kjøringen er stoppmerket: ingen reell fremdrift i {stage}",
                 "updated_at": now,
                 "completed_at": now,
                 "stalled_at": now,
                 "lease_revoked": True,
+                "publication_lease_revoked": True,
+                "worker_terminated": False,
+                "report_lock_released": False,
                 "cancel_requested": True,
-                "cancel_reason": "Fremdriftsvakten frigjorde en fastlåst worker",
+                "cancel_reason": "Fremdriftsvakten tilbakekalte publiseringsretten til en fastlåst worker",
                 "partial_results_published": False,
                 "error": f"Ingen fremdriftshendelse på {silence if silence is not None else 'ukjent antall'} sekunder (grense {limit})",
                 "error_type": "WorkerProgressTimeout",
@@ -416,15 +419,18 @@ def force_release(execution_id: str, requested_by: str = "UI") -> dict[str, Any]
         now = _now()
         status.update({
             "state": "STALLED",
-            "message": "Jobblåsen er frigitt manuelt; en ny kjøring kan startes",
+            "message": "Kjøringen er stoppmerket; publiseringsretten er tilbakekalt",
             "updated_at": now,
             "completed_at": now,
             "stalled_at": now,
             "lease_revoked": True,
+            "publication_lease_revoked": True,
+            "worker_terminated": False,
+            "report_lock_released": False,
             "cancel_requested": True,
             "cancel_requested_at": now,
             "cancel_requested_by": requested_by,
-            "cancel_reason": "Manuell sikker frigivelse av fastlåst jobb",
+            "cancel_reason": "Manuell tilbakekalling av publiseringsrett for fastlåst jobb",
             "partial_results_published": False,
             "error": "Workerens publiseringsrett er tilbakekalt",
             "error_type": "WorkerLeaseRevoked",
@@ -447,7 +453,8 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "heartbeat_sequence", "worker_process_identity", "worker_pid",
         "worker_thread_name", "heartbeat_thread_name", "job_id", "job_name",
         "trigger", "scan_configuration", "cancel_requested", "cancel_reason",
-        "lease_revoked", "partial_results_published", "ui_poll_source",
+        "lease_revoked", "publication_lease_revoked", "worker_terminated",
+        "report_lock_released", "partial_results_published", "ui_poll_source",
         "run_id", "chain", "chain_status", "full_autonomy_execution", "error_trace",
     }
     sanitized = {key: status.get(key) for key in sorted(allowed) if key in status}
@@ -680,9 +687,10 @@ def _worker(
         cancelled = get_status(execution_id) or status
         if cancelled.get("lease_revoked") or str(cancelled.get("state") or "").upper() == "STALLED":
             cancelled.update({
-                "state": "STALLED", "message": cancelled.get("message") or "Fastlåst jobb ble frigitt",
+                "state": "STALLED", "message": "Fastlåst worker er avsluttet; rapportlåsen er frigitt",
                 "updated_at": _now(), "completed_at": cancelled.get("completed_at") or _now(),
                 "cancel_reason": str(exc), "partial_results_published": False,
+                "worker_terminated": True, "report_lock_released": True,
             })
             _write_status(cancelled)
             return
