@@ -694,6 +694,16 @@ def explicit_job_name_v19220_rc12(
     return f"{'Utkast' if draft else 'Analyse'} – {scope}"
 
 
+def activated_job_name_v19220_rc1631q(name: Any) -> str:
+    """Never present an activated schedule as an autosaved draft."""
+    clean = str(name or "").strip()
+    if clean.casefold().startswith("utkast –"):
+        return "Analyse –" + clean.split("–", 1)[1]
+    if clean.casefold().startswith("utkast -"):
+        return "Analyse -" + clean.split("-", 1)[1]
+    return clean or "Analyse"
+
+
 def deduplicated_display_name(value: Any) -> str:
     """Collapse repeated display-name segments without changing the stored job."""
     parts = [part.strip() for part in re.split(r"\s*[·|]\s*", str(value or "-")) if part.strip()]
@@ -773,6 +783,8 @@ class JobProfile:
             data.get("name"), profile_id=profile_id, markets=data.get("markets"),
             draft=str(data.get("job_id") or "") == DRAFT_JOB_ID,
         )
+        if str(data.get("job_id") or "") != DRAFT_JOB_ID:
+            data["name"] = activated_job_name_v19220_rc1631q(data.get("name"))
         data["schedules"] = [normalize_schedule_value(x) for x in list(data.get("schedules") or [])]
         data["timezone_name"] = valid_timezone(data.get("timezone_name"))
         return cls(**data)
@@ -806,10 +818,18 @@ def ensure_required_report_jobs(jobs: Sequence[JobProfile]) -> tuple[list[JobPro
             claimed.add(match.job_id)
             continue
         claimed.add(match.job_id)
+        # Keep the operator's weekend choice and selected weekdays.  Earlier
+        # repairs silently reset both fields on every load, so the visible
+        # "Tillat helgekjøring" control could never affect a required report.
+        weekdays = sorted(set(int(day) for day in (match.weekdays or [0, 1, 2, 3, 4]) if 0 <= int(day) <= 6))
+        if match.allow_weekends:
+            weekdays = sorted(set([*weekdays, 5, 6]))
+        else:
+            weekdays = [day for day in weekdays if day < 5] or [0, 1, 2, 3, 4]
         updated = replace(
             match, job_id=spec["job_id"], name=spec["name"],
-            schedules=[spec["schedule"]], weekdays=[0, 1, 2, 3, 4],
-            timezone_name="Europe/Oslo", enabled=True, allow_weekends=False,
+            schedules=[spec["schedule"]], weekdays=weekdays,
+            timezone_name="Europe/Oslo", enabled=True,
             notify_pushover=True, notify_only_changes=False,
             notification_mode="ALWAYS", include_report_link=True, save_pdf=True,
             scan_windows=[], report_test_series_id="", report_test_part=0,
@@ -1059,12 +1079,16 @@ def retry_pending_required_report_deliveries(limit: int = 3) -> dict[str, Any]:
         if not (pdf.get("generated") and pdf.get("validated") and pdf.get("published")):
             continue
         notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
-        if notification.get("sent") is True:
+        if notification.get("sent") is True or notification.get("terminal") is True:
             continue
         ok, detail = _notification(jobs[job_id], run)
+        expired = str(detail or "").startswith("Varsel utløpt:")
         run["notification"] = {
-            **dict(notification), "sent": bool(ok), "attempted": True,
-            "detail": str(detail or ""), "status_label": "Sendt" if ok else "Feilet",
+            **dict(notification), "sent": bool(ok), "attempted": not expired,
+            "detail": str(detail or ""),
+            "status_label": "Sendt" if ok else ("Utløpt" if expired else "Feilet"),
+            "terminal": bool(ok or expired),
+            "terminal_reason": "EXPIRED_REPORT" if expired else ("SENT" if ok else ""),
             "delivery_retry": True, "delivery_retry_at": _now_iso(),
         }
         _write(RUNS_DIR / f"{run_id}.json", run)
@@ -1072,11 +1096,11 @@ def retry_pending_required_report_deliveries(limit: int = 3) -> dict[str, Any]:
             "job_id": job_id, "job_name": jobs[job_id].name, "run_id": run_id,
             "type": "Leveringsretry", "started_at": _now_iso(), "completed_at": _now_iso(),
             "planned_at": str(row.get("planned_at") or ""),
-            "status": "Fullført" if ok else "Feil", "pdf": True,
-            "pushover_attempted": True, "pushover_sent": bool(ok),
+            "status": "Fullført" if ok else ("Utløpt" if expired else "Feil"), "pdf": True,
+            "pushover_attempted": not expired, "pushover_sent": bool(ok),
             "notification_detail": str(detail or ""),
         })
-        attempted.append({"job_id": job_id, "run_id": run_id, "sent": bool(ok), "detail": str(detail or "")[:500]})
+        attempted.append({"job_id": job_id, "run_id": run_id, "sent": bool(ok), "terminal": bool(ok or expired), "detail": str(detail or "")[:500]})
         if len(attempted) >= max(1, int(limit or 1)):
             break
     return {"attempted": attempted, "sent": sum(1 for row in attempted if row["sent"])}
@@ -1258,6 +1282,12 @@ def scheduler_health_snapshot(now: datetime | None = None, *, persist: bool = Tr
     unobserved = [row for row in timelines if row.get("unobserved_after_restart")]
     next_rows = [row for row in timelines if row.get("next_planned_utc")]
     next_row = min(next_rows, key=lambda r: str(r.get("next_planned_utc"))) if next_rows else {}
+    required_ids = {spec["job_id"] for spec in REQUIRED_REPORT_SPECS}
+    required_next = [
+        row for row in timelines
+        if row.get("job_id") in required_ids and row.get("next_planned_utc")
+    ]
+    required_next.sort(key=lambda row: str(row.get("next_planned_utc")))
     checked = (now or _now()).astimezone(timezone.utc).isoformat(timespec="seconds")
     snapshot = {
         "state": "MISTET_PLANLAGT_KJØRING" if missed else ("OPPSTART_ETTER_PLANLAGT_TID" if unobserved else "OK"),
@@ -1267,6 +1297,7 @@ def scheduler_health_snapshot(now: datetime | None = None, *, persist: bool = Tr
         "missed": missed,
         "unobserved_after_restart": unobserved,
         "next": next_row,
+        "required_next": required_next,
         "history": load_job_history(limit=50),
     }
     if persist:
@@ -6078,6 +6109,19 @@ def render_market_intelligence() -> None:
         status_missed.metric("Mistet", len(health.get("missed") or []))
         unobserved_jobs = health.get("unobserved_after_restart") or []
         status_unobserved.metric("Ikke vurdert", len(unobserved_jobs))
+        required_next = list(health.get("required_next") or [])
+        if required_next:
+            fixed_columns = st.columns(3)
+            fixed_labels = {
+                "MI-REQUIRED-MORNING": "Fast morgenrapport",
+                "MI-REQUIRED-AFTERNOON": "Fast ettermiddagsrapport",
+                "MI-REQUIRED-EVENING": "Fast kveldsrapport",
+            }
+            for column, row in zip(fixed_columns, required_next):
+                column.metric(
+                    fixed_labels.get(str(row.get("job_id") or ""), str(row.get("job_name") or "Fast rapport")),
+                    local_display(row.get("next_planned_utc"), str(row.get("timezone_name") or DEFAULT_TIMEZONE)),
+                )
         if unobserved_jobs:
             st.info(
                 f"{len(unobserved_jobs)} planlagt(e) tidspunkt lå før denne serverprosessen startet. "
@@ -6422,7 +6466,10 @@ def render_market_intelligence() -> None:
         draft_job = JobProfile(
             name=name.strip() or "Uten navn", markets=profile_market_selections(selected_profile, markets or ["Norge"]),
             market_profile=selected_profile, schedules=schedules or [],
-            weekdays=[WEEKDAY_NAMES.index(x) for x in weekday_names], modules=modules or ["Market Scanner"],
+            weekdays=sorted(set([
+                *[WEEKDAY_NAMES.index(x) for x in weekday_names],
+                *([5, 6] if allow_weekends else []),
+            ])), modules=modules or ["Market Scanner"],
             scan_limit=int(scan_limit), deep_count=int(deep), evidence_analysis_count=min(int(evidence_count), int(deep)), proposal_count=int(proposals), coverage_profile_version="3.0", min_alert_score=float(min_score),
             notify_pushover=notify, notify_only_changes=(notification_mode == "CHANGES_ONLY"), notification_mode=notification_mode, include_report_link=include_report_link,
             include_top3_in_notification=include_top3, allow_weekends=allow_weekends, save_pdf=save_pdf, enabled=False,
@@ -6471,6 +6518,7 @@ def render_market_intelligence() -> None:
             same_name = next((x for x in jobs if x.name.strip().casefold() == draft_job.name.strip().casefold()), None)
             target = editing_job or same_name
             job = JobProfile(**{**asdict(draft_job),
+                              "name": activated_job_name_v19220_rc1631q(draft_job.name),
                               "job_id": target.job_id if target else f"MIJ-{uuid.uuid4().hex[:10].upper()}",
                               "created_at": target.created_at if target else _now_iso(),
                               "last_run_at": target.last_run_at if target else "",
