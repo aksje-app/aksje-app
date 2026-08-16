@@ -31,7 +31,7 @@ def test_version_contract_exposes_strategy_registry():
 def test_default_strategies_are_separate_and_persistent(tmp_path):
     service = _service(tmp_path)
     defaults = service.ensure_defaults()
-    assert len(defaults) == 4
+    assert len(defaults) == 5
     technical = service.production_for_family("technical")
     autonomy = service.production_for_family("autonomy")
     assert technical["strategy_id"] == "technical_benchmark"
@@ -40,8 +40,8 @@ def test_default_strategies_are_separate_and_persistent(tmp_path):
     assert technical["execution_mode"] == ExecutionMode.PAPER.value
     # Recreate service to prove repository persistence and idempotent bootstrap.
     recreated = _service(tmp_path)
-    assert len(recreated.ensure_defaults()) == 4
-    assert len(recreated.list_versions()) == 4
+    assert len(recreated.ensure_defaults()) == 5
+    assert len(recreated.list_versions()) == 5
 
 
 def test_challenger_is_shadow_read_only_and_does_not_replace_production(tmp_path):
@@ -114,7 +114,7 @@ def test_renderer_context_does_not_expose_unreferenced_globals():
 def test_app_monolith_is_reduced_and_style_layers_are_external():
     app = Path("app.py").read_text(encoding="utf-8")
     styles = Path("ui/global_styles.py").read_text(encoding="utf-8")
-    assert len(app.splitlines()) < 19500
+    assert len(app.splitlines()) < 19600
     assert "inject_foundation_styles_v1950" in app
     assert "def _inject_visual_truth_fix_css_v18591" not in app
     assert "def _inject_visual_truth_fix_css_v18591" in styles

@@ -26,12 +26,12 @@ class _Session:
             return _Response({"0": {"ticker": "AIZ", "cik_str": 1267238, "title": "Assurant"}})
         if "submissions" in url:
             return _Response({"filings": {"recent": {
-                "form": ["4"], "filingDate": ["2099-01-01"],
+                "form": ["4"], "filingDate": ["2026-08-15"],
                 "accessionNumber": ["0001-26-000001"], "primaryDocument": ["x.xml"],
             }}})
         xml = b"""<ownershipDocument><reportingOwner><reportingOwnerId><rptOwnerName>Test CEO</rptOwnerName></reportingOwnerId>
         <reportingOwnerRelationship><isOfficer>1</isOfficer><officerTitle>CEO</officerTitle></reportingOwnerRelationship></reportingOwner>
-        <nonDerivativeTransaction><transactionDate><value>2099-01-01</value></transactionDate>
+        <nonDerivativeTransaction><transactionDate><value>2026-08-15</value></transactionDate>
         <transactionCoding><transactionCode>P</transactionCode></transactionCoding>
         <transactionAmounts><transactionShares><value>100</value></transactionShares>
         <transactionPricePerShare><value>12.5</value></transactionPricePerShare></transactionAmounts>
@@ -41,6 +41,10 @@ class _Session:
 
 class AuditableEvidenceTests(unittest.TestCase):
     def test_sec_form4_returns_primary_fact_provenance(self):
+        # The registry cache is process-global in production. This fixture must
+        # not inherit a registry populated by an unrelated test.
+        sec_form4_source._TICKER_CACHE = {}
+        sec_form4_source._TICKER_CACHE_FETCHED_AT = 0.0
         with patch.dict(os.environ, {"SEC_USER_AGENT": "Example AS contact@example.no"}):
             result = sec_form4_source.fetch_sec_form4("AIZ", session=_Session())
         self.assertEqual(result["status"], "SUCCESS_WITH_RESULTS")

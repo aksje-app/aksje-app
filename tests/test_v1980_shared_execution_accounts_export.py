@@ -37,7 +37,7 @@ def test_v1980_version_contract():
     assert contract["strategy_account_service_version"] == "1.0"
     assert contract["simulated_execution_service_version"] == "1.0"
     assert contract["autonomy_activation_service_version"] == "1.0"
-    assert contract["autonomy_learning_account_service_version"] == "2.0"
+    assert contract["autonomy_learning_account_service_version"] == "2.1"
     assert contract["evaluation_export_service_version"] == "1.5"
 
 

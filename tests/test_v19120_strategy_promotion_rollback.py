@@ -95,7 +95,7 @@ def test_canonical_bindings_bootstrap_and_persist(tmp_path):
     technical = repositories.strategy_production_bindings.get("technical")
     autonomy = repositories.strategy_production_bindings.get("autonomy")
     assert technical["version_id"] == "technical_benchmark@legacy-1.0.0"
-    assert autonomy["version_id"] == "autonomy_main@1.0.0"
+    assert autonomy["version_id"] == "autonomy_main@1.1.0"
     recreated = StrategyRegistryService(RepositoryRegistry(StorageService(base_dir=tmp_path, database_url="", mode="local")))
     recreated.ensure_defaults()
     assert recreated.production_for_family("technical")["version_id"] == "technical_benchmark@legacy-1.0.0"
@@ -129,7 +129,7 @@ def test_explicit_promotion_changes_only_canonical_paper_binding(tmp_path):
     assert registry.production_for_family("technical")["version_id"] == "technical_quality_challenger@1.1.0"
     assert registry.get("technical_quality_challenger@1.1.0")["status"] == "PRODUCTION"
     assert registry.get("technical_benchmark@legacy-1.0.0")["status"] == "SHADOW"
-    assert registry.production_for_family("autonomy")["version_id"] == "autonomy_main@1.0.0"
+    assert registry.production_for_family("autonomy")["version_id"] == "autonomy_main@1.1.0"
     assert repositories.strategy_lab_approvals.get(approval_id)["status"] == "PROMOTED"
 
 

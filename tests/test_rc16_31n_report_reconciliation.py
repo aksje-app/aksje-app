@@ -25,8 +25,8 @@ def _portfolio() -> dict:
 
 
 class ReportReconciliationTests(unittest.TestCase):
-    def test_version_is_rc16_31n(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.31n")
+    def test_version_includes_rc16_31o_reconciliation_contract(self):
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.31p")
 
     def test_authoritative_portfolio_accounting_reconciles_every_total(self):
         report = build_portfolio_report(_portfolio(), [], now=datetime(2026, 8, 15, tzinfo=timezone.utc))

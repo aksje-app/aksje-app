@@ -1,0 +1,10 @@
+CHANGED app_version.py
+CHANGED investment_pipeline.py
+CHANGED market_intelligence.py
+CHANGED autonomi_core/portfolio_decisions/decision_funnel.py
+NEW tests/test_rc16_31k_candidate_recall_calibration.py
+NEW RELEASE_NOTES_v19.22.0_RC16.31k.md
+NEW DEPLOY_v19.22.0_RC16.31k.md
+NEW ACCEPTANCE_v19.22.0_RC16.31k.md
+NEW VALIDATION_REPORT_v19.22.0_RC16.31k.md
+NEW CHANGE_INVENTORY_v19.22.0_RC16.31k.txt

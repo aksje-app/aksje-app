@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "policy": "strict_xfail",
+  "description": "Historiske kontrakter som med hensikt validerer tidligere versjonsidentitet eller erstattet rapport/UI-semantikk. De beholdes synlig og kjøres som strict xfail; aktive akseptansetester skal bestå uten xfail.",
+  "tests": {
+    "tests/test_rc16_31c_runtime_recovery.py::test_release_version_is_rc1631d": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_rc16_31e_observable_learning.py::test_release_identity_is_explicit": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_rc16_31g_universe_coverage.py::test_release_version_and_full_universe_configuration": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_rc16_31h_autonomy_clarity.py::test_release_version": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_rc16_31i_version_traceability.py::test_canonical_component_versions_match_runtime_modules": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_rc16_31j_stability_observatory.py::StabilityObservatoryTests::test_release_identity_is_unambiguous": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_rc16_31l_candidate_recall_calibration.py::test_full_score_budget_covers_every_fetched_candidate": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1875_compact_pdf.py::test_compact_pdf_is_readable_and_bounded": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1881_freshness_data_contract.py::test_release_and_reporting_include_contract": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1912_norwegian_decision_report.py::test_source_log_uses_short_date_and_localized_status": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19131_report_integrity.py::test_pdf_uses_raw_ranking_and_canonical_summary_when_none_are_decision_ready": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19132_report_semantics_mobile.py::test_pdf_has_no_medals_for_review_shortlist_and_uses_full_status_and_formatted_numbers": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19132_report_semantics_mobile.py::test_mobile_pdf_is_download_first_and_public_link_opens_new_tab": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19132_report_semantics_mobile.py::test_external_article_titles_remain_verbatim_while_internal_codes_are_localized": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19140_autonomous_decision_reduction.py::test_priority_top3_does_not_include_non_buy_outcomes": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19140_autonomous_decision_reduction.py::test_priority_top3_is_never_filled_with_rejected_fallbacks": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19142_runtime_safety.py::test_version_contract_is_v19143": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19143_login_navigation_report_integrity.py::test_pdf_uses_canonical_candidate_details_and_buy_only_public_ranking": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19145_report_local_storage.py::test_version_contract_is_v19145": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19146_pdf_dependency_hotfix.py::test_version_contract_is_v19146": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19146_pdf_dependency_hotfix.py::test_web_scheduler_and_render_use_dependency_gate": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1915_mobile_navigation.py::test_version_is_v1915": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19160_quality_production.py::test_streamlit_deprecations_removed_from_runtime_python": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19166_controlled_stabilization.py::test_version_and_safe_login": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19170_rc5_completion.py::test_version_rc5": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19170_rc6_banner_repair.py::test_rc6_version": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19170_rc7_banner_integrity.py::test_rc7_version": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19180_rc2_report_2_0.py::test_report_2_0_front_page_and_traceability": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1919a_safe_distribution.py::test_release_identity_is_safe_distribution_patch": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1920_report_version_contracts.py::test_report_document_is_shared_by_text_pdf_and_archive": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1920_report_version_contracts.py::test_document_has_required_renderer_independent_sections": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1610_verified_export_closure.py::VerifiedExportClosureTests::test_01_version_contract_is_rc1610": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1610_verified_export_closure.py::VerifiedExportClosureTests::test_22_quick_archive_returns_before_heavy_report_center_work": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc161_progress_hotfix.py::test_hotfix_scope_does_not_touch_report_or_trading_engines": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1622_scheduler_stabilization.py::test_report_execution_lock_is_shared_by_all_callers": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1626_controlled_learning_activation.py::test_rc1626_identity_and_learning_profile": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1627_six_market_learning_reports.py::Rc1627AcceptanceTests::test_rc1628_keeps_operator_selected_fixed_profile": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1628_verifiable_learning.py::test_version_and_new_job_defaults_are_bounded_core_markets": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1629_learning_consistency.py::test_version_is_rc1630": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc162_shared_progress.py::test_rc162_version_scope_is_progress_only": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1631_report_closure.py::test_actual_rc1631_learning_fill_is_the_authoritative_final_result": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1631_report_closure.py::test_actual_rc1631_export_contains_portfolio_snapshot_and_completed_replay": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1631_report_closure.py::test_actual_rc1631_pdf_lists_every_learning_fill_with_price_and_quantity": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1631_report_closure.py::test_report_notification_contract_separates_report_and_learning_channels": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1631_report_closure.py::test_report_consistency_audit_covers_learning_fills_across_json_txt_pdf": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1631_runtime_safety.py::test_version": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc1631b_report_schedule_isolation.py::test_release_keeps_rc1631b_schedule_closure": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc163_timezone_pc_clock.py::test_rc163_version_chain_and_protected_navigation_source": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc164_sidebar_visual_stability.py::test_rc164_version_chain": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc165_verified_zip_header_clock.py::test_version_chain_rc165": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc166_buy_only_report.py::test_rejected_never_backfills_priority_ranking": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc167_channel_consistency.py::test_cross_channel_projection_is_attached_and_buy_only": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc169_export_consistency.py::test_canonical_public_run_removes_legacy_rankings_and_bumps_version": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc4_full_repairs.py::test_rc4_version_identity_is_current": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc4_full_repairs.py::test_rc4_pdf_page_one_contains_decision_information_and_top3": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc4_full_repairs.py::test_report_center_uses_background_progress_and_non_persisting_health_reads": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc5_currency_alert_repair.py::test_render_cron_and_ui_use_one_currency_chain": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc5_currency_alert_repair.py::test_version_identity_advances_to_rc6": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc6_currency_navigation.py::test_version_identity_is_rc6": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v19220_rc8_stability_layout_time_report.py::test_rc8_version_and_protected_engine_versions_are_unchanged": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1922_daily_user_experience.py::test_version_and_changelog": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1922_investor_edition.py::test_investor_edition_branding_and_version": {
+      "category": "historical_version_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1930_decision_intelligence_and_learning.py::test_report_document_contains_complete_decision_contract_and_new_sections": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1930_decision_intelligence_and_learning.py::test_public_pdf_button_and_desktop_mobile_navigation_have_stable_css_guards": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "tests/test_v1940_operational_repairs.py::test_manual_run_cannot_inherit_scheduled_slot": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "test_v19016_norwegian_report.py::test_text_report_uses_norwegian_decisions": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    },
+    "test_v19016_norwegian_report.py::test_pdf_report_localizes_user_facing_terms": {
+      "category": "superseded_report_or_ui_contract",
+      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
+    }
+  }
+}
+
