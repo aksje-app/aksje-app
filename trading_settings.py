@@ -2,6 +2,7 @@ import logging
 
 import json
 import os
+from exit_policy import DEFAULT_EXIT_POLICY
 
 DEFAULT_RULES = {
     # Portfolio / execution
@@ -25,12 +26,17 @@ DEFAULT_RULES = {
 
     # SELL
     "enable_sell_signal_exit": True,
-    "stop_loss_pct": 7.0,
-    "take_profit_pct": 12.0,
-    "trailing_stop_pct": 8.0,
-    "minimum_hold_hours": 24,
-    "rsi_exit_level": 75,
-    "rsi_must_fall": True,
+    "stop_loss_pct": DEFAULT_EXIT_POLICY.stop_loss_pct,
+    "take_profit_pct": DEFAULT_EXIT_POLICY.take_profit_pct,
+    "trailing_stop_pct": DEFAULT_EXIT_POLICY.trailing_stop_pct,
+    "minimum_hold_hours": DEFAULT_EXIT_POLICY.minimum_hold_hours,
+    "rsi_exit_level": DEFAULT_EXIT_POLICY.rsi_exit_level,
+    "rsi_must_fall": DEFAULT_EXIT_POLICY.rsi_must_fall,
+    "score_exit_threshold": DEFAULT_EXIT_POLICY.score_exit_threshold,
+    "partial_take_profit_pct": DEFAULT_EXIT_POLICY.partial_take_profit_pct,
+    "stagnation_days": DEFAULT_EXIT_POLICY.stagnation_days,
+    "stagnation_band_pct": DEFAULT_EXIT_POLICY.stagnation_band_pct,
+    "replacement_score_advantage": DEFAULT_EXIT_POLICY.replacement_score_advantage,
 }
 
 LOCAL_RULES_FILE = "trading_rules.json"  # legacy fallback only

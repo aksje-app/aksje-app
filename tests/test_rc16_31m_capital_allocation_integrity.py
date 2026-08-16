@@ -88,4 +88,4 @@ def test_sec_ticker_registry_is_reused_across_tickers():
 
 def test_version_is_rc16_31m():
     from app_version import APP_VERSION
-    assert APP_VERSION == "v19.22.0-rc16.31n"
+    assert APP_VERSION == "v19.22.0-rc16.31p"

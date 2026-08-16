@@ -32,6 +32,7 @@ from configuration_framework import export_bundle, import_bundle, status as conf
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
 
 from app_version import APP_VERSION
+from exit_policy import evaluate_exit, policy_from
 
 VERSION = APP_VERSION
 ROOT = runtime_data_path("autonomous_portfolio")
@@ -150,7 +151,7 @@ def _validate_execution_integrity(
     for trade in trades:
         ticker = str(trade.get("ticker") or "").upper()
         action = str(trade.get("action") or "").upper()
-        if not ticker or action not in {"BUY", "SELL"}:
+        if not ticker or action not in {"BUY", "SELL", "SELL_PARTIAL"}:
             continue
         actions_by_ticker.setdefault(ticker, set()).add(action)
         if action == "BUY":
@@ -159,15 +160,17 @@ def _validate_execution_integrity(
                 errors.append(f"{ticker}: kjøp uten godkjent beslutningsport ({'; '.join(reasons)})")
             if ticker not in dict(portfolio.get("positions") or {}):
                 errors.append(f"{ticker}: kjøp finnes ikke i sluttporteføljen")
-        elif ticker in dict(portfolio.get("positions") or {}):
+        elif action == "SELL" and ticker in dict(portfolio.get("positions") or {}):
             errors.append(f"{ticker}: salg er registrert, men posisjonen står fortsatt åpen")
+        elif action == "SELL_PARTIAL" and ticker not in dict(portfolio.get("positions") or {}):
+            errors.append(f"{ticker}: delvis salg er registrert, men restposisjonen mangler")
     for ticker, actions in actions_by_ticker.items():
         if {"BUY", "SELL"} <= actions:
             errors.append(f"{ticker}: både kjøp og salg i samme kjøring")
     return {
         "ok": not errors,
         "errors": errors,
-        "ordinary_trade_count": len([row for row in trades if str(row.get("action") or "").upper() in {"BUY", "SELL"}]),
+        "ordinary_trade_count": len([row for row in trades if str(row.get("action") or "").upper() in {"BUY", "SELL", "SELL_PARTIAL"}]),
         "buy_tickers": sorted(t for t, actions in actions_by_ticker.items() if "BUY" in actions),
         "sell_tickers": sorted(t for t, actions in actions_by_ticker.items() if "SELL" in actions),
         "gate": "KJØPSKANDIDAT + KJØP + gyldige data + gyldig evidens",
@@ -1087,28 +1090,39 @@ def recover_missing_position_history(portfolio: Mapping[str, Any] | None = None)
 
 
 def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str,
-          params: AutonomousParameters, *, commit: bool = True) -> dict[str, Any] | None:
+          params: AutonomousParameters, *, commit: bool = True, sell_pct: float = 100.0) -> dict[str, Any] | None:
     pos = (portfolio.get("positions") or {}).get(ticker)
     if not pos or price <= 0:
         return None
-    quantity = _f(pos.get("quantity"))
+    total_quantity = _f(pos.get("quantity"))
+    sell_pct = max(0.0, min(100.0, _f(sell_pct, 100.0)))
+    quantity = total_quantity * sell_pct / 100.0
+    if quantity <= 0:
+        return None
     proceeds = quantity * price
     cost = quantity * _f(pos.get("average_price"))
     pnl = proceeds - cost
     portfolio["cash"] = _f(portfolio.get("cash")) + proceeds
     portfolio["realized_pnl"] = _f(portfolio.get("realized_pnl")) + pnl
-    del portfolio["positions"][ticker]
+    partial = quantity + 1e-8 < total_quantity
+    if partial:
+        pos["quantity"] = round(total_quantity - quantity, 8)
+        pos["partial_take_profit_taken"] = True
+        pos["last_partial_sell_at"] = _now()
+    else:
+        del portfolio["positions"][ticker]
     trade = {
         "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
-        "action": "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
+        "action": "SELL_PARTIAL" if partial else "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
         "value": round(proceeds, 2), "pnl": round(pnl, 2), "pnl_pct": round((price / _f(pos.get('average_price'), price) - 1) * 100, 2),
-        "reason": reason, "strategy": pos.get("strategy"), "mode": "THEORETICAL_ONLY",
+        "reason": reason, "sell_pct": round(sell_pct, 2), "remaining_quantity": round(total_quantity - quantity, 8),
+        "strategy": pos.get("strategy"), "mode": "THEORETICAL_ONLY",
         **_candidate_snapshot_metadata(pos),
     }
     if commit:
         _record_trade(trade)
         if params.notify_trades:
-            _notification("TRADE", f"AUTONOMOUS SELL {ticker}", f"{reason}. Teoretisk resultat {trade['pnl_pct']:+.2f}% ({pnl:+.2f}).", trade)
+            _notification("TRADE", f"AUTONOMOUS {'PARTIAL SELL' if partial else 'SELL'} {ticker}", f"{reason}. Teoretisk resultat {trade['pnl_pct']:+.2f}% ({pnl:+.2f}).", trade)
     return trade
 
 
@@ -1245,23 +1259,26 @@ def run_autonomous_cycle(
         pos["highest_price"] = max(_f(pos.get("highest_price"), price), price)
         avg = _f(pos.get("average_price"), price)
         score = _candidate_score(candidate, 100.0)
-        reason = None
-        if price <= avg * (1 - params.stop_loss_pct / 100):
-            reason = "STOP LOSS"
-        elif price <= _f(pos.get("highest_price"), price) * (1 - params.trailing_stop_pct / 100):
-            reason = "TRAILING STOP"
-        elif price >= avg * (1 + params.take_profit_pct / 100):
-            reason = "TAKE PROFIT"
-        elif candidate and score < params.score_exit_threshold:
-            reason = f"Investment Score falt til {score:.1f}"
-        if reason:
-            trade = _sell(portfolio, ticker, price, reason, run_id, params, commit=False)
+        exit_result = evaluate_exit(
+            entry_price=avg, current_price=price, highest_price=_f(pos.get("highest_price"), price),
+            entry_score=_f(pos.get("entry_score"), score), current_score=score if candidate else None,
+            holding_days=_days_opened(pos.get("opened_at")),
+            rsi=candidate.get("rsi") if candidate else None,
+            previous_rsi=pos.get("last_rsi"), take_profit_taken=bool(pos.get("partial_take_profit_taken")),
+            policy=policy_from(params),
+        )
+        if candidate.get("rsi") is not None:
+            pos["last_rsi"] = candidate.get("rsi")
+        if exit_result["action"] in {"SELL", "SELL_PARTIAL"}:
+            reason = exit_result["reason_code"] + ": " + exit_result["reason"]
+            trade = _sell(portfolio, ticker, price, reason, run_id, params, commit=False, sell_pct=exit_result["sell_pct"])
             if trade:
                 trades.append(trade)
-                exited_this_cycle.add(ticker)
-                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SELL", "reason": reason, "price": price, "score": score})
+                if trade["action"] == "SELL":
+                    exited_this_cycle.add(ticker)
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": trade["action"], "reason": reason, "price": price, "score": score, "sell_pct": exit_result["sell_pct"]})
         else:
-            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "HOLD", "reason": "Ingen exitregel utløst", "price": price, "score": score})
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": exit_result["action"], "reason": exit_result["reason"], "reason_code": exit_result["reason_code"], "price": price, "score": score})
     emit_progress(5, progress_total, "Salgs- og holdbeslutninger er kontrollert")
 
     equity_before_buys = portfolio_equity(portfolio)
@@ -1525,7 +1542,7 @@ def run_autonomous_cycle(
         # committed when the completed cycle is internally inconsistent.
         portfolio = starting_portfolio
         for decision in decisions:
-            if str(decision.get("action") or "").upper() in {"BUY", "SELL"}:
+            if str(decision.get("action") or "").upper() in {"BUY", "SELL", "SELL_PARTIAL"}:
                 decision["action"] = "BLOCKED"
                 decision["order_executed"] = False
                 decision["execution_stage"] = "EXECUTION_INTEGRITY_BLOCKED"
@@ -1540,7 +1557,8 @@ def run_autonomous_cycle(
                 if str(trade.get("action") or "").upper() == "BUY":
                     _notification("TRADE", f"AUTONOMOUS BUY {ticker}", f"Teoretisk kjøp {trade.get('quantity', 0):g} @ {trade.get('price', 0):.2f}. {trade.get('reason', '')}", trade)
                 else:
-                    _notification("TRADE", f"AUTONOMOUS SELL {ticker}", f"{trade.get('reason', '')}. Teoretisk resultat {float(trade.get('pnl_pct') or 0):+.2f}% ({float(trade.get('pnl') or 0):+.2f}).", trade)
+                    label = "PARTIAL SELL" if str(trade.get("action") or "").upper() == "SELL_PARTIAL" else "SELL"
+                    _notification("TRADE", f"AUTONOMOUS {label} {ticker}", f"{trade.get('reason', '')}. Teoretisk resultat {float(trade.get('pnl_pct') or 0):+.2f}% ({float(trade.get('pnl') or 0):+.2f}).", trade)
 
     equity = portfolio_equity(portfolio)
     portfolio["updated_at"] = _now()

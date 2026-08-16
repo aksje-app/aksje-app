@@ -15,8 +15,8 @@ def test_whole_currency_and_market_mapping():
 
 
 def test_risk_text_uses_reference_scale_not_percent():
-    assert mi.format_risk(13.63) == "13.63 - LAV"
-    assert mi.format_risk(41.44) == "41.44 - MODERAT"
+    assert mi.format_risk(13.63) == "13,63 - LAV"
+    assert mi.format_risk(41.44) == "41,44 - MODERAT"
     assert mi.format_risk(65) == "65 - HØY"
 
 

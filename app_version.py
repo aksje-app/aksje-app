@@ -3,17 +3,17 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31n"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31n Report Reconciliation Integrity"
+APP_VERSION = "v19.22.0-rc16.31p"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31p Candidate Governance, Short Intelligence and Learning Evidence"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31m"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31o"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
 REPORT_SCHEMA_VERSION = "1.6"
 DATABASE_SCHEMA_VERSION = "2.1"
-RANKING_MODEL_VERSION = "v19.22.0-rc16.31m"
+RANKING_MODEL_VERSION = "v19.22.0-rc16.31p"
 AUTONOMY_POLICY_VERSION = "v19.16.0"
 SOURCE_CLASSIFIER_VERSION = "v19.16.0"
 OPERATIONS_TELEMETRY_VERSION = "v19.2.0"
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31p: Legger til en eksplisitt kandidatdatakontrakt med redningskø-audit, verifiserbar shortinteresse uten volum-/momentumproxy, shortstatus på kandidater og eksisterende portefølje, kapitalvektet shorteksponering, læringskurve og shortutfallsanalyse. Rapport- og replayeksport inkluderer de nye bevisene. Produksjonsterskel 73, kjøps-/salgsporter, scheduler og fail-closed-regler er uendret.",
     "v19.22.0-rc16.31n: Fryser analyse- og handelsreglene og retter rapportintegritet. PDF/JSON bruker ett autoritativt porteføljesnapshot etter Autonomi, viser fullstendig porteføljeregnskap, posisjonsverdier, vekter, resultat og ledig kjøpslimit, og blokkerer publisering ved intern avstemmingsfeil. Manuelle rapporter venter nå i kø ved aktiv rapportlås; låseeier og heartbeat lagres og følger diagnosepakken. Produksjonsterskel 73,0 og alle risiko-/porteføljegrenser er uendret.",
     "v19.22.0-rc16.31m: Innfører strategiavhengig evidens, nøytraliserer positive poeng fra uverifiserte kilder, cacher SEC ticker-CIK-registeret, merker eksisterende porteføljeposisjoner eksplisitt, publiserer kapitalbinding og samlet eid/ikke-eid rangering, gir én autoritativ sluttbeslutning, varsler uniforme tekniske signaler og garanterer minst 10 kandidater per valgt kjernemarked når universet tillater det. Produksjonsterskel 73,0 og risiko-/porteføljegrenser er uendret.",
     "v19.22.0-rc16.31l: Samordner hele kjøpskjeden etter produksjonsreplay. Alle beslutningslag bruker samme fail-closed kurs- og inngangsscore, legacy-evidensbudsjett oppgraderes slik at global Top 20 garantert er kildesøkt, ukjente sekundære insidertransaksjoner kan ikke lenger fabrikkere BUY, fullført SEC-kontroll registreres korrekt, HOLD kan ikke gi positivt teknisk scorebidrag, og aksjeklasser deler utstederidentitet i porteføljeporten. Produksjonsterskelen forblir 73,0.",

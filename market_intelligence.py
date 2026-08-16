@@ -1900,7 +1900,7 @@ def restore_public_reports(limit: int = 25) -> int:
                 continue
         try:
             source = Path(str(run.get("pdf_path") or ""))
-            pdf_bytes = source.read_bytes() if source.is_file() else build_pdf(run)
+            pdf_bytes = source.read_bytes() if source.is_file() else build_main_pdf(run)
             publish_pdf(run, pdf_bytes)
             _write(RUNS_DIR / f"{run_id}.json", run)
             restored += 1
@@ -1959,7 +1959,7 @@ def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | N
     regenerated = False
     if pdf_bytes is None:
         try:
-            candidate = build_pdf(clean)
+            candidate = build_main_pdf(clean)
             if not _valid_pdf_bytes(candidate):
                 raise ValueError("PDF-generatoren returnerte ikke et gyldig PDF-dokument")
             pdf_bytes = candidate
@@ -2464,7 +2464,7 @@ def combined_quality_summary(candidates: Sequence[Mapping[str, Any]],
     }
 
 
-def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
+def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include_technical: bool = True) -> bytes:
     """Build the compact professional market-intelligence report.
 
     The v18.7.5 layout deliberately avoids decorative cover/disclaimer pages and
@@ -3005,9 +3005,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         counter = candidate.get("counter_hypothesis") if isinstance(candidate.get("counter_hypothesis"), Mapping) else {}
         main_reason = str(candidate.get("autonomy_outcome_reason") or "") or "; ".join(rationale[:2]) or str(candidate.get("status") or "Ingen hovedgrunn registrert")
         main_risk = str(counter.get("strongest_argument") or (blockers[0] if blockers else "Ingen kritisk risiko registrert"))
+        from short_intelligence import normalize_short_snapshot
+        short_snapshot = normalize_short_snapshot(candidate)
+        short_pct = short_snapshot.get("short_interest_pct_float")
+        if short_pct is None:
+            short_pct = short_snapshot.get("short_interest_pct_outstanding")
+        short_text = f"short {float(short_pct):.2f}%" if short_snapshot.get("verified") and short_pct is not None else "short UKJENT"
         source_text = (
             f"{consensus.get('level', '-')} · {consensus.get('independent_sources', 0)} uavh. kilde(r) · "
-            f"dok. {profile.get('documentation_coverage', profile.get('data_coverage', 0))}/100"
+            f"dok. {profile.get('documentation_coverage', profile.get('data_coverage', 0))}/100 · {short_text}"
         )
         candidate_rows.append([
             candidate.get("priority_rank") or index,
@@ -3049,19 +3055,25 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         portfolio_rows.append(["-", "Ingen åpne posisjoner", "-", "-", "-", "-", "-"])
     portfolio_table = Table(portfolio_rows, repeatRows=1, colWidths=[23*mm, 22*mm, 25*mm, 25*mm, 30*mm, 32*mm, 22*mm])
     portfolio_table.setStyle(_table_style(5.2, padding=1.2))
-    portfolio_result_rows = [["Ticker", "Resultat", "Resultat %", "Eiertid", "Score inn/nå", "Kapitalstatus"]]
+    portfolio_result_rows = [["Ticker", "Resultat", "Resultat %", "Eiertid", "Score inn/nå", "Short", "Kapitalstatus"]]
     for row in list(decision_portfolio.get("positions") or []):
+        short = row.get("short_intelligence") if isinstance(row.get("short_intelligence"), Mapping) else {}
+        short_pct = short.get("short_interest_pct_float")
+        if short_pct is None:
+            short_pct = short.get("short_interest_pct_outstanding")
+        short_label = f"{float(short_pct):.2f}%" if short.get("verified") and short_pct is not None else "UKJENT"
         portfolio_result_rows.append([
             _rawp(row.get("ticker") or "-", "Tiny"),
             _p(f"{float(row.get('unrealized_pnl') or 0):+.2f}", "Tiny"),
             _p(f"{float(row.get('unrealized_pnl_pct') or 0):+.2f}%", "Tiny"),
             _p(f"{row.get('holding_days', 0)} dager", "Tiny"),
             _p(f"{float(row.get('entry_score') or 0):.1f} / {float(row.get('current_score') or 0):.1f}", "Tiny"),
+            _p(short_label, "Tiny"),
             _p(str(row.get("capital_efficiency_status") or "BEHOLD"), "Tiny"),
         ])
     if len(portfolio_result_rows) == 1:
-        portfolio_result_rows.append(["-", "-", "-", "-", "-", "Ingen åpne posisjoner"])
-    portfolio_result_table = Table(portfolio_result_rows, repeatRows=1, colWidths=[24*mm, 27*mm, 24*mm, 24*mm, 31*mm, 49*mm])
+        portfolio_result_rows.append(["-", "-", "-", "-", "-", "-", "Ingen åpne posisjoner"])
+    portfolio_result_table = Table(portfolio_result_rows, repeatRows=1, colWidths=[21*mm, 24*mm, 21*mm, 22*mm, 27*mm, 20*mm, 44*mm])
     portfolio_result_table.setStyle(_table_style(5.2, padding=1.2))
     accounting_rows = [
         [_p("Startkapital", "Tiny"), _p(_fmt(decision_portfolio.get("initial_capital", 0)), "Tiny"),
@@ -3091,8 +3103,31 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         portfolio_table,
         Paragraph("Resultat, eiertid og kapitalstatus", styles["Subsection"]),
         portfolio_result_table,
-        Paragraph("Alle eksisterende posisjoner er merket som allerede eid; tilleggskjøp er deaktivert. Sidelengs utvikling er et kapitalvarsel, ikke et automatisk salgssignal.", styles["Small"]),
+        Paragraph("Alle eksisterende posisjoner er merket som allerede eid; tilleggskjøp er deaktivert. Kapitalstagnasjon utløser vurdering, mens salg og utskifting krever en eksplisitt exitbeslutning.", styles["Small"]),
     ]
+    short_exposure = decision_portfolio.get("short_exposure") if isinstance(decision_portfolio.get("short_exposure"), Mapping) else {}
+    if short_exposure:
+        weighted_short = short_exposure.get("capital_weighted_short_interest_pct")
+        weighted_label = f"{float(weighted_short):.2f} %" if weighted_short is not None else "UKJENT"
+        decision_story.append(Paragraph(
+            f"Shortdekning for porteføljen: {float(short_exposure.get('verified_short_coverage_pct') or 0):.2f} % av markedsverdien · "
+            f"kapitalvektet shortandel {weighted_label} · høy-short-eksponering {float(short_exposure.get('high_short_exposure_pct') or 0):.2f} %. "
+            "UKJENT er ekskludert og erstattes aldri av volum/momentum.", styles["Small"]))
+    active_exit = decision_portfolio.get("active_exit_policy") if isinstance(decision_portfolio.get("active_exit_policy"), Mapping) else {}
+    if active_exit:
+        exit_rows = [["Regelprofil", "Stop-loss", "Delvis gevinst", "Trailing", "Score-exit", "RSI", "Stagnasjon", "Byttemargin"] , [
+            str(active_exit.get("policy_version") or "-"),
+            f"-{_fmt(active_exit.get('stop_loss_pct'), 1)} %",
+            f"+{_fmt(active_exit.get('take_profit_pct'), 1)} % / {_fmt(active_exit.get('partial_take_profit_pct'), 0)} % salg",
+            f"-{_fmt(active_exit.get('trailing_stop_pct'), 1)} % fra topp",
+            f"under {_fmt(active_exit.get('score_exit_threshold'), 1)}",
+            f"{_fmt(active_exit.get('rsi_exit_level'), 0)} og faller",
+            f"{int(active_exit.get('stagnation_days') or 0)} dager",
+            f"+{_fmt(active_exit.get('replacement_score_advantage'), 1)} poeng",
+        ]]
+        exit_table = Table(exit_rows, repeatRows=1, colWidths=[20*mm, 21*mm, 34*mm, 27*mm, 24*mm, 22*mm, 21*mm, 25*mm])
+        exit_table.setStyle(_table_style(5.0, padding=1.1))
+        decision_story += [Paragraph("Aktiv salgs- og utskiftingsprofil", styles["Subsection"]), exit_table]
     if decision_anomalies:
         decision_story += [Paragraph("Automatisk systemvakt", styles["Section"])]
         for alert in decision_anomalies:
@@ -3117,6 +3152,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     rejected_table = Table(rejected_rows, repeatRows=1, colWidths=[25*mm, 25*mm, 18*mm, 116*mm])
     rejected_table.setStyle(_table_style(5.5, padding=1.3))
     decision_story += [Paragraph("Kontrollvedlegg – avviste aksjer", styles["Section"]), rejected_table]
+    _summary_reconciled = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    decision_story += [Paragraph(
+        f"Kandidatavstemming: {len(run.get('candidates') or [])} totalt | {int(_summary_reconciled.get('buy_candidates') or 0)} kjøpsgodkjent | "
+        f"{int(_summary_reconciled.get('automatic_watch') or 0)} overvåkes | "
+        f"{int(_summary_reconciled.get('manual_review') or 0)} undersøkes manuelt | "
+        f"{int(_summary_reconciled.get('automatic_rejected') or 0)} avvist",
+        styles["Footer"],
+    )]
     decision_page_one_end_v1924 = len(decision_story)
     decision_story += [
         CondPageBreak(40*mm),
@@ -4250,7 +4293,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
         or run.get("market_runs") or run.get("source_health") or run.get("portfolio_decisions")
         or run.get("decision_funnel") or run.get("data_contract")
     )
-    if has_technical_content:
+    if has_technical_content and include_technical:
         story = decision_story + [
             PageBreak(),
             Paragraph("Teknisk vedlegg", styles["ReportTitle"]),
@@ -4298,6 +4341,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
     if not pdf_semantics.get("ok"):
         raise ValueError("PDF/JSON-integritet feilet: " + "; ".join(pdf_semantics.get("errors") or []))
     return pdf_bytes
+
+
+def build_main_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
+    """Investor-facing decision report without the verbose technical appendix."""
+    return build_pdf(run, report_type=report_type, include_technical=False)
+
+
+def build_technical_pdf(run: Mapping[str, Any], report_type: str | None = None) -> bytes:
+    """Complete audit report retained separately for source and model review."""
+    return build_pdf(run, report_type=report_type, include_technical=True)
 
 
 
@@ -4396,7 +4449,7 @@ def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: s
     ensure_report_document(run, source)
     pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    pdf_bytes = build_pdf(run)
+    pdf_bytes = build_main_pdf(run)
     pdf_path.write_bytes(pdf_bytes)
     run["pdf_path"] = str(pdf_path)
     publish_pdf(run, pdf_bytes)
@@ -5185,9 +5238,14 @@ def _run_job_impl(
         if job.save_pdf:
             pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
-            pdf_bytes = build_pdf(canonical_run)
+            pdf_bytes = build_main_pdf(canonical_run)
             pdf_path.write_bytes(pdf_bytes)
             run["pdf_path"] = str(pdf_path)
+            technical_pdf_path = pdf_path.with_name(pdf_path.stem + "_technical.pdf")
+            technical_pdf_bytes = build_technical_pdf(canonical_run)
+            technical_pdf_path.write_bytes(technical_pdf_bytes)
+            run["technical_pdf_path"] = str(technical_pdf_path)
+            run["technical_pdf_delivery"] = {"generated": True, "validated": _valid_pdf_bytes(technical_pdf_bytes)}
             publish_pdf(run, pdf_bytes)
             run["report_url"] = report_public_url(run)
             run["pdf_delivery"] = {
@@ -5254,7 +5312,7 @@ def _run_job_impl(
         # skipped or failed.
         if job.save_pdf and run.get("pdf_path"):
             try:
-                pdf_bytes = build_pdf(run)
+                pdf_bytes = build_main_pdf(run)
                 Path(str(run["pdf_path"])).write_bytes(pdf_bytes)
                 publish_pdf(run, pdf_bytes)
                 run["report_url"] = report_public_url(run)
@@ -6852,6 +6910,10 @@ def render_market_intelligence() -> None:
                                       mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", width="stretch")
                 else:
                     a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
+                technical_path = Path(str((saved_run or {}).get("technical_pdf_path") or ""))
+                if technical_path.is_file():
+                    a.download_button("🔎 Teknisk vedlegg", data=technical_path.read_bytes(), file_name=technical_path.name,
+                                      mime="application/pdf", key=f"mi_dl_technical_pdf_{row.get('run_id')}", width="stretch")
                 if json_data:
                     b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", width="stretch")
                 if saved_run:

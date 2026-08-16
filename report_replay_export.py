@@ -435,6 +435,8 @@ def build_single_report_package(
             "evidence_search_summary": clean_run.get("evidence_search_summary") or {},
             "source_audit": clean_run.get("source_audit") or [],
         })),
+        f"{report_dir}/candidate_data_audit.json": _json_bytes(sanitize_for_export(clean_run.get("candidate_data_audit") or (clean_run.get("decision_report") or {}).get("candidate_data_audit") or {})),
+        f"{report_dir}/short_intelligence.json": _json_bytes(sanitize_for_export(clean_run.get("short_intelligence") or (clean_run.get("decision_report") or {}).get("short_intelligence") or {})),
     }
     # Always rebuild from clean_run. Reusing an archived/UI PDF can silently
     # mix an older identity or ranking with the current TXT/JSON contract.
@@ -574,6 +576,11 @@ def _collect_runtime_exports() -> dict[str, Any]:
         })
     except Exception as exc:
         out["audit/autonomy_export_error.json"] = {"error": str(exc)}
+    try:
+        from ai_learning_foundation import learning_report
+        out["learning/regular_learning_report.json"] = learning_report()
+    except Exception as exc:
+        out["audit/learning_report_export_error.json"] = {"error": str(exc)}
     # Optional controlled-learning/orchestrator state is included when packaged modules expose paths.
     optional_modules = (
         "controlled_learning", "controlled_learning_runtime", "autonomous_orchestrator",
@@ -777,6 +784,8 @@ def build_complete_replay_export(
                 "evidence_search_summary": clean_run.get("evidence_search_summary") or {},
                 "source_audit": clean_run.get("source_audit") or [],
             })),
+            f"{folder}/candidate_data_audit.json": _json_bytes(sanitize_for_export(clean_run.get("candidate_data_audit") or (clean_run.get("decision_report") or {}).get("candidate_data_audit") or {})),
+            f"{folder}/short_intelligence.json": _json_bytes(sanitize_for_export(clean_run.get("short_intelligence") or (clean_run.get("decision_report") or {}).get("short_intelligence") or {})),
         }
         replay_reports.append(replay_result)
         report_files[f"{folder}/replay_result_rc16.json"] = _json_bytes(replay_result)

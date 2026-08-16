@@ -88,6 +88,7 @@ def build_trade_outcomes(portfolio: dict | None = None) -> list[dict]:
                 "market": buy.get("market", ""), "sector": buy.get("sector", "") or "Ukjent",
                 "entry_explanation": buy.get("trade_explanation", ""),
                 "exit_explanation": trade.get("trade_explanation", ""), "status": "READY",
+                "short_intelligence": dict(buy.get("short_intelligence") or {}) if isinstance(buy.get("short_intelligence"), dict) else {},
             })
             lot["remaining"] -= matched
             remaining_sell -= matched
@@ -121,6 +122,36 @@ def _summary(name: str, rows: list[dict]) -> dict:
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else (999.0 if gross_profit else 0.0),
         "max_drawdown_pct": _max_drawdown(vals),
     }
+
+
+def _learning_curve(outcomes: list[dict]) -> list[dict]:
+    """Cumulative, reproducible curve from realised FIFO outcomes."""
+    equity = 100.0
+    peak = 100.0
+    points: list[dict] = []
+    for index, row in enumerate(sorted(outcomes, key=lambda item: str(item.get("exit_time") or "")), start=1):
+        ret = _f(row.get("return_pct"))
+        equity *= 1.0 + ret / 100.0
+        peak = max(peak, equity)
+        drawdown = ((equity - peak) / peak * 100.0) if peak else 0.0
+        points.append({
+            "sequence": index, "date": str(row.get("exit_time") or ""), "ticker": row.get("ticker"),
+            "return_pct": round(ret, 3), "equity_index": round(equity, 4),
+            "drawdown_pct": round(drawdown, 3),
+        })
+    return points
+
+
+def _short_bucket(row: dict) -> list[str]:
+    raw = row.get("short_intelligence") or row.get("short_data") or {}
+    if not isinstance(raw, dict) or not raw.get("verified"):
+        return ["SHORT UKJENT"]
+    pct = _f(raw.get("short_interest_pct_float") or raw.get("short_interest_pct_outstanding"))
+    if pct >= 10:
+        return ["HØY SHORT"]
+    if pct >= 5:
+        return ["MIDDELS SHORT"]
+    return ["LAV SHORT"]
 
 
 def _group(outcomes: list[dict], key_fn) -> list[dict]:
@@ -174,6 +205,14 @@ def learning_report(portfolio: dict | None = None) -> dict:
         "exit_analytics": _group(outcomes, lambda r: [r.get("exit_rule") or "Ukjent"]),
         "sector_analysis": _group(outcomes, lambda r: [r.get("sector") or "Ukjent"]),
         "confidence_calibration": _group(outcomes, lambda r: [f"{min(90, int(_f(r.get('confidence'))) // 10 * 10)}-{min(100, min(90, int(_f(r.get('confidence'))) // 10 * 10) + 9)}"]),
+        "learning_curve": _learning_curve(outcomes),
+        "short_outcome_analysis": _group(outcomes, _short_bucket),
+        "portfolio_learning": {
+            "closed_positions": len(outcomes),
+            "capital_efficiency_observations": sum(_f(row.get("holding_days")) >= 20 for row in outcomes),
+            "point_in_time_required": True,
+            "automatic_production_change": False,
+        },
     }
     report["insights"] = _insights(report)
     return report
@@ -185,7 +224,7 @@ def _excel_bytes(report: dict) -> bytes | None:
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             pd.DataFrame([report["metrics"]]).to_excel(writer, "Nokkeltall", index=False)
-            for name, key in (("Handler", "trade_outcomes"), ("Signaler", "signal_scorecard"), ("Kombinasjoner", "combination_analysis"), ("Exits", "exit_analytics"), ("Sektorer", "sector_analysis"), ("Confidence", "confidence_calibration")):
+            for name, key in (("Handler", "trade_outcomes"), ("Kurve", "learning_curve"), ("Signaler", "signal_scorecard"), ("Kombinasjoner", "combination_analysis"), ("Exits", "exit_analytics"), ("Sektorer", "sector_analysis"), ("Confidence", "confidence_calibration"), ("Short", "short_outcome_analysis")):
                 pd.DataFrame(report[key]).to_excel(writer, name[:31], index=False)
         return out.getvalue()
     except Exception:

@@ -63,7 +63,8 @@ def test_started_status_records_actual_scan_limit_and_total(monkeypatch):
     monkeypatch.setattr(mi, "run_job", fake_run_job)
     status = background.start_manual_job(mi.JobProfile(name="Maks", scan_limit=250, markets=["Alle"]), trigger="MANUAL_FULL_CHAIN")
     assert status["scan_configuration"]["per_market"] == 250
-    assert status["scan_configuration"]["planned_maximum"] == 1500
+    # "Alle" er den aktive kjernemarkedsprofilen Norge/Sverige/USA.
+    assert status["scan_configuration"]["planned_maximum"] == 750
     release.set()
     for thread in list(background._THREADS.values()):
         thread.join(timeout=2)

@@ -60,7 +60,7 @@ class LearningReportingLayerTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         source = (root / "market_intelligence.py").read_text(encoding="utf-8")
         orchestrator = (root / "autonomous_orchestrator.py").read_text(encoding="utf-8")
-        self.assertIn("build_pdf(canonical_run)", source)
+        self.assertIn("build_main_pdf(canonical_run)", source)
         self.assertIn("register_run(canonical_run)", source)
         self.assertIn("archive_report(archive_view)", source)
         self.assertIn("_notification(job, notification_view)", source)

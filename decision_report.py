@@ -937,10 +937,14 @@ def build_decision_report(
         "conflicting": sum(1 for row in candidate_contracts if _mapping(row.get("source_consensus")).get("level") == "MOTSTRIDENDE"),
     }
     from report_portfolio_intelligence import build_candidate_watch_queue, build_portfolio_report, build_system_anomaly_watch
+    from candidate_data_governance import build_candidate_data_audit
+    from short_intelligence import build_short_report
     portfolio = _mapping(run.get("autonomous_portfolio_snapshot") or run.get("portfolio_snapshot") or run.get("portfolio_context"))
     portfolio_intelligence = build_portfolio_report(portfolio, _rows(run.get("candidates")), now=_created_at(run))
     system_anomaly_watch = build_system_anomaly_watch(_rows(run.get("candidates")))
     candidate_watch_queue = build_candidate_watch_queue(_rows(run.get("candidates")))
+    candidate_data_audit = build_candidate_data_audit(_rows(run.get("candidates")))
+    short_intelligence = build_short_report(_rows(run.get("candidates")))
     return {
         "schema_version": DECISION_REPORT_SCHEMA_VERSION,
         "overview": overview,
@@ -957,6 +961,8 @@ def build_decision_report(
         "portfolio_intelligence": portfolio_intelligence,
         "system_anomaly_watch": system_anomaly_watch,
         "candidate_watch_queue": candidate_watch_queue,
+        "candidate_data_audit": candidate_data_audit,
+        "short_intelligence": short_intelligence,
         "counter_hypotheses": {
             str(row.get("ticker") or ""): deepcopy(row.get("counter_hypothesis") or {})
             for row in candidate_contracts[:3]
@@ -992,6 +998,8 @@ def enrich_decision_report(
         run["historical_decision_evaluations"] = deepcopy(payload["historical_evaluations"])
         run["counter_hypotheses"] = deepcopy(payload["counter_hypotheses"])
         run["controlled_learning_guard"] = deepcopy(payload["controlled_learning_guard"])
+        run["candidate_data_audit"] = deepcopy(payload["candidate_data_audit"])
+        run["short_intelligence"] = deepcopy(payload["short_intelligence"])
     return payload
 
 

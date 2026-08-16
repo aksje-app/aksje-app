@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from issuer_identity import issuer_identity
+from exit_policy import evaluate_exit, policy_from
+from short_intelligence import normalize_short_snapshot, portfolio_short_exposure
 
 
 def _f(value: Any, default: float = 0.0) -> float:
@@ -32,6 +34,13 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
     else:
         positions = {}
     candidate_by_issuer = {issuer_identity(row): row for row in candidates if isinstance(row, Mapping)}
+    owned_issuers_pre = {issuer_identity(dict(raw) if isinstance(raw, Mapping) else {"ticker": ticker}) for ticker, raw in positions.items()}
+    replacement_candidates = [row for row in candidates if isinstance(row, Mapping) and issuer_identity(row) not in owned_issuers_pre
+                              and bool(row.get("valid_for_decision", True)) and bool(row.get("evidence_valid_for_decision", False))]
+    replacement_candidates.sort(key=lambda row: _f(row.get("effective_entry_score"), _f(row.get("investment_score"))), reverse=True)
+    best_replacement = replacement_candidates[0] if replacement_candidates else {}
+    best_replacement_score = _f(best_replacement.get("effective_entry_score"), _f(best_replacement.get("investment_score"))) if best_replacement else None
+    active_policy = policy_from(portfolio.get("exit_policy") if isinstance(portfolio.get("exit_policy"), Mapping) else portfolio.get("parameters"))
     rows: list[dict[str, Any]] = []
     for ticker, raw in positions.items():
         position = dict(raw) if isinstance(raw, Mapping) else {}
@@ -47,9 +56,20 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         entry_score = _f(position.get("entry_score"), _f(position.get("autonomy_adjusted_investment_score")))
         current_score = _f(candidate.get("effective_entry_score"), _f(candidate.get("investment_score"), entry_score))
         score_change = current_score - entry_score if entry_score else 0.0
-        sideways = holding_days >= 20 and abs(pnl_pct) < 2.0
-        weakened = bool(entry_score and score_change <= -7.0)
-        label = "VURDER UTSKIFTING" if sideways and weakened else "KAPITALEFFEKTIVITETSVARSEL" if sideways else "BEHOLD"
+        exit_decision = evaluate_exit(entry_price=entry, current_price=last,
+                                      highest_price=_f(position.get("highest_price"), max(entry, last)),
+                                      entry_score=entry_score, current_score=current_score,
+                                      holding_days=holding_days,
+                                      take_profit_taken=bool(position.get("partial_take_profit_taken")),
+                                      best_replacement_score=best_replacement_score, policy=active_policy)
+        sideways = exit_decision["reason_code"] in {"CAPITAL_STAGNATION", "CAPITAL_REPLACEMENT"}
+        weakened = bool(entry_score and score_change <= -active_policy.score_drop_review_points)
+        label = {
+            "SELL": "SELG",
+            "SELL_PARTIAL": "SIKRE DELVIS GEVINST",
+            "REPLACE_REVIEW": "VURDER UTSKIFTING",
+            "REVIEW": "KAPITALEFFEKTIVITETSVARSEL",
+        }.get(exit_decision["action"], "BEHOLD")
         rows.append({
             "ticker": str(ticker), "already_in_portfolio": True, "portfolio_label": "ALLEREDE I PORTEFØLJEN",
             "opened_at": str(position.get("opened_at") or ""), "holding_days": holding_days,
@@ -58,8 +78,13 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "unrealized_pnl_pct": round(pnl_pct, 2), "entry_score": round(entry_score, 2),
             "current_score": round(current_score, 2), "score_change": round(score_change, 2),
             "sideways_20d_proxy": sideways, "weakened_score": weakened, "capital_efficiency_status": label,
+            "exit_action": exit_decision["action"], "exit_reason_code": exit_decision["reason_code"],
+            "exit_reason": exit_decision["reason"], "suggested_sell_pct": exit_decision["sell_pct"],
+            "replacement_ticker": str(best_replacement.get("ticker") or "") if exit_decision["action"] == "REPLACE_REVIEW" else "",
+            "replacement_score": round(best_replacement_score, 2) if best_replacement_score is not None and exit_decision["action"] == "REPLACE_REVIEW" else None,
             "source_run_id": str(position.get("source_run_id") or ""),
             "addition_policy": "TILLEGGSKJØP DEAKTIVERT",
+            "short_intelligence": normalize_short_snapshot({**position, **candidate}),
         })
     cash = _f(portfolio.get("cash"))
     initial_cash = _f(portfolio.get("initial_cash"))
@@ -109,6 +134,7 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "action": (candidate.get("portfolio_decision") or {}).get("action") if isinstance(candidate.get("portfolio_decision"), Mapping) else candidate.get("portfolio_action"),
         })
     unified.sort(key=lambda row: row["score"], reverse=True)
+    short_exposure = portfolio_short_exposure(rows)
     return {
         "snapshot_timing": "ETTER_AUTONOMI",
         "snapshot_run_id": str(portfolio.get("last_run_id") or ""),
@@ -123,10 +149,12 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         "total_return_pct": round(account_result / initial_cash * 100.0, 2) if initial_cash else 0.0,
         "invested_pct": round(invested_pct, 2), "cash_pct": round(cash_pct, 2),
         "reserve_cash_pct": round(reserve_cash_pct, 2),
+        "active_exit_policy": active_policy.to_dict(),
         "sideways_positions": sum(row["sideways_20d_proxy"] for row in rows),
         "weakened_positions": sum(row["weakened_score"] for row in rows),
         "replacement_review_count": sum(row["capital_efficiency_status"] == "VURDER UTSKIFTING" for row in rows),
         "positions": rows, "unified_owned_and_candidate_ranking": unified,
+        "short_exposure": short_exposure,
         "sector_exposure": [
             {"sector": key, "market_value": round(value, 2), "weight_pct": round(value / equity * 100.0, 2) if equity else 0.0}
             for key, value in sorted(sector_values.items(), key=lambda item: item[1], reverse=True)
@@ -136,7 +164,7 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             for key, value in sorted(market_values.items(), key=lambda item: item[1], reverse=True)
         ],
         "reconciliation": reconciliation,
-        "warning": "Sidelengs-proxy er et varsel, ikke et automatisk salgssignal. Indeksrelativ avkastning krever egen benchmarkserie.",
+        "warning": "Kapitalstagnasjon utløser vurdering. Utskifting krever en navngitt, evidensklar kandidat med tilstrekkelig scorefordel.",
     }
 
 

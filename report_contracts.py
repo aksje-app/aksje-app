@@ -413,6 +413,8 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
         _section("portfolio_intelligence", "Eksisterende portefølje og kapitalbinding", dict(decision_report.get("portfolio_intelligence") or {}), 17),
         _section("system_anomaly_watch", "Automatisk systemvakt", list(decision_report.get("system_anomaly_watch") or []), 18),
         _section("candidate_watch_queue", "Observasjonskø 68-73", list(decision_report.get("candidate_watch_queue") or []), 19),
+        _section("candidate_data_audit", "Kandidatdekning og redningskø", dict(decision_report.get("candidate_data_audit") or {}), 19),
+        _section("short_intelligence", "Shortinteresse og shortdekning", dict(decision_report.get("short_intelligence") or {}), 19, technical=True),
         _section("candidate_decisions", "Kjøpsanbefalinger", _candidate_decisions(
             [row for row in list(run.get("candidates") or []) if _is_real_buy_recommendation(row)],
             list(decision_report.get("candidate_contracts") or [])

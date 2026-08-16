@@ -26,7 +26,7 @@ class TimeAwareDraftTests(unittest.TestCase):
     def test_all_local_periods(self):
         cases = {
             "2026-07-23T04:00:00+00:00": "Morgenrapport",  # 06:00 local
-            "2026-07-23T11:00:00+00:00": "Dagsrapport",    # 13:00 local
+            "2026-07-23T11:00:00+00:00": "Ettermiddagsrapport",  # 13:00 local
             "2026-07-23T17:00:00+00:00": "Kveldsrapport", # 19:00 local
             "2026-07-23T23:00:00+00:00": "Nattrapport",   # 01:00 local
         }
