@@ -1,14 +1,36 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-
-REPLAY_ROOT = Path(__file__).resolve().parents[2] / "replay_20260815_065343" / "full_replay" / "MI-20260815-080526"
-
-
 def _replay_candidates():
-    return json.loads((REPLAY_ROOT / "candidates_input.json").read_text(encoding="utf-8"))
+    """Self-contained golden rows; release archives must not depend on a sibling dump."""
+    return [{
+        "ticker": "HWM", "market": "USA", "autonomy_adjusted_investment_score": 75.83,
+        "technical_signal_action": "HOLD",
+        "analysis_ranking": {"matches": ["Growth"]},
+        "evidence_coverage": {
+            "news": {"status": "AVAILABLE"},
+            "insider": {"status": "SOURCE_ERROR"},
+        },
+        "evidence_passport": {"areas": {
+            "news": {"status": "AVAILABLE", "ranking_contribution": 0.0},
+            "insider": {"status": "SOURCE_ERROR", "ranking_contribution": 3.0},
+        }},
+    }, {
+        "ticker": "SSAB-A.ST", "market": "Sverige", "investment_score": 76.8,
+        "technical_signal_action": "WAIT", "evidence_valid_for_decision": True,
+    }]
+
+
+def _replay_portfolio():
+    return {
+        "initial_cash": 100000.0, "cash": 90000.0,
+        "positions": {
+            "SSAB-A.ST": {
+                "ticker": "SSAB-A.ST", "quantity": 100.0,
+                "average_price": 100.0, "last_price": 100.0,
+                "entry_score": 76.8, "market": "Sverige",
+            },
+        },
+    }
 
 
 def test_golden_replay_neutralises_unverified_positive_credit():
@@ -56,7 +78,7 @@ def test_balanced_shortlist_retains_each_available_sector():
 
 def test_replay_existing_positions_are_explicitly_labelled():
     from report_portfolio_intelligence import build_portfolio_report
-    portfolio = json.loads((REPLAY_ROOT / "portfolio_before.json").read_text(encoding="utf-8"))
+    portfolio = _replay_portfolio()
     report = build_portfolio_report(portfolio, _replay_candidates())
     assert report["open_positions"] == len(portfolio["positions"])
     assert all(row["portfolio_label"] == "ALLEREDE I PORTEFØLJEN" for row in report["positions"])
@@ -88,4 +110,4 @@ def test_sec_ticker_registry_is_reused_across_tickers():
 
 def test_version_is_rc16_31m():
     from app_version import APP_VERSION
-    assert APP_VERSION == "v19.22.0-rc16.31p"
+    assert APP_VERSION == "v19.22.0-rc16.31q"
