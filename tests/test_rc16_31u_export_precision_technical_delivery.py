@@ -8,7 +8,7 @@ import market_intelligence as mi
 def test_learning_fill_contract_uses_public_display_precision():
     run = {
         "run_id": "MI-PRECISION",
-        "app_version": "v19.22.0-rc16.31w",
+        "app_version": "v19.22.0-rc16.31x",
         "public_report_contract": {"report_id": "MI-PRECISION", "ranking": [], "decision_count": 0},
         "learning_portfolio_summary": {"learning_fills": [{
             "ticker": "cah", "side": "buy", "quantity": 141.77123456, "price": 32.4137,
@@ -16,7 +16,7 @@ def test_learning_fill_contract_uses_public_display_precision():
     }
     expected = audit.expected_contract(run)["learning_fills"]
     parsed = audit._text_contract(
-        "Rapport-ID: MI-PRECISION\nAppversjon: v19.22.0-rc16.31w\n"
+        "Rapport-ID: MI-PRECISION\nAppversjon: v19.22.0-rc16.31x\n"
         "- CAH · BUY · antall 141.77123456 · pris 32.41 · score 76.78\n"
     )["learning_fills"]
     assert parsed == expected
