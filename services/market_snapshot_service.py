@@ -31,7 +31,7 @@ _EXCLUDED_INPUT_KEYS = {
     "raw", "raw_payload", "provider_payload", "articles", "news_articles",
     "full_text", "html", "document", "documents",
 }
-_MAX_DECISION_INPUT_BYTES = 96 * 1024
+_MAX_DECISION_INPUT_BYTES = 32 * 1024
 _MAX_MAPPING_ITEMS = 96
 _MAX_SEQUENCE_ITEMS = 128
 _MAX_STRING_CHARS = 4000
@@ -63,6 +63,24 @@ def _bounded_json_value(value: Any, *, depth: int = 0) -> Any:
             rows.append({"_truncated_items": len(value) - _MAX_SEQUENCE_ITEMS})
         return rows
     return str(value)[:_MAX_STRING_CHARS]
+
+
+def _bounded_mapping(value: Any) -> dict[str, Any]:
+    bounded = _bounded_json_value(value if isinstance(value, Mapping) else {})
+    return dict(bounded) if isinstance(bounded, Mapping) else {}
+
+
+def _streaming_checksum(value: Any) -> str:
+    """Canonical checksum without allocating one additional complete JSON string."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    )
+    for chunk in encoder.iterencode(value):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _finite(value: Any) -> float | None:
@@ -239,18 +257,18 @@ class MarketSnapshotService:
             "source_consensus": _pick_number(row, "source_consensus", "source_confidence", "consensus_score"),
             # Raw average volume is deliberately not treated as a 0-100 score.
             "liquidity": _pick_number(row, "liquidity_score", "liquidity"),
-            "quality_evidence": dict(row.get("quality_evidence") or {}),
-            "quality_coverage": dict(row.get("quality_coverage") or {}),
-            "technical": technical,
+            "quality_evidence": _bounded_mapping(row.get("quality_evidence")),
+            "quality_coverage": _bounded_mapping(row.get("quality_coverage")),
+            "technical": _bounded_mapping(technical),
             "decision_inputs": decision_inputs,
             "provenance": {
                 "service_version": SNAPSHOT_SERVICE_VERSION,
                 "source": source,
-                **dict(provenance or {}),
+                **_bounded_mapping(provenance),
             },
             "schema_version": CANDIDATE_SNAPSHOT_SCHEMA_VERSION,
         }
-        checksum = stable_checksum(candidate_checksum_payload(provisional))
+        checksum = _streaming_checksum(candidate_checksum_payload(provisional))
         candidate_id = f"CS-{ticker or 'UNKNOWN'}-{checksum[:20]}"
         snapshot = CandidateSnapshot(candidate_snapshot_id=candidate_id, checksum=checksum, **provisional)
         validation = validate_candidate_snapshot(snapshot.to_dict())
@@ -309,11 +327,11 @@ class MarketSnapshotService:
             "metadata": {"service_version": SNAPSHOT_SERVICE_VERSION, **dict(metadata or {})},
             "schema_version": MARKET_SNAPSHOT_SCHEMA_VERSION,
         }
-        checksum = stable_checksum(provisional)
+        checksum = _streaming_checksum(provisional)
         snapshot = MarketSnapshot(checksum=checksum, **provisional)
-        validation = validate_market_snapshot(snapshot.to_dict())
-        if not validation["ok"]:
-            raise ValueError("; ".join(validation["errors"]))
+        # Each candidate was validated above. Avoid immediately materialising
+        # and hashing the complete market snapshot a second time; save() still
+        # performs the authoritative full validation before persistence.
         return snapshot
 
     def save(self, snapshot: MarketSnapshot | Mapping[str, Any]) -> dict[str, Any]:
