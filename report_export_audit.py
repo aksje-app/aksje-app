@@ -14,6 +14,18 @@ LEGACY_PUBLIC_RANKING_KEYS = {
     "evidence_ready_top3", "report_top3", "top3", "top_10", "ranking_explanation",
 }
 
+def _normalise_learning_action(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+def _normalise_learning_quantity(value: Any) -> float:
+    return round(float(str(value or 0).replace(",", ".")), 8)
+
+def _normalise_learning_price(value: Any) -> float:
+    # TXT and PDF deliberately display monetary fills with two decimals.  The
+    # audit must compare the same public representation, not hidden JSON
+    # precision that those channels cannot reproduce.
+    return round(float(str(value or 0).replace(",", ".")), 2)
+
 def canonical_public_run(run: Mapping[str, Any]) -> dict[str, Any]:
     from report_integrity import canonical_report_view
     from report_contracts import ensure_report_document
@@ -42,9 +54,9 @@ def expected_contract(run: Mapping[str, Any]) -> dict[str, Any]:
             continue
         learning_fills.append({
             "ticker": str(row.get("ticker") or "").upper(),
-            "action": str(row.get("side") or row.get("action") or "").upper(),
-            "quantity": round(float(row.get("quantity") or 0), 8),
-            "price": round(float(row.get("price", row.get("fill_price")) or 0), 4),
+            "action": _normalise_learning_action(row.get("side") or row.get("action")),
+            "quantity": _normalise_learning_quantity(row.get("quantity")),
+            "price": _normalise_learning_price(row.get("price", row.get("fill_price"))),
         })
     return {
         "report_id": str(projection.get("report_id") or run.get("report_id") or run.get("run_id") or ""),
@@ -62,8 +74,13 @@ def _text_contract(text: str) -> dict[str, Any]:
     for m in re.finditer(r"^#(\d+)\s+([A-Z0-9.\-]+).*?Beslutning:\s*([^\n\r]+)$", text, re.I|re.M):
         ranking.append({"rank":int(m.group(1)),"ticker":m.group(2).upper(),"decision_label":m.group(3).strip()})
     learning=[]
-    for m in re.finditer(r"^-\s+([A-Z0-9.\-]+)\s+·\s+(BUY|SELL)\s+·\s+antall\s+([0-9.]+)\s+·\s+pris\s+([0-9.]+)", text, re.I|re.M):
-        learning.append({"ticker":m.group(1).upper(),"action":m.group(2).upper(),"quantity":round(float(m.group(3)),8),"price":round(float(m.group(4)),4)})
+    for m in re.finditer(r"^-\s+([A-Z0-9.\-]+)\s+·\s+(BUY|SELL)\s+·\s+antall\s+([0-9.,]+)\s+·\s+pris\s+([0-9.,]+)", text, re.I|re.M):
+        learning.append({
+            "ticker": m.group(1).upper(),
+            "action": _normalise_learning_action(m.group(2)),
+            "quantity": _normalise_learning_quantity(m.group(3)),
+            "price": _normalise_learning_price(m.group(4)),
+        })
     return {"report_id": rid.group(1).strip() if rid else "", "app_version": ver.group(1).strip() if ver else "", "ranking": ranking, "learning_fills": learning}
 
 def validate_artifacts(*, run: Mapping[str, Any], pdf: bytes, txt: bytes, json_bytes: bytes) -> dict[str, Any]:

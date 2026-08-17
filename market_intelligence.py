@@ -1475,8 +1475,9 @@ def build_text_report(run: Mapping[str, Any]) -> str:
             price = _safe_float_v1917(fill.get("price", fill.get("fill_price")))
             quantity = _safe_float_v1917(fill.get("quantity"))
             score = _safe_float_v1917(fill.get("score", fill.get("autonomy_adjusted_investment_score", fill.get("investment_score"))))
+            quantity_text = f"{quantity:.8f}".rstrip("0").rstrip(".") or "0"
             lines.append(
-                f"- {fill.get('ticker') or '-'} · {action} · antall {quantity:g} · pris {price:.2f} · score {score:.2f}"
+                f"- {fill.get('ticker') or '-'} · {action} · antall {quantity_text} · pris {price:.2f} · score {score:.2f}"
             )
     else:
         lines.append("- Ingen læringshandler i denne kjøringen.")
@@ -1830,6 +1831,10 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "report_contract_version": metadata.get("contract_version") or "1.0",
         "pdf_path": run.get("pdf_path"), "json_path": str(RUNS_DIR / f"{run.get('run_id')}.json"),
         "public_pdf_name": run.get("public_pdf_name"), "report_url": report_public_url(run),
+        "technical_pdf_path": run.get("technical_pdf_path"),
+        "technical_pdf_name": run.get("technical_pdf_name"),
+        "technical_report_token": run.get("technical_report_token"),
+        "technical_pdf_delivery": run.get("technical_pdf_delivery"),
         "markets": list(run.get("markets") or []), "recommended": int((run.get("summary") or {}).get("recommended", 0)),
         "top_ticker": top.get("ticker"), "top_score": top.get("investment_score"),
         "tickers": [str(x.get("ticker")) for x in candidates if x.get("ticker")],
@@ -1897,7 +1902,7 @@ def delete_archived_report(run_id: str) -> bool:
     target = next((x for x in rows if x.get("run_id") == run_id), None)
     if not target:
         return False
-    for key in ("pdf_path", "json_path"):
+    for key in ("pdf_path", "technical_pdf_path", "json_path"):
         raw = target.get(key)
         if raw:
             try:
@@ -2027,6 +2032,71 @@ def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | N
         "ok": True, "url": url, "data": pdf_bytes,
         "filename": safe_report_filename(clean, "pdf"), "regenerated": regenerated,
         "validated": True,
+    }
+
+
+def resolve_technical_report_delivery(
+    run: Mapping[str, Any], entry: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the complete PDF with technical appendix across Render services."""
+    clean = dict(run or {})
+    archived = dict(entry or {})
+    if not clean:
+        return {"ok": False, "error": "Rapportdata mangler og det tekniske vedlegget kan ikke gjenopprettes."}
+    from public_report_store import load_public_pdf, publish_durable_pdf
+    token = str(clean.get("technical_report_token") or archived.get("technical_report_token") or "").strip()
+    pdf_bytes: bytes | None = None
+    if token:
+        stored = load_public_pdf(token)
+        candidate = stored.get("data") if isinstance(stored, Mapping) else None
+        if _valid_pdf_bytes(candidate):
+            pdf_bytes = bytes(candidate)
+    if pdf_bytes is None:
+        source = Path(str(clean.get("technical_pdf_path") or archived.get("technical_pdf_path") or ""))
+        if source.is_file():
+            candidate = source.read_bytes()
+            if _valid_pdf_bytes(candidate):
+                pdf_bytes = candidate
+    regenerated = False
+    if pdf_bytes is None:
+        try:
+            pdf_bytes = build_technical_pdf(clean)
+            if not _valid_pdf_bytes(pdf_bytes):
+                raise ValueError("PDF-generatoren returnerte ikke et gyldig teknisk dokument")
+            regenerated = True
+        except Exception as exc:
+            _audit("TECHNICAL_REPORT_REGENERATION_FAILED", {"run_id": clean.get("run_id"), "error": str(exc)})
+            return {"ok": False, "error": f"Det tekniske vedlegget kunne ikke regenereres: {exc}"}
+    run_id = str(clean.get("run_id") or "")
+    clean["technical_pdf_name"] = Path(str(
+        clean.get("technical_pdf_name") or archived.get("technical_pdf_name")
+        or f"{safe_report_filename(clean, 'pdf')[:-4]}_technical.pdf"
+    )).name
+    try:
+        publish_durable_pdf(
+            clean, pdf_bytes, token_field="technical_report_token",
+            filename_field="technical_pdf_name", document_kind="technical",
+        )
+        clean["technical_pdf_delivery"] = {
+            "generated": True, "validated": True, "durable": True,
+            "regenerated": regenerated,
+        }
+        if run_id:
+            _write(RUNS_DIR / f"{run_id}.json", clean)
+            rows = _load_report_archive()
+            for row in rows:
+                if str(row.get("run_id") or "") == run_id:
+                    row.update({key: clean.get(key) for key in (
+                        "technical_pdf_path", "technical_pdf_name",
+                        "technical_report_token", "technical_pdf_delivery",
+                    )})
+                    _save_report_archive(rows)
+                    break
+    except Exception as exc:
+        _audit("TECHNICAL_REPORT_PUBLISH_FAILED", {"run_id": run_id, "error": str(exc)})
+    return {
+        "ok": True, "data": pdf_bytes, "filename": clean["technical_pdf_name"],
+        "regenerated": regenerated, "validated": True,
     }
 
 
@@ -3431,7 +3501,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     for decision in list(learning_summary.get("learning_fills") or []):
         if not isinstance(decision, Mapping):
             continue
-        action = str(decision.get("action") or decision.get("decision") or "").upper()
+        action = str(decision.get("side") or decision.get("action") or decision.get("decision") or "").upper()
         if action not in {"BUY", "SELL"}:
             continue
         reason_text = str(decision.get("reason") or "")
@@ -5276,7 +5346,16 @@ def _run_job_impl(
             technical_pdf_bytes = build_technical_pdf(canonical_run)
             technical_pdf_path.write_bytes(technical_pdf_bytes)
             run["technical_pdf_path"] = str(technical_pdf_path)
-            run["technical_pdf_delivery"] = {"generated": True, "validated": _valid_pdf_bytes(technical_pdf_bytes)}
+            run["technical_pdf_name"] = technical_pdf_path.name
+            from public_report_store import publish_durable_pdf
+            publish_durable_pdf(
+                run, technical_pdf_bytes, token_field="technical_report_token",
+                filename_field="technical_pdf_name", document_kind="technical",
+            )
+            run["technical_pdf_delivery"] = {
+                "generated": True, "validated": _valid_pdf_bytes(technical_pdf_bytes),
+                "durable": bool(run.get("technical_report_token")),
+            }
             publish_pdf(run, pdf_bytes)
             run["report_url"] = report_public_url(run)
             run["pdf_delivery"] = {
@@ -5297,6 +5376,8 @@ def _run_job_impl(
         archive_view = dict(canonical_run)
         archive_view.update({key: run.get(key) for key in (
             "pdf_path", "public_pdf_name", "public_report_token", "report_url",
+            "technical_pdf_path", "technical_pdf_name", "technical_report_token",
+            "technical_pdf_delivery",
         )})
         archive_report(archive_view)
         persistence = verify_report_persistence(run_id)
@@ -6833,7 +6914,7 @@ def render_market_intelligence() -> None:
             e1,e2 = st.columns(2)
             if delivery.get("ok"):
                 e1.download_button(
-                    "Last ned PDF – behold appen åpen og del filen", delivery["data"],
+                    "Last ned hovedrapport (kortversjon) – behold appen åpen og del filen", delivery["data"],
                     file_name=delivery["filename"], mime="application/pdf",
                     width="stretch", key="mi_download_pdf_v19132",
                 )
@@ -6848,8 +6929,19 @@ def render_market_intelligence() -> None:
                 e1.caption("På mobil: last ned filen for å beholde appøkten; del deretter PDF-en fra telefonens delingsmeny.")
             else:
                 e1.error(str(delivery.get("error") or "PDF-rapporten er ikke tilgjengelig."))
+            technical_delivery = resolve_technical_report_delivery(latest)
+            if technical_delivery.get("ok"):
+                e2.download_button(
+                    "Last ned komplett rapport med teknisk vedlegg",
+                    technical_delivery["data"], file_name=technical_delivery["filename"],
+                    mime="application/pdf", width="stretch",
+                    key="mi_download_technical_pdf_v19220_rc1631u",
+                )
+                e2.caption("Inneholder hovedrapporten og de tekniske vedleggssidene.")
+            else:
+                e2.error(str(technical_delivery.get("error") or "Teknisk vedlegg er ikke tilgjengelig."))
             ensure_report_document(latest)
-            e2.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", width="stretch", key="mi_download_json_v19132")
+            st.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", width="stretch", key="mi_download_json_v19132")
             st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", width="stretch", key="mi_download_txt_v1914")
             latest_package_key = "mi_latest_report_package_bytes_v19220_rc16"
             latest_package_name_key = "mi_latest_report_package_name_v19220_rc16"
@@ -7046,10 +7138,13 @@ def render_market_intelligence() -> None:
                                       mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", width="stretch")
                 else:
                     a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
-                technical_path = Path(str((saved_run or {}).get("technical_pdf_path") or ""))
-                if technical_path.is_file():
-                    a.download_button("🔎 Teknisk vedlegg", data=technical_path.read_bytes(), file_name=technical_path.name,
-                                      mime="application/pdf", key=f"mi_dl_technical_pdf_{row.get('run_id')}", width="stretch")
+                technical_delivery = resolve_technical_report_delivery(saved_run, row)
+                if technical_delivery.get("ok"):
+                    a.download_button(
+                        "🔎 Komplett rapport + teknisk vedlegg",
+                        data=technical_delivery["data"], file_name=technical_delivery["filename"],
+                        mime="application/pdf", key=f"mi_dl_technical_pdf_{row.get('run_id')}", width="stretch",
+                    )
                 if json_data:
                     b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", width="stretch")
                 if saved_run:

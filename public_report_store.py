@@ -13,7 +13,9 @@ from storage_architecture import runtime_data_path
 
 INDEX_KEY = "public_reports/index.json"
 INDEX_PATH = runtime_data_path("public_reports", "index.json")
-MAX_REPORTS = 16
+# Main and technical PDFs are stored as separate durable documents.  Keeping
+# 32 payloads preserves approximately the former 16-report retention window.
+MAX_REPORTS = 32
 RETENTION_HOURS = 336
 
 
@@ -29,18 +31,24 @@ def _document_path(token: str):
     return runtime_data_path("public_reports", f"{token}.json")
 
 
-def publish_durable_pdf(run: MutableMapping[str, Any], pdf_bytes: bytes) -> str:
-    token = str(run.get("public_report_token") or "").strip()
+def publish_durable_pdf(
+    run: MutableMapping[str, Any], pdf_bytes: bytes, *,
+    token_field: str = "public_report_token",
+    filename_field: str = "public_pdf_name",
+    document_kind: str = "main",
+) -> str:
+    token = str(run.get(token_field) or "").strip()
     if not token:
         token = secrets.token_urlsafe(32)
-        run["public_report_token"] = token
+        run[token_field] = token
     now = _now()
-    name = Path(str(run.get("public_pdf_name") or "rapport.pdf")).name
+    name = Path(str(run.get(filename_field) or "rapport.pdf")).name
     payload = {
         "token": token, "report_id": str(run.get("report_id") or run.get("run_id") or ""),
         "filename": name if name.lower().endswith(".pdf") else f"{name}.pdf",
         "created_at": now.isoformat(timespec="seconds"),
         "expires_at": (now + timedelta(hours=RETENTION_HOURS)).isoformat(timespec="seconds"),
+        "document_kind": str(document_kind or "main"),
         "pdf_base64": base64.b64encode(bytes(pdf_bytes)).decode("ascii"),
     }
     write_json(_document_key(token), _document_path(token), payload)

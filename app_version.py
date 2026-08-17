@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31t"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31t Mobile Navigation and Candidate Readability"
+APP_VERSION = "v19.22.0-rc16.31u"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31u Durable Technical Report and Export Consistency"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31s"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31t"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31u: Retter falsk ZIP-avvisning ved å sammenligne læringshandler med samme deklarerte presisjon i JSON, TXT og PDF, samtidig som reelle avvik fortsatt blokkeres. Komplett rapport med teknisk vedlegg lagres nå varig separat fra hovedrapporten og kan lastes direkte ned fra siste rapport og historikken uten å bygge ZIP. Ingen analyse-, terskel-, scheduler- eller handelsregler er endret.",
     "v19.22.0-rc16.31t: Gir ett-trykks hurtigvalg til rapporthistorikk, kjøringsstatus og porteføljer, flytter alle øvrige Autonomi-arbeidsflater til en sammenfoldet komplett meny og erstatter Rapportsenterets to nøstede menynivåer med ett direkte valg som bevares i URL og brukerstatus. Prioriterte kandidater 1–3 rendres som sikre responsive kort og Freshness-mål som 2×2 på mobil, uten tekstoverlapping. Ingen funksjoner, analysekontrakter, scheduler- eller handelsregler er fjernet.",
     "v19.22.0-rc16.31s: Fjerner automatisk toppnavigasjon fra offentlige rapportlenker. Pushover-lenken åpner nå en mobilvennlig mellomside med eksplisitt PDF-nedlasting, åpning i ny fane og retur til AI Aksje Analyzer, slik at PDF-en ikke erstatter programfanen eller ødelegger tilbakehistorikken. Rapporttoken, offentlig tilgang, PDF-integritet, scheduler og handelsregler er uendret.",
     "v19.22.0-rc16.31r: Isolerer den valgfrie parallelle strategivurderingen i en avsluttbar underprosess med hard tidsgrense, slik at et heng ikke kan holde Autonomi- og rapportkjeden fast. Timeout feiler kontrollert åpent til den etablerte Autonomi-motoren uten handelsfullmakt. Watchdog og UI skiller nå korrekt mellom tilbakekalt publiseringsrett og faktisk avsluttet worker/rapportlås. Produksjonsterskel 73, kjøps-/salgsporter, porteføljeregler og fail-closed handel er uendret.",
