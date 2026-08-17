@@ -48,7 +48,8 @@ class StabilityObservatoryTests(unittest.TestCase):
         reports = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
         self.assertIn("Last ned PDF – kan deles", overview)
         self.assertIn("Ekstern offentlig PDF", overview)
-        self.assertIn("behold appen åpen og del filen", reports)
+        self.assertIn("Last ned full rapport med vedlegg", reports)
+        self.assertIn("Last ned kort rapport (3 sider)", reports)
         self.assertIn("kan denne lenken forlate appen", reports)
 
     def test_full_system_check_covers_operational_risks(self):
