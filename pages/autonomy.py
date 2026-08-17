@@ -102,9 +102,6 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     set_global_navigation_state(
         st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab=workspace_slug,
     )
-    _persist_ui_state_v18658(
-        nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab=workspace_slug,
-    )
     if workspace == "Oversikt":
         from autonomy_overview import render_autonomy_overview
         render_autonomy_overview()
