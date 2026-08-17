@@ -6241,10 +6241,6 @@ def render_market_intelligence() -> None:
         st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter",
         tab="reports", subtab=report_surface_slug,
     )
-    _persist_ui_state_v18658(
-        nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter",
-        tab="reports", subtab=report_surface_slug,
-    )
     if report_surface_v19220_rc1631t == "Hurtigarkiv og komplett ZIP":
         _render_quick_report_archive_v19220_rc1618(st)
         return
