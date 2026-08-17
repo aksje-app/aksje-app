@@ -106,18 +106,43 @@ def _transaction_type(row: Mapping[str, Any]) -> str:
     return transaction_type(row)
 
 
-def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days: int = 90) -> dict[str, Any]:
-    now = datetime.now(timezone.utc)
-    evidence, weighted_buy, weighted_sell = [], 0.0, 0.0
-    buyers, sellers, total_buy, total_sell = set(), set(), 0.0, 0.0
+def _deduplicate_transactions(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Prefer a primary filing when providers repeat the same transaction."""
+    selected: dict[tuple[Any, ...], dict[str, Any]] = {}
     for raw in rows:
         row = dict(raw)
         dt = _parse_date(_pick(row, "start date", "date", "transaction date", "filing date"))
+        key = (
+            str(_pick(row, "insider", "insider name", "owner", "name") or "").casefold().strip(),
+            dt.date().isoformat() if dt else "",
+            _transaction_type(row),
+            round(abs(_f(_pick(row, "shares", "shares traded", "position change"), 0.0)), 4),
+            round(abs(_f(_pick(row, "price", "transaction price"), 0.0)), 4),
+        )
+        existing = selected.get(key)
+        primary = str(_pick(row, "source_type", "source type") or "").upper() == "OFFICIAL_PRIMARY"
+        existing_primary = bool(existing and str(_pick(existing, "source_type", "source type") or "").upper() == "OFFICIAL_PRIMARY")
+        if existing is None or (primary and not existing_primary):
+            selected[key] = row
+    return list(selected.values())
+
+
+def score_transactions(
+    ticker: str, rows: Sequence[Mapping[str, Any]], lookback_days: int = 180,
+    sell_lookback_days: int = 90,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    evidence, weighted_buy, weighted_sell = [], 0.0, 0.0
+    buyers, sellers, total_buy, total_sell = set(), set(), 0.0, 0.0
+    for raw in _deduplicate_transactions(rows):
+        row = dict(raw)
+        dt = _parse_date(_pick(row, "start date", "date", "transaction date", "filing date"))
         age = (now - dt).days if dt else lookback_days
-        if age < 0 or age > lookback_days:
-            continue
         kind = _transaction_type(row)
         if kind == "OTHER":
+            continue
+        active_lookback = sell_lookback_days if kind == "SELL" else lookback_days
+        if age < 0 or age > active_lookback:
             continue
         insider = str(_pick(row, "insider", "insider name", "owner", "name") or "Ukjent insider")
         role = str(_pick(row, "position", "title", "relationship") or "")
@@ -130,10 +155,14 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
         importance = _role_weight(role)
         magnitude = min(1.0, math.log10(max(value, 1.0)) / 7.0)
         weighted = (0.45 * recency + 0.30 * importance + 0.25 * magnitude)
+        planned_10b5_1 = bool(row.get("planned_10b5_1"))
         if kind == "BUY":
             weighted_buy += weighted; total_buy += value; buyers.add(insider)
         else:
-            weighted_sell += weighted; total_sell += value; sellers.add(insider)
+            # Pre-arranged 10b5-1 sales are real transactions but normally carry
+            # less discretionary information than an unplanned open-market sale.
+            weighted_sell += weighted * (0.25 if planned_10b5_1 else 1.0)
+            total_sell += value; sellers.add(insider)
         source_type = str(_pick(row, "source_type", "source type") or "SECONDARY_STRUCTURED").upper()
         source_url = str(_pick(row, "source url", "source_url", "url") or "")
         document_id = str(_pick(row, "document id", "document_id", "accession") or "")
@@ -166,6 +195,7 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
             "provenance_complete": bool(primary_source_verified),
             "published_at": str(_pick(row, "published at", "published_at", "filing date") or ""),
             "retrieved_at": str(_pick(row, "retrieved at", "retrieved_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
+            "planned_10b5_1": planned_10b5_1,
         })
     evidence.sort(key=lambda x: (x["date"], x["value"]), reverse=True)
     if not evidence:
@@ -174,7 +204,10 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
     direction = (weighted_buy - weighted_sell) / max(0.8, weighted_buy + weighted_sell)
     value_direction = (total_buy - total_sell) / max(1.0, total_buy + total_sell)
     combined_direction = .55 * direction + .45 * value_direction
-    score = max(0.0, min(100.0, 50.0 + combined_direction * 34.0 + (cluster_bonus if total_buy >= total_sell else 0.0)))
+    # One small or pre-arranged sale must not receive the same extreme score as
+    # a broad, recent cluster.  Evidence intensity controls distance from 50.
+    evidence_intensity = min(1.0, (weighted_buy + weighted_sell) / 3.0)
+    score = max(0.0, min(100.0, 50.0 + combined_direction * 34.0 * evidence_intensity + (cluster_bonus if total_buy >= total_sell else 0.0)))
     # Counts and cluster bonus may not turn a net-sale period into a positive signal.
     if total_sell > total_buy:
         score = min(score, 61.0)
@@ -193,13 +226,13 @@ def score_transactions(ticker: str, rows: Sequence[Mapping[str, Any]], lookback_
             else "SECONDARY_ONLY"
         ),
         "reason": (
-            f"{len(buyers)} kjøper(e), {len(sellers)} selger(e) siste {lookback_days} dager; "
+            f"{len(buyers)} kjøper(e) siste {lookback_days} dager, {len(sellers)} selger(e) siste {sell_lookback_days} dager; "
             f"nettoverdi {round(total_buy - total_sell, 2)}."
         ),
     }
 
 
-def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookback_days: int = 90,
+def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookback_days: int = 180,
                                market: str = "", company: str = "") -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
     cache = _load_cache(); cached = cache.get(ticker)

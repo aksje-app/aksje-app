@@ -107,7 +107,13 @@ def fetch_sweden_fi(ticker: str, company: str, *, lookback_days: int = 90,
     client = session or requests.Session()
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=max(1, int(lookback_days)))
-    issuer = str(company or _ticker_root(ticker)).strip()
+    # FI explicitly recommends omitting legal suffixes because issuer spelling
+    # varies between filings.  Exact full-name searches silently miss records.
+    issuer = re.sub(
+        r"\b(aktiebolag|ab|publ|plc|inc|corp|corporation)\b|[()]", " ",
+        str(company or _ticker_root(ticker)), flags=re.I,
+    )
+    issuer = re.sub(r"\s+", " ", issuer).strip() or _ticker_root(ticker)
     params = {
         "SearchFunctionType": "Insyn",
         "Utgivare": issuer,

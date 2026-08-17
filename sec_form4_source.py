@@ -79,6 +79,7 @@ def _parse_form4(xml_bytes: bytes, *, filing: Mapping[str, Any], filing_url: str
         "Officer" if _value(root, ".//reportingOwner/reportingOwnerRelationship/isOfficer") == "1" else "",
     ]
     role = ", ".join(part for part in role_parts if part) or "Ukjent rolle"
+    planned_10b5_1 = _value(root, ".//aff10b5One").strip() in {"1", "true", "True"}
     rows: list[dict[str, Any]] = []
     transactions = [
         node for node in root.iter()
@@ -101,11 +102,13 @@ def _parse_form4(xml_bytes: bytes, *, filing: Mapping[str, Any], filing_url: str
             "value": round(shares * price, 2) if shares and price else 0.0,
             "currency": "USD",
             "source": "SEC Form 4",
+            "source_type": "OFFICIAL_PRIMARY",
             "source_url": filing_url,
             "document_id": str(filing.get("accession") or ""),
             "verification": "VERIFIED_PRIMARY",
             "published_at": str(filing.get("filing_date") or ""),
             "retrieved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "planned_10b5_1": planned_10b5_1,
         })
     return rows
 

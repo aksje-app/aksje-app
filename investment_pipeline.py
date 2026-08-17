@@ -813,6 +813,18 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
             evidence_rows, force_refresh=intelligence_force_refresh,
             progress_callback=(lambda done, total, ticker: progress_callback({"phase": "NEWS", "completed": done, "total": total, "ticker": ticker, "message": f"Trinn 3/3: analyserer nyheter {done}/{total}: {ticker}"})) if progress_callback else None,
         )
+    if evidence_rows:
+        # Short interest is collected only for the same bounded, top-ranked
+        # evidence set.  This prevents an expensive all-universe fan-out while
+        # ensuring the candidates that can influence a decision are checked.
+        from short_data_sources import enrich_rows as enrich_short_rows
+        evidence_rows = enrich_short_rows(
+            evidence_rows, force_refresh=intelligence_force_refresh,
+            progress_callback=(lambda done, total, ticker: progress_callback({
+                "phase": "SHORT", "completed": done, "total": total, "ticker": ticker,
+                "message": f"Trinn 3/3: henter rapportert shortinteresse {done}/{total}: {ticker}",
+            })) if progress_callback else None,
+        )
     enriched_by_ticker = {str(row.get("ticker") or "").upper(): row for row in evidence_rows}
 
     def _evidence_area_completed(row: Mapping[str, Any], area: str, enabled: bool) -> bool:

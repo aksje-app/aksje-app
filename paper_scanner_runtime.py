@@ -109,7 +109,10 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
             trades = int(run_impl(force=force) or 0)
         # The worker may have published richer state/heartbeat fields while it
         # ran. Reload instead of overwriting those fields with the startup copy.
-        status = load_scanner_status() or status
+        loaded_status = load_scanner_status() or {}
+        # Never inherit a terminal policy state from an older worker.  Only
+        # richer heartbeat state belonging to this execution may be merged.
+        status = loaded_status if str(loaded_status.get("execution_id") or "") == execution_id else status
         terminal_state = str(status.get("state") or "RUNNING")
         completed_scan = terminal_state not in {"MARKET_CLOSED", "SKIPPED_POLICY"}
         status.update({

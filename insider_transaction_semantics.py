@@ -23,8 +23,14 @@ def _number(value: Any) -> float:
 def transaction_type(row: Mapping[str, Any]) -> str:
     text = " ".join(str(_pick(row, x) or "") for x in ("transaction", "text", "type", "transaction type")).lower()
     position_change = _number(_pick(row, "position change"))
-    if any(x in text for x in ("sale", "sell", "disposed", "disposition")) or position_change < 0:
+    if any(x in text for x in (
+        "sale", "sell", "disposed", "disposition", "avyttring", "försäljning",
+        "salg", "solgt", "disposal", "luovutus",
+    )) or position_change < 0:
         return "SELL"
-    if any(x in text for x in ("purchase", "buy", "open market acquisition")) or position_change > 0:
+    if any(x in text for x in (
+        "purchase", "buy", "open market acquisition", "förvärv", "köp",
+        "kjøp", "erverv", "acquisition", "hankinta",
+    )) or position_change > 0:
         return "BUY"
     return "OTHER"

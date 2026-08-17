@@ -85,6 +85,10 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "source_run_id": str(position.get("source_run_id") or ""),
             "addition_policy": "TILLEGGSKJØP DEAKTIVERT",
             "short_intelligence": normalize_short_snapshot({**position, **candidate}),
+            "insider_intelligence": dict(
+                ((candidate.get("raw") or {}).get("insider_intelligence") or {})
+                if isinstance(candidate.get("raw"), Mapping) else {}
+            ),
         })
     cash = _f(portfolio.get("cash"))
     initial_cash = _f(portfolio.get("initial_cash"))

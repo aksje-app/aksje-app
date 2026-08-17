@@ -11,7 +11,11 @@ from typing import Any, Mapping, Sequence
 
 
 SHORT_SCHEMA_VERSION = "1.0"
-VERIFIED_STATUSES = {"VERIFIED", "OFFICIAL", "LICENSED"}
+VERIFIED_STATUSES = {"VERIFIED", "OFFICIAL", "LICENSED", "VERIFIED_SECONDARY"}
+CHECKED_NO_PUBLIC_STATUSES = {
+    "NO_PUBLIC_POSITION_AT_OR_ABOVE_0_5", "NO_REPORTED_AGGREGATE_AT_OR_ABOVE_0_1",
+    "NO_REPORTED_DATA",
+}
 
 
 def _f(value: Any) -> float | None:
@@ -35,11 +39,15 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
 
 
 def normalize_short_snapshot(candidate: Mapping[str, Any]) -> dict[str, Any]:
-    raw = candidate.get("short_data") if isinstance(candidate.get("short_data"), Mapping) else {}
+    nested = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+    raw = candidate.get("short_data") if isinstance(candidate.get("short_data"), Mapping) else (
+        nested.get("short_data") if isinstance(nested.get("short_data"), Mapping) else {}
+    )
     source = _text(_first(raw, "source", "source_name") or candidate.get("short_source"))
     as_of = _text(_first(raw, "as_of", "reporting_date", "data_date") or candidate.get("short_as_of"))
     published_at = _text(_first(raw, "published_at", "publication_date"))
     status = _text(_first(raw, "verification_status", "status")).upper()
+    coverage_status = _text(raw.get("coverage_status")).upper()
     pct_float = _f(_first(raw, "short_interest_pct_float", "short_float_pct", "short_percent_float") or _first(candidate, "short_interest_pct_float", "short_float_pct"))
     pct_outstanding = _f(_first(raw, "short_interest_pct_outstanding", "short_interest_pct") or _first(candidate, "short_interest_pct_outstanding", "short_interest_pct"))
     shares_short = _f(_first(raw, "shares_short", "short_interest_shares") or _first(candidate, "shares_short", "short_interest_shares"))
@@ -48,7 +56,12 @@ def normalize_short_snapshot(candidate: Mapping[str, Any]) -> dict[str, Any]:
     short_volume_pct = _f(_first(raw, "short_volume_pct", "daily_short_volume_pct") or candidate.get("short_volume_pct"))
     has_reported_value = any(value is not None for value in (pct_float, pct_outstanding, shares_short, days_to_cover))
     verified = bool(source and as_of and status in VERIFIED_STATUSES and has_reported_value)
-    coverage = "VERIFIED" if verified else ("UNVERIFIED" if has_reported_value else "UNKNOWN")
+    coverage = "VERIFIED" if verified else (
+        "CHECKED_NO_PUBLIC_POSITION" if coverage_status in CHECKED_NO_PUBLIC_STATUSES
+        else "SOURCE_ERROR" if coverage_status == "SOURCE_ERROR"
+        else "NOT_SUPPORTED" if coverage_status == "NOT_SUPPORTED"
+        else "UNVERIFIED" if has_reported_value else "UNKNOWN"
+    )
     return {
         "schema_version": SHORT_SCHEMA_VERSION,
         "ticker": _text(candidate.get("ticker")),
@@ -57,6 +70,8 @@ def normalize_short_snapshot(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "as_of": as_of or None,
         "published_at": published_at or None,
         "verification_status": status or "UNKNOWN",
+        "coverage_status": coverage_status or "UNKNOWN",
+        "public_threshold_pct": _f(raw.get("public_threshold_pct")),
         "coverage": coverage,
         "verified": verified,
         "short_interest_pct_float": pct_float,

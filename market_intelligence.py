@@ -3156,13 +3156,30 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         portfolio_rows.append(["-", "Ingen åpne posisjoner", "-", "-", "-", "-", "-"])
     portfolio_table = Table(portfolio_rows, repeatRows=1, colWidths=[23*mm, 22*mm, 25*mm, 25*mm, 30*mm, 32*mm, 22*mm])
     portfolio_table.setStyle(_table_style(5.2, padding=1.2))
-    portfolio_result_rows = [["Ticker", "Resultat", "Resultat %", "Eiertid", "Score inn/nå", "Short", "Kapitalstatus"]]
+    portfolio_result_rows = [["Ticker", "Resultat", "Resultat %", "Eiertid", "Score inn/nå", "Short", "Innsider", "Kapitalstatus"]]
     for row in list(decision_portfolio.get("positions") or []):
         short = row.get("short_intelligence") if isinstance(row.get("short_intelligence"), Mapping) else {}
         short_pct = short.get("short_interest_pct_float")
         if short_pct is None:
             short_pct = short.get("short_interest_pct_outstanding")
-        short_label = f"{float(short_pct):.2f}%" if short.get("verified") and short_pct is not None else "UKJENT"
+        if short.get("verified") and short_pct is not None:
+            short_label = f"{float(short_pct):.2f}%"
+        elif short.get("coverage") == "CHECKED_NO_PUBLIC_POSITION":
+            threshold = short.get("public_threshold_pct")
+            short_label = f"Ingen offentlig ≥{float(threshold):.1f}%" if threshold is not None else "Ingen offentlige data"
+        elif short.get("coverage") == "SOURCE_ERROR":
+            short_label = "KILDEFEIL"
+        elif short.get("coverage") == "NOT_SUPPORTED":
+            short_label = "IKKE STØTTET"
+        else:
+            short_label = "IKKE SØKT"
+        insider = row.get("insider_intelligence") if isinstance(row.get("insider_intelligence"), Mapping) else {}
+        insider_coverage = str(insider.get("coverage") or "NOT_SEARCHED").upper()
+        insider_label = str(insider.get("signal") or "").replace("STERKT ", "S.") if insider_coverage == "AVAILABLE" else {
+            "CHECKED_NO_EVENTS": "INGEN HENDELSER", "DISCOVERY_ONLY": "IKKE STRUKTURERT",
+            "PARTIAL_SOURCE_FAILURE": "DELVIS KILDEFEIL", "SOURCE_ERROR": "KILDEFEIL",
+            "NOT_CONFIGURED": "IKKE KONFIG.", "NOT_SEARCHED": "IKKE SØKT",
+        }.get(insider_coverage, "UTILSTR. DEKNING")
         portfolio_result_rows.append([
             _rawp(row.get("ticker") or "-", "Tiny"),
             _p(f"{float(row.get('unrealized_pnl') or 0):+.2f}", "Tiny"),
@@ -3170,11 +3187,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             _p(f"{row.get('holding_days', 0)} dager", "Tiny"),
             _p(f"{float(row.get('entry_score') or 0):.1f} / {float(row.get('current_score') or 0):.1f}", "Tiny"),
             _p(short_label, "Tiny"),
+            _p(insider_label, "Tiny"),
             _p(str(row.get("capital_efficiency_status") or "BEHOLD"), "Tiny"),
         ])
     if len(portfolio_result_rows) == 1:
-        portfolio_result_rows.append(["-", "-", "-", "-", "-", "-", "Ingen åpne posisjoner"])
-    portfolio_result_table = Table(portfolio_result_rows, repeatRows=1, colWidths=[21*mm, 24*mm, 21*mm, 22*mm, 27*mm, 20*mm, 44*mm])
+        portfolio_result_rows.append(["-", "-", "-", "-", "-", "-", "-", "Ingen åpne posisjoner"])
+    portfolio_result_table = Table(portfolio_result_rows, repeatRows=1, colWidths=[18*mm, 21*mm, 18*mm, 19*mm, 24*mm, 25*mm, 27*mm, 28*mm])
     portfolio_result_table.setStyle(_table_style(5.2, padding=1.2))
     accounting_rows = [
         [_p("Startkapital", "Tiny"), _p(_fmt(decision_portfolio.get("initial_capital", 0)), "Tiny"),
@@ -6908,40 +6926,39 @@ def render_market_intelligence() -> None:
                 st.dataframe(pd.DataFrame(ranking_explanation.get("ranking_types") or []), width="stretch", hide_index=True)
             delivery = resolve_report_delivery(latest)
             e1,e2 = st.columns(2)
-            if delivery.get("ok"):
+            technical_delivery = resolve_technical_report_delivery(latest)
+            if technical_delivery.get("ok"):
                 e1.download_button(
-                    "Last ned hovedrapport (kortversjon) – behold appen åpen og del filen", delivery["data"],
+                    "📘 Last ned full rapport med vedlegg",
+                    technical_delivery["data"], file_name=technical_delivery["filename"],
+                    mime="application/pdf", width="stretch", type="primary",
+                    key="mi_download_technical_pdf_v19220_rc1631u",
+                )
+                e1.caption("Anbefalt: hovedrapport og alle tekniske vedleggssider i én PDF.")
+            else:
+                e1.error(str(technical_delivery.get("error") or "Full rapport med vedlegg er ikke tilgjengelig."))
+            if delivery.get("ok"):
+                e2.download_button(
+                    "📄 Last ned kort rapport (3 sider)", delivery["data"],
                     file_name=delivery["filename"], mime="application/pdf",
                     width="stretch", key="mi_download_pdf_v19132",
                 )
                 if delivery.get("url"):
                     safe_url = html_escape(str(delivery["url"]), quote=True)
-                    with e1.expander("Ekstern offentlig PDF", expanded=False):
+                    with e2.expander("Ekstern offentlig PDF", expanded=False):
                         st.warning("På iPhone/PWA kan denne lenken forlate appen. Bruk nedlastingsknappen over når rapporten skal deles.")
                         st.markdown(
                             f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">Åpne ekstern PDF</a>',
                             unsafe_allow_html=True,
                         )
-                e1.caption("På mobil: last ned filen for å beholde appøkten; del deretter PDF-en fra telefonens delingsmeny.")
             else:
-                e1.error(str(delivery.get("error") or "PDF-rapporten er ikke tilgjengelig."))
-            technical_delivery = resolve_technical_report_delivery(latest)
-            if technical_delivery.get("ok"):
-                e2.download_button(
-                    "Last ned komplett rapport med teknisk vedlegg",
-                    technical_delivery["data"], file_name=technical_delivery["filename"],
-                    mime="application/pdf", width="stretch",
-                    key="mi_download_technical_pdf_v19220_rc1631u",
-                )
-                e2.caption("Inneholder hovedrapporten og de tekniske vedleggssidene.")
-            else:
-                e2.error(str(technical_delivery.get("error") or "Teknisk vedlegg er ikke tilgjengelig."))
+                e2.error(str(delivery.get("error") or "Kort PDF-rapport er ikke tilgjengelig."))
             ensure_report_document(latest)
             st.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", width="stretch", key="mi_download_json_v19132")
             st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", width="stretch", key="mi_download_txt_v1914")
             latest_package_key = "mi_latest_report_package_bytes_v19220_rc16"
             latest_package_name_key = "mi_latest_report_package_name_v19220_rc16"
-            if st.button("Bygg komplett rapportpakke (ZIP)", key="mi_build_latest_package_v19220_rc16", width="stretch"):
+            if st.button("Bygg ZIP med PDF, JSON, tekst og revisjon", key="mi_build_latest_package_v19220_rc16", width="stretch"):
                 try:
                     package_bytes, package_name = _build_report_package_with_visible_progress_v19220_rc1611(
                         st, latest,
@@ -7129,18 +7146,18 @@ def render_market_intelligence() -> None:
                 a,b,c,d = st.columns(4)
                 delivery = resolve_report_delivery(saved_run, row)
                 json_data = json_path.read_bytes() if json_path.exists() else (json.dumps(saved_run, ensure_ascii=False, indent=2, default=str).encode("utf-8") if saved_run else None)
-                if delivery.get("ok"):
-                    a.download_button("📄 Last ned PDF – kan deles", data=delivery["data"], file_name=delivery["filename"],
-                                      mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", width="stretch")
-                else:
-                    a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
                 technical_delivery = resolve_technical_report_delivery(saved_run, row)
                 if technical_delivery.get("ok"):
                     a.download_button(
-                        "🔎 Komplett rapport + teknisk vedlegg",
+                        "📘 Full rapport med vedlegg",
                         data=technical_delivery["data"], file_name=technical_delivery["filename"],
-                        mime="application/pdf", key=f"mi_dl_technical_pdf_{row.get('run_id')}", width="stretch",
+                        mime="application/pdf", key=f"mi_dl_technical_pdf_{row.get('run_id')}", width="stretch", type="primary",
                     )
+                if delivery.get("ok"):
+                    a.download_button("📄 Kort rapport (3 sider)", data=delivery["data"], file_name=delivery["filename"],
+                                      mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", width="stretch")
+                else:
+                    a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
                 if json_data:
                     b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", width="stretch")
                 if saved_run:
@@ -7152,7 +7169,7 @@ def render_market_intelligence() -> None:
                 package_state_key = f"mi_archive_package_bytes_{archive_run_id}_v19220_rc16"
                 package_name_key = f"mi_archive_package_name_{archive_run_id}_v19220_rc16"
                 p1, p2 = st.columns(2)
-                if p1.button("Bygg komplett rapportpakke", key=f"mi_build_package_{archive_run_id}_v19220_rc16", width="stretch", disabled=not bool(saved_run)):
+                if p1.button("Bygg ZIP med PDF, JSON, tekst og revisjon", key=f"mi_build_package_{archive_run_id}_v19220_rc16", width="stretch", disabled=not bool(saved_run)):
                     try:
                         package_bytes, package_name = _build_report_package_with_visible_progress_v19220_rc1611(
                             st, saved_run, archive_entry=row,
