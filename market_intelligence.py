@@ -6032,6 +6032,53 @@ def _render_quick_report_archive_v19220_rc1618(st: Any) -> None:
         st.caption("Viser kun lett metadata for de 20 nyeste rapportene. Ingen rapportfiler er lastet.")
 
 
+def _render_priority_candidate_cards_v19220_rc1631t(st, candidates: Sequence[Mapping[str, Any]]) -> None:
+    """Render readable responsive cards without Streamlit column overflow."""
+    cards: list[str] = []
+    for index, raw_candidate in enumerate(candidates, 1):
+        candidate = dict(raw_candidate or {})
+        strengths = {
+            "AI Discovery": candidate.get("discovery_score", 0),
+            "Fundamentaler": candidate.get("fundamental_score", 0),
+            "Research": candidate.get("research_score", 0),
+            "Validering": candidate.get("validation_score", 0),
+            "Porteføljetilpasning": candidate.get("portfolio_fit_score", 0),
+            "Insider": (candidate.get("raw") or {}).get("insider_score", 50),
+        }
+        strongest = max(strengths, key=lambda key: float(strengths[key] or 0))
+        ticker = html_escape(str(candidate.get("ticker") or "-"))
+        market = html_escape(str(candidate.get("market") or "-"))
+        display_name = html_escape(str(candidate.get("name") or candidate.get("ticker") or "-"))
+        confidence = float(
+            candidate.get("decision_confidence")
+            or _mapping(candidate.get("confidence_profile")).get("decision_confidence")
+            or 0
+        )
+        outcome = html_escape(str(
+            candidate.get("autonomy_outcome_label")
+            or decision_label(candidate.get("autonomy_outcome_code") or candidate.get("portfolio_action"))
+        ))
+        next_action = html_escape(str(candidate.get("automatic_next_action") or "Vurderes automatisk på nytt ved neste relevante kjøring."))
+        cards.append(
+            '<article class="mi-priority-card-v19220rc1631t">'
+            f'<div class="mi-priority-rank-v19220rc1631t">PRIORITET {index}</div>'
+            f'<h3>{display_name}</h3><div class="mi-priority-market-v19220rc1631t">{ticker} · {market}</div>'
+            '<dl>'
+            f'<div><dt>Score</dt><dd>{float(candidate.get("investment_score") or 0):.2f}</dd></div>'
+            f'<div><dt>Beslutningskonfidens</dt><dd>{confidence:.1f} %</dd></div>'
+            f'<div><dt>Risiko</dt><dd>{float(candidate.get("risk_score") or 0):.1f}</dd></div>'
+            f'<div><dt>Foreslått vekt</dt><dd>{float(candidate.get("proposed_position_pct") or 0):.2f} %</dd></div>'
+            f'<div class="mi-priority-wide-v19220rc1631t"><dt>Sterkeste faktor</dt><dd>{html_escape(component_label(strongest))} {float(strengths[strongest] or 0):.1f}</dd></div>'
+            '</dl>'
+            '<div class="mi-priority-section-v19220rc1631t"><strong>Autonomiutfall</strong>'
+            f'<p>{outcome}</p></div>'
+            '<div class="mi-priority-section-v19220rc1631t"><strong>Neste handling</strong>'
+            f'<p>{next_action}</p></div>'
+            '</article>'
+        )
+    st.markdown('<div class="mi-priority-grid-v19220rc1631t">' + "".join(cards) + '</div>', unsafe_allow_html=True)
+
+
 def render_market_intelligence() -> None:
     import pandas as pd
     import streamlit as st
@@ -6058,24 +6105,68 @@ def render_market_intelligence() -> None:
     div[data-testid="stCheckbox"] label {align-items:flex-start !important; line-height:1.35 !important; padding-top:.08rem !important;}
     .mi-settings-heading {font-size:1rem; font-weight:800; line-height:1.35; margin:0 0 .75rem 0; padding-bottom:.45rem; border-bottom:1px solid rgba(148,163,184,.28);}
     .mi-settings-help {margin:.15rem 0 .7rem 0; opacity:.82; line-height:1.4;}
+    .mi-priority-grid-v19220rc1631t {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:.7rem 0 1.2rem;}
+    .mi-priority-card-v19220rc1631t {min-width:0;padding:1rem;border:1px solid rgba(148,163,184,.42);border-radius:16px;background:rgba(15,23,42,.48);overflow:hidden;}
+    .mi-priority-card-v19220rc1631t h3 {margin:.22rem 0 .05rem;font-size:1.28rem;overflow-wrap:anywhere;}
+    .mi-priority-rank-v19220rc1631t {font-size:.78rem;font-weight:800;letter-spacing:.055em;opacity:.82;}
+    .mi-priority-market-v19220rc1631t {font-size:.86rem;opacity:.75;margin-bottom:.75rem;overflow-wrap:anywhere;}
+    .mi-priority-card-v19220rc1631t dl {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin:0;}
+    .mi-priority-card-v19220rc1631t dl>div {min-width:0;padding:.55rem .62rem;border-radius:10px;background:rgba(15,23,42,.58);}
+    .mi-priority-card-v19220rc1631t dt {font-size:.74rem;line-height:1.25;opacity:.72;overflow-wrap:anywhere;}
+    .mi-priority-card-v19220rc1631t dd {margin:.12rem 0 0;font-size:.98rem;font-weight:750;line-height:1.25;overflow-wrap:anywhere;}
+    .mi-priority-wide-v19220rc1631t {grid-column:1/-1;}
+    .mi-priority-section-v19220rc1631t {margin-top:.7rem;padding-top:.65rem;border-top:1px solid rgba(148,163,184,.25);overflow-wrap:anywhere;word-break:normal;}
+    .mi-priority-section-v19220rc1631t strong {font-size:.78rem;opacity:.75;}
+    .mi-priority-section-v19220rc1631t p {margin:.18rem 0 0;line-height:1.42;}
+    .mi-contract-grid-v19220rc1631t {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:.5rem 0 1rem;}
+    .mi-contract-grid-v19220rc1631t>div {min-width:0;padding:.72rem .8rem;border:1px solid rgba(148,163,184,.4);border-radius:14px;background:rgba(15,23,42,.4);}
+    .mi-contract-grid-v19220rc1631t span {display:block;font-size:.82rem;line-height:1.25;opacity:.76;overflow-wrap:anywhere;}
+    .mi-contract-grid-v19220rc1631t strong {display:block;margin-top:.28rem;font-size:1.15rem;}
+    @media (max-width: 980px) {.mi-priority-grid-v19220rc1631t {grid-template-columns:repeat(2,minmax(0,1fr));}}
+    @media (max-width: 768px) {
+      .mi-priority-grid-v19220rc1631t {grid-template-columns:1fr;gap:.8rem;}
+      .mi-priority-card-v19220rc1631t {padding:.9rem;}
+      .mi-contract-grid-v19220rc1631t {grid-template-columns:repeat(2,minmax(0,1fr));}
+    }
     </style>""", unsafe_allow_html=True)
     st.markdown("#### 📊 Rapportsenter · Investor Edition")
-    report_workspace_v19220_rc1618 = st.radio(
-        "Arbeidsområde",
-        ["Hurtigarkiv og komplett ZIP", "Fullt rapportsenter"],
-        horizontal=True,
-        key="mi_report_workspace_v19220_rc1618",
+    from navigation_state import (
+        REPORT_SURFACE_LABEL_BY_SLUG_V19220_RC1631T,
+        REPORT_SURFACE_SLUG_BY_LABEL_V19220_RC1631T,
+        get_global_navigation_state,
+        set_global_navigation_state,
     )
-    if report_workspace_v19220_rc1618 == "Hurtigarkiv og komplett ZIP":
+    report_surface_key = "mi_report_surface_v19220_rc1631t"
+    if report_surface_key not in st.session_state:
+        route_subtab = str(get_global_navigation_state(st).get("subtab") or "")
+        restored_surface = REPORT_SURFACE_LABEL_BY_SLUG_V19220_RC1631T.get(route_subtab, "")
+        if not restored_surface:
+            legacy_workspace = str(st.session_state.get("mi_report_workspace_v19220_rc1618") or "")
+            legacy_surface = str(st.session_state.get("mi_full_center_surface_v19220_rc1620") or "")
+            if legacy_workspace == "Hurtigarkiv og komplett ZIP":
+                restored_surface = "Hurtigarkiv og komplett ZIP"
+            elif legacy_surface in {"Kjøring og fremdrift", "Rapporter, historikk og avansert"}:
+                restored_surface = legacy_surface
+        st.session_state[report_surface_key] = restored_surface or "Rapporter, historikk og avansert"
+    report_surface_v19220_rc1631t = st.radio(
+        "Rapportområde",
+        ["Rapporter, historikk og avansert", "Kjøring og fremdrift", "Hurtigarkiv og komplett ZIP"],
+        horizontal=True,
+        key=report_surface_key,
+        help="Ett direkte valg erstatter de to tidligere menynivåene. Bare valgt område lastes.",
+    )
+    report_surface_slug = REPORT_SURFACE_SLUG_BY_LABEL_V19220_RC1631T[report_surface_v19220_rc1631t]
+    set_global_navigation_state(
+        st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter",
+        tab="reports", subtab=report_surface_slug,
+    )
+    _persist_ui_state_v18658(
+        nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter",
+        tab="reports", subtab=report_surface_slug,
+    )
+    if report_surface_v19220_rc1631t == "Hurtigarkiv og komplett ZIP":
         _render_quick_report_archive_v19220_rc1618(st)
         return
-    full_center_surface_v19220_rc1620 = st.radio(
-        "Del av fullt rapportsenter",
-        ["Kjøring og fremdrift", "Rapporter, historikk og avansert"],
-        horizontal=True,
-        key="mi_full_center_surface_v19220_rc1620",
-        help="Kjøring og fremdrift laster ikke rapportkropper, historikk, Accuracy Analytics eller avanserte jobbinnstillinger.",
-    )
     st.caption("Kjør utkast og manglende faste rapporter fra ett kompakt handlingsområde. Planlegging, historikk og avanserte valg ligger lenger ned.")
     # The web process is display/control only. Authoritative scheduled work is
     # owned by scheduled_runner.py in Render Cron and never starts on login.
@@ -6209,7 +6300,7 @@ def render_market_intelligence() -> None:
             refresh_app_on_terminal=False,
         )
 
-    if full_center_surface_v19220_rc1620 == "Kjøring og fremdrift":
+    if report_surface_v19220_rc1631t == "Kjøring og fremdrift":
         st.info("Lett fremdriftsvisning er aktiv. Velg «Rapporter, historikk og avansert» over når du faktisk trenger de tunge panelene.")
         return
 
@@ -6655,11 +6746,21 @@ def render_market_intelligence() -> None:
             contract_summary = latest.get("data_contract") or {}
             if contract_summary:
                 st.markdown("#### 🛡️ Freshness & Data Contract")
-                dc1, dc2, dc3, dc4 = st.columns(4)
-                dc1.metric("Kontrollert", contract_summary.get("evaluated", 0))
-                dc2.metric("Gyldig for beslutning", contract_summary.get("valid_for_decision", 0))
-                dc3.metric("Blokkert", len(contract_summary.get("blocked") or []))
-                dc4.metric("Fallback", len(contract_summary.get("fallback") or []))
+                contract_items = (
+                    ("Kontrollert", contract_summary.get("evaluated", 0)),
+                    ("Gyldig for beslutning", contract_summary.get("valid_for_decision", 0)),
+                    ("Blokkert", len(contract_summary.get("blocked") or [])),
+                    ("Fallback", len(contract_summary.get("fallback") or [])),
+                )
+                st.markdown(
+                    '<div class="mi-contract-grid-v19220rc1631t">'
+                    + "".join(
+                        f"<div><span>{html_escape(str(label))}</span><strong>{html_escape(str(value))}</strong></div>"
+                        for label, value in contract_items
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
                 if contract_summary.get("blocked"):
                     st.warning("Beslutningsdelen er stoppet for: " + ", ".join(contract_summary.get("blocked") or []))
             candidates = [] if latest.get("analysis_aborted") else list(latest.get("candidates") or [])
@@ -6676,27 +6777,14 @@ def render_market_intelligence() -> None:
                     row["autonomy_outcome_label"] = projected.get("decision_label")
                     displayed_candidates.append(row)
                 heading = f"#### Prioritert vurderingsrekkefølge 1–3 ({len(displayed_candidates)})"
-                labels = [f"PRIORITET {i}" for i in range(1, len(displayed_candidates) + 1)]
                 st.info("Rangeringen viser hvilke kandidater som bør vurderes først og nærmere. Den er ikke en kjøpsanbefaling.")
                 if not latest.get("evidence_ready_top3"):
                     st.caption("Ingen kandidat bestod data- og evidensporten; prioriteringen vises for å styre automatisk oppfølging og eventuell konkret manuell undersøkelse.")
                 st.markdown(heading)
-                cols = st.columns(min(3, len(displayed_candidates))) if displayed_candidates else []
                 if not displayed_candidates:
                     st.caption("Ingen kandidater er rangert for prioritert oppfølging i denne rapporten.")
-                for idx, candidate in enumerate(displayed_candidates):
-                    strengths = {"AI Discovery": candidate.get("discovery_score",0), "Fundamentaler": candidate.get("fundamental_score",0), "Research": candidate.get("research_score",0), "Validering": candidate.get("validation_score",0), "Porteføljetilpasning": candidate.get("portfolio_fit_score",0), "Insider": (candidate.get("raw") or {}).get("insider_score",50)}
-                    strongest = max(strengths, key=lambda k: float(strengths[k] or 0))
-                    display_name = str(candidate.get("name") or candidate.get("ticker") or "-")
-                    with cols[idx]:
-                        st.markdown(f"**{labels[idx]}**")
-                        st.markdown(f"### {display_name}")
-                        st.caption(f"{candidate.get('ticker','-')} · {candidate.get('market','-')}")
-                        st.metric("Score", f"{float(candidate.get('investment_score',0)):.2f}", f"Besl.konf. {float(candidate.get('decision_confidence') or _mapping(candidate.get('confidence_profile')).get('decision_confidence') or 0):.1f}%")
-                        st.caption(f"Risiko {float(candidate.get('risk_score',0)):.1f} · Vekt {float(candidate.get('proposed_position_pct',0)):.2f}% · {strongest} {float(strengths[strongest] or 0):.1f}")
-                        st.caption(f"Autonomiutfall: {candidate.get('autonomy_outcome_label') or decision_label(candidate.get('autonomy_outcome_code') or candidate.get('portfolio_action'))}")
-                        if candidate.get("automatic_next_action"):
-                            st.caption(str(candidate.get("automatic_next_action")))
+                else:
+                    _render_priority_candidate_cards_v19220_rc1631t(st, displayed_candidates)
             if latest.get("errors"): st.warning(" | ".join(latest["errors"]))
             st.markdown("#### Top 10")
             table = []

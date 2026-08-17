@@ -59,6 +59,14 @@ AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7 = {
 AUTONOMY_WORKSPACE_SLUG_BY_LABEL_V19220_RC7 = {
     label: slug for slug, label in AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7.items()
 }
+REPORT_SURFACE_LABEL_BY_SLUG_V19220_RC1631T = {
+    "report_history": "Rapporter, historikk og avansert",
+    "report_progress": "Kjøring og fremdrift",
+    "report_archive": "Hurtigarkiv og komplett ZIP",
+}
+REPORT_SURFACE_SLUG_BY_LABEL_V19220_RC1631T = {
+    label: slug for slug, label in REPORT_SURFACE_LABEL_BY_SLUG_V19220_RC1631T.items()
+}
 
 
 def canonical_nav_for_panel_v19220_rc7(group: Any = "", panel: Any = "", fallback: Any = "control_center") -> str:
@@ -99,6 +107,9 @@ def apply_route_tab_to_session_state_v19220_rc7(
         if tab_s:
             session_state["autonomy_core_workspace_slug_v1882"] = tab_s
             changed = True
+        if subtab_s in REPORT_SURFACE_LABEL_BY_SLUG_V19220_RC1631T:
+            session_state["mi_report_surface_v19220_rc1631t"] = REPORT_SURFACE_LABEL_BY_SLUG_V19220_RC1631T[subtab_s]
+            changed = True
     elif panel_s == "Paper Trading og kontroll" or nav_s in {"paper", "paper_trading", "papertrading"}:
         if tab_s:
             session_state["paper_trading_active_tab_slug_v18674c"] = tab_s
@@ -124,7 +135,12 @@ def current_route_tab_from_session_v19220_rc7(session_state, *, nav: Any = "", p
             slug = AUTONOMY_WORKSPACE_SLUG_BY_LABEL_V19220_RC7.get(label, "")
         if not slug:
             slug = str(session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
-        return slug, ""
+        report_surface = ""
+        if slug == "reports":
+            report_surface = REPORT_SURFACE_SLUG_BY_LABEL_V19220_RC1631T.get(
+                str(session_state.get("mi_report_surface_v19220_rc1631t") or ""), ""
+            )
+        return slug, report_surface
     if panel_s == "Paper Trading og kontroll" or nav_s in {"paper", "paper_trading", "papertrading"}:
         return (
             str(session_state.get("paper_trading_active_tab_slug_v18674c") or "").strip(),

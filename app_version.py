@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31s"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31s Mobile Report Return Closure"
+APP_VERSION = "v19.22.0-rc16.31t"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31t Mobile Navigation and Candidate Readability"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31r"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31s"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31t: Gir ett-trykks hurtigvalg til rapporthistorikk, kjøringsstatus og porteføljer, flytter alle øvrige Autonomi-arbeidsflater til en sammenfoldet komplett meny og erstatter Rapportsenterets to nøstede menynivåer med ett direkte valg som bevares i URL og brukerstatus. Prioriterte kandidater 1–3 rendres som sikre responsive kort og Freshness-mål som 2×2 på mobil, uten tekstoverlapping. Ingen funksjoner, analysekontrakter, scheduler- eller handelsregler er fjernet.",
     "v19.22.0-rc16.31s: Fjerner automatisk toppnavigasjon fra offentlige rapportlenker. Pushover-lenken åpner nå en mobilvennlig mellomside med eksplisitt PDF-nedlasting, åpning i ny fane og retur til AI Aksje Analyzer, slik at PDF-en ikke erstatter programfanen eller ødelegger tilbakehistorikken. Rapporttoken, offentlig tilgang, PDF-integritet, scheduler og handelsregler er uendret.",
     "v19.22.0-rc16.31r: Isolerer den valgfrie parallelle strategivurderingen i en avsluttbar underprosess med hard tidsgrense, slik at et heng ikke kan holde Autonomi- og rapportkjeden fast. Timeout feiler kontrollert åpent til den etablerte Autonomi-motoren uten handelsfullmakt. Watchdog og UI skiller nå korrekt mellom tilbakekalt publiseringsrett og faktisk avsluttet worker/rapportlås. Produksjonsterskel 73, kjøps-/salgsporter, porteføljeregler og fail-closed handel er uendret.",
     "v19.22.0-rc16.31q: Bevarer operatørens helgevalg for de tre faste rapportene og inkluderer lørdag/søndag når helgekjøring er aktivert, viser neste morgen-, ettermiddags- og kveldsrapport samtidig, terminaliserer utløpte Pushover-leveringer slik at de ikke forsøkes hvert 30. minutt, og navngir aktiverte utkast som Analyse. Porteføljeknappenes kanoniske arbeidsflater er regresjonstestet. Produksjonsterskel 73, kjøps-/salgsporter, porteføljeregler og fail-closed handel er uendret.",
