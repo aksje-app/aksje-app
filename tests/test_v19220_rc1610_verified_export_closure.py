@@ -105,7 +105,10 @@ class VerifiedExportClosureTests(unittest.TestCase):
 
     def test_11_empty_projection_never_creates_zero_columns(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        self.assertIn("st.columns(min(3, len(displayed_candidates))) if displayed_candidates else []", source)
+        block = source[source.index('heading = f"#### Prioritert'):source.index('if latest.get("errors")')]
+        self.assertIn("if not displayed_candidates:", block)
+        self.assertIn("_render_priority_candidate_cards_v19220_rc1631t", block)
+        self.assertNotIn("st.columns(", block)
 
     def test_12_all_reports_button_is_in_report_archive(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")

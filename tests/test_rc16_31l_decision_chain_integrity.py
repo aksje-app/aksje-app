@@ -47,7 +47,7 @@ def candidate(**changes):
 
 class DecisionChainIntegrityTests(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.31s")
+        self.assertEqual(APP_VERSION, "v19.22.0-rc16.31t")
 
     def test_raw_last_price_is_canonical(self):
         self.assertEqual(candidate_price(candidate()), 106.9)
