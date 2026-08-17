@@ -1246,6 +1246,10 @@ def run_autonomous_cycle(
         market_snapshot = snapshot_service.build_market_snapshot(
             original_candidates, run_id=run_id, source="autonomy_cycle",
             metadata={"strategy_family": "autonomy", "candidate_count": len(original_candidates)},
+            progress_callback=lambda completed, total, ticker: emit_progress(
+                0, progress_total,
+                f"Bygger avgrenset markedssnapshot {completed}/{total}", ticker=ticker,
+            ),
         )
         market_snapshot_row = market_snapshot.to_dict()
         snapshot_service.save(market_snapshot)

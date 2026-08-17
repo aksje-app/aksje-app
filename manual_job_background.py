@@ -11,6 +11,7 @@ import json
 import io
 import hashlib
 import os
+import resource
 import threading
 import traceback
 import uuid
@@ -95,6 +96,17 @@ def _explicit_job_name(job: Any) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _resource_snapshot() -> dict[str, Any]:
+    """Small process telemetry block suitable for durable job diagnostics."""
+    try:
+        peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        # Linux reports KiB; macOS reports bytes. Render is Linux.
+        peak_mb = round(peak / 1024.0, 1) if peak < 10_000_000 else round(peak / (1024.0 * 1024.0), 1)
+        return {"process_peak_rss_mb": peak_mb, "process_pid": os.getpid()}
+    except Exception:
+        return {"process_pid": os.getpid()}
 
 
 def _status_path(execution_id: str):
@@ -262,6 +274,17 @@ def reconcile_orphaned_status(
 
     if actual_restart:
         now = _now()
+        last_heartbeat_age = _seconds_since(current.get("heartbeat_at"))
+        active_stage = str(current.get("active_stage") or "PREFLIGHT").upper()
+        probable_resource_restart = active_stage == "AUTONOMOUS" and last_heartbeat_age is not None and last_heartbeat_age <= 90
+        try:
+            from execution_coordination import release_orphaned_execution_owner
+            released_owner = release_orphaned_execution_owner(
+                reason="PROBABLE_RESOURCE_RESTART" if probable_resource_restart else "SERVER_PROCESS_RESTART",
+                execution_id=str(current.get("execution_id") or ""),
+            )
+        except Exception:
+            released_owner = {}
         current.update({
             "state": "CANCELLED",
             "message": "Kjøringen ble avsluttet ved en faktisk serverprosess-restart",
@@ -271,6 +294,14 @@ def reconcile_orphaned_status(
             "partial_results_published": False, "recovered_orphan": True,
             "orphan_reason_code": "SERVER_PROCESS_RESTART",
             "recovered_at": now, "current_process_identity": _PROCESS_IDENTITY,
+            "restart_classification": "PROBABLE_RESOURCE_RESTART" if probable_resource_restart else "PROCESS_RESTART",
+            "restart_evidence": {
+                "active_stage": active_stage,
+                "last_heartbeat_age_seconds": last_heartbeat_age,
+                "heartbeat_was_fresh": bool(last_heartbeat_age is not None and last_heartbeat_age <= 90),
+                "classification_is_inference": True,
+            },
+            "execution_owner_released": str(released_owner.get("state") or "").startswith("RELEASED"),
         })
         return _write_status(current)
 
@@ -629,6 +660,7 @@ def _worker(
                 "run_id": event_run_id,
                 "work_completed": event.get("completed"), "work_total": event.get("total"),
                 "active_ticker": ticker, "active_market": event.get("market") or event.get("market_name") or "",
+                "resource_telemetry": _resource_snapshot(),
             })
             _write_progress_status(current)
 

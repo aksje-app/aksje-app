@@ -16,6 +16,18 @@ _OWNER_KEY = "scheduler/report_execution_owner.json"
 _OWNER_PATH = runtime_data_path("scheduler", "report_execution_owner.json")
 
 
+def _process_identity() -> str:
+    start_ticks = "unknown"
+    try:
+        with open("/proc/self/stat", "r", encoding="utf-8") as handle:
+            fields = handle.read().split()
+        if len(fields) > 21:
+            start_ticks = fields[21]
+    except Exception:
+        pass
+    return f"{os.getpid()}:{start_ticks}"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -23,6 +35,27 @@ def _now() -> str:
 def report_execution_owner() -> dict[str, Any]:
     value = read_json(_OWNER_KEY, _OWNER_PATH, {})
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def release_orphaned_execution_owner(*, reason: str, execution_id: str = "") -> dict[str, Any]:
+    """Close stale diagnostic ownership after the database lock died with its process."""
+    previous = report_execution_owner()
+    if str(previous.get("state") or "").upper() != "ACTIVE":
+        return previous
+    owner_execution = str(previous.get("execution_id") or "")
+    if execution_id and owner_execution and owner_execution != execution_id:
+        return previous
+    now = _now()
+    released = {
+        **previous,
+        "state": "RELEASED_AFTER_PROCESS_RESTART",
+        "released_at": now,
+        "heartbeat_at": now,
+        "release_reason": str(reason or "SERVER_PROCESS_RESTART"),
+        "released_by_process_identity": _process_identity(),
+    }
+    write_json(_OWNER_KEY, _OWNER_PATH, released)
+    return released
 
 
 @contextmanager
@@ -45,7 +78,7 @@ def report_execution_lock(owner: Mapping[str, Any] | None = None):
         if acquired:
             identity = {
                 "state": "ACTIVE", "acquired_at": _now(), "heartbeat_at": _now(),
-                "pid": os.getpid(), **dict(owner or {}),
+                "pid": os.getpid(), "process_identity": _process_identity(), **dict(owner or {}),
             }
             write_json(_OWNER_KEY, _OWNER_PATH, identity)
 
