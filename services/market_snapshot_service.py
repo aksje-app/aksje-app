@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import math
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from domain.market_snapshot import (
     CANDIDATE_SNAPSHOT_SCHEMA_VERSION,
@@ -22,7 +23,46 @@ from domain.market_snapshot import (
 from repositories.application import RepositoryRegistry, get_repository_registry
 
 SNAPSHOT_SERVICE_VERSION = "1.1"
-_EXCLUDED_INPUT_KEYS = {"hist", "history", "dataframe", "df", "client", "session", "raw_bytes"}
+_EXCLUDED_INPUT_KEYS = {
+    "hist", "history", "dataframe", "df", "client", "session", "raw_bytes",
+    # Report candidates can carry complete provider payloads and article bodies.
+    # They are evidence artifacts, not decision inputs. Copying them into every
+    # snapshot caused a sharp memory peak immediately after the scan.
+    "raw", "raw_payload", "provider_payload", "articles", "news_articles",
+    "full_text", "html", "document", "documents",
+}
+_MAX_DECISION_INPUT_BYTES = 96 * 1024
+_MAX_MAPPING_ITEMS = 96
+_MAX_SEQUENCE_ITEMS = 128
+_MAX_STRING_CHARS = 4000
+
+
+def _bounded_json_value(value: Any, *, depth: int = 0) -> Any:
+    """Return a deterministic, JSON-safe and memory-bounded evidence value."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:_MAX_STRING_CHARS]
+    if isinstance(value, bytes):
+        return f"<bytes:{len(value)}>"
+    if depth >= 4:
+        return "<depth-limited>"
+    if isinstance(value, Mapping):
+        output: dict[str, Any] = {}
+        for index, (key, child) in enumerate(value.items()):
+            if index >= _MAX_MAPPING_ITEMS:
+                output["_truncated_items"] = len(value) - _MAX_MAPPING_ITEMS
+                break
+            if str(key).lower() in _EXCLUDED_INPUT_KEYS:
+                continue
+            output[str(key)] = _bounded_json_value(child, depth=depth + 1)
+        return output
+    if isinstance(value, (list, tuple)):
+        rows = [_bounded_json_value(child, depth=depth + 1) for child in value[:_MAX_SEQUENCE_ITEMS]]
+        if len(value) > _MAX_SEQUENCE_ITEMS:
+            rows.append({"_truncated_items": len(value) - _MAX_SEQUENCE_ITEMS})
+        return rows
+    return str(value)[:_MAX_STRING_CHARS]
 
 
 def _finite(value: Any) -> float | None:
@@ -48,7 +88,19 @@ def _json_input_copy(item: Mapping[str, Any]) -> dict[str, Any]:
             continue
         if hasattr(value, "to_json") and not isinstance(value, (str, bytes, Mapping, list, tuple)):
             continue
-        copied[str(key)] = value
+        copied[str(key)] = _bounded_json_value(value)
+    # The recursive limits above protect individual containers. This final cap
+    # protects a candidate containing many medium-sized fields. Scalar inputs
+    # are retained first because they drive the decision and replay contract.
+    encoded = json.dumps(copied, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    if len(encoded) > _MAX_DECISION_INPUT_BYTES:
+        scalars = {
+            key: value for key, value in copied.items()
+            if value is None or isinstance(value, (bool, int, float, str))
+        }
+        scalars["_snapshot_input_truncated"] = True
+        scalars["_original_input_bytes"] = len(encoded)
+        return scalars
     return copied
 
 
@@ -216,12 +268,14 @@ class MarketSnapshotService:
         snapshot_id: str = "",
         market_context: Mapping[str, Any] | None = None,
         metadata: Mapping[str, Any] | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> MarketSnapshot:
         captured_at = str(captured_at or utc_now_iso())
         source = str(source or "market_snapshot")
         snapshot_id = str(snapshot_id or self.new_snapshot_id(run_id=run_id, source=source, captured_at=captured_at))
         built: list[dict[str, Any]] = []
-        for candidate in candidates or []:
+        total_candidates = len(candidates or [])
+        for index, candidate in enumerate(candidates or [], start=1):
             if isinstance(candidate, Mapping) and candidate.get("candidate_snapshot_id"):
                 value = dict(candidate)
                 if value.get("market_snapshot_id") != snapshot_id:
@@ -243,6 +297,8 @@ class MarketSnapshotService:
                     source=source,
                     captured_at=captured_at,
                 ).to_dict())
+            if progress_callback is not None and (index == total_candidates or index % 10 == 0):
+                progress_callback(index, total_candidates, str(candidate.get("ticker") or ""))
         provisional = {
             "snapshot_id": snapshot_id,
             "captured_at": captured_at,
