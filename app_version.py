@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31x"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31x Render Autonomy Memory Hotfix"
+APP_VERSION = "v19.22.0-rc16.31y"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31y Snapshot Finalization Memory Hotfix"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31w"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31x"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -158,6 +158,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
 CHANGELOG = [
     "v19.22.0-rc16.31w: Kobler rapportert shortinteresse til norske, svenske og amerikanske kilder for den avgrensede evidenslisten, skiller manglende offentlig terskelposisjon fra ikke søkt og kildefeil, og viser innsiderstatus i porteføljetabellen. Svenske innsiderkategorier og utstedersøk normaliseres, SEC-evidens får korrekt primærstatus, duplikater fjernes og planlagte 10b5-1-salg nedvektes. Full rapport med vedlegg er nå primær nedlasting. Ingen handelsfullmakt eller produksjonsterskel er endret.",
     "v19.22.0-rc16.31x: Avgrenser Autonomi-snapshot til beslutningsrelevante JSON-data med hard størrelsesgrense, rapporterer fremdrift per kandidatbatch og lagrer prosessens minnetopp i jobbdiagnosen. Foreldreløs execution owner frigjøres etter bekreftet prosessrestart, og fersk heartbeat i Autonomi klassifiseres eksplisitt som sannsynlig ressursrestart. Ingen handelsfullmakt eller produksjonsterskel er endret.",
+    "v19.22.0-rc16.31y: Avgrenser også kvalitetsevidens, kvalitetsdekning og tekniske felt, reduserer beslutningsinput til 32 KiB, beregner snapshot-checksum strømmende og fjerner gjentatte dype datakopier ved serialisering. Den valgfrie parallelle strategiprosessen hoppes kontrollert over ved lavt minne, og RSS/restartdata inkluderes i diagnosepakken. Ingen handelsfullmakt eller produksjonsterskel er endret.",
     "v19.22.0-rc16.31v: Fjerner to ugyldige kryssmodulkall til en privat app-funksjon som kunne stoppe Rapportsenteret og Autonomi-siden med NameError. Den kanoniske globale navigasjonstilstanden er fortsatt eneste rute-eier, og alle rapportområder, analyse-, scheduler- og handelsregler er uendret.",
     "v19.22.0-rc16.31u: Retter falsk ZIP-avvisning ved å sammenligne læringshandler med samme deklarerte presisjon i JSON, TXT og PDF, samtidig som reelle avvik fortsatt blokkeres. Komplett rapport med teknisk vedlegg lagres nå varig separat fra hovedrapporten og kan lastes direkte ned fra siste rapport og historikken uten å bygge ZIP. Ingen analyse-, terskel-, scheduler- eller handelsregler er endret.",
     "v19.22.0-rc16.31t: Gir ett-trykks hurtigvalg til rapporthistorikk, kjøringsstatus og porteføljer, flytter alle øvrige Autonomi-arbeidsflater til en sammenfoldet komplett meny og erstatter Rapportsenterets to nøstede menynivåer med ett direkte valg som bevares i URL og brukerstatus. Prioriterte kandidater 1–3 rendres som sikre responsive kort og Freshness-mål som 2×2 på mobil, uten tekstoverlapping. Ingen funksjoner, analysekontrakter, scheduler- eller handelsregler er fjernet.",

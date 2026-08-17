@@ -487,6 +487,9 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "lease_revoked", "publication_lease_revoked", "worker_terminated",
         "report_lock_released", "partial_results_published", "ui_poll_source",
         "run_id", "chain", "chain_status", "full_autonomy_execution", "error_trace",
+        "resource_telemetry", "restart_classification", "restart_evidence",
+        "execution_owner_released", "current_process_identity", "recovered_at",
+        "orphan_reason_code",
     }
     sanitized = {key: status.get(key) for key in sorted(allowed) if key in status}
     try:

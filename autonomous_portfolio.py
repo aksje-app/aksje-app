@@ -62,6 +62,28 @@ class ParallelStrategyTimeout(RuntimeError):
     """A read-only parallel comparison exceeded its killable runtime budget."""
 
 
+def _available_memory_mb() -> float | None:
+    """Best-effort cgroup v2/v1 headroom used only for an optional shadow task."""
+    candidates = (
+        (Path("/sys/fs/cgroup/memory.current"), Path("/sys/fs/cgroup/memory.max")),
+        (Path("/sys/fs/cgroup/memory/memory.usage_in_bytes"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")),
+    )
+    for used_path, limit_path in candidates:
+        try:
+            used_text = used_path.read_text(encoding="utf-8").strip()
+            limit_text = limit_path.read_text(encoding="utf-8").strip()
+            if limit_text == "max":
+                return None
+            used = int(used_text)
+            limit = int(limit_text)
+            if limit <= 0 or limit >= (1 << 60):
+                return None
+            return max(0.0, (limit - used) / (1024.0 * 1024.0))
+        except Exception:
+            continue
+    return None
+
+
 def _evaluate_parallel_strategies_isolated(
     market_snapshot: Any,
     *,
@@ -80,6 +102,12 @@ def _evaluate_parallel_strategies_isolated(
     worker = Path(__file__).with_name("parallel_strategy_isolated_worker.py")
     if not worker.is_file():
         raise RuntimeError("Isolert parallellstrategiworker mangler")
+    headroom_mb = _available_memory_mb()
+    minimum_headroom_mb = max(96, int(os.getenv("PARALLEL_STRATEGY_MIN_HEADROOM_MB", "192") or 192))
+    if headroom_mb is not None and headroom_mb < minimum_headroom_mb:
+        raise ParallelStrategyTimeout(
+            f"Parallellstrategi hoppet over: {headroom_mb:.1f} MiB ledig, krever {minimum_headroom_mb} MiB"
+        )
     configured = timeout_seconds
     if configured is None:
         try:
