@@ -102,13 +102,22 @@ class CandidateSnapshot:
     schema_version: str = CANDIDATE_SNAPSHOT_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
-        row = asdict(self)
-        row["quality_evidence"] = _json_safe(self.quality_evidence)
-        row["quality_coverage"] = _json_safe(self.quality_coverage)
-        row["technical"] = _json_safe(self.technical)
-        row["decision_inputs"] = _json_safe(self.decision_inputs)
-        row["provenance"] = _json_safe(self.provenance)
-        return row
+        return {
+            "candidate_snapshot_id": self.candidate_snapshot_id,
+            "market_snapshot_id": self.market_snapshot_id,
+            "ticker": self.ticker, "captured_at": self.captured_at,
+            "source": self.source, "run_id": self.run_id, "name": self.name,
+            "market": self.market, "currency": self.currency, "price": self.price,
+            "data_timestamp": self.data_timestamp, "base_score": self.base_score,
+            "data_quality": self.data_quality, "source_consensus": self.source_consensus,
+            "liquidity": self.liquidity,
+            "quality_evidence": dict(self.quality_evidence),
+            "quality_coverage": dict(self.quality_coverage),
+            "technical": dict(self.technical),
+            "decision_inputs": dict(self.decision_inputs),
+            "provenance": dict(self.provenance),
+            "checksum": self.checksum, "schema_version": self.schema_version,
+        }
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "CandidateSnapshot":
@@ -152,11 +161,14 @@ class MarketSnapshot:
     schema_version: str = MARKET_SNAPSHOT_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
-        row = asdict(self)
-        row["candidates"] = [_json_safe(item) for item in self.candidates]
-        row["market_context"] = _json_safe(self.market_context)
-        row["metadata"] = _json_safe(self.metadata)
-        return row
+        return {
+            "snapshot_id": self.snapshot_id, "captured_at": self.captured_at,
+            "source": self.source, "run_id": self.run_id,
+            "candidates": [dict(item) for item in self.candidates],
+            "market_context": dict(self.market_context),
+            "metadata": dict(self.metadata), "checksum": self.checksum,
+            "schema_version": self.schema_version,
+        }
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "MarketSnapshot":
