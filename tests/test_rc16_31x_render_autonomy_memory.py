@@ -25,6 +25,9 @@ def test_sixty_large_candidates_are_bounded_and_report_batch_progress(tmp_path):
             "raw": {"provider": {"body": huge_article}},
             "articles": [{"body": huge_article} for _ in range(4)],
             "decision_evidence": {"summary": "y" * 150_000},
+            "quality_evidence": {"body": huge_article},
+            "quality_coverage": {"details": huge_article},
+            "technical": {"trace": huge_article, "rsi": 55.0},
         }
         for index in range(60)
     ]
@@ -42,7 +45,8 @@ def test_sixty_large_candidates_are_bounded_and_report_batch_progress(tmp_path):
         inputs = row["decision_inputs"]
         assert "raw" not in inputs
         assert "articles" not in inputs
-        assert len(json.dumps(inputs, ensure_ascii=False).encode("utf-8")) < 100 * 1024
+        assert len(json.dumps(inputs, ensure_ascii=False).encode("utf-8")) < 34 * 1024
+        assert len(json.dumps(row, ensure_ascii=False).encode("utf-8")) < 64 * 1024
 
 
 def test_restart_releases_matching_orphaned_execution_owner(monkeypatch):
