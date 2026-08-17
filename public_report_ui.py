@@ -1,6 +1,7 @@
 """Unauthenticated bridge from a durable token to the browser's raw PDF viewer."""
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,6 +26,23 @@ def _hydrate_static_pdf(token: str, report: dict) -> tuple[Path, str]:
     return target, f"/app/static/reports/{quote(target.name)}"
 
 
+def _report_landing_actions(static_url: str) -> str:
+    """Return mobile-safe actions without replacing the application tab."""
+    safe_pdf = escape(str(static_url or ""), quote=True)
+    return (
+        '<div style="display:grid;gap:.75rem;margin:.75rem 0 1rem">'
+        f'<a href="{safe_pdf}" target="_blank" rel="noopener noreferrer" '
+        'style="display:block;text-align:center;padding:.8rem 1rem;border-radius:.5rem;'
+        'background:#0b6efd;color:white;text-decoration:none;font-weight:700">'
+        'Åpne PDF i ny fane</a>'
+        '<a href="/" target="_self" '
+        'style="display:block;text-align:center;padding:.8rem 1rem;border-radius:.5rem;'
+        'border:1px solid #789;color:inherit;text-decoration:none;font-weight:700">'
+        'Tilbake til AI Aksje Analyzer</a>'
+        '</div>'
+    )
+
+
 def render_public_report(st) -> bool:
     token = str(st.query_params.get("public_report_token") or "").strip()
     if not token:
@@ -36,21 +54,12 @@ def render_public_report(st) -> bool:
         st.error("Rapportlenken er ugyldig eller utløpt.")
         st.stop()
     _, static_url = _hydrate_static_pdf(token, report)
-    # The component is used only as a zero-height browser redirect.  PDF
-    # rendering itself is native to the browser and has no streamlit-pdf
-    # dependency.  A visible fallback remains for restrictive mobile browsers.
-    try:
-        st.components.v1.html(
-            f'<script>window.top.location.replace({static_url!r});</script>',
-            height=0,
-        )
-    except Exception:
-        pass
     st.markdown("### 📄 Rapporten er klar")
     st.caption(f"Rapport-ID: {report.get('report_id') or '-'}")
-    st.link_button("Åpne PDF direkte", static_url, type="primary", width="stretch")
+    st.info("Rapporten åpnes ikke automatisk. Programfanen beholdes slik at du alltid kan gå tilbake.")
+    st.markdown(_report_landing_actions(static_url), unsafe_allow_html=True)
     st.download_button(
-        "Last ned PDF", data=report["data"], file_name=str(report.get("filename") or "rapport.pdf"),
+        "Last ned PDF til enheten", data=report["data"], file_name=str(report.get("filename") or "rapport.pdf"),
         mime="application/pdf", type="primary", width="stretch",
     )
     return True
