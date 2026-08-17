@@ -59,11 +59,44 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
         # workspace. Clearing only the one-shot request must not clear selection.
         st.session_state["autonomy_core_workspace_v1880"] = workspace_labels[requested_workspace]
         st.session_state["autonomy_core_workspace_slug_v1882"] = ""
-    workspace = st.radio(
-        "Velg arbeidsflate",
-        list(workspace_labels.values()),
-        horizontal=True, key="autonomy_core_workspace_v1880",
+
+    def _open_quick_workspace(slug: str, report_surface: str = "") -> None:
+        label = workspace_labels.get(slug)
+        if not label:
+            return
+        st.session_state["autonomy_core_workspace_v1880"] = label
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        if report_surface:
+            st.session_state["mi_report_surface_v19220_rc1631t"] = report_surface
+
+    st.markdown("#### Hurtigvalg")
+    quick_reports, quick_progress, quick_portfolio = st.columns(3)
+    quick_reports.button(
+        "📚 Rapporter og historikk", type="primary", width="stretch",
+        key="autonomy_quick_reports_history_v19220_rc1631t",
+        on_click=_open_quick_workspace,
+        args=("reports", "Rapporter, historikk og avansert"),
     )
+    quick_progress.button(
+        "▶️ Kjøring og status", width="stretch",
+        key="autonomy_quick_report_progress_v19220_rc1631t",
+        on_click=_open_quick_workspace,
+        args=("reports", "Kjøring og fremdrift"),
+    )
+    quick_portfolio.button(
+        "💼 Porteføljer", width="stretch",
+        key="autonomy_quick_portfolio_v19220_rc1631t",
+        on_click=_open_quick_workspace,
+        args=("autonomous_portfolio", ""),
+    )
+    active_label = str(st.session_state.get("autonomy_core_workspace_v1880") or "Oversikt")
+    st.caption(f"Aktiv arbeidsflate: {active_label}. Hurtigvalgene åpner de mest brukte områdene med ett trykk.")
+    with st.expander("Alle arbeidsflater", expanded=False):
+        workspace = st.radio(
+            "Velg arbeidsflate",
+            list(workspace_labels.values()),
+            horizontal=True, key="autonomy_core_workspace_v1880",
+        )
     workspace_slug = next(slug for slug, label in workspace_labels.items() if label == workspace)
     st.session_state["autonomy_core_workspace_active_slug_v19220_rc7"] = workspace_slug
     set_global_navigation_state(
