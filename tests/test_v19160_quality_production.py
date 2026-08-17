@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_streamlit_deprecations_removed_from_runtime_python():
     offenders = []
     for path in ROOT.rglob("*.py"):
-        if "tests" in path.parts:
+        if "tests" in path.parts or ".venv" in path.parts:
             continue
         text = path.read_text(encoding="utf-8")
         if "use_container_width=" in text or "components.html(" in text or "st.components.v1.html(" in text:

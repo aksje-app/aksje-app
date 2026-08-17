@@ -91,10 +91,6 @@
       "category": "historical_version_contract",
       "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
     },
-    "tests/test_v19160_quality_production.py::test_streamlit_deprecations_removed_from_runtime_python": {
-      "category": "superseded_report_or_ui_contract",
-      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
-    },
     "tests/test_v19166_controlled_stabilization.py::test_version_and_safe_login": {
       "category": "historical_version_contract",
       "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
@@ -273,4 +269,3 @@
     }
   }
 }
-
