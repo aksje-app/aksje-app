@@ -182,7 +182,7 @@ def render_strategy_versions(app_context: Any) -> None:
         s1, s2, s3 = st.columns(3)
         s1.metric("Snapshot-kontrakt", contract.get("market_snapshot_version", "1.0"))
         s2.metric("TechnicalSignalService", contract.get("technical_signal_service_version", "1.0"))
-        snapshot_rows = app_context.services.repositories.market_snapshots.list()[:50]
+        snapshot_rows = app_context.services.repositories.market_snapshots.list(limit=50)
         s3.metric("Lagrede snapshots", len(snapshot_rows))
         st.caption(
             "Paper-scanner og Autonomi kan nå knytte beslutninger til et kontrollsummert snapshot. "

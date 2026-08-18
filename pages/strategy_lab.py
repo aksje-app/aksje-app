@@ -100,7 +100,7 @@ def render_strategy_lab(app_context: Any) -> None:
         )
         if r3.button("Kj\u00f8r skrivebeskyttet replay", key="strategy_lab_run_v19110"):
             try:
-                snapshots = sorted(app_context.services.repositories.market_snapshots.list(), key=lambda row: str(row.get("captured_at") or ""))
+                snapshots = sorted(app_context.services.repositories.market_snapshots.list(limit=500), key=lambda row: str(row.get("captured_at") or ""))
                 snapshot_ids = [row.get("snapshot_id") for row in snapshots[-int(snapshot_count):] if row.get("snapshot_id")]
                 result = lab.run_experiment(selected["experiment_id"], snapshot_ids=snapshot_ids, actor=actor, settle_outcomes=settle_outcomes)
                 st.success(f"Lab-kj\u00f8ring fullf\u00f8rt: {result.get('decision_count')} beslutninger, {result.get('error_count')} feil.")
