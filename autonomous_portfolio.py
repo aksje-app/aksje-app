@@ -1280,7 +1280,8 @@ def run_autonomous_cycle(
             ),
         )
         market_snapshot_row = market_snapshot.to_dict()
-        snapshot_service.save(market_snapshot)
+        emit_progress(0, progress_total, "Lagrer markedssnapshot separat uten å laste historikken")
+        snapshot_service.save(market_snapshot_row)
         snapshots_by_ticker = {str(row.get("ticker") or "").upper(): row for row in market_snapshot_row.get("candidates", [])}
         enriched_candidates = []
         for candidate in original_candidates:
