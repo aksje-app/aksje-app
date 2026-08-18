@@ -10,8 +10,8 @@ from ai_learning_foundation import learning_report
 
 
 def test_version_contract_and_production_threshold_are_not_recalibrated_here():
-    assert APP_VERSION == "v19.22.0-rc16.31y"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31x"
+    assert APP_VERSION == "v19.22.0-rc16.31z"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31y"
     from autonomous_portfolio import AutonomousParameters
     assert AutonomousParameters().minimum_investment_score == 73.0
 

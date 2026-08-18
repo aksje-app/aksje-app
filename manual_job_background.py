@@ -11,7 +11,6 @@ import json
 import io
 import hashlib
 import os
-import resource
 import threading
 import traceback
 import uuid
@@ -101,10 +100,8 @@ def _now() -> str:
 def _resource_snapshot() -> dict[str, Any]:
     """Small process telemetry block suitable for durable job diagnostics."""
     try:
-        peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-        # Linux reports KiB; macOS reports bytes. Render is Linux.
-        peak_mb = round(peak / 1024.0, 1) if peak < 10_000_000 else round(peak / (1024.0 * 1024.0), 1)
-        return {"process_peak_rss_mb": peak_mb, "process_pid": os.getpid()}
+        from runtime_memory import memory_snapshot
+        return memory_snapshot()
     except Exception:
         return {"process_pid": os.getpid()}
 
