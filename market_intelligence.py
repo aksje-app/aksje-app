@@ -4661,6 +4661,39 @@ def normalise_progress_counts(completed: Any, total: Any) -> tuple[int, int]:
     return done, count
 
 
+def compact_market_run_for_report(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Preserve market audit semantics without retaining duplicate raw trees."""
+    candidates = list(result.get("candidates") or [])
+    proposals = list(result.get("proposals") or [])
+    candidate_keys = (
+        "ticker", "market", "status", "portfolio_action",
+        "investment_score", "confidence_score", "risk_score",
+        "valid_for_decision", "evidence_valid_for_decision",
+        "autonomy_outcome_code", "autonomy_outcome_reason",
+    )
+    compact = {
+        key: result.get(key) for key in (
+            "version", "run_id", "created_at", "config", "summary",
+            "analysis_stages", "evidence_observability", "universe_contract",
+            "sector_selection", "detection_audit", "candidate_source",
+            "discovery_data", "data_refresh", "loader_diagnostics",
+        ) if key in result
+    }
+    compact.update({
+        "candidate_count": len(candidates),
+        "proposal_count": len(proposals),
+        "candidates": [
+            {key: row.get(key) for key in candidate_keys if key in row}
+            for row in candidates if isinstance(row, Mapping)
+        ],
+        "proposals": [
+            {key: row.get(key) for key in candidate_keys if key in row}
+            for row in proposals if isinstance(row, Mapping)
+        ],
+    })
+    return compact
+
+
 def _run_job_impl(
     job: JobProfile,
     trigger: str = "MANUAL",
@@ -4840,6 +4873,7 @@ def _run_job_impl(
                 pass
     emit("START", 0, 1, "Starter markedsskanning")
     market_runs, all_candidates, all_proposals = [], [], []
+    market_candidate_total = 0
     market_diagnostics: list[dict[str, Any]] = []
     totals = {"scanned": 0, "deep_analyzed": 0, "proposals": 0, "recommended": 0, "rejected": 0}
     errors = []
@@ -4953,11 +4987,24 @@ def _run_job_impl(
             })
             for item in candidate_errors:
                 warnings.append(f"{market}/{item.get('ticker') or 'ukjent'} ({item.get('stage')}): {item.get('error')}")
-            market_runs.append(result)
-            all_candidates.extend(result.get("candidates") or [])
-            all_proposals.extend(result.get("proposals") or [])
+            result_candidates = list(result.get("candidates") or [])
+            result_proposals = list(result.get("proposals") or [])
+            market_candidate_total += len(result_candidates)
+            all_candidates.extend(result_candidates)
+            all_proposals.extend(result_proposals)
+            # Keep the market-level audit contract, but not a second complete
+            # candidate/evidence tree for the rest of the report lifecycle.
+            # Canonical full candidates live in all_candidates/run.candidates.
+            market_runs.append(compact_market_run_for_report(result))
             for key in totals:
                 totals[key] += int((result.get("summary") or {}).get(key, 0))
+            # Drop stage-1 rows, selection traces and duplicate serialized
+            # payloads before the next market. malloc_trim is important for a
+            # long-lived Render web process where freed pandas arenas otherwise
+            # remain charged to the cgroup.
+            del result, result_candidates, result_proposals, rows, loaded
+            from runtime_memory import release_process_memory
+            release_process_memory(f"after_market_{market}")
         except Exception as exc:
             if isinstance(exc, ExecutionCancelled):
                 raise
@@ -5217,7 +5264,7 @@ def _run_job_impl(
            "validation": {
                "unique_tickers": len(all_candidates),
                "identity_rejections": identity_rejections,
-               "duplicate_count_removed": max(0, sum(len(r.get("candidates") or []) for r in market_runs) - len(all_candidates)),
+               "duplicate_count_removed": max(0, market_candidate_total - len(all_candidates)),
                "draft_handoff_fingerprint": job_fingerprint(job),
                "report_identity_present": True,
                "unified_execution_pipeline": True,
@@ -5266,6 +5313,8 @@ def _run_job_impl(
         if analysis_aborted:
             run["autonomous_chain"] = {"status": "SKIPPED", "reason": "Utilstrekkelige markedsdata"}
         else:
+            from runtime_memory import release_process_memory
+            run["memory_cleanup_before_autonomy"] = release_process_memory("before_autonomy")
             from autonomi_core.runtime.orchestrator import execute_market_mission
             emit("AUTONOMOUS", 0, 1, "Kjører teoretiske kjøps- og salgsbeslutninger")
             run["autonomous_chain"] = execute_market_mission(
@@ -5597,6 +5646,14 @@ def run_job(
         mark_run_stage(trace_id, "FAILED", status="ERROR", message="Rapportkjøringen feilet", error_code=code, error=exc)
         complete_run_trace(trace_id, status="FAILED", error_code=code, error=exc)
         raise
+    finally:
+        # Runs share the Streamlit web process. Always release cyclic objects
+        # and libc arenas, including after cancellation or provider failure.
+        try:
+            from runtime_memory import release_process_memory
+            release_process_memory("report_run_finally")
+        except Exception:
+            pass
 
 
 def _run_job_traced(
