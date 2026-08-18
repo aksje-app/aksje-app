@@ -5,6 +5,9 @@ event adapters keep legacy modules operational during the staged migration.
 """
 from __future__ import annotations
 
+import hashlib
+from typing import Any, Iterable, Mapping
+
 from repositories.base import (
     DocumentRepository,
     EventRepository,
@@ -42,7 +45,100 @@ class NotificationRepository(JsonRepository):
 class StrategyVersionRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("strategy_versions", storage=storage, id_field="version_id")
 class MarketSnapshotRepository(JsonRepository):
-    def __init__(self, storage=None): super().__init__("market_snapshots", storage=storage, id_field="snapshot_id")
+    """Immutable per-snapshot storage with a lightweight discovery index.
+
+    Older releases stored every full snapshot in one JSON array. An upsert had
+    to deserialize and serialize the complete, ever-growing history and caused
+    a transient multi-GiB allocation. New snapshots are independent documents;
+    the legacy collection remains readable and is never deleted automatically.
+    """
+
+    INDEX_KEY = "repositories/market_snapshots_index.json"
+    ITEM_PREFIX = "repositories/market_snapshots/items"
+
+    def __init__(self, storage=None):
+        super().__init__("market_snapshots", storage=storage, id_field="snapshot_id")
+
+    @classmethod
+    def _item_key(cls, snapshot_id: str) -> str:
+        digest = hashlib.sha256(str(snapshot_id).encode("utf-8")).hexdigest()
+        return f"{cls.ITEM_PREFIX}/{digest}.json"
+
+    @staticmethod
+    def _index_entry(row: Mapping[str, Any], item_key: str) -> dict[str, Any]:
+        return {
+            "snapshot_id": str(row.get("snapshot_id") or ""),
+            "captured_at": str(row.get("captured_at") or ""),
+            "source": str(row.get("source") or ""),
+            "run_id": str(row.get("run_id") or ""),
+            "checksum": str(row.get("checksum") or ""),
+            "candidate_count": len(row.get("candidates") or []),
+            "item_key": item_key,
+        }
+
+    def _index(self) -> list[dict[str, Any]]:
+        value = self.storage.read_json(self.INDEX_KEY, [])
+        return [dict(row) for row in value] if isinstance(value, list) else []
+
+    def upsert(self, row: Mapping[str, Any]) -> bool:
+        value = dict(row)
+        snapshot_id = str(value.get("snapshot_id") or "")
+        if not snapshot_id:
+            raise ValueError("Missing repository id field: snapshot_id")
+        item_key = self._item_key(snapshot_id)
+        # Immutable write prevents an existing decision snapshot from being
+        # silently rewritten. It serializes one snapshot, never the history.
+        stored = self.storage.write_json_immutable(item_key, value)
+        if not isinstance(stored, Mapping):
+            return False
+        if str(stored.get("checksum") or "") != str(value.get("checksum") or ""):
+            raise ValueError(f"Snapshot-ID {snapshot_id} finnes med annen checksum")
+        index = [entry for entry in self._index() if str(entry.get("snapshot_id") or "") != snapshot_id]
+        index.insert(0, self._index_entry(value, item_key))
+        return self.storage.write_json(self.INDEX_KEY, index)
+
+    def get(self, record_id: Any) -> dict[str, Any] | None:
+        snapshot_id = str(record_id or "")
+        if not snapshot_id:
+            return None
+        direct = self.storage.read_json(self._item_key(snapshot_id), None)
+        if isinstance(direct, Mapping):
+            return dict(direct)
+        # Compatibility path only: legacy history is read when an old ID is
+        # explicitly requested, never while a new snapshot is being saved.
+        legacy = self.storage.read_json(self.key, [])
+        if isinstance(legacy, list):
+            return next((dict(row) for row in legacy if isinstance(row, Mapping) and str(row.get("snapshot_id") or "") == snapshot_id), None)
+        return None
+
+    def list(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for entry in self._index():
+            snapshot_id = str(entry.get("snapshot_id") or "")
+            row = self.storage.read_json(str(entry.get("item_key") or self._item_key(snapshot_id)), None)
+            if isinstance(row, Mapping):
+                rows.append(dict(row)); seen.add(snapshot_id)
+                if limit is not None and len(rows) >= max(0, int(limit)):
+                    return rows
+        legacy = self.storage.read_json(self.key, [])
+        if isinstance(legacy, list):
+            for row in legacy:
+                if not isinstance(row, Mapping):
+                    continue
+                snapshot_id = str(row.get("snapshot_id") or "")
+                if snapshot_id in seen:
+                    continue
+                rows.append(dict(row)); seen.add(snapshot_id)
+                if limit is not None and len(rows) >= max(0, int(limit)):
+                    break
+        return rows
+
+    def replace_all(self, rows: Iterable[Mapping[str, Any]]) -> bool:
+        ok = True
+        for row in reversed([dict(value) for value in rows]):
+            ok = self.upsert(row) and ok
+        return ok
 class StrategyDecisionRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("strategy_decisions", storage=storage, id_field="decision_id")
 class StrategyRunRepository(JsonRepository):
