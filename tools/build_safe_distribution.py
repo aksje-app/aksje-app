@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,7 +72,8 @@ def make_manifest(files: dict[str, Path], *, package: str) -> dict:
 
 def write_deterministic_zip(source_dir: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    temporary = destination.with_suffix(destination.suffix + ".partial")
+    with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(source_dir.rglob("*")):
             if not path.is_file():
                 continue
@@ -80,6 +82,23 @@ def write_deterministic_zip(source_dir: Path, destination: Path) -> None:
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
             archive.writestr(info, path.read_bytes())
+    with zipfile.ZipFile(temporary, "r") as archive:
+        bad = archive.testzip()
+        if bad:
+            raise RuntimeError(f"ZIP-integritetskontroll feilet for {bad}")
+    temporary.replace(destination)
+
+
+def baseline_snapshot(baseline: Path) -> tuple[dict[str, Path], tempfile.TemporaryDirectory | None]:
+    if baseline.is_dir():
+        return safe_files(baseline), None
+    if not zipfile.is_zipfile(baseline):
+        raise ValueError(f"Baseline er verken mappe eller gyldig ZIP: {baseline}")
+    temporary = tempfile.TemporaryDirectory(prefix="safe_distribution_baseline_")
+    root = Path(temporary.name)
+    with zipfile.ZipFile(baseline, "r") as archive:
+        archive.extractall(root)
+    return safe_files(root), temporary
 
 
 def build(source: Path, baseline: Path, output: Path) -> dict:
@@ -89,7 +108,7 @@ def build(source: Path, baseline: Path, output: Path) -> dict:
     stage.mkdir(parents=True)
 
     source_files = safe_files(source)
-    baseline_files = safe_files(baseline)
+    baseline_files, baseline_temporary = baseline_snapshot(baseline)
 
     # Refresh the source manifest before package comparison.
     manifest_path = source / "DISTRIBUTION_MANIFEST.json"
@@ -147,6 +166,8 @@ def build(source: Path, baseline: Path, output: Path) -> dict:
         "full_sha256": sha256(full_zip), "delta_sha256": sha256(delta_zip), **inventory,
     }
     (output / f"BUILD_RESULT_{DOC_TAG}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if baseline_temporary is not None:
+        baseline_temporary.cleanup()
     return result
 
 
