@@ -29,6 +29,7 @@ def test_validator_rejects_runtime_secret_and_generated_report():
         FileEntry("tools/prepare_safe_upgrade.py", 0, b""),
         FileEntry("DISTRIBUTION_MANIFEST.json", 2, b"{}"),
         FileEntry(".app_runtime/data/portfolio.json", 2, b"{}"),
+        FileEntry("tmp/diagnostics/status.json", 2, b"{}"),
         FileEntry(".env", 35, b"OPENAI_API_KEY=" + b"sk-" + b"abcdefghijklmnopqrstuvwxyz"),
         FileEntry("static/reports/report_test.pdf", 4, None),
     ]
@@ -84,7 +85,7 @@ def test_mutable_test_runtime_is_excluded_from_distribution():
     from tools.build_safe_distribution import excluded
 
     root = Path(__file__).resolve().parents[1]
-    mutable_roots = [".app_runtime", "data", "cache", "logs", "runtime", "storage"]
+    mutable_roots = [".app_runtime", "data", "cache", "logs", "runtime", "storage", "tmp"]
     for root_name in mutable_roots:
         folder = root / root_name
         for path in folder.rglob("*") if folder.exists() else []:

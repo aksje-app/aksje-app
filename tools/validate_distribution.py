@@ -20,7 +20,7 @@ DOC_TAG = APP_VERSION.replace("-rc", "_RC")
 FORBIDDEN_ROOT_DIRS = {
     ".git", ".app_runtime", ".pytest_cache", ".render", "build", "cache",
     "data", "dist", "htmlcov", "logs", "local_runtime", "old_work_d",
-    "runtime", "runtime_data", "storage", "__pycache__",
+    "runtime", "runtime_data", "storage", "tmp", "__pycache__",
 }
 FORBIDDEN_EXACT_PATHS = {
     ".env", ".streamlit/secrets.toml", "paper_portfolio.json", "app_users.json",

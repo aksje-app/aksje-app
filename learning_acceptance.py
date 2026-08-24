@@ -76,6 +76,12 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
     blockers = Counter(row["first_blocker_code"] for row in decision_trace if row["first_blocker_code"] != "NONE")
     candidate_tickers = {str(row.get("ticker") or "").upper() for row in candidates if row.get("ticker")}
     decided_tickers = {str(row.get("ticker") or "").upper() for row in learning_decisions if row.get("ticker")}
+    portfolio_decisions = run.get("portfolio_decisions")
+    canonical_payload = portfolio_decisions if isinstance(portfolio_decisions, Mapping) else {}
+    canonical_decisions = _rows(canonical_payload.get("decisions"))
+    canonical_tickers = {str(row.get("ticker") or "").upper() for row in canonical_decisions if row.get("ticker")}
+    accounted_tickers = decided_tickers | canonical_tickers
+    unaccounted_tickers = sorted(candidate_tickers - accounted_tickers)
 
     checks = {
         "real_autonomy_chain_completed": str(chain.get("status") or "").upper() not in {"", "ERROR", "SKIPPED"},
@@ -83,7 +89,11 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
         "learning_decisions_recorded": bool(learning_decisions),
         "persistent_learning_state_updated": str(learning_portfolio.get("last_run_id") or "") == report_id,
         "every_learning_decision_explained": bool(learning_decisions) and all(reasons),
-        "every_candidate_accounted_for": bool(candidate_tickers) and candidate_tickers.issubset(decided_tickers),
+        # A candidate rejected before the learning portfolio (for example an
+        # invalid data contract or missing price) is still fully accounted for
+        # by the canonical portfolio decision. Requiring a second learning row
+        # for such a candidate caused false FAIL verdicts.
+        "every_candidate_accounted_for": bool(candidate_tickers) and not unaccounted_tickers,
         "learning_observation_exists": bool(learning_trades or positions or closed),
         "performance_snapshot_exists": bool(performance),
         "production_trade_separation": all(str(row.get("mode") or "").upper() == "LEARNING_ONLY" for row in learning_trades),
@@ -106,6 +116,9 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
         "candidate_count": len(candidates),
         "learning_decision_count": len(learning_decisions),
         "learning_trade_count": len(learning_trades),
+        "learning_accounted_candidate_count": len(candidate_tickers & decided_tickers),
+        "canonical_accounted_candidate_count": len(candidate_tickers & canonical_tickers),
+        "unaccounted_candidate_tickers": unaccounted_tickers,
         "open_learning_positions": len(positions),
         "closed_learning_positions": len(closed),
         "checks": checks,

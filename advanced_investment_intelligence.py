@@ -64,7 +64,10 @@ def bounded_linear(value: float | None, bad: float, good: float, fallback: float
 
 
 def _component(name: str, entries: list[dict[str, Any]], neutral: float = 50.0) -> tuple[float, dict[str, Any]]:
-    valid = [e for e in entries if e.get("value") is not None]
+    # Some raw values are present but deliberately have no meaningful score,
+    # e.g. non-positive P/E or zero volume. They are missing evidence, not a
+    # float(None) candidate failure.
+    valid = [e for e in entries if e.get("value") is not None and e.get("score") is not None]
     if not valid:
         return neutral, {"component": name, "score": neutral, "inputs": [], "coverage": 0.0, "status": "MISSING"}
     total_weight = sum(float(e.get("weight", 1.0)) for e in valid) or 1.0

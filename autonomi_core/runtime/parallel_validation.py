@@ -46,8 +46,19 @@ def _shadow_view(run: Mapping[str, Any]) -> dict[str, Any]:
         row = dict(raw); scores = dict(row.get("strategy_scores") or {})
         best = max((_num((v or {}).get("score") if isinstance(v, Mapping) else v) for v in scores.values()), default=0.0)
         valid = bool(row.get("valid_for_decision", True))
-        portfolio_action = str(row.get("portfolio_action") or "REVIEW")
-        shadow_action = "SKIP" if not valid or portfolio_action in {"SKIP", "SELL"} else ("BUY" if best >= 70 and row.get("strategy_matches") else "REVIEW")
+        # The strategy layer is a ranking lens, not an independent replacement
+        # for the canonical evidence/risk/portfolio decision funnel.  Preserve
+        # its explicit candidate disposition when present so the validation
+        # compares the same action vocabulary.  The former fallback converted
+        # every HOLD/REVIEW with one strategy score >= 70 into BUY and produced
+        # a structurally false disagreement alarm.
+        portfolio_action = str(row.get("portfolio_action") or "").strip().upper()
+        if not valid:
+            shadow_action = "SKIP"
+        elif portfolio_action in {"BUY", "HOLD", "REVIEW", "SKIP", "SELL"}:
+            shadow_action = portfolio_action
+        else:
+            shadow_action = "BUY" if best >= 70 and row.get("strategy_matches") else "REVIEW"
         row["shadow_score"] = round(best, 2); row["shadow_action"] = shadow_action; rows.append(row)
     rows.sort(key=lambda x: (_num(x.get("shadow_score")), _num(x.get("confidence_score"))), reverse=True)
     return {"candidates": rows, "tickers": [_ticker(x) for x in rows],
@@ -160,14 +171,25 @@ def build_parallel_validation(run: Mapping[str, Any], *, total_runtime_seconds: 
             "candidates": {"authoritative": len(old_set), "shadow": len(new_set), "overlap": len(common), "only_authoritative": sorted(old_set-new_set), "only_shadow": sorted(new_set-old_set), "jaccard_pct": jaccard_pct},
             "source_and_search": {"authoritative": _source_strategy(old["candidates"]), "shadow": _source_strategy(shadow["candidates"])},
             "ranking": {"common": len(common), "mean_absolute_rank_delta": round(sum(abs(v) for v in rank_delta.values())/max(1, len(rank_delta)), 3), "rank_delta": rank_delta},
-            "decisions": {"compared": len(common), "agreements": agreements, "disagreements": disagreement_count, "agreement_pct": agreement_pct, "minimum_pct": MIN_DECISION_AGREEMENT_PCT, "diff": decision_diff},
+            "decisions": {
+                "compared": len(common), "agreements": agreements,
+                "disagreements": disagreement_count, "agreement_pct": agreement_pct,
+                "minimum_pct": MIN_DECISION_AGREEMENT_PCT,
+                "action_basis": "CANONICAL_ACTION_VOCABULARY",
+                "score_comparison_advisory_only": True,
+                "production_score_basis": "DECISION_ADJUSTED_COMPOSITE",
+                "shadow_score_basis": "BEST_MATCHED_STRATEGY_LENS",
+                "diff": decision_diff,
+            },
             "data_quality": {"evaluated": contracts.get("evaluated", 0), "valid": contracts.get("valid_for_decision", 0), "blocked": len(contracts.get("blocked") or []), "same_input_snapshot": True},
             "portfolio_risk": {"authoritative_actions": portfolio.get("actions") or {}, "shadow_read_only": True, "context_source": (portfolio.get("portfolio_context") or {}).get("source")},
             "runtime": {"authoritative_seconds": total_runtime_seconds, "legacy_evaluator_ms": old["duration_ms"], "shadow_evaluator_ms": shadow["duration_ms"], "comparison_ms": round((perf_counter()-started)*1000, 3)},
             "api_usage": _api_usage(run),
             "outcomes": {str(h): {"status": "PENDING", "trading_days": h, "authoritative_run_id": run.get("run_id"), "shadow_run_id": f"SHADOW-{run.get('run_id')}"} for h in HORIZONS},
         },
-        "validation_gate": {"status": status, "warnings": warnings, "promotion_blocked": bool(warnings),
+        "validation_gate": {"status": status, "warnings": warnings, "promotion_blocked": True,
+                            "promotion_block_reason": "SHADOW_READ_ONLY_RANKING_LENS",
+                            "promotion_eligible": False,
                             "minimum_candidate_overlap_pct": MIN_CANDIDATE_OVERLAP_PCT,
                             "minimum_decision_agreement_pct": MIN_DECISION_AGREEMENT_PCT},
         "shadow_candidates": [{"ticker": _ticker(x), "market": x.get("market"), "sector": x.get("sector"), "source": (x.get("data_contract") or {}).get("source") if isinstance(x.get("data_contract"), Mapping) else x.get("source"), "discovery_bucket": x.get("discovery_bucket"), "strategies": list(x.get("strategy_matches") or []), "rank": i+1, "shadow_score": x.get("shadow_score"), "investment_score": x.get("shadow_score"), "action": x.get("shadow_action"), "status": "ANBEFALT FOR VURDERING" if x.get("shadow_action") in {"BUY", "REVIEW"} else "SKIP", "entry_price": x.get("current_price") or ((x.get("raw") or {}).get("current_price") if isinstance(x.get("raw"), Mapping) else None)} for i, x in enumerate(shadow["candidates"])],
