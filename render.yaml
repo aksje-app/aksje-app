@@ -1,6 +1,7 @@
 services:
   - type: web
     name: aksje-app
+    autoDeployTrigger: commit
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
@@ -62,6 +63,7 @@ services:
         value: "0.5"
   - type: cron
     name: aksje-app-report-scheduler
+    autoDeployTrigger: commit
     runtime: python
     plan: standard
     schedule: "*/30 * * * *"
@@ -87,6 +89,8 @@ services:
       - key: RUNTIME_BACKGROUND_ENABLED
         value: "false"
       - key: REPORT_SCHEDULER_ENABLED
+        value: "true"
+      - key: REQUIRE_CLUSTER_ALIGNMENT
         value: "true"
       - key: DATABASE_URL
         sync: false
@@ -122,6 +126,7 @@ services:
         value: "0.5"
   - type: cron
     name: aksje-app-paper-scanner
+    autoDeployTrigger: commit
     runtime: python
     plan: standard
     schedule: "*/30 * * * *"
@@ -145,6 +150,8 @@ services:
       - key: PUSHOVER_USER_KEY
         sync: false
       - key: PAPER_TRADING_ENABLED
+        value: "true"
+      - key: REQUIRE_CLUSTER_ALIGNMENT
         value: "true"
       - key: SCANNER_MAX_TICKERS
         value: "30"
