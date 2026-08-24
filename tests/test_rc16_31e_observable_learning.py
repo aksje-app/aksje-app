@@ -81,5 +81,6 @@ def test_learning_details_are_bounded_and_protected():
     retention_source = open("storage_retention.py", encoding="utf-8").read()
     autonomy_source = open("autonomous_portfolio.py", encoding="utf-8").read()
     assert "bounded_learning_observations" in retention_source
-    assert "rows[:2000]" in autonomy_source
+    assert "_compact_learning_observations(rows)" in autonomy_source
+    assert "LEARNING_OBSERVATION_LIMIT = 2000" in autonomy_source
     assert not any("learning_observations" in prefix for prefix in storage_retention.KV_LIMITS)
