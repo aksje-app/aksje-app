@@ -19,7 +19,7 @@ ARCHIVE_BASE = APP_VERSION.split("-rc", 1)[0].replace(".", "_")
 RC_LABEL = "RC" + APP_VERSION.rsplit("-rc", 1)[1] if "-rc" in APP_VERSION else "RELEASE"
 MUTABLE_PARTS = {
     ".git", ".app_runtime", ".pytest_cache", ".render", "__pycache__", "build",
-    "cache", "data", "dist", "htmlcov", "logs", "local_runtime", "runtime",
+    "cache", "data", "dist", "htmlcov", "logs", "local_runtime", "runtime", "tmp",
     "runtime_data", "storage", ".venv", "venv", "env",
 }
 FORBIDDEN_NAMES = {".env", "secrets.toml", "paper_portfolio.json", "app_users.json", "remember_tokens.json"}
