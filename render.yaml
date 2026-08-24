@@ -4,11 +4,11 @@ services:
     autoDeployTrigger: commit
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
+    buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.9
+        value: 3.12.13
       - key: STREAMLIT_SERVER_HEADLESS
         value: "true"
       - key: APP_ENVIRONMENT
@@ -67,11 +67,11 @@ services:
     runtime: python
     plan: standard
     schedule: "*/30 * * * *"
-    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
+    buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
     startCommand: python scheduled_runner.py
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.9
+        value: 3.12.13
       - key: APP_ENVIRONMENT
         value: "production"
       - key: AUTH_STORAGE_MODE
@@ -130,11 +130,11 @@ services:
     runtime: python
     plan: standard
     schedule: "*/30 * * * *"
-    buildCommand: pip install -r requirements.txt && python tools/check_runtime_dependencies.py
+    buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
     startCommand: python scanner_worker.py
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.9
+        value: 3.12.13
       - key: APP_ENVIRONMENT
         value: "production"
       - key: STORAGE_MODE

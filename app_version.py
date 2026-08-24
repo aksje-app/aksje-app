@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ad"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ad Stabilization"
+APP_VERSION = "v19.22.0-rc16.31ae"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ae Deterministic Deploy"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ac"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ad"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31ae: Låser hele produksjonsavhengighetsgrafen til testede versjoner og installerer cachefritt på web, rapport-scheduler og Paper-scanner. En maskinlesbar byggkontroll verifiserer at installerte pakker stemmer med lockfilen før tjenesten kan starte. Ingen programfunksjon, datainnhenting, analyse-, score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ad: Ren stabiliseringsversjon uten nye funksjoner. Shadow-valideringen sammenligner samme beslutningsvokabular og merker scoregrunnlaget eksplisitt, læringsaksept avstemmer kandidater mot både lærings- og kanoniske porteføljebeslutninger, og negative/ugyldige numeriske råverdier behandles nøytralt uten NoneType-feil. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ac: Koordinerer automatisk deploy av web, rapport-scheduler og Paper-scanner fra hver commit, sammenligner faktisk Render-commit før cron-arbeid, beskytter læringsobservasjoner mot å bli fortrengt før modning og viser eksplisitt short- og innsiderstatus i den kompakte hovedrapporten. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ab: Gjør JSON-nedlasting varig på tvers av Streamlit-reruns, beskriver testdeaktivert Pushover korrekt, inkluderer alle oppgaver i teknisk vedlegg og forklarer forholdet mellom kontrollunivers, dynamisk skann og kontrollandel. Alle grundig analyserte kandidater får en lett primærkildekontroll av short og innsider; bare den avgrensede evidenslisten bruker kostbar sekundær oppdagelse og full nyhetsanalyse. Ingen score-, risiko-, portefølje-, scheduler- eller handelsregel er endret.",
