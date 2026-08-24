@@ -233,7 +233,8 @@ def score_transactions(
 
 
 def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookback_days: int = 180,
-                               market: str = "", company: str = "") -> dict[str, Any]:
+                               market: str = "", company: str = "", *,
+                               primary_only: bool = False) -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
     cache = _load_cache(); cached = cache.get(ticker)
     cached_logs = (cached.get("result") or {}).get("search_log") if cached else []
@@ -248,7 +249,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         result.setdefault("currency", source.get("currency", ""))
         result.setdefault("official_source", source.get("name", ""))
         result.setdefault("official_search_url", source.get("search_url", ""))
-        if result.get("coverage") not in {"AVAILABLE", "CHECKED_NO_EVENTS"} and market and "source_discovery" not in result:
+        if not primary_only and result.get("coverage") not in {"AVAILABLE", "CHECKED_NO_EVENTS"} and market and "source_discovery" not in result:
             discovery = discover_with_newsapi(ticker, company, market)
             result["source_discovery"] = discovery
             if discovery.get("articles"):
@@ -320,37 +321,41 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         dict(row) for row in (official_result.get("transactions") or []) if isinstance(row, Mapping)
     )
 
-    # Secondary structured provider. Errors are recorded, not raised, so direct
+    # Secondary structured provider. The lightweight all-candidate pass skips
+    # this provider; the expensive evidence shortlist retains the full search.
+    # Errors are recorded, not raised, so direct
     # official results remain authoritative and usable.
     provider_rows: list[dict[str, Any]] = []
     provider_error = ""
     value: Any = None
-    try:
-        import yfinance as yf
-        obj = yf.Ticker(ticker)
-        for attr in ("insider_transactions", "get_insider_transactions"):
-            try:
-                candidate = getattr(obj, attr)
-                value = candidate() if callable(candidate) else candidate
-                if value is not None:
-                    break
-            except Exception as exc:
-                provider_error = str(exc)
-        provider_rows = _records(value)
-        for provider_row in provider_rows:
-            provider_row.setdefault("source", "yfinance / public filings")
-            provider_row.setdefault("source_type", "SECONDARY_STRUCTURED")
-            provider_row.setdefault("verification", "STRUCTURED_PROVIDER")
-    except Exception as exc:
-        provider_error = str(exc)
-    search_log.append({
-        "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
-        "attempted": True,
-        "status": "SUCCESS_WITH_RESULTS" if provider_rows else ("SOURCE_ERROR" if provider_error else "SUCCESS_NO_RESULTS"),
-        "results": len(provider_rows),
-        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "error": provider_error[:500],
-    })
+    if not primary_only:
+        try:
+            import yfinance as yf
+            obj = yf.Ticker(ticker)
+            for attr in ("insider_transactions", "get_insider_transactions"):
+                try:
+                    candidate = getattr(obj, attr)
+                    value = candidate() if callable(candidate) else candidate
+                    if value is not None:
+                        break
+                except Exception as exc:
+                    provider_error = str(exc)
+            provider_rows = _records(value)
+            for provider_row in provider_rows:
+                provider_row.setdefault("source", "yfinance / public filings")
+                provider_row.setdefault("source_type", "SECONDARY_STRUCTURED")
+                provider_row.setdefault("verification", "STRUCTURED_PROVIDER")
+        except Exception as exc:
+            provider_error = str(exc)
+    if not primary_only:
+        search_log.append({
+            "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
+            "attempted": True,
+            "status": "SUCCESS_WITH_RESULTS" if provider_rows else ("SOURCE_ERROR" if provider_error else "SUCCESS_NO_RESULTS"),
+            "results": len(provider_rows),
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "error": provider_error[:500],
+        })
     verified_rows.extend(provider_rows)
 
     sec: dict[str, Any] = {}
@@ -436,7 +441,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
 
     # NewsAPI is only source discovery after a direct or structured attempt. It is
     # never presented as an official insider register.
-    if result.get("coverage") not in {"AVAILABLE", "CHECKED_NO_EVENTS"} and market:
+    if not primary_only and result.get("coverage") not in {"AVAILABLE", "CHECKED_NO_EVENTS"} and market:
         discovery = discover_with_newsapi(ticker, company, market)
         discovery_status = str(discovery.get("status") or "")
         search_log.append({
@@ -491,7 +496,8 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
     return result
 
 
-def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, progress_callback: Any | None = None) -> list[dict[str, Any]]:
+def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, progress_callback: Any | None = None,
+                *, primary_only: bool = False) -> list[dict[str, Any]]:
     source_rows = [dict(row) for row in rows]
     total = len(source_rows)
 
@@ -501,6 +507,7 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, 
             str(clean.get("ticker") or ""), force_refresh=force_refresh,
             market=str(clean.get("market") or ""),
             company=str(clean.get("longName") or clean.get("shortName") or clean.get("name") or ""),
+            primary_only=primary_only,
         )
         clean["insider_intelligence"] = insider
         clean["insider_score"] = insider.get("score", 50.0)

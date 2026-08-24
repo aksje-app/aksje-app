@@ -25,7 +25,9 @@ def _candidate(ticker: str, score: float, news: float, action: str = "REVIEW") -
 
 def test_pushover_explanation_never_says_unknown_not_searched_without_reason():
     assert _notification_status_explanation({}) == "Pushover ikke forsøkt: Ingen varslingsbeslutning registrert"
-    assert "Test uten varsling" in _notification_status_explanation({"attempted": False, "detail": "Test uten varsling: Pushover ble ikke sendt"})
+    assert _notification_status_explanation({
+        "attempted": False, "detail": "Test uten varsling: Pushover ble ikke sendt", "test_run": True,
+    }) == "Ikke sendt – testkjøring med rapportvarsling deaktivert"
     assert _notification_status_explanation({"sent": True}) == "Pushover sendt"
 
 
