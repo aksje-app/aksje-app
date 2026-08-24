@@ -3,11 +3,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_python_runtime_is_pinned_to_3119() -> None:
-    assert (ROOT / 'runtime.txt').read_text(encoding='utf-8').strip() == 'python-3.11.9'
-    assert (ROOT / '.python-version').read_text(encoding='utf-8').strip() == '3.11.9'
+def test_python_runtime_is_pinned_to_31213() -> None:
+    assert (ROOT / 'runtime.txt').read_text(encoding='utf-8').strip() == 'python-3.12.13'
+    assert (ROOT / '.python-version').read_text(encoding='utf-8').strip() == '3.12.13'
     render = (ROOT / 'render.yaml').read_text(encoding='utf-8')
-    assert 'value: 3.11.9' in render
+    assert render.count('value: 3.12.13') == 3
 
 
 def test_remember_bridge_is_not_invoked_by_login_paths() -> None:
