@@ -53,19 +53,20 @@ TEXT_SUFFIXES = {
 }
 PROFILE_REQUIRED_FILES = {
     "full": {
-        "app.py", "app_version.py", "requirements.txt", "requirements-dev.txt",
+        "app.py", "app_version.py", "requirements.txt", "requirements-dev.txt", "requirements.lock",
         "render.yaml", ".env.example", "market_intelligence.py", "market_universe.py",
         "report_integrity.py", "decision_report.py", "evidence_contract.py",
         "evidence_search_status.py", "news_intelligence.py", "insider_intelligence.py", "notifier.py",
         f"RELEASE_NOTES_{DOC_TAG}.md", f"ACCEPTANCE_{DOC_TAG}.md", f"DEPLOY_{DOC_TAG}.md",
         "tests/test_v19150_full_system_stabilization.py",
         "tools/audit_full_system_v19150.py", "tools/audit_evidence_search_v19220_rc10.py",
-        "tools/validate_distribution.py", "tools/build_safe_distribution.py", "DISTRIBUTION_MANIFEST.json",
+        "tools/validate_distribution.py", "tools/build_safe_distribution.py", "tools/verify_dependency_lock.py", "DISTRIBUTION_MANIFEST.json",
         "autonomi_core/runtime/orchestrator.py", "autonomi_core/runtime/full_execution.py",
     },
     "update": {
         "README_APPLY_DELTA.md", f"CHANGE_INVENTORY_{DOC_TAG}.json", "DELETE_FILES.txt",
         "COPY_TO_REPOSITORY/app_version.py",
+        "COPY_TO_REPOSITORY/requirements.lock",
         f"COPY_TO_REPOSITORY/RELEASE_NOTES_{DOC_TAG}.md",
         "COPY_TO_REPOSITORY/tools/audit_full_system_v19150.py",
     },
@@ -194,6 +195,14 @@ def validate_entries(entries: Iterable[FileEntry], profile: str = "full") -> dic
         lines = {line.strip() for line in requirements_text.splitlines() if line.strip() and not line.lstrip().startswith("#")}
         if "pypdf==5.9.0" not in lines:
             issues.append(ValidationIssue("MISSING_PDF_DEPENDENCY", req_name, "pypdf==5.9.0 må være eksplisitt deklarert."))
+
+    lock_name = "COPY_TO_REPOSITORY/requirements.lock" if profile == "update" else "requirements.lock"
+    lock_text = text_by_name.get(lock_name, "")
+    if profile in {"full", "update"} and lock_text:
+        lock_lines = [line.strip() for line in lock_text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+        invalid_pins = [line for line in lock_lines if "==" not in line or line.count("==") != 1]
+        if invalid_pins:
+            issues.append(ValidationIssue("UNPINNED_DEPENDENCY", lock_name, "Lockfilen inneholder avhengigheter uten eksakt ==-versjon."))
 
     unique = {(item.code, item.path, item.message): item for item in issues}
     ordered = sorted(unique.values(), key=lambda item: (item.code, item.path))

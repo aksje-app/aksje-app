@@ -19,11 +19,11 @@ MUTABLE_ROOTS = ("data", "cache", "logs", "runtime", "storage")
 REQUIRED_REQUIREMENTS = {
     "streamlit==1.57.0",
     "starlette==1.3.1",
-    "pandas",
-    "yfinance",
-    "requests",
-    "psycopg2-binary",
-    "reportlab",
+    "pandas==3.0.5",
+    "yfinance==1.6.0",
+    "requests==2.34.2",
+    "psycopg2-binary==2.9.12",
+    "reportlab==5.0.0",
     "pypdf==5.9.0",
 }
 

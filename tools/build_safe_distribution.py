@@ -30,6 +30,7 @@ DELTA_SUPPORT_FILES = {
     "tools/audit_navigation_rerun_v19220_rc14.py",
     "tools/validate_distribution.py",
     "tools/build_safe_distribution.py",
+    "tools/verify_dependency_lock.py",
 }
 
 
