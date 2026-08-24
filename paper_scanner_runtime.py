@@ -83,7 +83,7 @@ def paper_scanner_global_lock():
 
 
 def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int:
-    from runtime_identity import publish_runtime_identity, validate_expected_runtime
+    from runtime_identity import publish_runtime_identity, validate_cluster_alignment, validate_expected_runtime
     execution_id = f"PAPER-SCANNER-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     status = {
         "execution_id": execution_id,
@@ -102,6 +102,12 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
     status["runtime_alignment"] = {"aligned": aligned, "reason": reason}
     if not aligned:
         status.update({"state": "FAILED", "completed_at": scanner_now(), "error": reason})
+        write_scanner_status(status)
+        return 0
+    cluster_aligned, cluster_reason = validate_cluster_alignment("paper_scanner", ("web",))
+    status["cluster_alignment"] = {"aligned": cluster_aligned, "reason": cluster_reason}
+    if not cluster_aligned:
+        status.update({"state": "BLOCKED_DEPLOY_MISMATCH", "completed_at": scanner_now(), "error": cluster_reason})
         write_scanner_status(status)
         return 0
     try:

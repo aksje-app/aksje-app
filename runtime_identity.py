@@ -53,6 +53,40 @@ def validate_expected_runtime() -> tuple[bool, str]:
     return True, "Kjøretidsversjonen samsvarer med forventet versjon." if expected else "Ingen eksplisitt forventet versjon er satt."
 
 
+def validate_cluster_alignment(role: str, required_roles: tuple[str, ...] = ("web",), max_age_minutes: int = 90) -> tuple[bool, str]:
+    """Require fresh peers to run the exact same release commit and version."""
+    required = str(os.getenv("REQUIRE_CLUSTER_ALIGNMENT") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if not required:
+        return True, "Automatisk klyngesamsvar er ikke aktivert i dette miljøet."
+    current = current_runtime_identity(role)
+    if current["commit"] == "ukjent":
+        return False, "Render-commit mangler; trygg klyngesammenligning kan ikke utføres."
+    snapshot = runtime_identity_snapshot()
+    identities = snapshot.get("identities") or {}
+    now = datetime.now(timezone.utc)
+    problems: list[str] = []
+    for peer_role in required_roles:
+        peer = identities.get(peer_role) if isinstance(identities, dict) else None
+        if not isinstance(peer, dict):
+            problems.append(f"{peer_role}: identitet mangler")
+            continue
+        try:
+            observed = datetime.fromisoformat(str(peer.get("observed_at") or "").replace("Z", "+00:00"))
+            observed = observed.replace(tzinfo=observed.tzinfo or timezone.utc).astimezone(timezone.utc)
+            age_minutes = (now - observed).total_seconds() / 60.0
+        except Exception:
+            age_minutes = max_age_minutes + 1
+        if age_minutes > max_age_minutes:
+            problems.append(f"{peer_role}: identitet er {age_minutes:.0f} min gammel")
+        if str(peer.get("version") or "") != APP_VERSION:
+            problems.append(f"{peer_role}: versjon {peer.get('version') or 'ukjent'}")
+        if str(peer.get("commit") or "") != current["commit"]:
+            problems.append(f"{peer_role}: commit {peer.get('commit_short') or 'ukjent'}")
+    if problems:
+        return False, "Distribusjon ikke synkronisert: " + "; ".join(problems)
+    return True, f"{role} og {', '.join(required_roles)} kjører {APP_VERSION} / {current['commit_short']}."
+
+
 def runtime_label(role: str = "") -> str:
     row = current_runtime_identity(role)
     return f"{row['version']} · commit {row['commit_short']} · {row['service']}"

@@ -692,6 +692,7 @@ def _production_blockers_for_learning(candidate: Mapping[str, Any], params: "Aut
 
 
 LEARNING_OUTCOME_HORIZONS = (5, 10, 20, 60)
+LEARNING_OBSERVATION_LIMIT = 2000
 
 
 def load_learning_observations(limit: int = 5000) -> list[dict[str, Any]]:
@@ -702,6 +703,40 @@ def load_learning_observations(limit: int = 5000) -> list[dict[str, Any]]:
     """
     rows = _read(LEARNING_OBSERVATIONS_PATH, [])
     return [dict(row) for row in rows[:max(0, limit)] if isinstance(row, Mapping)] if isinstance(rows, list) else []
+
+
+def _compact_learning_observations(rows: Sequence[Mapping[str, Any]], limit: int = LEARNING_OBSERVATION_LIMIT) -> list[dict[str, Any]]:
+    """Protect one oldest active cohort per ticker so it can reach 20/60 days.
+
+    Older releases created one cohort per ticker per report and then retained
+    only the newest 2000 rows. Frequent reports could therefore evict every
+    cohort before maturity. Duplicate open cohorts are now retained as audit
+    history but marked SUPERSEDED; the oldest active cohort is always stored
+    before bounded historical rows.
+    """
+    normalized = [dict(row) for row in rows if isinstance(row, Mapping)]
+    open_by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for row in normalized:
+        if str(row.get("status") or "OPEN").upper() != "OPEN":
+            continue
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker:
+            open_by_ticker.setdefault(ticker, []).append(row)
+    active_ids: set[str] = set()
+    for ticker_rows in open_by_ticker.values():
+        ticker_rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("observation_id") or "")))
+        active = ticker_rows[0]
+        active_id = str(active.get("observation_id") or "")
+        active_ids.add(active_id)
+        for duplicate in ticker_rows[1:]:
+            duplicate["status"] = "SUPERSEDED"
+            duplicate["superseded_by"] = active_id
+            duplicate["superseded_reason"] = "Én aktiv læringskohort per ticker beskytter modning"
+    active = [row for row in normalized if str(row.get("observation_id") or "") in active_ids]
+    active.sort(key=lambda row: str(row.get("created_at") or ""))
+    history = [row for row in normalized if str(row.get("observation_id") or "") not in active_ids]
+    history.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    return (active + history)[:max(0, int(limit))]
 
 
 def _update_candidate_observations(
@@ -725,8 +760,9 @@ def _update_candidate_observations(
     today = str((market_snapshot or {}).get("market_date") or (market_snapshot or {}).get("as_of_date") or _now()[:10])[:10]
     updated = matured = 0
     # Update every still-open cohort with a current price when the ticker is present.
+    rows = _compact_learning_observations(rows, limit=max(LEARNING_OBSERVATION_LIMIT, len(rows)))
     for obs in rows:
-        if obs.get("status") == "CLOSED":
+        if str(obs.get("status") or "OPEN").upper() != "OPEN":
             continue
         candidate = candidate_by_ticker.get(str(obs.get("ticker") or "").upper())
         if not candidate:
@@ -780,9 +816,13 @@ def _update_candidate_observations(
         updated += 1
     # One cohort per ticker and source run; retries are therefore idempotent.
     existing = {(str(row.get("ticker") or "").upper(), str(row.get("source_run_id") or "")) for row in rows}
+    active_tickers = {
+        str(row.get("ticker") or "").upper() for row in rows
+        if str(row.get("status") or "").upper() == "OPEN"
+    }
     created = 0
     for ticker, candidate in candidate_by_ticker.items():
-        if (ticker, run_id) in existing:
+        if (ticker, run_id) in existing or ticker in active_tickers:
             continue
         price = _candidate_price(candidate)
         if price <= 0:
@@ -808,9 +848,14 @@ def _update_candidate_observations(
             **_candidate_snapshot_metadata(candidate, market_snapshot),
         })
         created += 1
-    # Keep detailed recent cohorts bounded; matured aggregate evidence remains in each row.
-    _write(LEARNING_OBSERVATIONS_PATH, rows[:2000])
-    return {"created": created, "updated": updated, "matured_measurements": matured, "total": min(len(rows), 2000)}
+    rows = _compact_learning_observations(rows)
+    _write(LEARNING_OBSERVATIONS_PATH, rows)
+    return {
+        "created": created, "updated": updated, "matured_measurements": matured,
+        "total": len(rows),
+        "open": sum(1 for row in rows if str(row.get("status") or "").upper() == "OPEN"),
+        "superseded": sum(1 for row in rows if str(row.get("status") or "").upper() == "SUPERSEDED"),
+    }
 
 
 def _record_learning_outcome_measurement(position: dict[str, Any], candidate: Mapping[str, Any], price: float) -> None:

@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ab"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ab Report Delivery and Evidence Baseline"
+APP_VERSION = "v19.22.0-rc16.31ac"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ac Coordinated Deploy and Evidence Visibility"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31aa"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ab"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31ac: Koordinerer automatisk deploy av web, rapport-scheduler og Paper-scanner fra hver commit, sammenligner faktisk Render-commit før cron-arbeid, beskytter læringsobservasjoner mot å bli fortrengt før modning og viser eksplisitt short- og innsiderstatus i den kompakte hovedrapporten. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ab: Gjør JSON-nedlasting varig på tvers av Streamlit-reruns, beskriver testdeaktivert Pushover korrekt, inkluderer alle oppgaver i teknisk vedlegg og forklarer forholdet mellom kontrollunivers, dynamisk skann og kontrollandel. Alle grundig analyserte kandidater får en lett primærkildekontroll av short og innsider; bare den avgrensede evidenslisten bruker kostbar sekundær oppdagelse og full nyhetsanalyse. Ingen score-, risiko-, portefølje-, scheduler- eller handelsregel er endret.",
     "v19.22.0-rc16.31w: Kobler rapportert shortinteresse til norske, svenske og amerikanske kilder for den avgrensede evidenslisten, skiller manglende offentlig terskelposisjon fra ikke søkt og kildefeil, og viser innsiderstatus i porteføljetabellen. Svenske innsiderkategorier og utstedersøk normaliseres, SEC-evidens får korrekt primærstatus, duplikater fjernes og planlagte 10b5-1-salg nedvektes. Full rapport med vedlegg er nå primær nedlasting. Ingen handelsfullmakt eller produksjonsterskel er endret.",
     "v19.22.0-rc16.31x: Avgrenser Autonomi-snapshot til beslutningsrelevante JSON-data med hard størrelsesgrense, rapporterer fremdrift per kandidatbatch og lagrer prosessens minnetopp i jobbdiagnosen. Foreldreløs execution owner frigjøres etter bekreftet prosessrestart, og fersk heartbeat i Autonomi klassifiseres eksplisitt som sannsynlig ressursrestart. Ingen handelsfullmakt eller produksjonsterskel er endret.",

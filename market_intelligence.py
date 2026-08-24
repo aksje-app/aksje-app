@@ -2458,6 +2458,31 @@ def insider_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[
     return [grouped[key] for key in sorted(grouped)]
 
 
+def short_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate short checks without presenting missing values as zero exposure."""
+    from short_intelligence import normalize_short_snapshot
+    grouped: dict[str, dict[str, Any]] = {}
+    for candidate in candidates or []:
+        market = str(candidate.get("market") or "Ukjent")
+        snapshot = normalize_short_snapshot(candidate)
+        coverage = str(snapshot.get("coverage") or snapshot.get("status") or "NOT_SEARCHED").upper()
+        row = grouped.setdefault(market, {
+            "market": market, "checked": 0, "verified": 0, "no_public_position": 0,
+            "not_searched": 0, "not_supported": 0, "source_errors": 0,
+        })
+        if snapshot.get("verified"):
+            row["checked"] += 1; row["verified"] += 1
+        elif coverage == "CHECKED_NO_PUBLIC_POSITION":
+            row["checked"] += 1; row["no_public_position"] += 1
+        elif coverage in {"SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED", "UNAVAILABLE", "STALE"}:
+            row["checked"] += 1; row["source_errors"] += 1
+        elif coverage == "NOT_SUPPORTED":
+            row["not_supported"] += 1
+        else:
+            row["not_searched"] += 1
+    return [grouped[key] for key in sorted(grouped)]
+
+
 def apply_evidence_coverage_policy(candidates: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Make missing intelligence explicit and conservatively calibrate confidence."""
     penalties = {
@@ -3147,7 +3172,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         str(row.get("ticker") or "").upper(): row
         for row in (run.get("candidates") or []) if isinstance(row, Mapping)
     }
-    candidate_rows = [["#", "Ticker", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Kilder / dokumentasjon"]]
+    candidate_rows = [["#", "Ticker", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Short / innsider / kilder"]]
     for index, compact_candidate in enumerate(review_candidates, 1):
         ticker = str(compact_candidate.get("ticker") or "").upper()
         candidate = {**dict(canonical_by_ticker.get(ticker, {})), **dict(compact_candidate)}
@@ -3166,9 +3191,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         if short_pct is None:
             short_pct = short_snapshot.get("short_interest_pct_outstanding")
         short_text = f"short {float(short_pct):.2f}%" if short_snapshot.get("verified") and short_pct is not None else "short UKJENT"
+        raw_candidate = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        insider = raw_candidate.get("insider_intelligence") if isinstance(raw_candidate.get("insider_intelligence"), Mapping) else {}
+        insider_coverage = str(insider.get("coverage") or "NOT_SEARCHED").upper()
+        insider_text = {
+            "AVAILABLE": str(insider.get("signal") or "FUNNET"),
+            "CHECKED_NO_EVENTS": "ingen hendelser", "DISCOVERY_ONLY": "kun kildetreff",
+            "PARTIAL_SOURCE_FAILURE": "delvis kildefeil", "SOURCE_ERROR": "kildefeil",
+            "NOT_CONFIGURED": "ikke konfigurert", "NOT_SEARCHED": "ikke søkt",
+        }.get(insider_coverage, "utilstrekkelig dekning")
         source_text = (
-            f"{consensus.get('level', '-')} · {consensus.get('independent_sources', 0)} uavh. kilde(r) · "
-            f"dok. {profile.get('documentation_coverage', profile.get('data_coverage', 0))}/100 · {short_text}"
+            f"{short_text} · innsider {insider_text} · {consensus.get('independent_sources', 0)} uavh. · "
+            f"dok. {profile.get('documentation_coverage', profile.get('data_coverage', 0))}/100"
         )
         candidate_rows.append([
             candidate.get("priority_rank") or index,
@@ -3176,7 +3210,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             _p(f"{_fmt(candidate.get('investment_score', candidate.get('score')))} · {candidate.get('autonomy_outcome_label') or _decision_label(candidate.get('portfolio_action') or candidate.get('action'))}", "Tiny"),
             _p(_short(main_reason, 115), "Tiny"),
             _p(_short(main_risk, 135), "Tiny"),
-            _p(_short(source_text, 105), "Tiny"),
+            _p(_short(source_text, 150), "Tiny"),
         ])
     if len(candidate_rows) == 1:
         candidate_rows.append(["-", "Ingen", "-", "Ingen kandidatdata", "-", "-"])
@@ -3195,6 +3229,31 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             styles["Small"],
         ),
     ]
+    compact_candidates = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
+    short_market_rows = {row["market"]: row for row in short_coverage_by_market(compact_candidates)}
+    insider_market_rows = {row["market"]: row for row in insider_coverage_by_market(compact_candidates)}
+    evidence_markets = sorted(set(short_market_rows) | set(insider_market_rows))
+    if evidence_markets:
+        evidence_rows = [["Marked", "Short kontrollert", "Short ukjent", "Innsider kontrollert", "Innsider ikke søkt", "Kildefeil"]]
+        for market in evidence_markets:
+            short_row = short_market_rows.get(market, {})
+            insider_row = insider_market_rows.get(market, {})
+            evidence_rows.append([
+                market, str(short_row.get("checked", 0)),
+                str(int(short_row.get("not_searched", 0)) + int(short_row.get("not_supported", 0))),
+                str(insider_row.get("checked", 0)),
+                str(int(insider_row.get("not_searched", 0)) + int(insider_row.get("not_configured", 0))),
+                str(int(short_row.get("source_errors", 0)) + int(insider_row.get("source_errors", 0))),
+            ])
+        evidence_table = Table(evidence_rows, repeatRows=1, colWidths=[27*mm, 30*mm, 27*mm, 34*mm, 34*mm, 27*mm])
+        evidence_table.setStyle(_table_style(5.2, padding=1.2))
+        decision_story += [
+            Paragraph("Short- og innsiderdekning", styles["Subsection"]), evidence_table,
+            Paragraph(
+                "UKJENT betyr at eksponering ikke er dokumentert og regnes aldri som null. "
+                "Innsiderstatus skiller kontroll uten hendelser fra ikke søkt og kildefeil.", styles["Small"],
+            ),
+        ]
     portfolio_rows = [["Ticker", "Antall", "Inngang", "Nå", "Kostpris", "Markedsverdi", "Vekt %"]]
     for row in list(decision_portfolio.get("positions") or []):
         portfolio_rows.append([

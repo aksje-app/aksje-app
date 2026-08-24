@@ -74,7 +74,7 @@ def _maintenance_due(previous: dict[str, Any], key: str, *, default_minutes: int
 
 def _run_once_locked() -> dict[str, Any]:
     _configure_headless_logging()
-    from runtime_identity import publish_runtime_identity, validate_expected_runtime
+    from runtime_identity import publish_runtime_identity, validate_cluster_alignment, validate_expected_runtime
     started = _now()
     previous = load_unattended_state()
     state: dict[str, Any] = {
@@ -100,6 +100,14 @@ def _run_once_locked() -> dict[str, Any]:
         state["error"] = alignment_reason
         state["completed_at"] = _now()
         _notify_failure_once(state, alignment_reason)
+        return _save(state)
+    cluster_aligned, cluster_reason = validate_cluster_alignment("report_scheduler", ("web",))
+    state["cluster_alignment"] = {"aligned": cluster_aligned, "reason": cluster_reason}
+    if not cluster_aligned:
+        state["state"] = "BLOCKED_DEPLOY_MISMATCH"
+        state["error"] = cluster_reason
+        state["completed_at"] = _now()
+        _notify_failure_once(state, cluster_reason)
         return _save(state)
 
     try:
