@@ -827,6 +827,35 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         )
     enriched_by_ticker = {str(row.get("ticker") or "").upper(): row for row in evidence_rows}
 
+    # Every deeply analysed candidate receives a lightweight market-primary
+    # check for insider transactions and reported short interest.  Only the
+    # bounded evidence shortlist performs secondary discovery, news analysis
+    # and the full evidence workflow.  This closes misleading NOT_SEARCHED
+    # gaps without expanding model work or retaining an all-universe payload.
+    baseline_rows = [
+        row for row in extended_source_rows
+        if str(row.get("ticker") or "").upper() not in evidence_tickers
+    ]
+    if cfg.use_insider_intelligence and baseline_rows:
+        from insider_intelligence import enrich_rows as enrich_insider_rows
+        baseline_rows = enrich_insider_rows(
+            baseline_rows, force_refresh=intelligence_force_refresh, primary_only=True,
+            progress_callback=(lambda done, total, ticker: progress_callback({
+                "phase": "INSIDER_BASELINE", "completed": done, "total": total, "ticker": ticker,
+                "message": f"Grunnkontroll innsider {done}/{total}: {ticker}",
+            })) if progress_callback else None,
+        )
+    if baseline_rows:
+        from short_data_sources import enrich_rows as enrich_short_rows
+        baseline_rows = enrich_short_rows(
+            baseline_rows, force_refresh=intelligence_force_refresh,
+            progress_callback=(lambda done, total, ticker: progress_callback({
+                "phase": "SHORT_BASELINE", "completed": done, "total": total, "ticker": ticker,
+                "message": f"Grunnkontroll short {done}/{total}: {ticker}",
+            })) if progress_callback else None,
+        )
+    enriched_by_ticker.update({str(row.get("ticker") or "").upper(): row for row in baseline_rows})
+
     def _evidence_area_completed(row: Mapping[str, Any], area: str, enabled: bool) -> bool:
         if not enabled:
             return True

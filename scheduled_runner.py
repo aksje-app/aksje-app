@@ -74,6 +74,7 @@ def _maintenance_due(previous: dict[str, Any], key: str, *, default_minutes: int
 
 def _run_once_locked() -> dict[str, Any]:
     _configure_headless_logging()
+    from runtime_identity import publish_runtime_identity, validate_expected_runtime
     started = _now()
     previous = load_unattended_state()
     state: dict[str, Any] = {
@@ -90,6 +91,16 @@ def _run_once_locked() -> dict[str, Any]:
         "last_failure_fingerprint": previous.get("last_failure_fingerprint", ""),
     }
     _save(state)
+
+    state["runtime_identity"] = publish_runtime_identity("report_scheduler")
+    aligned, alignment_reason = validate_expected_runtime()
+    state["runtime_alignment"] = {"aligned": aligned, "reason": alignment_reason}
+    if not aligned:
+        state["state"] = "FAILED"
+        state["error"] = alignment_reason
+        state["completed_at"] = _now()
+        _notify_failure_once(state, alignment_reason)
+        return _save(state)
 
     try:
         state["runtime_dependencies"] = assert_runtime_dependencies()

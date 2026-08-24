@@ -21,6 +21,7 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from html import escape as html_escape
+from urllib.parse import quote
 from typing import Any, Mapping, Sequence, Callable
 
 from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, infer_market_from_ticker, normalize_candidate_identity, run_pipeline
@@ -1048,6 +1049,7 @@ def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, An
                     f"Lagring: {'bekreftet' if row['stored'] else 'ikke bekreftet'}",
                     f"Feil: {row['error'] or 'ingen detalj registrert'}",
                     f"Programversjon: {APP_VERSION}",
+                    f"Kjøretid: {__import__('runtime_identity').runtime_label('report_scheduler')}",
                 ]),
                 title=f"❌ MANGLENDE FAST RAPPORT · {row['name']}",
             ))
@@ -1545,6 +1547,8 @@ def _notification_status_explanation(notification: Mapping[str, Any] | None) -> 
         return "Pushover sendt"
     if row.get("attempted"):
         return "Pushover forsøkt, men ikke sendt" + (f": {detail}" if detail else "")
+    if row.get("test_run") is True or "test uten varsling" in detail.casefold():
+        return "Ikke sendt – testkjøring med rapportvarsling deaktivert"
     if detail:
         return "Pushover ikke forsøkt: " + detail
     return "Pushover ikke forsøkt: Ingen varslingsbeslutning registrert"
@@ -1694,6 +1698,50 @@ def safe_ascii_report_filename(run: Mapping[str, Any], extension: str = "txt") -
     while "__" in ascii_name:
         ascii_name = ascii_name.replace("__", "_")
     return ascii_name.strip("_") or f"rapport.{extension}"
+
+
+def durable_json_download(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Materialise report JSON under Streamlit's static directory.
+
+    ``st.download_button`` owns a session-bound media object which can vanish
+    during report-progress reruns.  A static file survives those reruns and is
+    streamed by the web service instead of being retained as another widget
+    payload in browser/session memory.
+    """
+    payload = json.dumps(dict(run or {}), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+    filename = safe_report_filename(run, "json")
+    token = str(run.get("public_report_token") or "").strip()
+    if len(token) < 32:
+        import hashlib
+        token = hashlib.sha256(payload).hexdigest()
+    safe_token = "".join(ch for ch in token if ch.isalnum() or ch in "-_")
+    stored_name = f"public_report_{safe_token}.json"
+    target = PUBLIC_REPORT_DIR / stored_name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_bytes(payload)
+    temporary.replace(target)
+    return {
+        "data": payload,
+        "filename": filename,
+        "url": f"/app/static/reports/{quote(stored_name)}",
+        "size": len(payload),
+    }
+
+
+def render_durable_json_download(st, run: Mapping[str, Any], *, label: str = "{ } Last ned JSON") -> None:
+    delivery = durable_json_download(run)
+    safe_url = html_escape(str(delivery["url"]), quote=True)
+    safe_name = html_escape(str(delivery["filename"]), quote=True)
+    safe_label = html_escape(label)
+    st.markdown(
+        f'<a href="{safe_url}" download="{safe_name}" '
+        'style="display:block;text-align:center;padding:.55rem .8rem;border-radius:.5rem;'
+        'background:#0796cf;border:1px solid #42c9ff;color:white;text-decoration:none;font-weight:700">'
+        f'{safe_label}</a>',
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Varig JSON-fil · {int(delivery['size']) / (1024 * 1024):.1f} MB")
 
 
 def _candidate_map(run: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -2272,6 +2320,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             f"Rapport: {identity.get('label') or 'Rapport'} · {origin}",
             f"Rapport-ID: {channel_projection.get('report_id') or run_id}",
             f"Programversjon: {APP_VERSION}",
+            f"Kjøretid: {__import__('runtime_identity').runtime_label('report_scheduler')}",
             f"Rapporttid: {report_created_local}",
             f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
             f"Jobb: {deduplicated_display_name(job.name)}", f"Markeder: {', '.join(run.get('markets', []))}",
@@ -3042,7 +3091,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     universe_rows = [row for row in (run.get("universe_coverage") or []) if isinstance(row, Mapping)]
     universe_table = None
     if universe_rows:
-        universe_data = [["Marked", "Univers", "Grovskann", "Sektorer", "Dekning", "Kilde"]]
+        universe_data = [["Marked", "Kontrollunivers", "Skannet", "Sektorer", "Kontrollandel*", "Kilde"]]
         for row in universe_rows:
             universe_data.append([
                 str(row.get("market") or "-"), str(row.get("configured_universe") or 0),
@@ -3064,7 +3113,12 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         Paragraph("Markedsdekning", styles["Subsection"]),
         coverage_table,
         *([Paragraph("Univers- og sektordekning", styles["Subsection"]), universe_table,
-           Paragraph("Kontrollert applikasjonsunivers er ikke det samme som en komplett offisiell børsliste.", styles["Tiny"])] if universe_table is not None else []),
+           Paragraph(
+               "* Kontrollandel måler kontrolluniversets andel av den konfigurerte markedslisten. "
+               "Antall skannet kan være høyere fordi grovskannet også inkluderer dynamisk kildeoppdagede symboler. "
+               "Kontrolluniverset er ikke en komplett offisiell børsliste.",
+               styles["Tiny"],
+           )] if universe_table is not None else []),
         Paragraph("Hovedkonklusjon", styles["Subsection"]),
         Paragraph(escape(str(decision_overview.get("conclusion") or "Ingen konklusjon registrert.")), styles["BodyCompact"]),
         executive_table,
@@ -4406,6 +4460,30 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                                Paragraph(f"Investert: {_fmt(portfolio_proposal.get('invested_pct', 0))} % | Kontanter: {_fmt(portfolio_proposal.get('cash_pct', 100))} %", styles["BodyCompact"]),
                                ptable])]
     technical_story = story
+    full_task_story: list[Any] = []
+    if decision_tasks:
+        full_task_rows = [["Prioritet", "Kandidat / kontroll", "Type", "Status", "Komplett oppfølging"]]
+        for task in decision_tasks:
+            full_task_rows.append([
+                _p(task.get("priority") or "NORMAL", "Tiny"),
+                _p(task.get("subject") or "-", "Tiny"),
+                _p(_loc(task.get("kind") or "-"), "Tiny"),
+                _p(_loc(task.get("status") or "-"), "Tiny"),
+                _p(task.get("action") or "-", "Tiny"),
+            ])
+        full_task_table = Table(
+            full_task_rows, repeatRows=1,
+            colWidths=[18*mm, 37*mm, 31*mm, 20*mm, 78*mm],
+        )
+        full_task_table.setStyle(_table_style(5.6, padding=1.4))
+        full_task_story = [
+            Paragraph(f"Komplett oppgavespor ({len(decision_tasks)})", styles["Section"]),
+            Paragraph(
+                "Kort rapport viser bare de tre høyest prioriterte oppgavene. Tabellen under inneholder alle registrerte oppgaver for neste kjøring.",
+                styles["Small"],
+            ),
+            full_task_table,
+        ]
     has_technical_content = bool(
         run.get("candidates") or run.get("errors") or run.get("warnings")
         or run.get("data_quality") or run.get("combined_data_quality") or run.get("combined_quality")
@@ -4417,7 +4495,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             PageBreak(),
             Paragraph("Teknisk vedlegg", styles["ReportTitle"]),
             Paragraph("Full rangering, datakontrakter, kildelogger, bevis, modellbidrag, porteføljelag og revisjonsspor.", styles["BodyCompact"]),
-        ] + decision_audit_story + technical_story[2:]
+        ] + decision_audit_story + full_task_story + technical_story[2:]
     else:
         has_followup_content_v1924 = bool(
             run.get("candidates") or run.get("changes") or decision_tasks or decision_events
@@ -7011,7 +7089,7 @@ def render_market_intelligence() -> None:
             else:
                 e2.error(str(delivery.get("error") or "Kort PDF-rapport er ikke tilgjengelig."))
             ensure_report_document(latest)
-            st.download_button("Last ned JSON", json.dumps(latest, ensure_ascii=False, indent=2, default=str), file_name=safe_report_filename(latest, "json"), mime="application/json", width="stretch", key="mi_download_json_v19132")
+            render_durable_json_download(st, latest, label="{ } Last ned JSON")
             st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", width="stretch", key="mi_download_txt_v1914")
             latest_package_key = "mi_latest_report_package_bytes_v19220_rc16"
             latest_package_name_key = "mi_latest_report_package_name_v19220_rc16"
@@ -7216,7 +7294,8 @@ def render_market_intelligence() -> None:
                 else:
                     a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
                 if json_data:
-                    b.download_button("{ } Last ned JSON", data=json_data, file_name=safe_report_filename(saved_run or row, "json"), mime="application/json", key=f"mi_dl_json_{row.get('run_id')}", width="stretch")
+                    with b:
+                        render_durable_json_download(st, saved_run or row, label="{ } Last ned JSON")
                 if saved_run:
                     c.download_button("Last ned tekst", data=build_text_report(saved_run), file_name=safe_ascii_report_filename(saved_run, "txt"), mime="text/plain", key=f"mi_dl_txt_{row.get('run_id')}", width="stretch")
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"

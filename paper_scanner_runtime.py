@@ -83,6 +83,7 @@ def paper_scanner_global_lock():
 
 
 def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int:
+    from runtime_identity import publish_runtime_identity, validate_expected_runtime
     execution_id = f"PAPER-SCANNER-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     status = {
         "execution_id": execution_id,
@@ -94,8 +95,15 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
         "process": "scanner_worker",
         "trades_executed": 0,
         "error": "",
+        "runtime_identity": publish_runtime_identity("paper_scanner"),
     }
     write_scanner_status(status)
+    aligned, reason = validate_expected_runtime()
+    status["runtime_alignment"] = {"aligned": aligned, "reason": reason}
+    if not aligned:
+        status.update({"state": "FAILED", "completed_at": scanner_now(), "error": reason})
+        write_scanner_status(status)
+        return 0
     try:
         with paper_scanner_global_lock() as acquired:
             if not acquired:

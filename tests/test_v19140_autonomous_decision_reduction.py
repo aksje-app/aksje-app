@@ -109,19 +109,26 @@ def test_pipeline_only_calls_expensive_sources_for_stage3_budget(monkeypatch):
 
     import insider_intelligence
     import news_intelligence
+    import short_data_sources
 
-    calls = {"insider": 0, "news": 0}
+    calls = {"insider_full": 0, "insider_baseline": 0, "news": 0, "short": 0}
 
     def insider_enrich(items, **kwargs):
-        calls["insider"] += len(items)
+        key = "insider_baseline" if kwargs.get("primary_only") else "insider_full"
+        calls[key] += len(items)
         return [{**item, "insider_intelligence": {"coverage": "CHECKED_NO_EVENTS"}} for item in items]
 
     def news_enrich(items, **kwargs):
         calls["news"] += len(items)
         return [{**item, "news_intelligence": {"coverage": "CHECKED_NO_EVENTS"}} for item in items]
 
+    def short_enrich(items, **kwargs):
+        calls["short"] += len(items)
+        return [{**item, "short_data": {"coverage_status": "NO_REPORTED_DATA"}} for item in items]
+
     monkeypatch.setattr(insider_intelligence, "enrich_rows", insider_enrich)
     monkeypatch.setattr(news_intelligence, "enrich_rows", news_enrich)
+    monkeypatch.setattr(short_data_sources, "enrich_rows", short_enrich)
 
     cfg = ip.PipelineConfig(
         market_scope="USA", scan_limit=8, deep_analysis_count=5, proposal_count=2, evidence_analysis_count=2,
@@ -132,7 +139,7 @@ def test_pipeline_only_calls_expensive_sources_for_stage3_budget(monkeypatch):
     assert result["analysis_stages"]["stage1"]["input"] == 8
     assert result["analysis_stages"]["stage2"]["input"] == 5
     assert result["analysis_stages"]["stage3"]["completed"] == 2
-    assert calls == {"insider": 2, "news": 2}
+    assert calls == {"insider_full": 2, "insider_baseline": 3, "news": 2, "short": 5}
     assert len(result["candidates"]) == 5
     assert sum(row["analysis_stage"] == "EVIDENCE_CONTROLLED" for row in result["candidates"]) == 2
     not_deep = [row for row in result["candidates"] if row["analysis_stage"] != "EVIDENCE_CONTROLLED"]

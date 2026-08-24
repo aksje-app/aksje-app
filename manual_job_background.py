@@ -534,6 +534,11 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         lock_owner = report_execution_owner()
     except Exception as exc:
         lock_owner = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from runtime_identity import runtime_identity_snapshot
+        runtime_identities = runtime_identity_snapshot()
+    except Exception as exc:
+        runtime_identities = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     readme = (
         "Diagnosepakke for manuell bakgrunnskjøring.\n"
         "Pakken inneholder status, fremdrift og avgrenset Autonomi-læringsbevis. "
@@ -547,6 +552,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_EXECUTION_OWNER.json": json.dumps(lock_owner, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/RUNTIME_IDENTITIES.json": json.dumps(runtime_identities, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_TIMELINE.json": json.dumps(report_test.get("timeline") or [], ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_SYSTEM_CHECK.json": json.dumps(system_check, ensure_ascii=False, indent=2, default=str).encode("utf-8"),

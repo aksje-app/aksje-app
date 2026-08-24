@@ -181,6 +181,17 @@ from drift_center import render_drift_center
 from runtime_dependencies import check_runtime_dependencies
 
 st.set_page_config(page_title="AI Aksje Analyzer Pro", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+try:
+    from runtime_identity import publish_runtime_identity, runtime_identity_snapshot
+    publish_runtime_identity("web")
+    _runtime_identities = runtime_identity_snapshot()
+    if _runtime_identities.get("version_mismatch") or _runtime_identities.get("commit_mismatch"):
+        st.error(
+            "Kritisk distribusjonsavvik: Render-tjenestene kjører ulike versjoner eller commits. "
+            "Planlagte leveranser må kontrolleres før produksjonsbruk."
+        )
+except Exception as _runtime_identity_error:
+    logging.warning("Kjøretidsidentitet kunne ikke publiseres: %s", _runtime_identity_error)
 install_navigation_rerun_guard_v19220_rc14(st)
 
 _runtime_dependencies_v19146 = check_runtime_dependencies()

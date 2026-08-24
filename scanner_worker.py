@@ -1,4 +1,5 @@
 import logging
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 from cron_control import should_run_background_scan, mark_background_scan_started
 from currency_alert_service import run_currency_alert_checks
 
@@ -205,7 +206,11 @@ def get_rsi_values(item):
 
 
 def analyze_ticker(ticker, *, market_snapshot_id="", run_id=""):
-    item = score_stock(ticker, use_news=False)
+    try:
+        item = score_stock(ticker, use_news=False)
+    except Exception as exc:
+        logging.warning("Markedsdatafeil isolert for %s: %s: %s", ticker, type(exc).__name__, str(exc)[:180])
+        return None
     if not item:
         return None
 
