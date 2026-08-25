@@ -3134,6 +3134,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             styles["Section"],
         ),
         Paragraph(f"Type: {escape(str(report_metadata.get('report_type') or identity.get('type') or '-'))} · Jobb: {escape(_deduplicated_job_name(run.get('job_name') or '-'))}", styles["Small"]),
+        Paragraph(
+            "Denne investordelen er et kort beslutningsdokument. Komplett kilde-, modell-, oppgave- og integritetsspor "
+            "ligger i rapportens separate tekniske vedlegg i Rapportsenteret.", styles["Small"],
+        ),
         decision_meta,
         Paragraph("Markedsdekning", styles["Subsection"]),
         coverage_table,
@@ -3271,7 +3275,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     portfolio_table.setStyle(_table_style(5.2, padding=1.2))
     portfolio_result_rows = [["Ticker", "Resultat", "Resultat %", "Eiertid", "Score inn/nå", "Short", "Innsider", "Kapitalstatus"]]
     for row in list(decision_portfolio.get("positions") or []):
-        short = row.get("short_intelligence") if isinstance(row.get("short_intelligence"), Mapping) else {}
+        from short_intelligence import normalize_short_snapshot
+        short = normalize_short_snapshot(row)
         short_pct = short.get("short_interest_pct_float")
         if short_pct is None:
             short_pct = short.get("short_interest_pct_outstanding")
@@ -6019,12 +6024,19 @@ def revalidate_provisional_reports(
                 revision_parent=parent,
                 send_notifications=False,
             )
+            revised_state = str((revised.get("report_status") or {}).get("state") or "")
+            notification_sent = False
+            notification_detail = ""
+            if revised_state == "FINAL":
+                notification_sent, notification_detail = _notification(job, revised)
             results.append({
                 "parent_run_id": parent.get("run_id"),
                 "run_id": revised.get("run_id"),
                 "revision": (revised.get("report_revision") or {}).get("revision_label"),
-                "state": (revised.get("report_status") or {}).get("state"),
+                "state": revised_state,
                 "material_change": (revised.get("change_since_previous") or {}).get("material_change"),
+                "notification_sent": notification_sent,
+                "notification_detail": notification_detail,
             })
         except Exception as exc:
             errors.append({"run_id": str(parent.get("run_id") or ""), "error": str(exc)[:500]})

@@ -1,6 +1,7 @@
 import math
 import os
 import time
+from collections import OrderedDict
 from typing import Any, Dict, Mapping, Optional, Sequence
 
 import pandas as pd
@@ -26,9 +27,33 @@ FAST_CACHE_TTL_SECONDS = int(os.getenv("APP_SCORE_FAST_CACHE_TTL_SECONDS", "900"
 INSIDER_SCORE_MAX_ADJUSTMENT = float(os.getenv("APP_INSIDER_SCORE_MAX_ADJUSTMENT", "0.6") or 0.6)
 INSIDER_RANKING_LIMIT = int(os.getenv("APP_INSIDER_RANKING_LIMIT", "12") or 12)
 
-_HISTORY_CACHE: Dict[tuple, tuple[float, pd.DataFrame]] = {}
-_INFO_CACHE: Dict[str, tuple[float, dict]] = {}
-_INSIDER_CACHE: Dict[str, tuple[float, dict]] = {}
+_HISTORY_CACHE: OrderedDict[tuple, tuple[float, pd.DataFrame]] = OrderedDict()
+_INFO_CACHE: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_INSIDER_CACHE: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+HISTORY_CACHE_MAX_ITEMS = max(1, int(os.getenv("APP_HISTORY_CACHE_MAX_ITEMS", "8") or 8))
+INFO_CACHE_MAX_ITEMS = max(1, int(os.getenv("APP_INFO_CACHE_MAX_ITEMS", "24") or 24))
+INSIDER_CACHE_MAX_ITEMS = max(1, int(os.getenv("APP_INSIDER_CACHE_MAX_ITEMS", "24") or 24))
+
+
+def _cache_put(cache, key, value, max_items):
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > max_items:
+        cache.popitem(last=False)
+
+
+def release_score_caches(*, history: bool = True, info: bool = False, insider: bool = False) -> dict:
+    """Release only transient scoring caches; durable/user data is untouched."""
+    before = {"history": len(_HISTORY_CACHE), "info": len(_INFO_CACHE), "insider": len(_INSIDER_CACHE)}
+    if history:
+        _HISTORY_CACHE.clear()
+    if info:
+        _INFO_CACHE.clear()
+    if insider:
+        _INSIDER_CACHE.clear()
+    return {"before": before, "after": {
+        "history": len(_HISTORY_CACHE), "info": len(_INFO_CACHE), "insider": len(_INSIDER_CACHE)
+    }}
 
 def clamp(x, low=0.0, high=1.0):
     try:
@@ -49,11 +74,12 @@ def get_history(ticker, period="2y"):
     key = (str(ticker).upper(), str(period))
     ok, cached = _fresh(_HISTORY_CACHE.get(key))
     if ok:
+        _HISTORY_CACHE.move_to_end(key)
         return cached.copy()
     try:
         hist = yf.Ticker(ticker).history(period=period, auto_adjust=True)
         if hist is not None and not hist.empty:
-            _HISTORY_CACHE[key] = (time.time(), hist.copy())
+            _cache_put(_HISTORY_CACHE, key, (time.time(), hist.copy()), HISTORY_CACHE_MAX_ITEMS)
         return hist
     except Exception:
         return pd.DataFrame()
@@ -72,6 +98,7 @@ def get_histories(tickers: Sequence[str], period="2y") -> Dict[str, pd.DataFrame
         key = (ticker, str(period))
         ok, cached = _fresh(_HISTORY_CACHE.get(key))
         if ok:
+            _HISTORY_CACHE.move_to_end(key)
             out[ticker] = cached.copy()
         else:
             missing.append(ticker)
@@ -99,7 +126,7 @@ def get_histories(tickers: Sequence[str], period="2y") -> Dict[str, pd.DataFrame
             except Exception:
                 hist = pd.DataFrame()
             if hist is not None and not hist.empty:
-                _HISTORY_CACHE[(ticker, str(period))] = (time.time(), hist.copy())
+                _cache_put(_HISTORY_CACHE, (ticker, str(period)), (time.time(), hist.copy()), HISTORY_CACHE_MAX_ITEMS)
                 out[ticker] = hist
     except Exception:
         pass
@@ -114,10 +141,11 @@ def get_info(ticker):
     key = str(ticker or "").strip().upper()
     ok, cached = _fresh(_INFO_CACHE.get(key))
     if ok:
+        _INFO_CACHE.move_to_end(key)
         return dict(cached or {})
     try:
         info = yf.Ticker(ticker).info or {}
-        _INFO_CACHE[key] = (time.time(), dict(info or {}))
+        _cache_put(_INFO_CACHE, key, (time.time(), dict(info or {})), INFO_CACHE_MAX_ITEMS)
         return info
     except Exception:
         return {}
@@ -221,7 +249,7 @@ def get_cached_insider_signal(ticker, provider=None, ttl_seconds=6 * 60 * 60):
             data = {"score": data}
     except Exception as exc:
         data = {"score": 0.5, "label": "Ingen insiderdata", "error": str(exc)}
-    _INSIDER_CACHE[key] = (time.time(), dict(data or {}))
+        _cache_put(_INSIDER_CACHE, key, (time.time(), dict(data or {})), INSIDER_CACHE_MAX_ITEMS)
     return dict(data or {})
 
 def apply_insider_adjustment(item: Optional[Mapping[str, Any]], insider=None, insider_provider=None) -> Optional[dict]:

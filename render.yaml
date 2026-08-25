@@ -44,7 +44,7 @@ services:
       - key: NEWSAPI_FALLBACK_ONLY
         value: "true"
       - key: REPORT_REVALIDATION_HOURS
-        value: "6"
+        value: "1"
       - key: SEC_USER_AGENT
         sync: false
       - key: PUSHOVER_APP_TOKEN
@@ -107,7 +107,7 @@ services:
       - key: NEWSAPI_FALLBACK_ONLY
         value: "true"
       - key: REPORT_REVALIDATION_HOURS
-        value: "6"
+        value: "1"
       - key: REPORT_MAINTENANCE_INTERVAL_MINUTES
         value: "360"
       - key: SEC_USER_AGENT
@@ -128,7 +128,7 @@ services:
     name: aksje-app-paper-scanner
     autoDeployTrigger: commit
     runtime: python
-    plan: standard
+    plan: starter
     schedule: "*/30 * * * *"
     buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
     startCommand: python scanner_worker.py
@@ -157,3 +157,11 @@ services:
         value: "30"
       - key: SCAN_SLEEP_SECONDS
         value: "0.5"
+      - key: APP_HISTORY_CACHE_MAX_ITEMS
+        value: "1"
+      - key: APP_INFO_CACHE_MAX_ITEMS
+        value: "8"
+      - key: APP_INSIDER_CACHE_MAX_ITEMS
+        value: "8"
+      - key: SCANNER_MEMORY_SOFT_LIMIT_MB
+        value: "410"

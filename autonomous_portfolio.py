@@ -1681,8 +1681,8 @@ def run_autonomous_cycle(
                 }
                 if params.notify_trades:
                     trade["notification"] = _notification(
-                        "TRADE", f"AUTONOMY LEARNING BUY {ticker}",
-                        f"Teoretisk læringskjøp {quantity:g} @ {price:.2f}. {trade['reason']}", trade,
+                        "LEARNING", f"AUTONOMY · SIMULERT LÆRINGSOBSERVASJON {ticker}",
+                        f"Ingen ordre eller ordinær handel. Simulert observasjon {quantity:g} @ {price:.2f}. {trade['reason']}", trade,
                     )
                 else:
                     trade["notification"] = {"status": "SKIPPED_POLICY", "detail": "Læringsvarsling deaktivert"}

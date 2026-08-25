@@ -11,6 +11,8 @@ from storage_architecture import runtime_data_path
 
 PAPER_SCANNER_STATUS_KEY = "paper_trading/scanner_status.json"
 PAPER_SCANNER_STATUS_PATH = runtime_data_path("paper_trading", "scanner_status.json")
+PAPER_SCANNER_CHECKPOINT_KEY = "paper_trading/scanner_checkpoint.json"
+PAPER_SCANNER_CHECKPOINT_PATH = runtime_data_path("paper_trading", "scanner_checkpoint.json")
 # Deliberately different from execution_coordination._REPORT_EXECUTION_LOCK_ID.
 # Paper scanning and report generation are independent workloads and must never
 # suppress each other.
@@ -28,6 +30,21 @@ def write_scanner_status(value: dict) -> None:
 def load_scanner_status() -> dict:
     value = read_json(PAPER_SCANNER_STATUS_KEY, PAPER_SCANNER_STATUS_PATH, {})
     return dict(value) if isinstance(value, dict) else {}
+
+
+def load_scanner_checkpoint() -> dict:
+    value = read_json(PAPER_SCANNER_CHECKPOINT_KEY, PAPER_SCANNER_CHECKPOINT_PATH, {})
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def save_scanner_checkpoint(value: dict) -> None:
+    payload = dict(value or {})
+    payload["updated_at"] = scanner_now()
+    write_json(PAPER_SCANNER_CHECKPOINT_KEY, PAPER_SCANNER_CHECKPOINT_PATH, payload)
+
+
+def clear_scanner_checkpoint() -> None:
+    write_json(PAPER_SCANNER_CHECKPOINT_KEY, PAPER_SCANNER_CHECKPOINT_PATH, {})
 
 def scanner_worker_is_stale(max_age_minutes: int = 45) -> bool:
     status = load_scanner_status()
@@ -128,7 +145,7 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
         # richer heartbeat state belonging to this execution may be merged.
         status = loaded_status if str(loaded_status.get("execution_id") or "") == execution_id else status
         terminal_state = str(status.get("state") or "RUNNING")
-        completed_scan = terminal_state not in {"MARKET_CLOSED", "SKIPPED_POLICY"}
+        completed_scan = terminal_state not in {"MARKET_CLOSED", "SKIPPED_POLICY", "PARTIAL_CHECKPOINT"}
         status.update({
             "state": "COMPLETED" if completed_scan else terminal_state,
             "completed_at": scanner_now(),

@@ -32,8 +32,12 @@ from settings_store import load_settings, enabled_markets
 import os
 import time
 import requests
+import hashlib
 from datetime import datetime, timezone
-from paper_scanner_runtime import load_scanner_status, run_coordinated, update_scanner_status
+from paper_scanner_runtime import (
+    clear_scanner_checkpoint, load_scanner_checkpoint, load_scanner_status,
+    run_coordinated, save_scanner_checkpoint, update_scanner_status,
+)
 
 from paper_store import force_schema_migration
 from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
@@ -42,7 +46,8 @@ from market_hours import open_markets, should_process_ticker, market_status_line
 from background_guard import print_market_guard_summary
 
 from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, US_FALLBACK, NORWEGIAN_STOCKS, SWEDISH_STOCKS
-from analysis import score_stock
+from analysis import release_score_caches, score_stock
+from runtime_memory import memory_snapshot, release_process_memory
 from technical import calculate_rsi, calculate_macd, detect_trend
 from patterns import breakout_scanner, detect_head_shoulders, detect_inverse_head_shoulders
 from signal_engine import build_trading_decision
@@ -53,6 +58,7 @@ from services.strategy_account_service import get_strategy_account_service
 from services.simulated_execution_service import get_simulated_execution_service
 from services.paper_quality_enrichment_service import get_paper_quality_enrichment_service
 from runtime_safety import paper_trading_decision
+from ticker_health import quarantine_status, record_ticker_failure, record_ticker_success
 
 
 def _paper_candidate_context(result):
@@ -206,18 +212,26 @@ def get_rsi_values(item):
 
 
 def analyze_ticker(ticker, *, market_snapshot_id="", run_id=""):
+    quarantine = quarantine_status(ticker)
+    if quarantine.get("active"):
+        print(f"⏸ {ticker}: midlertidig datakarantene til {quarantine.get('quarantined_until')} etter gjentatte tomme svar")
+        return None
     try:
         item = score_stock(ticker, use_news=False)
     except Exception as exc:
         logging.warning("Markedsdatafeil isolert for %s: %s: %s", ticker, type(exc).__name__, str(exc)[:180])
+        record_ticker_failure(ticker, f"{type(exc).__name__}: {str(exc)[:180]}")
         return None
     if not item:
+        record_ticker_failure(ticker, "NO_MARKET_DATA: score_stock returned empty")
         return None
 
     price = get_latest_price(item)
     if price is None:
         print(f"{ticker}: mangler pris")
+        record_ticker_failure(ticker, "NO_MARKET_PRICE")
         return None
+    record_ticker_success(ticker)
 
     snapshot_service = get_market_snapshot_service()
     technical_context = build_cron_technical_context(item)
@@ -339,14 +353,39 @@ def _run_once_impl(force=False):
     print(f"Scanner {len(tickers)} tickers: {tickers}")
 
     snapshot_service = get_market_snapshot_service()
-    scan_run_id = f"PAPER-SCAN-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    ticker_signature = hashlib.sha256("\n".join(tickers).encode("utf-8")).hexdigest()
+    checkpoint = load_scanner_checkpoint()
+    resume = bool(checkpoint.get("ticker_signature") == ticker_signature and checkpoint.get("scan_run_id"))
+    scan_run_id = str(checkpoint.get("scan_run_id")) if resume else f"PAPER-SCAN-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     update_scanner_status(scan_run_id=scan_run_id, markets_open=markets, tickers_total=len(tickers), tickers_processed=0)
     market_snapshot_id = snapshot_service.new_snapshot_id(run_id=scan_run_id, source="paper_scanner")
-    candidate_snapshots = []
-    latest_prices = {}
-    trades_executed = 0
+    candidate_snapshots = list(checkpoint.get("candidate_snapshots") or []) if resume else []
+    latest_prices = dict(checkpoint.get("latest_prices") or {}) if resume else {}
+    trades_executed = int(checkpoint.get("trades_executed") or 0) if resume else 0
+    start_index = max(0, min(len(tickers), int(checkpoint.get("next_index") or 0))) if resume else 0
+    if resume:
+        print(f"Gjenopptar komplett skanning ved ticker {start_index + 1}/{len(tickers)}; ingen tickere fjernes")
 
-    for ticker_index, ticker in enumerate(tickers, start=1):
+    for ticker_index, ticker in enumerate(tickers[start_index:], start=start_index + 1):
+        memory = memory_snapshot()
+        soft_limit_mb = float(os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "410") or 410)
+        used_mb = float(memory.get("cgroup_memory_current_mb") or memory.get("process_rss_mb") or 0)
+        headroom_mb = float(memory.get("cgroup_memory_headroom_mb") or 9999)
+        if used_mb >= soft_limit_mb or headroom_mb < 80:
+            save_scanner_checkpoint({
+                "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
+                "next_index": ticker_index - 1, "candidate_snapshots": candidate_snapshots,
+                "latest_prices": latest_prices, "trades_executed": trades_executed,
+            })
+            update_scanner_status(
+                state="PARTIAL_CHECKPOINT", scan_run_id=scan_run_id,
+                tickers_processed=ticker_index - 1, tickers_total=len(tickers),
+                trades_executed=trades_executed, memory=memory,
+                message="Minnemykt kontrollpunkt lagret; neste cron fortsetter automatisk med resterende tickere",
+            )
+            print(f"Minnemykt kontrollpunkt ved {used_mb:.1f} MB; fortsetter neste cron uten redusert omfang")
+            return trades_executed
+        result = None
         try:
             update_scanner_status(
                 scan_run_id=scan_run_id, current_ticker=str(ticker),
@@ -451,6 +490,16 @@ def _run_once_impl(force=False):
 
         except Exception as e:
             print(f"Feil på {ticker}: {type(e).__name__}: {e}")
+        finally:
+            result = None
+            release_score_caches(history=True)
+            cleanup = release_process_memory(f"paper_scanner:{ticker}")
+            save_scanner_checkpoint({
+                "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
+                "next_index": ticker_index, "candidate_snapshots": candidate_snapshots,
+                "latest_prices": latest_prices, "trades_executed": trades_executed,
+            })
+            update_scanner_status(memory=cleanup.get("after"), tickers_processed=ticker_index)
 
     update_scanner_status(
         scan_run_id=scan_run_id, current_ticker="", tickers_processed=len(tickers),
@@ -522,6 +571,7 @@ def _run_once_impl(force=False):
     print(f"Positions: {list(portfolio.get('positions', {}).keys())}")
     print(f"Trades executed this run: {trades_executed}")
 
+    clear_scanner_checkpoint()
     return trades_executed
 
 
