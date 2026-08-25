@@ -7,10 +7,10 @@ import autonomous_portfolio as portfolio
 import runtime_identity
 
 
-def test_render_blueprint_autodeploys_all_three_services():
+def test_render_blueprint_autodeploys_unified_services():
     source = Path("render.yaml").read_text(encoding="utf-8")
-    assert source.count("autoDeployTrigger: commit") == 3
-    assert source.count("REQUIRE_CLUSTER_ALIGNMENT") == 2
+    assert source.count("autoDeployTrigger: commit") == 2
+    assert source.count("REQUIRE_CLUSTER_ALIGNMENT") == 1
 
 
 def test_cluster_alignment_uses_render_commit_without_manual_version(monkeypatch):

@@ -195,17 +195,33 @@ def _run_once_locked() -> dict[str, Any]:
         # A provider failure must be visible, but must not suppress scheduled reports.
         state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
 
-    # Fallback for deployments where the dedicated Paper cron is missing or
-    # stale. Paper's separate advisory lock prevents duplicate orders.
+    # Paper scanning is intentionally owned by this 2 GiB scheduler service.
+    # Reports and scanning run sequentially, never in parallel, so the already
+    # allocated Standard memory can be reused without reducing ticker, market
+    # or source coverage.  Paper's advisory lock remains a final duplicate-
+    # execution guard during the one-time retirement of a legacy scanner cron.
     try:
-        from paper_scanner_runtime import scanner_worker_is_stale
-        if scanner_worker_is_stale(max_age_minutes=45):
-            from scanner_worker import run_once as run_paper_scanner
-            state["paper_scanner_failover"] = {"state": "EXECUTED", "trades": int(run_paper_scanner(force=False) or 0)}
-        else:
-            state["paper_scanner_failover"] = {"state": "HEALTHY_DEDICATED_WORKER"}
+        from runtime_memory import release_process_memory
+        before_scan = release_process_memory("scheduled_runner:before_paper_scanner")
+        from scanner_worker import run_once as run_paper_scanner
+        trades = int(run_paper_scanner(force=False, check_currency_alerts=False) or 0)
+        from paper_scanner_runtime import load_scanner_status
+        scanner_status = dict(load_scanner_status() or {})
+        state["paper_scanner"] = {
+            "state": str(scanner_status.get("state") or "COMPLETED"),
+            "execution_mode": "SEQUENTIAL_SHARED_2GB_SCHEDULER",
+            "trades": trades,
+            "scan_run_id": str(scanner_status.get("scan_run_id") or ""),
+            "tickers_processed": int(scanner_status.get("tickers_processed") or 0),
+            "tickers_total": int(scanner_status.get("tickers_total") or 0),
+            "memory_before_scan": before_scan.get("after"),
+            "error": str(scanner_status.get("error") or "")[:500],
+        }
     except Exception as exc:
-        state["paper_scanner_failover"] = {"state": "FAILED", "error": str(exc)[:500]}
+        state["paper_scanner"] = {
+            "state": "FAILED", "execution_mode": "SEQUENTIAL_SHARED_2GB_SCHEDULER",
+            "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
 
     # Repair delivery artifacts, but never let this maintenance step block the
     # actual schedule check.
@@ -275,6 +291,7 @@ def main() -> int:
         "currency_alerts": (state.get("currency_alerts") or {}).get("state"),
         "report_repair": (state.get("report_repair") or {}).get("state"),
         "report_revalidation": (state.get("report_revalidation") or {}).get("state"),
+        "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
     return 0 if state.get("state") in {"COMPLETED", "SKIPPED_LOCKED"} else 1

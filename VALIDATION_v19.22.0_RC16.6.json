@@ -1,9 +1,0 @@
-{
-  "version": "v19.22.0-rc16.6",
-  "status": "LOCAL_PASS_WITH_LEGACY_EXPECTATION_UPDATES_REQUIRED",
-  "targeted_tests": {"passed": 30, "failed": 0},
-  "full_regression": {"passed": 715, "failed": 28, "subtests_passed": 4},
-  "failure_classification": "Legacy tests expecting rejected/watch/manual rows in candidate ranking or legacy report detail placement",
-  "runtime_validation": "PASS: zero-buy and mixed buy/rejected PDF, text, JSON sections",
-  "live_render_required": true
-}

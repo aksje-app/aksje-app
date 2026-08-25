@@ -119,39 +119,6 @@ services:
       - key: REPORT_PUBLIC_BASE_URL
         sync: false
       - key: PAPER_TRADING_ENABLED
-        value: "false"
-      - key: SCANNER_MAX_TICKERS
-        value: "30"
-      - key: SCAN_SLEEP_SECONDS
-        value: "0.5"
-  - type: cron
-    name: aksje-app-paper-scanner
-    autoDeployTrigger: commit
-    runtime: python
-    plan: starter
-    schedule: "*/30 * * * *"
-    buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
-    startCommand: python scanner_worker.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.13
-      - key: APP_ENVIRONMENT
-        value: "production"
-      - key: STORAGE_MODE
-        value: "auto"
-      - key: ALLOW_LOCAL_STORAGE_FALLBACK
-        value: "false"
-      - key: DATABASE_URL
-        sync: false
-      - key: FINNHUB_API_KEY
-        sync: false
-      - key: PUSHOVER_APP_TOKEN
-        sync: false
-      - key: PUSHOVER_USER_KEY
-        sync: false
-      - key: PAPER_TRADING_ENABLED
-        value: "true"
-      - key: REQUIRE_CLUSTER_ALIGNMENT
         value: "true"
       - key: SCANNER_MAX_TICKERS
         value: "30"
@@ -164,4 +131,4 @@ services:
       - key: APP_INSIDER_CACHE_MAX_ITEMS
         value: "8"
       - key: SCANNER_MEMORY_SOFT_LIMIT_MB
-        value: "410"
+        value: "1700"

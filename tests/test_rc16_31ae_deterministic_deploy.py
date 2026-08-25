@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_release_identity_advances_only_deploy_stabilization():
-    assert APP_VERSION == "v19.22.0-rc16.31af"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31ae"
+    assert APP_VERSION == "v19.22.0-rc16.31ah"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31ag"
 
 
 def test_production_roots_and_complete_lock_are_exact_and_installed():
@@ -30,25 +30,26 @@ def test_unpinned_requirement_is_rejected(tmp_path: Path):
         read_pins(unsafe)
 
 
-def test_all_three_render_services_use_identical_cache_free_lock_build():
+def test_all_render_services_use_identical_cache_free_lock_build():
     render = (ROOT / "render.yaml").read_text(encoding="utf-8")
     command = (
         "buildCommand: python -m pip install --disable-pip-version-check "
         "--no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py "
         "&& python tools/check_runtime_dependencies.py"
     )
-    assert render.count(command) == 3
-    assert render.count("autoDeployTrigger: commit") == 3
-    assert render.count("value: 3.12.13") == 3
+    assert render.count(command) == 2
+    assert render.count("autoDeployTrigger: commit") == 2
+    assert render.count("value: 3.12.13") == 2
     assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.12.13"
 
 
-def test_scanner_service_keeps_unambiguous_blueprint_name():
+def test_scanner_is_owned_by_standard_report_scheduler():
     render = (ROOT / "render.yaml").read_text(encoding="utf-8")
     assert "name: aksje-app-report-scheduler" in render
-    assert "name: aksje-app-paper-scanner" in render
+    assert "name: aksje-app-paper-scanner" not in render
     assert "startCommand: python scheduled_runner.py" in render
-    assert "startCommand: python scanner_worker.py" in render
+    assert "startCommand: python scanner_worker.py" not in render
+    assert "plan: standard" in render
 
 
 def test_legacy_naive_scanner_timestamp_remains_safe():

@@ -7,7 +7,7 @@ def test_python_runtime_is_pinned_to_31213() -> None:
     assert (ROOT / 'runtime.txt').read_text(encoding='utf-8').strip() == 'python-3.12.13'
     assert (ROOT / '.python-version').read_text(encoding='utf-8').strip() == '3.12.13'
     render = (ROOT / 'render.yaml').read_text(encoding='utf-8')
-    assert render.count('value: 3.12.13') == 3
+    assert render.count('value: 3.12.13') == 2
 
 
 def test_remember_bridge_is_not_invoked_by_login_paths() -> None:
@@ -19,12 +19,16 @@ def test_remember_bridge_is_not_invoked_by_login_paths() -> None:
     assert '_set_logged_in(user, remember=bool(remember_me))' in auth
 
 
-def test_release_has_no_report_or_ui_source_changes_against_manifest() -> None:
-    # The release inventory is intentionally limited to authentication/runtime/version/docs.
-    allowed = {
-        '.python-version', 'auth.py', 'app_version.py',
-        'RELEASE_NOTES_v19.16.7.md', 'DEPLOY_v19.16.7.md',
-        'tests/test_v19167_stability_only.py',
+def test_distribution_keeps_only_current_root_release_contract() -> None:
+    from app_version import APP_VERSION
+
+    tag = APP_VERSION.replace('-rc', '_RC')
+    current = {
+        f'RELEASE_NOTES_{tag}.md', f'ACCEPTANCE_{tag}.md', f'DEPLOY_{tag}.md',
     }
-    inventory = (ROOT / 'CHANGE_INVENTORY_v19.16.7.txt').read_text(encoding='utf-8').splitlines()
-    assert set(filter(None, inventory)) == allowed
+    release_docs = {
+        path.name for pattern in ('RELEASE_NOTES_*.md', 'ACCEPTANCE_*.md', 'DEPLOY_*.md')
+        for path in ROOT.glob(pattern)
+    }
+    assert release_docs == current
+    assert not list(ROOT.glob('CHANGE_INVENTORY_*.txt'))
