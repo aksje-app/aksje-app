@@ -19,6 +19,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 from investment_pipeline import canonical_market_ticker
+from ticker_health import quarantine_status, record_ticker_failure, record_ticker_success
 
 VERSION = "v18.6.93e"
 CACHE_DIR = runtime_data_path("market_intelligence") / "enrichment_cache"
@@ -308,6 +309,22 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
             cached["fetch_completed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             cached["refresh_proof"] = "CACHE_USED"
             return cached
+    quarantine = quarantine_status(ticker)
+    if quarantine.get("active") and not force_refresh:
+        base.update({
+            "data_fetch_status": "QUARANTINED",
+            "data_fetch_error": str(quarantine.get("last_error") or "REPEATED_NO_MARKET_DATA"),
+            "analysis_trace": [{
+                "step": "ticker_health", "status": "QUARANTINED",
+                "detail": str(quarantine.get("quarantine_reason") or "REPEATED_NO_MARKET_DATA"),
+                "quarantined_until": quarantine.get("quarantined_until"),
+            }],
+            "ticker_health": quarantine,
+            "fetch_started_at": request_started,
+            "fetch_completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "refresh_proof": "LIVE_SKIPPED_QUARANTINE",
+        })
+        return base
     trace: list[dict[str, Any]] = [{
         "step": "cache_policy",
         "status": "BYPASSED" if force_refresh else "MISS",
@@ -377,6 +394,10 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
         enriched["refresh_proof"] = "LIVE_CACHE_BYPASSED" if force_refresh else "LIVE_CACHE_MISS"
         trace.append({"step": "refresh_proof", "status": "OK", "detail": enriched["refresh_proof"], "latest_trade_date": latest_trade_date, "market_data_changed": enriched["market_data_changed"]})
         _write_cache(ticker, enriched)
+        if observed:
+            record_ticker_success(ticker)
+        else:
+            enriched["ticker_health"] = record_ticker_failure(ticker, "NO_MARKET_DATA")
         return enriched
     except Exception as exc:
         base.update({
@@ -387,6 +408,7 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
             "fetch_completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "refresh_proof": "LIVE_ATTEMPT_FAILED" if force_refresh else "FETCH_FAILED",
         })
+        base["ticker_health"] = record_ticker_failure(ticker, f"{type(exc).__name__}: {str(exc)[:180]}")
         return base
 
 

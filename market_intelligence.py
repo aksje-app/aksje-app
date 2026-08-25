@@ -2427,7 +2427,12 @@ def insider_coverage_by_market(candidates: Sequence[Mapping[str, Any]]) -> list[
         readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
         search_log = [row for row in (insider.get("search_log") or []) if isinstance(row, Mapping)]
         attempted = any(bool(row.get("attempted")) for row in search_log)
-        status = str(readiness.get("insider") or insider.get("coverage") or insider.get("status") or "NOT_SEARCHED").upper()
+        # Actual source activity is authoritative. A stale readiness wrapper
+        # must never turn an executed search into NOT_SEARCHED in the PDF.
+        status = str(
+            (insider.get("coverage") or insider.get("status")) if attempted
+            else (readiness.get("insider") or insider.get("coverage") or insider.get("status") or "NOT_SEARCHED")
+        ).upper()
         row = grouped.setdefault(market, {
             "market": market, "checked": 0, "verified": 0, "discovery": 0,
             "no_events": 0, "missing": 0, "not_searched": 0, "not_configured": 0,
@@ -3195,8 +3200,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         if short_pct is None:
             short_pct = short_snapshot.get("short_interest_pct_outstanding")
         short_text = f"short {float(short_pct):.2f}%" if short_snapshot.get("verified") and short_pct is not None else "short UKJENT"
-        raw_candidate = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
-        insider = raw_candidate.get("insider_intelligence") if isinstance(raw_candidate.get("insider_intelligence"), Mapping) else {}
+        from report_portfolio_intelligence import _nested_evidence
+        insider = _nested_evidence(candidate, "insider_intelligence")
         insider_coverage = str(insider.get("coverage") or "NOT_SEARCHED").upper()
         insider_text = {
             "AVAILABLE": str(insider.get("signal") or "FUNNET"),
@@ -5518,6 +5523,13 @@ def _run_job_impl(
     _final_portfolio["snapshot_timing"] = "ETTER_AUTONOMI"
     _final_portfolio["snapshot_run_id"] = str(run_id)
     run["autonomous_portfolio_snapshot"] = _final_portfolio
+    # Owned positions are a mandatory report population, independent of the
+    # candidate evidence budget. Complete and merge their short/insider checks
+    # before the immutable report document is assembled.
+    from report_portfolio_intelligence import ensure_portfolio_evidence
+    run["candidates"] = ensure_portfolio_evidence(
+        _final_portfolio, run.get("candidates") or [], force_refresh=bool(getattr(job, "force_refresh", False))
+    )
     # Rebuild the canonical report after Autonomi so production and learning
     # activity is separated in the same document that is persisted and rendered.
     apply_report_integrity(run)

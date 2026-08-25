@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ah"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ah Clean Distribution"
+APP_VERSION = "v19.22.0-rc16.31ai"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ai Production Stabilization"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ag"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ah"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31ai: Produksjonsstabilisering som låser short- og innsiderevidens fra analysekandidat til eid posisjon og stopper motstridende kontrollstatus før publisering. Porteføljeposisjoner utenfor kandidatlisten får en avgrenset, eksplisitt evidenskontroll. Rapportplanleggerlåsen omfatter ikke lenger Paper-skanning, slik at faste rapporter 08:00, 14:00 og 22:00 ikke blokkeres av en lang skann. Mobil rapportvisning beholder en synlig retur til programmet, markedsstatusfarger har regressjonslås, og samme varige tickerkarantene brukes av rapport- og Paper-motoren med periodisk ny kontroll. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",
     "v19.22.0-rc16.31ah: Rydder den aktive distribusjonen for historiske release-, validerings-, diagnose- og testresultatfiler. Git-historikken bevarer tidligere dokumentasjon, mens FULL inneholder programkode, nødvendige ressurser og konfigurasjoner, komplett testpakke, sikkerhetspolicy, distribusjonsmanifest og kun gjeldende releasekontrakt. Ingen programfunksjon, datainnhenting, analyse-, score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ag: Samler faste rapporter og Paper-scanning sekvensielt i den eksisterende 2 GiB rapportplanleggeren. Den separate 512 MiB scanner-tjenesten er fjernet fra Render-kontrakten; rapport kjøres først, prosessminnet ryddes og komplett Paper-scanning kjøres deretter med uendret marked-, ticker- og kildeomfang. Valutavarsler kjøres bare én gang per cron-syklus. Eksisterende checkpoint-, cache- og minnevern beholdes.",
     "v19.22.0-rc16.31af: Stabiliserer Autonomi for reell 512 MiB-drift uten redusert marked-, ticker- eller kildeomfang. Paper-scanneren bruker avgrensede analysecacher, frigjør data etter hver ticker og fortsetter automatisk fra et varig kontrollpunkt før minnegrensen. Gjentatte tomme tickeroppslag får en midlertidig, automatisk utløpende datakarantene uten sletting. Foreløpige rapporter revalideres tidligere og sender ny melding når en endelig revisjon foreligger; kort PDF forklarer det separate tekniske vedlegget, og shortstatus normaliseres likt i kandidat- og porteføljetabeller. Læringsvarsler merkes eksplisitt som simulering uten ordre eller ordinær handel. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",

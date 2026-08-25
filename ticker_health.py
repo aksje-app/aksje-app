@@ -61,13 +61,33 @@ def record_ticker_failure(ticker: object, reason: str) -> dict:
     failures = int(row.get("consecutive_failures") or 0) + 1
     threshold = max(2, int(os.getenv("TICKER_QUARANTINE_FAILURES", "2") or 2))
     hours = max(1, int(os.getenv("TICKER_QUARANTINE_HOURS", "24") or 24))
+    review_threshold = max(threshold + 1, int(os.getenv("TICKER_REVIEW_FAILURES", "6") or 6))
+    review_days = max(7, int(os.getenv("TICKER_REVIEW_INTERVAL_DAYS", "30") or 30))
     row.update({
         "consecutive_failures": failures, "failure_count": int(row.get("failure_count") or 0) + 1,
         "last_failure_at": _now().isoformat(timespec="seconds"), "last_error": str(reason or "NO_MARKET_DATA")[:300],
     })
     if failures >= threshold:
-        row["quarantined_until"] = (_now() + timedelta(hours=hours)).isoformat(timespec="seconds")
+        quarantine_hours = review_days * 24 if failures >= review_threshold else hours
+        row["quarantined_until"] = (_now() + timedelta(hours=quarantine_hours)).isoformat(timespec="seconds")
         row["quarantine_reason"] = "REPEATED_NO_MARKET_DATA"
+        row["verification_state"] = "PERIODIC_REVIEW" if failures >= review_threshold else "TEMPORARY_QUARANTINE"
+        row["retirement_candidate"] = failures >= review_threshold
     rows[key] = row
     _save(rows)
     return {"ticker": key, **row}
+
+
+def ticker_registry_summary() -> dict:
+    """Operational view of active and expired ticker quarantine entries."""
+    rows = _load()
+    active, retry_due = [], []
+    for ticker in sorted(rows):
+        status = quarantine_status(ticker)
+        (active if status.get("active") else retry_due).append(status)
+    return {
+        "active": active,
+        "retry_due": retry_due,
+        "active_count": len(active),
+        "retry_due_count": len(retry_due),
+    }

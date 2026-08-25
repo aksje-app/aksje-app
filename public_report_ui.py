@@ -27,17 +27,25 @@ def _hydrate_static_pdf(token: str, report: dict) -> tuple[Path, str]:
 
 
 def _report_landing_actions(static_url: str) -> str:
-    """Return mobile-safe actions without replacing the application tab."""
+    """Return a mobile report viewer that always retains an app return path."""
     safe_pdf = escape(str(static_url or ""), quote=True)
     return (
-        '<div style="display:grid;gap:.75rem;margin:.75rem 0 1rem">'
+        '<div data-testid="public-report-mobile-shell" style="display:grid;gap:.75rem;margin:.75rem 0 1rem">'
+        '<div style="position:sticky;top:0;z-index:20;display:grid;grid-template-columns:1fr 1fr;gap:.5rem;'
+        'padding:.5rem;background:#07111f;border:1px solid #334155;border-radius:.65rem">'
+        '<a href="/" target="_self" '
+        'style="display:block;text-align:center;padding:.8rem .5rem;border-radius:.5rem;'
+        'background:#0f766e;color:white;text-decoration:none;font-weight:800">'
+        '← Tilbake til programmet</a>'
         f'<a href="{safe_pdf}" target="_blank" rel="noopener noreferrer" '
         'style="display:block;text-align:center;padding:.8rem 1rem;border-radius:.5rem;'
         'background:#0b6efd;color:white;text-decoration:none;font-weight:700">'
-        'Åpne PDF i ny fane</a>'
-        '<a href="/" target="_self" '
-        'style="display:block;text-align:center;padding:.8rem 1rem;border-radius:.5rem;'
-        'border:1px solid #789;color:inherit;text-decoration:none;font-weight:700">'
+        'Åpne PDF i ny fane</a></div>'
+        f'<iframe title="Rapportvisning" src="{safe_pdf}#view=FitH" '
+        'style="width:100%;height:78vh;min-height:620px;border:1px solid #475569;border-radius:.65rem;background:white" '
+        'loading="eager"></iframe>'
+        '<a href="/" target="_self" style="display:block;text-align:center;padding:.9rem 1rem;'
+        'border:1px solid #789;border-radius:.5rem;color:inherit;text-decoration:none;font-weight:800">'
         'Tilbake til AI Aksje Analyzer</a>'
         '</div>'
     )
@@ -56,7 +64,7 @@ def render_public_report(st) -> bool:
     _, static_url = _hydrate_static_pdf(token, report)
     st.markdown("### 📄 Rapporten er klar")
     st.caption(f"Rapport-ID: {report.get('report_id') or '-'}")
-    st.info("Rapporten åpnes ikke automatisk. Programfanen beholdes slik at du alltid kan gå tilbake.")
+    st.info("Rapporten vises på denne siden. Bruk «Tilbake til programmet» over rapporten for å gå direkte tilbake.")
     st.markdown(_report_landing_actions(static_url), unsafe_allow_html=True)
     st.download_button(
         "Last ned PDF til enheten", data=report["data"], file_name=str(report.get("filename") or "rapport.pdf"),

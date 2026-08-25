@@ -1158,6 +1158,24 @@ def inject_workspace_css() -> None:
             color: #e2e8f0 !important;
             box-shadow: 0 6px 20px rgba(0,0,0,.12) !important;
         }
+        /* RC16.31ai: semantic market state must win over the generic pill.
+           Keep these after the generic !important rule to prevent silent
+           colour regressions in later theme consolidation. */
+        html body .stApp .ptw-pill.ptw-market-open {
+            border-color: rgba(34,197,94,.72) !important;
+            background: rgba(16,85,55,.78) !important;
+            color: #dcfce7 !important;
+        }
+        html body .stApp .ptw-pill.ptw-market-closed {
+            border-color: rgba(239,68,68,.72) !important;
+            background: rgba(98,25,40,.78) !important;
+            color: #fecaca !important;
+        }
+        html body .stApp .ptw-pill.ptw-market-unknown {
+            border-color: rgba(245,158,11,.62) !important;
+            background: rgba(120,53,15,.55) !important;
+            color: #fde68a !important;
+        }
         html body .stApp .ptw-title-chip {
             padding: .32rem .58rem !important;
             font-size: .72rem !important;

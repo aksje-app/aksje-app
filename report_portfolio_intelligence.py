@@ -24,6 +24,96 @@ def _dt(value: Any) -> datetime | None:
         return None
 
 
+def _nested_evidence(candidate: Mapping[str, Any], key: str) -> dict[str, Any]:
+    """Find one evidence payload through legacy candidate wrappers.
+
+    Scheduled runs have historically accumulated ``raw`` wrappers.  Evidence
+    retrieval must not depend on the wrapper depth: losing short/insider data
+    between the analysed candidate and the portfolio PDF is a publication
+    defect, not an acceptable UNKNOWN result.
+    """
+    current: Mapping[str, Any] = candidate
+    for _ in range(10):
+        value = current.get(key)
+        if isinstance(value, Mapping) and value:
+            return dict(value)
+        nested = current.get("raw")
+        if not isinstance(nested, Mapping):
+            break
+        current = nested
+    return {}
+
+
+def _with_canonical_evidence(position: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, Any]:
+    merged = {**dict(position), **dict(candidate)}
+    short_data = _nested_evidence(candidate, "short_data") or _nested_evidence(position, "short_data")
+    insider = _nested_evidence(candidate, "insider_intelligence") or _nested_evidence(position, "insider_intelligence")
+    if short_data:
+        merged["short_data"] = short_data
+    if insider:
+        merged["insider_intelligence"] = insider
+    return merged
+
+
+def ensure_portfolio_evidence(
+    portfolio: Mapping[str, Any], candidates: Sequence[Mapping[str, Any]], *, force_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """Guarantee bounded short and insider checks for every open position.
+
+    The ordinary candidate budget may omit an owned issuer. Owned positions
+    are never optional report rows, so their evidence checks are performed as
+    a small, explicit final pass and merged back into the canonical candidates.
+    """
+    result = [dict(row) for row in candidates if isinstance(row, Mapping)]
+    raw_positions = portfolio.get("positions")
+    if isinstance(raw_positions, Mapping):
+        positions = [dict(value) | {"ticker": str((value or {}).get("ticker") or ticker)}
+                     for ticker, value in raw_positions.items() if isinstance(value, Mapping)]
+    elif isinstance(raw_positions, Sequence) and not isinstance(raw_positions, (str, bytes)):
+        positions = [dict(row) for row in raw_positions if isinstance(row, Mapping) and row.get("ticker")]
+    else:
+        positions = []
+    by_issuer = {issuer_identity(row): index for index, row in enumerate(result)}
+    pending: list[dict[str, Any]] = []
+    pending_targets: list[int | None] = []
+    for position in positions:
+        identity = issuer_identity(position)
+        target_index = by_issuer.get(identity)
+        candidate = result[target_index] if target_index is not None else {}
+        merged = _with_canonical_evidence(position, candidate)
+        short = normalize_short_snapshot(merged)
+        insider = merged.get("insider_intelligence") if isinstance(merged.get("insider_intelligence"), Mapping) else {}
+        insider_attempted = any(isinstance(item, Mapping) and bool(item.get("attempted")) for item in insider.get("search_log") or [])
+        insider_terminal = str(insider.get("coverage") or "NOT_SEARCHED").upper() not in {"", "NOT_SEARCHED"}
+        if short.get("coverage") == "UNKNOWN" or not (insider_attempted or insider_terminal):
+            market = str(merged.get("market") or merged.get("country") or position.get("market") or position.get("country") or "")
+            ticker = str(merged.get("ticker") or position.get("ticker") or "").upper()
+            if not market:
+                market = "Norge" if ticker.endswith(".OL") else "Sverige" if ticker.endswith(".ST") else "USA"
+            pending.append({**dict(merged), "ticker": ticker, "market": market})
+            pending_targets.append(target_index)
+    if not pending:
+        return result
+    from short_data_sources import enrich_rows as enrich_short_rows
+    from insider_intelligence import enrich_rows as enrich_insider_rows
+    enriched = enrich_short_rows(pending, force_refresh=force_refresh)
+    enriched = enrich_insider_rows(enriched, force_refresh=force_refresh)
+    for row, target_index in zip(enriched, pending_targets):
+        if target_index is None:
+            result.append(dict(row))
+            by_issuer[issuer_identity(row)] = len(result) - 1
+            continue
+        target = dict(result[target_index])
+        raw = dict(target.get("raw") or {}) if isinstance(target.get("raw"), Mapping) else {}
+        raw["short_data"] = dict(row.get("short_data") or {})
+        raw["insider_intelligence"] = dict(row.get("insider_intelligence") or {})
+        raw["insider_score"] = row.get("insider_score")
+        raw["insider_signal"] = row.get("insider_signal")
+        target["raw"] = raw
+        result[target_index] = target
+    return result
+
+
 def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Mapping[str, Any]], *, now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     raw_positions = portfolio.get("positions")
@@ -70,6 +160,9 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "REPLACE_REVIEW": "VURDER UTSKIFTING",
             "REVIEW": "KAPITALEFFEKTIVITETSVARSEL",
         }.get(exit_decision["action"], "BEHOLD")
+        evidence_row = _with_canonical_evidence(position, candidate)
+        short_snapshot = normalize_short_snapshot(evidence_row)
+        insider_snapshot = dict(evidence_row.get("insider_intelligence") or {})
         rows.append({
             "ticker": str(ticker), "already_in_portfolio": True, "portfolio_label": "ALLEREDE I PORTEFØLJEN",
             "opened_at": str(position.get("opened_at") or ""), "holding_days": holding_days,
@@ -84,11 +177,14 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "replacement_score": round(best_replacement_score, 2) if best_replacement_score is not None and exit_decision["action"] == "REPLACE_REVIEW" else None,
             "source_run_id": str(position.get("source_run_id") or ""),
             "addition_policy": "TILLEGGSKJØP DEAKTIVERT",
-            "short_intelligence": normalize_short_snapshot({**position, **candidate}),
-            "insider_intelligence": dict(
-                ((candidate.get("raw") or {}).get("insider_intelligence") or {})
-                if isinstance(candidate.get("raw"), Mapping) else {}
-            ),
+            "short_intelligence": short_snapshot,
+            "insider_intelligence": insider_snapshot,
+            "evidence_contract": {
+                "short_checked": short_snapshot.get("coverage") not in {"UNKNOWN", "NOT_SUPPORTED"},
+                "short_coverage": short_snapshot.get("coverage"),
+                "insider_checked": bool(insider_snapshot.get("search_log")) or str(insider_snapshot.get("coverage") or "NOT_SEARCHED").upper() not in {"", "NOT_SEARCHED"},
+                "insider_coverage": str(insider_snapshot.get("coverage") or "NOT_SEARCHED").upper(),
+            },
         })
     cash = _f(portfolio.get("cash"))
     initial_cash = _f(portfolio.get("initial_cash"))
@@ -178,6 +274,21 @@ def assert_portfolio_report_integrity(report: Mapping[str, Any]) -> None:
     if reconciliation.get("ok") is not True:
         failed = [key for key, value in reconciliation.items() if key != "account_result_delta" and value is False]
         raise RuntimeError("Porteføljeregnskapet kunne ikke avstemmes: " + ", ".join(failed or ["ukjent avvik"]))
+    contradictions: list[str] = []
+    for row in report.get("positions") or []:
+        if not isinstance(row, Mapping):
+            continue
+        ticker = str(row.get("ticker") or "-")
+        contract = row.get("evidence_contract") if isinstance(row.get("evidence_contract"), Mapping) else {}
+        short = row.get("short_intelligence") if isinstance(row.get("short_intelligence"), Mapping) else {}
+        insider = row.get("insider_intelligence") if isinstance(row.get("insider_intelligence"), Mapping) else {}
+        if contract.get("short_checked") and str(short.get("coverage") or "UNKNOWN").upper() == "UNKNOWN":
+            contradictions.append(f"{ticker}: short er kontrollert, men presentert som ukjent")
+        attempted = any(isinstance(item, Mapping) and bool(item.get("attempted")) for item in insider.get("search_log") or [])
+        if attempted and str(insider.get("coverage") or "NOT_SEARCHED").upper() == "NOT_SEARCHED":
+            contradictions.append(f"{ticker}: innsider er kontrollert, men presentert som ikke søkt")
+    if contradictions:
+        raise RuntimeError("Evidenskontrakten er selvmotsigende: " + "; ".join(contradictions))
     rows = list(report.get("positions") or [])
     if int(report.get("open_positions") or 0) != len(rows):
         raise RuntimeError("Porteføljeregnskapet har ulikt posisjonsantall i sammendrag og detaljtabell")

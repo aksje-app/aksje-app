@@ -27,6 +27,27 @@ def _configure_headless_logging() -> None:
         "streamlit.runtime.state.session_state_proxy",
     ):
         logging.getLogger(name).setLevel(logging.ERROR)
+    # Some Streamlit imports reset their logger levels after startup.  A record
+    # factory is stable for the lifetime of this headless process and only
+    # demotes the two known, harmless bare-mode warnings; real warnings remain.
+    if not getattr(logging, "_ai_headless_record_factory_installed", False):
+        original_factory = logging.getLogRecordFactory()
+
+        def _headless_record_factory(*args, **kwargs):
+            record = original_factory(*args, **kwargs)
+            if (
+                str(record.name).startswith("streamlit.runtime.")
+                and (
+                    "missing ScriptRunContext" in record.getMessage()
+                    or "Session state does not function" in record.getMessage()
+                )
+            ):
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+            return record
+
+        logging.setLogRecordFactory(_headless_record_factory)
+        logging._ai_headless_record_factory_installed = True
 
 
 def _now() -> str:
@@ -134,7 +155,11 @@ def _run_once_locked() -> dict[str, Any]:
             raise RuntimeError(f"Autonomi-planleggeren er ikke aktivert for cron: {scheduler_reason}")
         from scheduler_background import run_scheduler_cycle
 
-        scheduler = dict(run_scheduler_cycle(authoritative_unattended=True, already_coordinated=True) or {})
+        # Claim only the short report-scheduler section with the scheduler
+        # advisory lock.  Paper scanning has its own lock and may take several
+        # minutes; holding the report lock around that work previously made a
+        # due 08/14/22 report wait for the following cron cycle.
+        scheduler = dict(run_scheduler_cycle(authoritative_unattended=True, already_coordinated=False) or {})
         scheduler["execution_mode"] = "AUTHORITATIVE_UNATTENDED_CRON"
         state["scheduler"] = scheduler
         try:
@@ -268,17 +293,13 @@ def _run_once_locked() -> dict[str, Any]:
 
 
 def run_once() -> dict[str, Any]:
-    """Own one complete cron cycle under the cross-process scheduler lock."""
-    from scheduler_background import global_scheduler_lock
+    """Run one cron cycle; each workload owns its narrow coordination lock.
 
-    with global_scheduler_lock() as acquired:
-        if not acquired:
-            state = {
-                "state": "SKIPPED_LOCKED", "started_at": _now(), "completed_at": _now(),
-                "process": "scheduled_runner", "error": "En annen planleggerkjøring er fortsatt aktiv.",
-            }
-            return _save(state)
-        return _run_once_locked()
+    The report lock must never cover paper scanning or maintenance.  Report
+    generation, paper scanning and maintenance already have independent
+    durable/idempotent contracts.
+    """
+    return _run_once_locked()
 
 
 def main() -> int:
@@ -294,7 +315,7 @@ def main() -> int:
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
-    return 0 if state.get("state") in {"COMPLETED", "SKIPPED_LOCKED"} else 1
+    return 0 if state.get("state") == "COMPLETED" else 1
 
 
 if __name__ == "__main__":
