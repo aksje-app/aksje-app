@@ -26,7 +26,7 @@ def main() -> int:
     def require(ok: bool, label: str) -> None:
         (checks if ok else errors).append(label)
 
-    require(APP_VERSION == "v19.22.0-rc16.31ae", "canonical app version")
+    require(APP_VERSION == "v19.22.0-rc16.31ai", "canonical app version")
     require(CONTROLLED_LEARNING_POLICY_VERSION == "v19.3.1", "controlled-learning contract")
     require(OPERATIONS_TELEMETRY_VERSION == "v19.2.0", "operations-telemetry contract")
     binding_source = (ROOT / "services/strategy_binding.py").read_text(encoding="utf-8")
