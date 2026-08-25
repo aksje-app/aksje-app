@@ -5,13 +5,13 @@ import random
 from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 from candidate_data_governance import assess_candidate_data, build_candidate_data_audit, deterministic_global_shortlist
 from short_intelligence import build_short_report, normalize_short_snapshot, portfolio_short_exposure
-from report_portfolio_intelligence import build_portfolio_report
+from report_portfolio_intelligence import assert_portfolio_report_integrity, build_portfolio_report
 from ai_learning_foundation import learning_report
 
 
 def test_version_contract_and_production_threshold_are_not_recalibrated_here():
-    assert APP_VERSION == "v19.22.0-rc16.31ah"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31ag"
+    assert APP_VERSION == "v19.22.0-rc16.31ai"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31ah"
     from autonomous_portfolio import AutonomousParameters
     assert AutonomousParameters().minimum_investment_score == 73.0
 
@@ -77,6 +77,33 @@ def test_portfolio_short_exposure_excludes_unknown_capital():
     assert exposure["verified_short_coverage_pct"] == 60.0
     assert exposure["capital_weighted_short_interest_pct"] == 15.0
     assert exposure["high_short_exposure_pct"] == 60.0
+
+
+def test_portfolio_report_preserves_nested_short_and_insider_evidence():
+    portfolio = {
+        "positions": {"AAPL": {"ticker": "AAPL", "quantity": 1, "average_price": 100, "market": "USA"}},
+        "cash": 900, "initial_cash": 1000,
+    }
+    candidate = {
+        "ticker": "AAPL", "market": "USA",
+        "raw": {"raw": {
+            "short_data": {
+                "source": "US exchange reported", "as_of": "2026-08-15",
+                "status": "VERIFIED_SECONDARY", "coverage_status": "VERIFIED_EXCHANGE_REPORTED",
+                "short_interest_pct_float": 3.24,
+            },
+            "insider_intelligence": {
+                "coverage": "CHECKED_NO_EVENTS", "signal": "KONTROLLERT – INGEN HENDELSER",
+                "search_log": [{"attempted": True, "source": "SEC Form 4", "status": "SUCCESS_NO_RESULTS"}],
+            },
+        }},
+    }
+    report = build_portfolio_report(portfolio, [candidate])
+    row = report["positions"][0]
+    assert row["short_intelligence"]["verified"] is True
+    assert row["short_intelligence"]["short_interest_pct_float"] == 3.24
+    assert row["insider_intelligence"]["coverage"] == "CHECKED_NO_EVENTS"
+    assert_portfolio_report_integrity(report)
 
 
 def test_portfolio_report_marks_unknown_short_and_keeps_accounting_integrity():

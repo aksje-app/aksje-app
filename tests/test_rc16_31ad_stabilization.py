@@ -20,8 +20,8 @@ def _candidate(ticker: str, action: str, score: float = 75.0) -> dict:
 
 
 def test_release_identity_is_stabilization_only():
-    assert APP_VERSION == "v19.22.0-rc16.31ah"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31ag"
+    assert APP_VERSION == "v19.22.0-rc16.31ai"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31ah"
 
 
 def test_shadow_preserves_canonical_action_vocabulary():

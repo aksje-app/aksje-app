@@ -24,11 +24,11 @@ def test_delayed_catchup_has_hard_action_block_in_source():
     assert '"learning_actions_blocked": True' in source
 
 
-def test_cron_has_whole_cycle_lock_cadence_and_production_capacity():
+def test_cron_has_narrow_report_lock_cadence_and_production_capacity():
     runner = Path("scheduled_runner.py").read_text(encoding="utf-8")
     blueprint = Path("render.yaml").read_text(encoding="utf-8")
-    assert "with global_scheduler_lock() as acquired" in runner
-    assert "already_coordinated=True" in runner
+    assert "already_coordinated=False" in runner
+    assert "The report lock must never cover paper scanning" in runner
     assert "REPORT_MAINTENANCE_INTERVAL_MINUTES" in runner
     assert 'schedule: "*/30 * * * *"' in blueprint
     assert "plan: standard" in blueprint

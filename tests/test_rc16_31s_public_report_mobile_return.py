@@ -13,6 +13,9 @@ def test_public_report_landing_preserves_program_tab_and_has_return_action():
     assert 'href="/" target="_self"' in markup
     assert "Åpne PDF i ny fane" in markup
     assert "Tilbake til AI Aksje Analyzer" in markup
+    assert "Tilbake til programmet" in markup
+    assert '<iframe title="Rapportvisning"' in markup
+    assert 'data-testid="public-report-mobile-shell"' in markup
 
 
 def test_public_report_action_escapes_untrusted_url_content():
