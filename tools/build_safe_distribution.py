@@ -18,13 +18,14 @@ DOC_TAG = APP_VERSION.replace("-rc", "_RC")
 ARCHIVE_BASE = APP_VERSION.split("-rc", 1)[0].replace(".", "_")
 RC_LABEL = "RC" + APP_VERSION.rsplit("-rc", 1)[1] if "-rc" in APP_VERSION else "RELEASE"
 MUTABLE_PARTS = {
-    ".git", ".app_runtime", ".pytest_cache", ".render", "__pycache__", "build",
+    ".git", ".app_runtime", ".pytest_cache", ".render", ".yfinance_cache", "__pycache__", "build",
     "cache", "data", "dist", "htmlcov", "logs", "local_runtime", "runtime", "tmp",
     "runtime_data", "storage", ".venv", "venv", "env",
 }
 FORBIDDEN_NAMES = {".env", "secrets.toml", "paper_portfolio.json", "app_users.json", "remember_tokens.json"}
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz"}
 DELTA_SUPPORT_FILES = {
+    "requirements.lock",
     "tools/audit_full_system_v19150.py",
     "tools/audit_evidence_search_v19220_rc10.py",
     "tools/audit_navigation_rerun_v19220_rc14.py",
