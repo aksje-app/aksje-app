@@ -996,10 +996,16 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         or portfolio_status in {"ACTIVE", "AKTIV"}
     )
     by_ticker = {str(row.get("ticker") or "").upper(): row for row in canonical_candidates}
+    existing_decisions = {
+        str(decision.get("ticker") or "").upper(): dict(decision)
+        for decision in _rows(portfolio_decisions.get("decisions"))
+        if str(decision.get("ticker") or "").strip()
+    }
     canonical_portfolio_rows = []
-    for decision in _rows(portfolio_decisions.get("decisions")):
-        ticker = str(decision.get("ticker") or "").upper()
-        candidate = by_ticker.get(ticker, {})
+    for candidate in canonical_candidates:
+        ticker = str(candidate.get("ticker") or "").upper()
+        decision = dict(existing_decisions.get(ticker) or {})
+        decision["ticker"] = str(candidate.get("ticker") or ticker)
         if not portfolio_active:
             reason = "Porteføljen er ikke aktiv; ingen handel kan gjennomføres."
         elif candidate.get("autonomy_outcome_code") != "KJØPSKANDIDAT":
@@ -1011,19 +1017,6 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         decision["action"] = str(candidate.get("portfolio_action") or decision.get("action") or "SKIP")
         canonical_portfolio_rows.append(decision)
     if portfolio_decisions:
-        if not canonical_portfolio_rows:
-            canonical_portfolio_rows = [{
-                "ticker": str(candidate.get("ticker") or ""),
-                "action": str(candidate.get("portfolio_action") or "SKIP"),
-                "reason": (
-                    "Porteføljen er ikke aktiv; ingen handel kan gjennomføres."
-                    if not portfolio_active else str(candidate.get("autonomy_outcome_reason") or "Kandidaten er ikke kjøpsgodkjent.")
-                ),
-                "blockers": [
-                    "Porteføljen er ikke aktiv; ingen handel kan gjennomføres."
-                    if not portfolio_active else str(candidate.get("autonomy_outcome_reason") or "Kandidaten er ikke kjøpsgodkjent.")
-                ],
-            } for candidate in canonical_candidates]
         portfolio_decisions["decisions"] = canonical_portfolio_rows
         portfolio_decisions["actions"] = {
             action: sum(1 for row in canonical_portfolio_rows if str(row.get("action") or "").upper() == action)

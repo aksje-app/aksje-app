@@ -8,6 +8,7 @@ import pandas as pd
 import yfinance as yf
 from alpha_radar_currency import market_cap_fields
 from news import get_news, simple_finance_sentiment
+from ticker_health import quarantine_status, record_ticker_failure, record_ticker_success
 
 try:
     import yfinance.cache as _yf_cache
@@ -76,12 +77,18 @@ def get_history(ticker, period="2y"):
     if ok:
         _HISTORY_CACHE.move_to_end(key)
         return cached.copy()
+    if quarantine_status(key[0]).get("active"):
+        return pd.DataFrame()
     try:
         hist = yf.Ticker(ticker).history(period=period, auto_adjust=True)
         if hist is not None and not hist.empty:
             _cache_put(_HISTORY_CACHE, key, (time.time(), hist.copy()), HISTORY_CACHE_MAX_ITEMS)
+            record_ticker_success(key[0])
+        else:
+            record_ticker_failure(key[0], "NO_MARKET_HISTORY")
         return hist
-    except Exception:
+    except Exception as exc:
+        record_ticker_failure(key[0], str(exc) or "MARKET_HISTORY_ERROR")
         return pd.DataFrame()
 
 def get_histories(tickers: Sequence[str], period="2y") -> Dict[str, pd.DataFrame]:
@@ -101,7 +108,8 @@ def get_histories(tickers: Sequence[str], period="2y") -> Dict[str, pd.DataFrame
             _HISTORY_CACHE.move_to_end(key)
             out[ticker] = cached.copy()
         else:
-            missing.append(ticker)
+            if not quarantine_status(ticker).get("active"):
+                missing.append(ticker)
     if not missing:
         return out
     try:
@@ -127,6 +135,7 @@ def get_histories(tickers: Sequence[str], period="2y") -> Dict[str, pd.DataFrame
                 hist = pd.DataFrame()
             if hist is not None and not hist.empty:
                 _cache_put(_HISTORY_CACHE, (ticker, str(period)), (time.time(), hist.copy()), HISTORY_CACHE_MAX_ITEMS)
+                record_ticker_success(ticker)
                 out[ticker] = hist
     except Exception:
         pass
@@ -143,11 +152,18 @@ def get_info(ticker):
     if ok:
         _INFO_CACHE.move_to_end(key)
         return dict(cached or {})
+    if quarantine_status(key).get("active"):
+        return {}
     try:
         info = yf.Ticker(ticker).info or {}
         _cache_put(_INFO_CACHE, key, (time.time(), dict(info or {})), INFO_CACHE_MAX_ITEMS)
+        if info:
+            record_ticker_success(key)
+        else:
+            record_ticker_failure(key, "NO_COMPANY_INFO")
         return info
-    except Exception:
+    except Exception as exc:
+        record_ticker_failure(key, str(exc) or "COMPANY_INFO_ERROR")
         return {}
 
 def calc_return(close, days):

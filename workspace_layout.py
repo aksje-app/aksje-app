@@ -1443,8 +1443,7 @@ def render_workspace_title() -> None:
         )
     with status_col:
         try:
-            from streamlit.components.v1 import html as components_html
-            components_html(browser_header_clock_document(get_app_build_label()), height=42, scrolling=False)
+            st.iframe(browser_header_clock_document(get_app_build_label()), height=42)
         except Exception:
             st.markdown(
                 f"<div class='ptw-app-title' style='justify-content:flex-end'><span class='ptw-title-chip'>{html.escape(get_app_build_label())}</span></div>",

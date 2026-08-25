@@ -1,7 +1,6 @@
 import logging
 
 import streamlit as st
-from streamlit.components.v1 import html as render_html_component
 import pandas as pd
 import hmac
 import hashlib
@@ -93,7 +92,7 @@ def _remember_storage_bridge(token=None, clear=False, *, bootstrap=False, reload
     </script>
     """
     try:
-        render_html_component(script, height=0, width=0)
+        st.iframe(script, height=1, width=1)
         return True
     except Exception as exc:
         logging.warning("Kunne ikke oppdatere Husk meg-cookie: %s", exc)

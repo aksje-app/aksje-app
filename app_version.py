@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ai"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ai Production Stabilization"
+APP_VERSION = "v19.22.0-rc16.31aj"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31aj Production Stabilization"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ah"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ai"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31aj: Stabiliserer rapportintegriteten ved å avstemme nøyaktig én porteføljebeslutning mot hver kanoniske kandidat, erstatter utgått Streamlit-komponent-API og lar den varige tickerkarantenen stoppe gjentatte ugyldige Yahoo-oppslag i den sentrale markedsdatahentingen. DELTA-pakken inneholder bare nødvendige runtimefiler; tester, verktøy og releasehistorikk ligger kun i FULL. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",
     "v19.22.0-rc16.31ai: Produksjonsstabilisering som låser short- og innsiderevidens fra analysekandidat til eid posisjon og stopper motstridende kontrollstatus før publisering. Porteføljeposisjoner utenfor kandidatlisten får en avgrenset, eksplisitt evidenskontroll. Rapportplanleggerlåsen omfatter ikke lenger Paper-skanning, slik at faste rapporter 08:00, 14:00 og 22:00 ikke blokkeres av en lang skann. Mobil rapportvisning beholder en synlig retur til programmet, markedsstatusfarger har regressjonslås, og samme varige tickerkarantene brukes av rapport- og Paper-motoren med periodisk ny kontroll. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",
     "v19.22.0-rc16.31ah: Rydder den aktive distribusjonen for historiske release-, validerings-, diagnose- og testresultatfiler. Git-historikken bevarer tidligere dokumentasjon, mens FULL inneholder programkode, nødvendige ressurser og konfigurasjoner, komplett testpakke, sikkerhetspolicy, distribusjonsmanifest og kun gjeldende releasekontrakt. Ingen programfunksjon, datainnhenting, analyse-, score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ag: Samler faste rapporter og Paper-scanning sekvensielt i den eksisterende 2 GiB rapportplanleggeren. Den separate 512 MiB scanner-tjenesten er fjernet fra Render-kontrakten; rapport kjøres først, prosessminnet ryddes og komplett Paper-scanning kjøres deretter med uendret marked-, ticker- og kildeomfang. Valutavarsler kjøres bare én gang per cron-syklus. Eksisterende checkpoint-, cache- og minnevern beholdes.",
