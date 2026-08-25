@@ -9,6 +9,25 @@ from exit_policy import evaluate_exit, policy_from
 from short_intelligence import normalize_short_snapshot, portfolio_short_exposure
 
 
+def _market_for_ticker(ticker: str, explicit: Any = "") -> str:
+    """Return the deterministic evidence jurisdiction for a listed symbol."""
+    market = str(explicit or "").strip()
+    if market:
+        return market
+    symbol = str(ticker or "").upper().strip()
+    suffixes = {
+        ".OL": "Norge",
+        ".ST": "Sverige",
+        ".HE": "Finland",
+        ".CO": "Danmark",
+        ".SA": "Brasil",
+    }
+    for suffix, inferred in suffixes.items():
+        if symbol.endswith(suffix):
+            return inferred
+    return "USA"
+
+
 def _f(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -88,8 +107,7 @@ def ensure_portfolio_evidence(
         if short.get("coverage") == "UNKNOWN" or not (insider_attempted or insider_terminal):
             market = str(merged.get("market") or merged.get("country") or position.get("market") or position.get("country") or "")
             ticker = str(merged.get("ticker") or position.get("ticker") or "").upper()
-            if not market:
-                market = "Norge" if ticker.endswith(".OL") else "Sverige" if ticker.endswith(".ST") else "USA"
+            market = _market_for_ticker(ticker, market)
             pending.append({**dict(merged), "ticker": ticker, "market": market})
             pending_targets.append(target_index)
     if not pending:
@@ -203,7 +221,10 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         row["cost_basis"] = round(_f(row.get("entry_price")) * _f(row.get("quantity")), 2)
         raw_position = positions.get(str(row.get("ticker") or ""), {})
         row["sector"] = str((raw_position or {}).get("sector") or "Ukjent")
-        row["market"] = str((raw_position or {}).get("market") or (raw_position or {}).get("country") or "Ukjent")
+        row["market"] = _market_for_ticker(
+            str(row.get("ticker") or ""),
+            (raw_position or {}).get("market") or (raw_position or {}).get("country"),
+        )
     rows.sort(key=lambda row: (row["capital_efficiency_status"] != "VURDER UTSKIFTING", row["unrealized_pnl_pct"]))
     sector_values: dict[str, float] = {}
     market_values: dict[str, float] = {}

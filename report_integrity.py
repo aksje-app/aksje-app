@@ -1015,6 +1015,11 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         decision["reason"] = reason
         decision["blockers"] = [reason]
         decision["action"] = str(candidate.get("portfolio_action") or decision.get("action") or "SKIP")
+        # The canonical integrity pass owns the final one-row-per-candidate
+        # portfolio decision contract.  Rows added here for owned positions did
+        # not previously carry the assessment receipt, causing an otherwise
+        # complete run to fail PORTFOLIO_RISK at 99 percent.
+        decision["portfolio_assessed"] = True
         canonical_portfolio_rows.append(decision)
     if portfolio_decisions:
         portfolio_decisions["decisions"] = canonical_portfolio_rows

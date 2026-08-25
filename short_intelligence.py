@@ -41,7 +41,13 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
 def normalize_short_snapshot(candidate: Mapping[str, Any]) -> dict[str, Any]:
     nested = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
     raw = candidate.get("short_data") if isinstance(candidate.get("short_data"), Mapping) else (
-        nested.get("short_data") if isinstance(nested.get("short_data"), Mapping) else {}
+        nested.get("short_data") if isinstance(nested.get("short_data"), Mapping) else (
+            # Portfolio report rows already contain the canonical normalized
+            # snapshot.  Accept it directly so the per-position table cannot
+            # say IKKE SØKT while the portfolio aggregate uses the same data.
+            candidate.get("short_intelligence")
+            if isinstance(candidate.get("short_intelligence"), Mapping) else {}
+        )
     )
     source = _text(_first(raw, "source", "source_name") or candidate.get("short_source"))
     as_of = _text(_first(raw, "as_of", "reporting_date", "data_date") or candidate.get("short_as_of"))

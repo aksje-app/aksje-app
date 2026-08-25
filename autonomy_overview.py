@@ -327,7 +327,11 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     t2.metric("Worker-heartbeat", f"{heartbeat_age} sek siden" if heartbeat_age is not None else "-")
     work_completed, work_total = status.get("work_completed"), status.get("work_total")
     t3.metric("Arbeidsenheter", f"{work_completed}/{work_total}" if work_total not in (None, "", 0) else "-")
-    context = status.get("active_ticker") or status.get("active_market") or "-"
+    context = status.get("active_ticker") or status.get("active_market")
+    if not context and state == "RUNNING":
+        stage = str(status.get("active_stage") or "").upper()
+        context = "Samlet Autonomi-steg" if stage == "AUTONOMOUS" else (stage or "Kjeden samlet")
+    context = context or "-"
     t4.metric("Arbeider med", context)
     limit = int(status.get("stage_progress_limit_seconds") or 0)
     if state == "RUNNING" and progress_age is not None and progress_age >= 60:

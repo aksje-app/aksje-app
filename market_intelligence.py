@@ -4619,6 +4619,70 @@ def build_technical_pdf(run: Mapping[str, Any], report_type: str | None = None) 
     return build_pdf(run, report_type=report_type, include_technical=True)
 
 
+def _finalize_completed_report_artifacts(
+    run: dict[str, Any], *, previous: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Regenerate both PDFs from the final execution receipt and error state.
+
+    The first render must exist before Pushover so its URL can be delivered.
+    That render is necessarily provisional. This final pass makes the stored
+    JSON, investor PDF, technical PDF and archive describe the same completed
+    execution instead of freezing the documents before the final chain gates.
+    """
+    if not run.get("pdf_path"):
+        return {"generated": False, "reason": "PDF ikke bestilt"}
+
+    run.pop("report_document", None)
+    run.pop("decision_report", None)
+    ensure_report_document(run, previous)
+
+    pdf_path = Path(str(run["pdf_path"]))
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    main_bytes = build_main_pdf(run)
+    pdf_path.write_bytes(main_bytes)
+    publish_pdf(run, main_bytes)
+    run["report_url"] = report_public_url(run)
+    run["pdf_delivery"] = {
+        "required": True,
+        "generated": True,
+        "validated": _valid_pdf_bytes(main_bytes),
+        "published": bool(run.get("public_pdf_name")),
+        "report_url_available": bool(run.get("report_url")),
+        "regenerated_after_notification": True,
+        "finalized_after_execution_receipt": True,
+    }
+
+    technical_path = Path(str(run.get("technical_pdf_path") or pdf_path.with_name(pdf_path.stem + "_technical.pdf")))
+    technical_bytes = build_technical_pdf(run)
+    technical_path.write_bytes(technical_bytes)
+    run["technical_pdf_path"] = str(technical_path)
+    run["technical_pdf_name"] = technical_path.name
+    from public_report_store import publish_durable_pdf
+    publish_durable_pdf(
+        run, technical_bytes, token_field="technical_report_token",
+        filename_field="technical_pdf_name", document_kind="technical",
+    )
+    run["technical_pdf_delivery"] = {
+        "generated": True,
+        "validated": _valid_pdf_bytes(technical_bytes),
+        "durable": bool(run.get("technical_report_token")),
+        "finalized_after_execution_receipt": True,
+    }
+
+    _write(RUNS_DIR / f"{run.get('run_id')}.json", run)
+    _write(LATEST_PATH, run)
+    archive_report(run)
+    persistence = verify_report_persistence(str(run.get("run_id") or ""))
+    if not persistence.get("ok"):
+        raise RuntimeError(str(persistence.get("error") or "Sluttrapporten kunne ikke bekreftes"))
+    run["persistence"] = persistence
+    return {
+        "generated": True,
+        "main_valid": bool(run["pdf_delivery"]["validated"]),
+        "technical_valid": bool(run["technical_pdf_delivery"]["validated"]),
+    }
+
+
 
 
 
@@ -5684,6 +5748,27 @@ def _run_job_impl(
     run["full_autonomy_execution"] = build_full_execution_receipt(run)
     if not run["full_autonomy_execution"].get("self_contained"):
         errors.append("Full Autonomy Execution er ufullstendig: " + ", ".join(run["full_autonomy_execution"].get("failed_stages") or []))
+    # The documents created before Pushover carry a usable delivery URL, but
+    # they are not the authoritative final artifacts. Persist the final error
+    # list and execution receipt, then rebuild both PDFs and the archive once.
+    run["errors"] = list(errors)
+    try:
+        run["final_artifact_sync"] = _finalize_completed_report_artifacts(run, previous=previous)
+        run["full_autonomy_execution"] = build_full_execution_receipt(run)
+    except Exception as exc:
+        errors.append(f"Sluttrapportene kunne ikke synkroniseres: {exc}")
+        run["errors"] = list(errors)
+        run["pdf_delivery"] = {
+            **dict(run.get("pdf_delivery") or {}),
+            "validated": False,
+            "finalized_after_execution_receipt": False,
+        }
+        run["technical_pdf_delivery"] = {
+            **dict(run.get("technical_pdf_delivery") or {}),
+            "validated": False,
+            "finalized_after_execution_receipt": False,
+        }
+        run["full_autonomy_execution"] = build_full_execution_receipt(run)
     # v18.9.3: both evaluators inspect the same immutable input in parallel.
     # The Shadow result is observational and cannot publish or execute anything.
     from autonomi_core.runtime.parallel_validation import build_parallel_validation, save_parallel_validation
@@ -5727,7 +5812,11 @@ def _run_job_impl(
         "duration_seconds": round(time_module.perf_counter() - full_run_started, 2),
     })
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
-    emit("COMPLETE", 1, 1, "Hele kjeden er fullført", run_id=run_id)
+    emit(
+        "COMPLETE", 1, 1,
+        "Hele kjeden er fullført" if not errors else "Kjeden ble avsluttet med dokumenterte feil",
+        run_id=run_id, status="COMPLETED" if not errors else "FAILED",
+    )
     return run
 
 
