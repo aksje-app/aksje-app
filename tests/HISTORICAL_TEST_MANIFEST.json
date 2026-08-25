@@ -83,10 +83,6 @@
       "category": "historical_version_contract",
       "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
     },
-    "tests/test_v19146_pdf_dependency_hotfix.py::test_web_scheduler_and_render_use_dependency_gate": {
-      "category": "superseded_report_or_ui_contract",
-      "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."
-    },
     "tests/test_v1915_mobile_navigation.py::test_version_is_v1915": {
       "category": "historical_version_contract",
       "reason": "Kontrakten tilhører en tidligere release og er erstattet av gjeldende RC16.31p-kontrakt."

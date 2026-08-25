@@ -1,6 +1,0 @@
-Authoritative continuation package: AI_Aksje_Analyzer_v19_22_0_INVESTOR_EDITION_RC16_2_SHARED_PROGRESS_HOTFIX_FULL.zip
-Version: v19.22.0-rc16.2
-Scope: only automatic report-center progress polling.
-Live status: not yet verified on Render.
-Expected live behavior: Rapporter and Autonomi Oversikt use the same five-second dynamic fragment and same get_active_status() source.
-Do not claim the hotfix is live-confirmed until percentage/stage/updated time change without browser refresh.

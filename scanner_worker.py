@@ -299,20 +299,21 @@ def maybe_send_trade_alert(result, msg):
     return sent
 
 
-def _run_once_impl(force=False):
+def _run_once_impl(force=False, *, check_currency_alerts=True):
     # Currency alerts are independent of the stock scanner gate and market hours.
     # This must run before should_run_background_scan(), otherwise closed markets,
     # pause windows or scanner cooldowns silently suppress every FX alert.
-    try:
-        fx_results = run_currency_alert_checks(force=force, source="scanner_worker")
-        for fx in fx_results:
-            print(
-                f"FX {fx.get('pair')}: {fx.get('status')} "
-                f"rate={fx.get('rate', '-')} sent={fx.get('sent', False)} "
-                f"reason={fx.get('reason', '-')}"
-            )
-    except Exception as exc:
-        print(f"Valutavarsel-kontroll feilet: {exc}")
+    if check_currency_alerts:
+        try:
+            fx_results = run_currency_alert_checks(force=force, source="scanner_worker")
+            for fx in fx_results:
+                print(
+                    f"FX {fx.get('pair')}: {fx.get('status')} "
+                    f"rate={fx.get('rate', '-')} sent={fx.get('sent', False)} "
+                    f"reason={fx.get('reason', '-')}"
+                )
+        except Exception as exc:
+            print(f"Valutavarsel-kontroll feilet: {exc}")
 
     if force:
         print("Cron control: FORCE=true, kjører auto-motor nå")
@@ -575,9 +576,12 @@ def _run_once_impl(force=False):
     return trades_executed
 
 
-def run_once(force=False):
+def run_once(force=False, *, check_currency_alerts=True):
     """Durable, globally coordinated unattended Paper scanner entry point."""
-    return run_coordinated(_run_once_impl, force=force)
+    def coordinated_impl(*, force=False):
+        return _run_once_impl(force=force, check_currency_alerts=check_currency_alerts)
+
+    return run_coordinated(coordinated_impl, force=force)
 
 
 if __name__ == "__main__":

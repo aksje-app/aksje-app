@@ -1,8 +1,0 @@
-{
-  "version": "v19.22.0-rc16.7",
-  "status": "LOCAL_PASS_WITH_LEGACY_EXPECTATION_UPDATES_REQUIRED",
-  "targeted_tests": {"passed": 44, "failed": 0},
-  "full_regression": {"passed": 721, "failed": 23, "subtests_passed": 4},
-  "note": "De 23 feilene er eldre tester som forventer overvåkede/avviste kandidater i hovedrangeringen eller eldre versjonskjede. Den nye buy-only kontrakten er beholdt.",
-  "live_required": ["PDF", "TXT", "JSON", "Pushover", "UI"]
-}

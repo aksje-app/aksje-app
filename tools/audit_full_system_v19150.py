@@ -51,9 +51,16 @@ def audit(root: Path = ROOT) -> dict:
     render = (root / "render.yaml").read_text(encoding="utf-8")
     _check("STREAMLIT_SERVER_USE_STARLETTE" not in render and "useStarlette" not in render,
            "STREAMLIT_CONFIG", "Ugyldig Starlette-konfigurasjon finnes fortsatt", errors)
-    _check(render.count('key: PAPER_TRADING_ENABLED') == 3, "RENDER_PAPER_KEYS", "Alle tre Render-tjenestene må angi Paper Trading", errors)
-    _check("name: aksje-app-paper-scanner" in render and "startCommand: python scanner_worker.py" in render,
-           "RENDER_PAPER_SCANNER", "Render mangler en eksplisitt Paper-skanner", errors)
+    _check(render.count('key: PAPER_TRADING_ENABLED') == 2, "RENDER_PAPER_KEYS", "Begge Render-tjenestene må angi Paper Trading", errors)
+    _check(
+        "name: aksje-app-report-scheduler" in render
+        and "plan: standard" in render
+        and "startCommand: python scheduled_runner.py" in render
+        and "name: aksje-app-paper-scanner" not in render,
+        "RENDER_UNIFIED_SCHEDULER",
+        "Render må bruke én eksplisitt 2 GiB planlegger for rapporter og Paper-skanning",
+        errors,
+    )
     _check(render.count('value: "false"') >= 6, "RENDER_FAIL_CLOSED", "Render-standardene er ikke fail-closed", errors)
     _check("key: STORAGE_MODE" in render and "key: ALLOW_LOCAL_STORAGE_FALLBACK" in render,
            "RENDER_STORAGE", "Render mangler eksplisitt lagringspolicy", errors)
