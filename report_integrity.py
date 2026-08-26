@@ -1067,6 +1067,16 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     }
     from evidence_search_status import build_run_search_summary
     result["evidence_search_summary"] = build_run_search_summary(canonical_candidates)
+    from production_coverage_contract import build_production_coverage_contract
+    coverage_configuration = dict(_mapping(result.get("scan_configuration")))
+    # A production report must account for all four source areas.  The flag is
+    # explicit so lower-level/legacy callers of ``finalize_run_integrity`` keep
+    # their historical evidence-only semantics.
+    coverage_configuration["enforce_all_areas"] = True
+    result["production_coverage_contract"] = build_production_coverage_contract(
+        canonical_candidates, configured=coverage_configuration,
+    )
+    coverage_contract = _mapping(result["production_coverage_contract"])
     combined_quality = _mapping(result.get("combined_data_quality"))
     evaluated_quality = int(combined_quality.get("evaluated") or len(canonical_candidates) or 0)
     market_valid_quality = int(combined_quality.get("market_data_valid") or 0)
@@ -1096,8 +1106,9 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "automatic_watch": int(reduction.get("automatic_watch") or 0),
         "automatic_rejected": int(reduction.get("automatic_rejected") or 0),
         "buy_candidates": int(reduction.get("buy_candidates") or 0),
-        "evidence_data_ready": evidence_ready_count,
-        "decision_ready": final_ready_count,
+        "evidence_data_ready": int(coverage_contract.get("evidence_data_ready") or 0),
+        "decision_ready": int(coverage_contract.get("decision_ready") or 0),
+        "coverage_candidate_total": int(coverage_contract.get("candidate_total") or 0),
         "preliminary_model_candidates": preliminary_count,
         "production_buy_threshold": threshold,
         "manual_review_window_points": float(reduction.get("manual_review_window_points") or 6.0),
@@ -1113,6 +1124,12 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "automatic_watch": int(result["report_summary"].get("automatic_watch") or 0),
         "manual_review": int(result["report_summary"].get("manual_review") or 0),
     }
+    scan_configuration = _mapping(result.get("scan_configuration"))
+    scan_configuration["actual_canonical_candidates"] = len(canonical_candidates)
+    scan_configuration["actual_evidence_data_ready"] = int(coverage_contract.get("evidence_data_ready") or 0)
+    scan_configuration["actual_decision_ready"] = int(coverage_contract.get("decision_ready") or 0)
+    scan_configuration["counter_contract"] = "production_coverage_contract/1.0"
+    result["scan_configuration"] = scan_configuration
     # Rebuild the decision report from the same canonical candidates used by
     # JSON and PDF. Historic decision-report payloads are retained only as
     # provenance through their own history fields, never as an active truth.

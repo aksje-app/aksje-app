@@ -2310,7 +2310,16 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             )
         report_summary_notice = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
         quality_notice = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
-        candidate_total_notice = int(report_summary_notice.get("deep_analyzed") or run.get("summary", {}).get("deep_analyzed", 0) or 0)
+        # One denominator for JSON, PDF, UI and Pushover.  Do not fall back to
+        # an earlier scan/deep-analysis counter after portfolio-only positions
+        # have been appended to the canonical report population.
+        candidate_total_notice = int(
+            report_summary_notice.get("coverage_candidate_total")
+            or (run.get("production_coverage_contract") or {}).get("candidate_total")
+            or report_summary_notice.get("deep_analyzed")
+            or run.get("summary", {}).get("deep_analyzed", 0)
+            or 0
+        )
         evidence_ready_notice = int(report_summary_notice.get("evidence_data_ready") or 0)
         report_created_local = str(
             (run.get("report_document") or {}).get("metadata", {}).get("created_at_local")
@@ -2324,7 +2333,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             f"Rapporttid: {report_created_local}",
             f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
             f"Jobb: {deduplicated_display_name(job.name)}", f"Markeder: {', '.join(run.get('markets', []))}",
-            f"Analysert: {run.get('summary', {}).get('deep_analyzed', 0)}",
+            f"Analysert: {candidate_total_notice}",
             f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
             f"Datastatus: markedsdata {_format_summary_value_for_notice(quality_notice.get('score', 0))}/100 · evidens {evidence_ready_notice}/{candidate_total_notice}",
@@ -3585,8 +3594,29 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     learning_notification = notification_channels.get("learning") if isinstance(notification_channels.get("learning"), Mapping) else {}
     notification_raw = "PASS" if (notification.get("sent") is True or str(notification.get("status") or "").upper() in {"SENT", "OK", "SUCCESS"}) else ("ERROR" if notification.get("attempted") else "NOT_SEARCHED")
     combined_quality = run.get("combined_quality") if isinstance(run.get("combined_quality"), Mapping) else (run.get("combined_data_quality") if isinstance(run.get("combined_data_quality"), Mapping) else {})
-    source_total = int(combined_quality.get("evaluated") or len(run.get("candidates") or []) or 0)
-    source_valid = int(combined_quality.get("overall_valid") or 0)
+    # The report, JSON and notification channels must use the same canonical
+    # population.  ``combined_data_quality`` may have been calculated before
+    # owned positions were appended, so its historical ``evaluated`` value is
+    # provenance only and must never become the active report denominator.
+    coverage_contract_pdf = (
+        run.get("production_coverage_contract")
+        if isinstance(run.get("production_coverage_contract"), Mapping)
+        else {}
+    )
+    report_summary_pdf = (
+        run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    )
+    source_total = int(
+        report_summary_pdf.get("coverage_candidate_total")
+        or coverage_contract_pdf.get("candidate_total")
+        or len(run.get("candidates") or [])
+        or 0
+    )
+    source_valid = int(
+        report_summary_pdf.get("evidence_data_ready")
+        if report_summary_pdf.get("evidence_data_ready") is not None
+        else coverage_contract_pdf.get("evidence_data_ready") or 0
+    )
     source_raw = "PASS" if source_total and source_valid >= source_total else ("ERROR" if source_total and source_valid == 0 else "REVIEW")
     notification_text = _notification_status_explanation(notification)
     status_stripe = Table([[
@@ -5608,6 +5638,14 @@ def _run_job_impl(
     _portfolio_report_preflight = build_portfolio_report(_final_portfolio, run.get("candidates") or [], now=_now())
     assert_portfolio_report_integrity(_portfolio_report_preflight)
     run["portfolio_accounting_preflight"] = dict(_portfolio_report_preflight.get("reconciliation") or {})
+    from autonomi_core.runtime.full_execution import reconcile_portfolio_assessment
+    run["portfolio_assessment_contract"] = reconcile_portfolio_assessment(run)
+    # This is the last canonicalisation point before every external consumer.
+    # JSON, PDFs, Pushover and publication gates must observe the same rows.
+    apply_report_integrity(run)
+    finalize_run_integrity(run, previous)
+    run.pop("report_document", None)
+    run.pop("decision_report", None)
 
     # Persist the domain result exactly once. Every downstream consumer receives
     # a view of this immutable record, not a separately assembled copy.
@@ -5682,6 +5720,7 @@ def _run_job_impl(
             "suppress_notifications", "scheduled_for",
         )})
         from autonomi_core.runtime.full_execution import pre_notification_gate
+        run["portfolio_assessment_contract"] = reconcile_portfolio_assessment(run)
         delivery_gate = pre_notification_gate(run)
         delivery_override = _scheduled_report_delivery_override(job, run, delivery_gate)
         if delivery_gate.get("ok") or delivery_override.get("allowed"):
@@ -5739,6 +5778,7 @@ def _run_job_impl(
         )
         raise ReportStageError(message, context=context) from exc
     from autonomi_core.runtime.full_execution import build_full_execution_receipt, prepublication_gate
+    run["portfolio_assessment_contract"] = reconcile_portfolio_assessment(run)
     prerequisite_gate = prepublication_gate(run)
     downstream_ok = prerequisite_gate.get("ok") and not bool(run.get("historical_learning", {}).get("error")) and (notify_ok or not job.notify_pushover or notification_is_policy_skip)
     # Final publication commit: reporting, history/learning and required

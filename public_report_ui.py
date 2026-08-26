@@ -40,7 +40,11 @@ def _report_landing_actions(static_url: str) -> str:
         f'<a href="{safe_pdf}" target="_blank" rel="noopener noreferrer" '
         'style="display:block;text-align:center;padding:.8rem 1rem;border-radius:.5rem;'
         'background:#0b6efd;color:white;text-decoration:none;font-weight:700">'
-        'Åpne PDF i ny fane</a></div>'
+        'Åpne PDF i ny fane</a>'
+        f'<a href="{safe_pdf}" download target="_blank" rel="noopener noreferrer" '
+        'style="grid-column:1/-1;display:block;text-align:center;padding:.8rem 1rem;border-radius:.5rem;'
+        'background:#0284c7;color:white;text-decoration:none;font-weight:800">'
+        'Last ned / del PDF</a></div>'
         f'<iframe title="Rapportvisning" src="{safe_pdf}#view=FitH" '
         'style="width:100%;height:78vh;min-height:620px;border:1px solid #475569;border-radius:.65rem;background:white" '
         'loading="eager"></iframe>'
@@ -65,9 +69,14 @@ def render_public_report(st) -> bool:
     st.markdown("### 📄 Rapporten er klar")
     st.caption(f"Rapport-ID: {report.get('report_id') or '-'}")
     st.info("Rapporten vises på denne siden. Bruk «Tilbake til programmet» over rapporten for å gå direkte tilbake.")
-    st.markdown(_report_landing_actions(static_url), unsafe_allow_html=True)
+    action_columns = st.columns(2)
+    with action_columns[0]:
+        st.link_button("← Tilbake til programmet", "/", width="stretch")
+    with action_columns[1]:
+        st.link_button("Åpne PDF i ny fane", static_url, width="stretch")
     st.download_button(
-        "Last ned PDF til enheten", data=report["data"], file_name=str(report.get("filename") or "rapport.pdf"),
+        "Last ned / del PDF", data=report["data"], file_name=str(report.get("filename") or "rapport.pdf"),
         mime="application/pdf", type="primary", width="stretch",
     )
+    st.markdown(_report_landing_actions(static_url), unsafe_allow_html=True)
     return True

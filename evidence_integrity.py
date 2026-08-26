@@ -124,6 +124,59 @@ def build_evidence_passport(candidate: Mapping[str, Any]) -> dict[str, Any]:
             "ranking_contribution": contribution,
             "affected_ranking": bool(contribution not in (None, 0, 0.0)),
         }
+    # Short is a required, separately documented source area.  It remains
+    # observe-only and never contributes to the production score.
+    from short_intelligence import normalize_short_snapshot
+    short = normalize_short_snapshot(candidate)
+    short_coverage = str(short.get("coverage") or "UNKNOWN").upper()
+    short_status = {
+        "VERIFIED": "VERIFIED_FACTS_FOUND",
+        "CHECKED_NO_PUBLIC_POSITION": "CHECKED_NO_EVENTS",
+        "SOURCE_ERROR": "SOURCE_ERROR",
+        "NOT_SUPPORTED": "NOT_SUPPORTED",
+    }.get(short_coverage, "NOT_SEARCHED")
+    short_attempted = short_coverage in {"VERIFIED", "CHECKED_NO_PUBLIC_POSITION", "SOURCE_ERROR"}
+    short_source = {
+        "source": short.get("source") or "Short-kilde",
+        "source_type": "SHORT_INTEREST",
+        "attempted": short_attempted,
+        "status": short_status,
+        "legacy_status": short_status,
+        "search_status": (
+            "SEARCHED_RESULTS_FOUND" if short_coverage == "VERIFIED"
+            else "SEARCHED_NO_RESULTS" if short_coverage == "CHECKED_NO_PUBLIC_POSITION"
+            else "SEARCH_FAILED" if short_coverage == "SOURCE_ERROR"
+            else "NOT_SEARCHED_UNSUPPORTED" if short_coverage == "NOT_SUPPORTED"
+            else "NOT_SEARCHED_POLICY"
+        ),
+        "reason_code": (
+            "VERIFIED_SHORT_DATA" if short_coverage == "VERIFIED"
+            else "NO_PUBLIC_POSITION" if short_coverage == "CHECKED_NO_PUBLIC_POSITION"
+            else "SOURCE_ERROR" if short_coverage == "SOURCE_ERROR"
+            else "SOURCE_UNSUPPORTED" if short_coverage == "NOT_SUPPORTED"
+            else "UNKNOWN_REASON"
+        ),
+        "results": 1 if short_coverage == "VERIFIED" else 0,
+        "checked_at": short.get("published_at") or short.get("as_of") or "",
+        "url": "",
+        "error": "",
+        "direct_primary": str(short.get("verification_status") or "").upper() in {"VERIFIED", "OFFICIAL", "LICENSED"},
+    }
+    areas["short"] = {
+        "status": short_status,
+        "search_status": short_source["search_status"],
+        "search_reason_counts": {short_source["reason_code"]: 1},
+        "search_unknown_reason_count": 1 if short_source["reason_code"] == "UNKNOWN_REASON" else 0,
+        "quality_score": STATUS_QUALITY.get(short_status, 0.0),
+        "facts": [dict(short)] if short_coverage == "VERIFIED" else [],
+        "fact_count": 1 if short_coverage == "VERIFIED" else 0,
+        "sources": [short_source],
+        "source_count": 1,
+        "fetched_at": short.get("published_at") or short.get("as_of") or "",
+        "ranking_contribution": 0.0,
+        "affected_ranking": False,
+        "observe_only": True,
+    }
     fingerprint = hashlib.sha256(
         json.dumps(areas, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
@@ -388,35 +441,62 @@ def finalize_run_integrity(run: dict[str, Any], previous: Mapping[str, Any] | No
         warnings = [str(x) for x in (run.get("warnings") or []) if str(x).strip()]
         warnings.append(f"Analysis transparency unavailable: {str(exc)[:180]}")
         run["warnings"] = warnings
-    critical = []
+    candidate_gaps = []
     top = list(run.get("raw_top3") or candidates[:3])
     for candidate in top:
         passport = candidate.get("evidence_passport") if isinstance(candidate.get("evidence_passport"), Mapping) else {}
         for area, payload in (passport.get("areas") or {}).items():
+            # Short coverage was added as an observe-only reporting area in AL.
+            # Stand-alone legacy integrity callers never supplied that area; the
+            # strict production contract below is responsible for enforcing it.
+            if area == "short" and not isinstance(run.get("production_coverage_contract"), Mapping):
+                continue
             status = str(payload.get("status") or "NOT_SEARCHED").upper()
             if status in CRITICAL_STATES:
-                critical.append({"ticker": candidate.get("ticker"), "area": area, "status": status})
+                candidate_gaps.append({"ticker": candidate.get("ticker"), "area": area, "status": status})
                 continue
             direct_primary = any(bool(row.get("direct_primary")) for row in payload.get("sources") or [])
             if area == "insider" and not payload.get("fact_count") and not direct_primary:
-                critical.append({
+                candidate_gaps.append({
                     "ticker": candidate.get("ticker"),
                     "area": area,
                     "status": "PRIMARY_SOURCE_NOT_CHECKED",
                 })
     preflight = run.get("integrity_preflight") if isinstance(run.get("integrity_preflight"), Mapping) else {}
-    provisional = bool(critical or int(preflight.get("blockers") or 0) or run.get("analysis_aborted"))
+    from production_coverage_contract import build_production_coverage_contract
+    supplied_coverage_contract = isinstance(run.get("production_coverage_contract"), Mapping)
+    coverage = run.get("production_coverage_contract") if supplied_coverage_contract else build_production_coverage_contract(candidates)
+    run["production_coverage_contract"] = coverage
+    structural_gaps = list(coverage.get("structural_gaps") or [])
+    integrity = run.get("report_integrity") if isinstance(run.get("report_integrity"), Mapping) else {}
+    technical_gaps = structural_gaps if supplied_coverage_contract else candidate_gaps
+    provisional = bool(
+        technical_gaps
+        or int(preflight.get("blockers") or 0)
+        or run.get("analysis_aborted")
+        or (integrity and not integrity.get("ok", True))
+    )
+    identity = run.get("report_identity") if isinstance(run.get("report_identity"), Mapping) else {}
+    is_draft = str(identity.get("type") or "").upper() == "UTKAST" or str(run.get("job_id") or "").upper() == "MI-DRAFT-AUTOSAVE"
+    state = "DRAFT" if is_draft else ("PROVISIONAL" if provisional else "FINAL")
+    label = (
+        "UTKAST – IKKE ENDELIG" if is_draft
+        else "FORELØPIG – TEKNISK KILDEKONTROLL UFULLSTENDIG" if provisional
+        else "ENDELIG – KILDEBEGRENSNINGER DOKUMENTERT" if candidate_gaps
+        else "ENDELIG"
+    )
     run["report_status"] = {
-        "state": "PROVISIONAL" if provisional else "FINAL",
-        "label": "FORELØPIG – KILDEKONTROLL UFULLSTENDIG" if provisional else "ENDELIG",
-        "critical_gaps": critical,
-        "revalidation_required": provisional,
+        "state": state,
+        "label": label,
+        "critical_gaps": technical_gaps,
+        "candidate_source_gaps": candidate_gaps,
+        "revalidation_required": bool(provisional and not is_draft),
         "revalidation_after_hours": max(1, int(os.getenv("REPORT_REVALIDATION_HOURS", "6") or 6)),
         "candidate_validity_minutes": max(1, int(os.getenv("CANDIDATE_VALIDITY_MINUTES", "60") or 60)),
     }
     # Critical evidence gaps are business-quality warnings, not technical errors.
     warnings = [str(x) for x in (run.get("warnings") or []) if str(x).strip()]
-    for gap in critical:
+    for gap in candidate_gaps:
         text = f"{gap.get('ticker')}/{gap.get('area')}: {gap.get('status')}"
         if text not in warnings:
             warnings.append(text)

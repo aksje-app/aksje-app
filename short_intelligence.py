@@ -143,13 +143,25 @@ def build_short_report(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any
         ),
         reverse=True,
     )
+    checked_no_position = sum(row["coverage"] == "CHECKED_NO_PUBLIC_POSITION" for row in rows)
+    source_errors = sum(row["coverage"] == "SOURCE_ERROR" for row in rows)
+    not_supported = sum(row["coverage"] == "NOT_SUPPORTED" for row in rows)
+    not_searched = sum(row["coverage"] in {"UNKNOWN", "UNVERIFIED"} for row in rows)
+    checked = len(verified) + checked_no_position + source_errors
     return {
         "schema_version": SHORT_SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "candidate_count": len(rows),
         "verified_count": len(verified),
-        "unknown_count": sum(row["coverage"] == "UNKNOWN" for row in rows),
-        "coverage_pct": round(100.0 * len(verified) / len(rows), 1) if rows else 0.0,
+        "checked_count": checked,
+        "searched_count": checked,
+        "no_public_position_count": checked_no_position,
+        "source_error_count": source_errors,
+        "not_supported_count": not_supported,
+        "not_searched_count": not_searched,
+        "unknown_count": not_searched,
+        "verified_coverage_pct": round(100.0 * len(verified) / len(rows), 1) if rows else 0.0,
+        "coverage_pct": round(100.0 * checked / len(rows), 1) if rows else 0.0,
         "most_shorted_verified": ranked,
         "candidates": rows,
         "decision_policy": "OBSERVE_ONLY",

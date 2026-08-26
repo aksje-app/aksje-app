@@ -2275,7 +2275,7 @@ def render_interactive_chart(fig, *args, **kwargs):
     except Exception as e:
         logging.warning("Silenced exception restored in v18.6.3: %s", e)
 
-    kwargs.setdefault("use_container_width", True)
+    kwargs.setdefault("width", "stretch")
     kwargs.setdefault("config", CHART_CONFIG)
     return st.plotly_chart(fig, *args, **kwargs)
 

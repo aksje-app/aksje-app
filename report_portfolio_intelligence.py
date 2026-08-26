@@ -100,6 +100,13 @@ def ensure_portfolio_evidence(
         target_index = by_issuer.get(identity)
         candidate = result[target_index] if target_index is not None else {}
         merged = _with_canonical_evidence(position, candidate)
+        if target_index is None:
+            # This is an owned position appended after the ranked candidate
+            # population.  Its valuation, short and insider controls remain
+            # mandatory, while candidate-only news discovery is explicitly
+            # not applicable.  Persist the role so every report consumer can
+            # distinguish that contract from an unexplained missing search.
+            merged["coverage_role"] = "PORTFOLIO_ONLY_EXISTING_POSITION"
         short = normalize_short_snapshot(merged)
         insider = merged.get("insider_intelligence") if isinstance(merged.get("insider_intelligence"), Mapping) else {}
         insider_attempted = any(isinstance(item, Mapping) and bool(item.get("attempted")) for item in insider.get("search_log") or [])
@@ -118,7 +125,9 @@ def ensure_portfolio_evidence(
     enriched = enrich_insider_rows(enriched, force_refresh=force_refresh)
     for row, target_index in zip(enriched, pending_targets):
         if target_index is None:
-            result.append(dict(row))
+            appended = dict(row)
+            appended["coverage_role"] = "PORTFOLIO_ONLY_EXISTING_POSITION"
+            result.append(appended)
             by_issuer[issuer_identity(row)] = len(result) - 1
             continue
         target = dict(result[target_index])
