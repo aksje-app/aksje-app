@@ -25,6 +25,46 @@ STAGES = (
 )
 
 
+def reconcile_portfolio_assessment(run: dict[str, Any]) -> dict[str, Any]:
+    """Enforce one assessed portfolio row per canonical candidate.
+
+    Autonomous execution may append owned positions after the initial decision
+    pass.  This function preserves the final action/reason but closes the
+    assessment receipt for those appended rows before delivery gates run.
+    """
+    candidates = [row for row in run.get("candidates") or [] if isinstance(row, Mapping)]
+    portfolio = dict(run.get("portfolio_decisions") or {})
+    existing = {
+        str(row.get("ticker") or "").strip().upper(): dict(row)
+        for row in portfolio.get("decisions") or [] if isinstance(row, Mapping) and str(row.get("ticker") or "").strip()
+    }
+    reconciled = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        ticker = str(candidate.get("ticker") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        decision = dict(existing.get(ticker) or {})
+        decision["ticker"] = str(candidate.get("ticker") or ticker)
+        decision["action"] = str(candidate.get("portfolio_action") or decision.get("action") or "SKIP").upper()
+        decision["reason"] = str(decision.get("reason") or candidate.get("autonomy_outcome_reason") or "Kandidaten er vurdert av porteføljeporten.")
+        decision["portfolio_assessed"] = True
+        reconciled.append(decision)
+    portfolio["decisions"] = reconciled
+    portfolio["actions"] = {
+        action: sum(str(row.get("action") or "").upper() == action for row in reconciled)
+        for action in ("BUY", "HOLD", "SELL", "SKIP", "REVIEW")
+    }
+    portfolio["assessment_contract"] = {
+        "candidate_count": len(seen), "decision_count": len(reconciled),
+        "all_assessed": all(bool(row.get("portfolio_assessed")) for row in reconciled),
+        "reconciled_after_autonomy": True,
+    }
+    run["portfolio_decisions"] = portfolio
+    return portfolio["assessment_contract"]
+
+
 def _stage(number: int, code: str, label: str, status: str, evidence: Any) -> dict[str, Any]:
     return {"number": number, "code": code, "label": label, "status": status, "evidence": evidence}
 
@@ -129,3 +169,9 @@ def pre_notification_gate(run: Mapping[str, Any]) -> dict[str, Any]:
     ignored = {"CANONICAL_TOP_PICKS", "DASHBOARD", "NOTIFICATIONS"}
     failed = [code for code in receipt.get("failed_stages") or [] if code not in ignored]
     return {"ok": not failed, "failed_stages": failed}
+
+
+__all__ = [
+    "build_full_execution_receipt", "execution_manifest", "pre_notification_gate",
+    "prepublication_gate", "reconcile_portfolio_assessment",
+]
