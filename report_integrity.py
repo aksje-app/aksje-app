@@ -140,6 +140,7 @@ def compact_candidate_reference(row: Mapping[str, Any]) -> dict[str, Any]:
         "autonomy_outcome_reason", "automatic_next_action", "manual_review_required",
         "manual_tasks", "manual_task_summary", "analysis_stage", "valid_for_decision",
         "evidence_valid_for_decision", "evidence_data_ready", "final_decision_ready",
+        "analytical_recommendation_ready", "trade_authorized",
         "decision_readiness", "evidence_coverage", "portfolio_decision", "data_contract",
         "strategy_matches", "strategy_match", "score_trend", "trend", "score_delta",
         "rank", "raw_rank", "priority_rank", "evidence_ready_rank", "decision_ready_rank",
@@ -150,12 +151,14 @@ def compact_candidate_reference(row: Mapping[str, Any]) -> dict[str, Any]:
 
 _OUTCOME_ACTION = {
     "KJØPSKANDIDAT": "BUY",
+    "MODERAT_KJØPSANBEFALING": "REVIEW",
     "OVERVÅKES_AUTOMATISK": "HOLD",
     "AUTOMATISK_AVVIST": "SKIP",
     "UNDERSØK_MANUELT": "REVIEW",
 }
 _OUTCOME_LABEL = {
     "KJØPSKANDIDAT": "Kjøpskandidat",
+    "MODERAT_KJØPSANBEFALING": "Moderat kjøpsanbefaling",
     "OVERVÅKES_AUTOMATISK": "Overvåkes automatisk",
     "AUTOMATISK_AVVIST": "Automatisk avvist",
     "UNDERSØK_MANUELT": "Manuell vurdering kreves",
@@ -187,8 +190,10 @@ def _synchronise_final_outcome(candidate: MutableMapping[str, Any]) -> None:
         "final_action": candidate["portfolio_action"],
         "evidence_data_ready": evidence_ready,
         "final_decision_ready": code == "KJØPSKANDIDAT" and evidence_ready,
+        "analytical_recommendation_ready": code in {"KJØPSKANDIDAT", "MODERAT_KJØPSANBEFALING"},
         "status": {
             "KJØPSKANDIDAT": "KJØPSKLAR",
+            "MODERAT_KJØPSANBEFALING": "MODERAT_KJØPSANBEFALING",
             "OVERVÅKES_AUTOMATISK": "OVERVÅKES_AUTOMATISK",
             "AUTOMATISK_AVVIST": "AVSLUTTET_AUTOMATISK",
             "UNDERSØK_MANUELT": "MANUELL_VURDERING_KREVES",
@@ -196,6 +201,8 @@ def _synchronise_final_outcome(candidate: MutableMapping[str, Any]) -> None:
     })
     candidate["evidence_data_ready"] = evidence_ready
     candidate["final_decision_ready"] = bool(readiness["final_decision_ready"])
+    candidate["analytical_recommendation_ready"] = bool(readiness["analytical_recommendation_ready"])
+    candidate["trade_authorized"] = False
     candidate["decision_readiness"] = readiness
     raw = _mapping(candidate.get("raw"))
     # Evidence display fields are derived from the complete source payload.
@@ -862,6 +869,8 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
     reduction.update({
         "counts": counts,
         "buy_candidates": counts["KJØPSKANDIDAT"],
+        "moderate_buy_recommendations": counts["MODERAT_KJØPSANBEFALING"],
+        "analytical_buy_recommendations": counts["KJØPSKANDIDAT"] + counts["MODERAT_KJØPSANBEFALING"],
         "automatic_watch": counts["OVERVÅKES_AUTOMATISK"],
         "automatic_rejected": counts["AUTOMATISK_AVVIST"],
         "manual_candidates": counts["UNDERSØK_MANUELT"],
@@ -1106,6 +1115,8 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "automatic_watch": int(reduction.get("automatic_watch") or 0),
         "automatic_rejected": int(reduction.get("automatic_rejected") or 0),
         "buy_candidates": int(reduction.get("buy_candidates") or 0),
+        "moderate_buy_recommendations": int(reduction.get("moderate_buy_recommendations") or 0),
+        "analytical_buy_recommendations": int(reduction.get("analytical_buy_recommendations") or 0),
         "evidence_data_ready": int(coverage_contract.get("evidence_data_ready") or 0),
         "decision_ready": int(coverage_contract.get("decision_ready") or 0),
         "coverage_candidate_total": int(coverage_contract.get("candidate_total") or 0),
@@ -1119,7 +1130,7 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "scanned": int(result["report_summary"].get("scanned") or 0),
         "deep_analyzed": int(result["report_summary"].get("deep_analyzed") or 0),
         "proposals": int(result["report_summary"].get("preliminary_model_candidates") or 0),
-        "recommended": int(result["report_summary"].get("buy_candidates") or 0),
+        "recommended": int(result["report_summary"].get("analytical_buy_recommendations") or 0),
         "rejected": int(result["report_summary"].get("automatic_rejected") or 0),
         "automatic_watch": int(result["report_summary"].get("automatic_watch") or 0),
         "manual_review": int(result["report_summary"].get("manual_review") or 0),
@@ -1311,11 +1322,11 @@ def validate_report_integrity(run: Mapping[str, Any]) -> dict[str, Any]:
         errors.append("Avvisningstall er ikke kanoniske på tvers av rapporten")
     outcome_total = sum(
         int(report_summary.get(key) or 0)
-        for key in ("buy_candidates", "automatic_watch", "manual_review", "automatic_rejected")
+        for key in ("buy_candidates", "moderate_buy_recommendations", "automatic_watch", "manual_review", "automatic_rejected")
     )
     if outcome_total != len(candidates):
         errors.append(
-            "Kandidatregnskapet er ikke avstemt: kjøp + overvåking + manuell vurdering + avvist "
+            "Kandidatregnskapet er ikke avstemt: strengt kjøp + moderat kjøp + overvåking + manuell vurdering + avvist "
             f"er {outcome_total}, men kandidatlisten har {len(candidates)}"
         )
     autonomous_decisions = list(run.get("autonomous_decisions") or [])
@@ -1482,6 +1493,7 @@ def validate_pdf_semantics(pdf_bytes: bytes, run: Mapping[str, Any]) -> dict[str
     summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
     reconciliation = (
         f"Kandidatavstemming: {len(candidates)} totalt | {int(summary.get('buy_candidates') or 0)} kjøpsgodkjent | "
+        f"{int(summary.get('moderate_buy_recommendations') or 0)} moderat kjøpsanbefalt | "
         f"{int(summary.get('automatic_watch') or 0)} overvåkes | "
         f"{int(summary.get('manual_review') or 0)} undersøkes manuelt | "
         f"{int(summary.get('automatic_rejected') or 0)} avvist"

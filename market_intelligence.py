@@ -2334,7 +2334,8 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
             f"Jobb: {deduplicated_display_name(job.name)}", f"Markeder: {', '.join(run.get('markets', []))}",
             f"Analysert: {candidate_total_notice}",
-            f"Anbefalt: {run.get('summary', {}).get('recommended', 0)}",
+            f"Konkrete kjøpsanbefalinger: {int(report_summary_notice.get('analytical_buy_recommendations') or 0)} "
+            f"(strenge {int(report_summary_notice.get('buy_candidates') or 0)} · moderate {int(report_summary_notice.get('moderate_buy_recommendations') or 0)})",
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
             f"Datastatus: markedsdata {_format_summary_value_for_notice(quality_notice.get('score', 0))}/100 · evidens {evidence_ready_notice}/{candidate_total_notice}",
         ])
@@ -3256,6 +3257,29 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             styles["Small"],
         ),
     ]
+    if decision_candidates:
+        recommendation_rows = [["Ticker", "Marked", "Score", "Anbefaling", "Handel"]]
+        for row in decision_candidates:
+            recommendation_rows.append([
+                _rawp(row.get("ticker") or "-", "Tiny"),
+                _p(row.get("market") or "-", "Tiny"),
+                _p(_fmt(row.get("score")), "Tiny"),
+                _p(row.get("status") or row.get("action") or "-", "Tiny"),
+                _p("Ingen automatisk transaksjon", "Tiny"),
+            ])
+        recommendation_table = Table(
+            recommendation_rows, repeatRows=1,
+            colWidths=[26*mm, 27*mm, 18*mm, 55*mm, 58*mm],
+        )
+        recommendation_table.setStyle(_table_style(5.5, padding=1.3))
+        decision_story += [
+            Paragraph(f"Konkrete kjøpsanbefalinger ({len(decision_candidates)})", styles["Section"]),
+            recommendation_table,
+            Paragraph(
+                "Moderate anbefalinger er analyseresultater. De kan ikke opprette ordre eller transaksjoner.",
+                styles["Small"],
+            ),
+        ]
     compact_candidates = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
     short_market_rows = {row["market"]: row for row in short_coverage_by_market(compact_candidates)}
     insider_market_rows = {row["market"]: row for row in insider_coverage_by_market(compact_candidates)}
@@ -3415,6 +3439,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     _summary_reconciled = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
     decision_story += [Paragraph(
         f"Kandidatavstemming: {len(run.get('candidates') or [])} totalt | {int(_summary_reconciled.get('buy_candidates') or 0)} kjøpsgodkjent | "
+        f"{int(_summary_reconciled.get('moderate_buy_recommendations') or 0)} moderat kjøpsanbefalt | "
         f"{int(_summary_reconciled.get('automatic_watch') or 0)} overvåkes | "
         f"{int(_summary_reconciled.get('manual_review') or 0)} undersøkes manuelt | "
         f"{int(_summary_reconciled.get('automatic_rejected') or 0)} avvist",
@@ -4543,10 +4568,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         report_summary_v19143 = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
         story += [Paragraph(
             f"Kandidatavstemming: {len(candidates)} totalt | {int(report_summary_v19143.get('buy_candidates') or 0)} kjøpsgodkjent | "
+            f"{int(report_summary_v19143.get('moderate_buy_recommendations') or 0)} moderat kjøpsanbefalt | "
             f"{int(report_summary_v19143.get('automatic_watch') or 0)} overvåkes | "
             f"{int(report_summary_v19143.get('manual_review') or 0)} undersøkes manuelt | "
             f"{int(report_summary_v19143.get('automatic_rejected') or 0)} avvist | "
-            f"avstemt {int(report_summary_v19143.get('buy_candidates') or 0) + int(report_summary_v19143.get('automatic_watch') or 0) + int(report_summary_v19143.get('manual_review') or 0) + int(report_summary_v19143.get('automatic_rejected') or 0)} av {len(candidates)}",
+            f"avstemt {int(report_summary_v19143.get('buy_candidates') or 0) + int(report_summary_v19143.get('moderate_buy_recommendations') or 0) + int(report_summary_v19143.get('automatic_watch') or 0) + int(report_summary_v19143.get('manual_review') or 0) + int(report_summary_v19143.get('automatic_rejected') or 0)} av {len(candidates)}",
             styles["Footer"],
         )]
         provenance = list(funnel.get("position_provenance") or [])
@@ -5346,20 +5372,28 @@ def _run_job_impl(
         x for x in evidence_ready_candidates
         if str(x.get("portfolio_action") or "").upper() in {"BUY", "KJØP"}
     ]
+    analytical_recommendation_candidates = [
+        x for x in all_candidates
+        if str(x.get("autonomy_outcome_code") or "").upper()
+        in {"KJØPSKANDIDAT", "MODERAT_KJØPSANBEFALING"}
+    ]
     for index, row in enumerate(evidence_ready_candidates, 1):
         row["evidence_ready_rank"] = index
     for index, row in enumerate(final_decision_candidates, 1):
         row["decision_ready_rank"] = index
     evidence_ready_tickers = {str(row.get("ticker") or "") for row in evidence_ready_candidates}
     decision_ready_tickers = {str(row.get("ticker") or "") for row in final_decision_candidates}
+    analytical_tickers = {str(row.get("ticker") or "") for row in analytical_recommendation_candidates}
     for row in all_candidates:
         row["evidence_data_ready"] = str(row.get("ticker") or "") in evidence_ready_tickers
         row["final_decision_ready"] = str(row.get("ticker") or "") in decision_ready_tickers
+        row["analytical_recommendation_ready"] = str(row.get("ticker") or "") in analytical_tickers
+        row["trade_authorized"] = False
         if not row["evidence_data_ready"]:
             row["evidence_ready_rank"] = None
         if not row["final_decision_ready"]:
             row["decision_ready_rank"] = None
-    totals["recommended"] = sum(1 for x in final_decision_candidates if x.get("status") == "ANBEFALT FOR VURDERING")
+    totals["recommended"] = len(analytical_recommendation_candidates)
     totals["rejected"] = sum(1 for x in all_candidates if x.get("status") in {"AVVIST AV RISIKOPORT", "UTILSTREKKELIGE DATA"})
     proposal_map: dict[str, dict[str, Any]] = {}
     for proposal in all_proposals:

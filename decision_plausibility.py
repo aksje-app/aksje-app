@@ -22,6 +22,15 @@ def _buy_tickers(run: Mapping[str, Any]) -> set[str]:
     }
 
 
+def _analytical_buy_tickers(run: Mapping[str, Any]) -> set[str]:
+    return {
+        str(row.get("ticker") or "").upper()
+        for row in _rows(run.get("candidates"))
+        if str(row.get("autonomy_outcome_code") or "").upper()
+        in {"KJØPSKANDIDAT", "MODERAT_KJØPSANBEFALING"}
+    }
+
+
 def _production_buys(run: Mapping[str, Any]) -> set[str]:
     chain = run.get("autonomous_chain") if isinstance(run.get("autonomous_chain"), Mapping) else {}
     for stage in chain.get("stages") or []:
@@ -44,6 +53,7 @@ def audit_decision_plausibility(
 ) -> dict[str, Any]:
     candidates = _rows(run.get("candidates"))
     report_buys = _buy_tickers(run)
+    analytical_buys = _analytical_buy_tickers(run)
     production_buys = _production_buys(run)
     errors: list[str] = []
     warnings: list[str] = []
@@ -68,11 +78,11 @@ def audit_decision_plausibility(
 
     threshold = float((run.get("report_summary") or {}).get("production_buy_threshold") or 73.0)
     near = [row for row in candidates if threshold - 5.0 <= float(row.get("investment_score") or 0.0) < threshold]
-    if candidates and not report_buys and len(near) >= max(5, len(candidates) // 5):
+    if candidates and not analytical_buys and len(near) >= max(5, len(candidates) // 5):
         warnings.append(f"Null kjøpsanbefalinger og {len(near)} kandidater samlet 0–5 poeng under terskelen {threshold:.1f}.")
 
     previous = [dict(row) for row in (previous_runs or []) if isinstance(row, Mapping)]
-    zero_streak = 1 if candidates and not report_buys else 0
+    zero_streak = 1 if candidates and not analytical_buys else 0
     if zero_streak:
         for old in previous:
             if _rows(old.get("candidates")) and not _buy_tickers(old):
@@ -90,6 +100,7 @@ def audit_decision_plausibility(
         "warnings": warnings,
         "candidate_count": len(candidates),
         "report_buy_tickers": sorted(report_buys),
+        "analytical_buy_tickers": sorted(analytical_buys),
         "autonomy_buy_tickers": sorted(production_buys),
         "near_threshold_count": len(near),
         "zero_buy_streak": zero_streak,

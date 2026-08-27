@@ -15,12 +15,14 @@ from app_version import APP_VERSION
 VERSION = APP_VERSION
 
 OUTCOME_BUY = "KJØPSKANDIDAT"
+OUTCOME_MODERATE_BUY = "MODERAT_KJØPSANBEFALING"
 OUTCOME_WATCH = "OVERVÅKES_AUTOMATISK"
 OUTCOME_REJECT = "AUTOMATISK_AVVIST"
 OUTCOME_MANUAL = "UNDERSØK_MANUELT"
 
 OUTCOME_LABELS = {
     OUTCOME_BUY: "Kjøpskandidat",
+    OUTCOME_MODERATE_BUY: "Moderat kjøpsanbefaling",
     OUTCOME_WATCH: "Overvåkes automatisk",
     OUTCOME_REJECT: "Automatisk avvist",
     OUTCOME_MANUAL: "Undersøk manuelt",
@@ -63,7 +65,7 @@ MARKET_SOURCE_MATRIX: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 TERMINAL_EVIDENCE = {"AVAILABLE", "VERIFIED_FACTS_FOUND", "CHECKED_NO_EVENTS", "VERIFIED_FACTS_NONE"}
-TEMPORARY_SOURCE_FAILURES = {"SECONDARY_FACTS_FOUND", "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR", "ERROR", "PARTIAL_SOURCE_FAILURE"}
+TEMPORARY_SOURCE_FAILURES = {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED", "SOURCE_ERROR", "ERROR", "PARTIAL_SOURCE_FAILURE"}
 UNSUPPORTED_SOURCE_STATES = {"NOT_CONFIGURED", "UNAVAILABLE", "NOT_SUPPORTED"}
 
 
@@ -185,6 +187,47 @@ def _candidate_blockers(candidate: Mapping[str, Any]) -> list[str]:
     return blockers[:4]
 
 
+def _has_critical_negative_signal(candidate: Mapping[str, Any]) -> bool:
+    """Return true only for explicit adverse source signals, never missing data."""
+    raw = _mapping(candidate.get("raw"))
+    values = [
+        candidate.get("insider_signal"), candidate.get("short_signal"),
+        raw.get("insider_signal"), raw.get("short_signal"),
+        _mapping(raw.get("insider_intelligence")).get("signal"),
+        _mapping(raw.get("short_intelligence")).get("signal"),
+    ]
+    adverse = ("STERKT NEGATIV", "CRITICAL NEGATIVE", "KRITISK NEGATIV", "HIGH SHORT RISK")
+    return any(any(token in str(value or "").upper() for token in adverse) for value in values)
+
+
+def _moderate_buy_eligible(candidate: Mapping[str, Any], *, threshold: float,
+                           near_threshold_gap: float, maximum_risk: float) -> bool:
+    """A bounded analytical recommendation; it never grants trade authority."""
+    score = _float(candidate.get("investment_score"))
+    risk = _float(candidate.get("risk_score"), 100.0)
+    readiness = _mapping(candidate.get("decision_readiness"))
+    stage = str(candidate.get("analysis_stage") or _mapping(candidate.get("raw")).get("analysis_stage") or "").upper()
+    if not bool(candidate.get("valid_for_decision")) or not bool(candidate.get("mission_eligible", True)):
+        return False
+    decision = _mapping(candidate.get("portfolio_decision"))
+    if bool(decision.get("existing_position")):
+        return False
+    if score < threshold - near_threshold_gap or risk > maximum_risk:
+        return False
+    if bool(candidate.get("technical_entry_wait")) or int(readiness.get("conflicts") or 0):
+        return False
+    if _has_critical_negative_signal(candidate):
+        return False
+    # A moderate recommendation may tolerate a documented, non-critical source
+    # limitation, but never an unfinished evidence stage or a live source error.
+    if stage != "EVIDENCE_CONTROLLED":
+        return False
+    for area in ("news", "insider"):
+        if _status(candidate, area) in TEMPORARY_SOURCE_FAILURES:
+            return False
+    return True
+
+
 def classify_candidate(candidate: Mapping[str, Any], *, threshold: float = 78.0,
                        near_threshold_gap: float = 6.0, maximum_risk: float = 65.0) -> dict[str, Any]:
     row = deepcopy(dict(candidate))
@@ -211,6 +254,15 @@ def classify_candidate(candidate: Mapping[str, Any], *, threshold: float = 78.0,
         else:
             reason = f"Score {score:.1f} er mer enn {near_threshold_gap:.1f} poeng under produksjonsterskelen {threshold:.1f}."
         automatic_next = "Avsluttes automatisk for denne kjøringen; ingen brukerhandling nødvendig."
+    elif _moderate_buy_eligible(row, threshold=threshold,
+                                near_threshold_gap=near_threshold_gap,
+                                maximum_risk=maximum_risk):
+        code = OUTCOME_MODERATE_BUY
+        reason = (
+            "Kandidaten har gyldige markedsdata, godkjent risiko og score innenfor det "
+            "moderate kjøpsintervallet. Den er en analytisk anbefaling, ikke en ordre."
+        )
+        automatic_next = "Vurderes på nytt ved neste analyse; ingen handel utføres av programmet."
     else:
         # Only near-threshold candidates can create manual work.  NOT_SEARCHED
         # from an earlier stage means automatic monitoring, not a user task.
@@ -262,6 +314,8 @@ def classify_candidate(candidate: Mapping[str, Any], *, threshold: float = 78.0,
     row["manual_tasks"] = manual_tasks
     row["manual_task_summary"] = manual_tasks[0]["title"] if manual_tasks else "Ingen manuell handling nødvendig"
     row["decision_priority_eligible"] = code != OUTCOME_REJECT
+    row["analytical_recommendation_ready"] = code in {OUTCOME_BUY, OUTCOME_MODERATE_BUY}
+    row["trade_authorized"] = False
     row["analysis_stage"] = stage
     return row
 
@@ -325,6 +379,8 @@ def apply_decision_reduction(candidates: Sequence[Mapping[str, Any]], *, thresho
         "version": VERSION,
         "counts": counts,
         "buy_candidates": counts[OUTCOME_BUY],
+        "moderate_buy_recommendations": counts[OUTCOME_MODERATE_BUY],
+        "analytical_buy_recommendations": counts[OUTCOME_BUY] + counts[OUTCOME_MODERATE_BUY],
         "automatic_watch": counts[OUTCOME_WATCH],
         "automatic_rejected": counts[OUTCOME_REJECT],
         "manual_candidates": counts[OUTCOME_MANUAL],
@@ -346,7 +402,7 @@ def apply_decision_reduction(candidates: Sequence[Mapping[str, Any]], *, thresho
 
 
 __all__ = [
-    "VERSION", "OUTCOME_BUY", "OUTCOME_WATCH", "OUTCOME_REJECT", "OUTCOME_MANUAL",
+    "VERSION", "OUTCOME_BUY", "OUTCOME_MODERATE_BUY", "OUTCOME_WATCH", "OUTCOME_REJECT", "OUTCOME_MANUAL",
     "OUTCOME_LABELS", "MARKET_SOURCE_MATRIX", "source_plan", "classify_candidate",
     "apply_decision_reduction",
 ]

@@ -280,8 +280,11 @@ def _validate_identity_mission(identity: Mapping[str, Any], spec: ReportSpec) ->
 def _is_real_buy_recommendation(row: Mapping[str, Any]) -> bool:
     outcome = str(row.get("autonomy_outcome_code") or "").upper()
     action = str(row.get("portfolio_action") or "").upper()
-    return bool(outcome == "KJØPSKANDIDAT" and action in {"BUY", "KJØP"}
-                and row.get("final_decision_ready") is not False)
+    strict = bool(outcome == "KJØPSKANDIDAT" and action in {"BUY", "KJØP"}
+                  and row.get("final_decision_ready") is not False)
+    moderate = bool(outcome == "MODERAT_KJØPSANBEFALING"
+                    and row.get("analytical_recommendation_ready") is not False)
+    return strict or moderate
 
 
 def _rejected_control_appendix(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
