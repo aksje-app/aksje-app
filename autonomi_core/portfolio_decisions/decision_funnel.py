@@ -136,7 +136,9 @@ def build_decision_funnel(
             "price": "Mangler gyldig markedspris",
         }
         analytical_reasons = _failed_reasons(analytical_gates, analytical_labels, analytical_counts)
-        analytical_buy = all(analytical_gates.values())
+        strict_analytical_buy = all(analytical_gates.values())
+        moderate_analytical_buy = outcome == "MODERAT_KJØPSANBEFALING"
+        analytical_buy = strict_analytical_buy or moderate_analytical_buy
 
         execution_gates = {
             "portfolio_active": active,
@@ -167,8 +169,8 @@ def build_decision_funnel(
             execution_status = "NOT_ANALYTICALLY_RECOMMENDED"
             execution_label = "Ingen handel - analytiske krav er ikke bestått"
         else:
-            analytical_code = "BUY_RECOMMENDED"
-            analytical_label = "Analytisk kjøpsanbefaling"
+            analytical_code = "MODERATE_BUY_RECOMMENDED" if moderate_analytical_buy else "BUY_RECOMMENDED"
+            analytical_label = "Moderat kjøpsanbefaling" if moderate_analytical_buy else "Analytisk kjøpsanbefaling"
             if production_gate_pass:
                 execution_status = "EXECUTABLE"
                 execution_label = "Klar i Autonomis simulerte portefølje"
@@ -265,11 +267,11 @@ def build_decision_funnel(
         })
 
     near = [row for row in rows if not row["eligible_for_theoretical_buy"] and row["score"] >= production_threshold - 6]
-    analytical_buy_count = sum(row["analytical_recommendation"] == "BUY_RECOMMENDED" for row in rows)
+    analytical_buy_count = sum(row["analytical_recommendation"] in {"BUY_RECOMMENDED", "MODERATE_BUY_RECOMMENDED"} for row in rows)
     trade_executable_count = sum(row["trade_execution_status"] == "EXECUTABLE" for row in rows)
     portfolio_blocked_count = sum(row["trade_execution_status"] == "BLOCKED_AUTONOMY_PORTFOLIO" for row in rows)
     capacity_blocked_count = sum(
-        row["analytical_recommendation"] == "BUY_RECOMMENDED" and row["portfolio_capacity_blocked"]
+        row["analytical_recommendation"] in {"BUY_RECOMMENDED", "MODERATE_BUY_RECOMMENDED"} and row["portfolio_capacity_blocked"]
         for row in rows
     )
     return {
