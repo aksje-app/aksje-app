@@ -288,6 +288,9 @@ def _run_once_locked() -> dict[str, Any]:
         state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "state": "NOT_DUE"}
 
     state["completed_at"] = _now()
+    scanner_state = str((state.get("paper_scanner") or {}).get("state") or "")
+    if state.get("state") == "COMPLETED" and scanner_state == "PARTIAL_CHECKPOINT":
+        state["state"] = "PARTIAL_CHECKPOINT"
     _save(state)
     return state
 
@@ -315,7 +318,7 @@ def main() -> int:
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
-    return 0 if state.get("state") == "COMPLETED" else 1
+    return 0 if state.get("state") in {"COMPLETED", "PARTIAL_CHECKPOINT"} else 1
 
 
 if __name__ == "__main__":

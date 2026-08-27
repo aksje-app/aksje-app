@@ -3,9 +3,10 @@ from settings_store import load_settings
 
 import os
 import requests
+import hashlib
 from datetime import datetime, timezone
-from storage_architecture import runtime_log_path
-from durable_runtime import append_event, read_events
+from storage_architecture import runtime_data_path, runtime_log_path
+from durable_runtime import append_event, read_events, read_json, write_json
 from runtime_safety import notifications_allowed
 
 try:
@@ -18,6 +19,44 @@ except Exception:
 PUSHOVER_APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
 PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 PUSHOVER_AUDIT_PATH = runtime_log_path("pushover_audit.jsonl")
+PUSHOVER_DEDUPE_KEY = "notifications/pushover_dedupe.json"
+PUSHOVER_DEDUPE_PATH = runtime_data_path("notifications", "pushover_dedupe.json")
+
+
+def _notification_fingerprint(title, message, url) -> str:
+    raw = "\n".join((str(title or ""), str(message or ""), str(url or "")))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _recent_duplicate(title, message, url, *, now=None) -> bool:
+    now = now or datetime.now(timezone.utc)
+    window = max(30, int(os.getenv("PUSHOVER_DEDUPE_SECONDS", "600") or 600))
+    fingerprint = _notification_fingerprint(title, message, url)
+    ledger = read_json(PUSHOVER_DEDUPE_KEY, PUSHOVER_DEDUPE_PATH, {})
+    raw = str((ledger if isinstance(ledger, dict) else {}).get(fingerprint) or "")
+    try:
+        sent_at = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+        return (now - sent_at).total_seconds() < window
+    except Exception:
+        return False
+
+
+def _record_notification_fingerprint(title, message, url, *, now=None) -> None:
+    now = now or datetime.now(timezone.utc)
+    fingerprint = _notification_fingerprint(title, message, url)
+    ledger = read_json(PUSHOVER_DEDUPE_KEY, PUSHOVER_DEDUPE_PATH, {})
+    ledger = dict(ledger) if isinstance(ledger, dict) else {}
+    cutoff = now.timestamp() - 86400
+    clean = {}
+    for key, raw in ledger.items():
+        try:
+            when = datetime.fromisoformat(str(raw).replace("Z", "+00:00")).astimezone(timezone.utc)
+            if when.timestamp() >= cutoff:
+                clean[str(key)] = when.isoformat()
+        except Exception:
+            continue
+    clean[fingerprint] = now.isoformat()
+    write_json(PUSHOVER_DEDUPE_KEY, PUSHOVER_DEDUPE_PATH, clean)
 
 
 def _log_delivery(title, success, detail, *, has_url=False):
@@ -70,6 +109,12 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
         _log_delivery(title, False, "missing env", has_url=bool(url))
         return False, "missing env"
 
+    if _recent_duplicate(title, message, url):
+        detail = "duplicate suppressed by durable fingerprint"
+        print("Pushover duplikat undertrykt")
+        _log_delivery(title, True, detail, has_url=bool(url))
+        return True, detail
+
     try:
         payload = {
             "token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY,
@@ -81,6 +126,7 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
         response = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
 
         if response.status_code == 200:
+            _record_notification_fingerprint(title, message, url)
             print("Pushover sendt")
             _log_delivery(title, True, "HTTP 200", has_url=bool(url))
             return True, None

@@ -33,6 +33,7 @@ import os
 import time
 import requests
 import hashlib
+import re
 from datetime import datetime, timezone
 from paper_scanner_runtime import (
     clear_scanner_checkpoint, load_scanner_checkpoint, load_scanner_status,
@@ -80,6 +81,29 @@ SCAN_SLEEP_SECONDS = float(os.getenv("SCAN_SLEEP_SECONDS", "0.2"))
 from notifier import normalize_notification_result, send_pushover_alert  # canonical notifier
 
 
+_SCANNER_TICKER_RE = re.compile(r"^[A-Z0-9.^=\-]{1,24}$")
+
+
+def valid_scanner_ticker(value) -> bool:
+    """Accept Yahoo-style symbols, never fund names or arbitrary UI labels."""
+    return bool(_SCANNER_TICKER_RE.fullmatch(str(value or "").strip().upper()))
+
+
+def _clean_scanner_tickers(values):
+    clean = []
+    seen = set()
+    for value in values or []:
+        ticker = str(value or "").strip().upper()
+        if not valid_scanner_ticker(ticker):
+            if ticker:
+                print(f"Ugyldig scanner-ticker filtrert bort: {ticker[:80]}")
+            continue
+        if ticker not in seen:
+            seen.add(ticker)
+            clean.append(ticker)
+    return clean
+
+
 def _take(fn, n):
     try:
         return fn(n)
@@ -95,7 +119,7 @@ def _merge_unique(*lists):
     for lst in lists:
         for t in lst or []:
             t = str(t).upper()
-            if t and t not in seen:
+            if valid_scanner_ticker(t) and t not in seen:
                 seen.add(t)
                 out.append(t)
     return out
@@ -121,7 +145,7 @@ def latest_ui_buy_candidate_tickers(settings=None):
 
     for row in settings.get("latest_buy_now_candidates", []) or []:
         ticker = str(row.get("ticker", "")).upper()
-        if ticker and ticker not in seen:
+        if valid_scanner_ticker(ticker) and ticker not in seen:
             seen.add(ticker)
             out.append(ticker)
 
@@ -130,7 +154,7 @@ def latest_ui_buy_candidate_tickers(settings=None):
 def get_watchlist():
     custom = os.getenv("SCANNER_WATCHLIST", "").strip()
     if custom:
-        return [x.strip().upper() for x in custom.replace(";", ",").split(",") if x.strip()]
+        return _clean_scanner_tickers(custom.replace(";", ",").split(","))
 
     settings = load_settings()
     enabled = set(enabled_markets(settings))
@@ -142,9 +166,10 @@ def get_watchlist():
 
     # 1) Kandidater som UI nettopp viste som KJØP NÅ prioriteres først.
     ui_candidates = latest_ui_buy_candidate_tickers(settings)
-    if ui_candidates:
-        print(f"Prioriterer UI Kjøp nå-kandidater: {ui_candidates}")
-        tickers += ui_candidates
+    open_ui_candidates = [ticker for ticker in ui_candidates if _ticker_market(ticker) in markets]
+    if open_ui_candidates:
+        print(f"Prioriterer åpne UI Kjøp nå-kandidater: {open_ui_candidates}")
+        tickers += open_ui_candidates
 
     # 2) Deretter kjente store/top-picks-kandidater.
     # Før var S&P-listen ofte alfabetisk, og AVGO/NVDA/AMZN kunne komme for sent.
@@ -165,7 +190,7 @@ def get_watchlist():
 
     out = []
     seen = set()
-    for t in tickers:
+    for t in _clean_scanner_tickers(tickers):
         if t not in seen:
             seen.add(t)
             out.append(t)
@@ -174,7 +199,7 @@ def get_watchlist():
     current_positions = list(load_portfolio().get("positions", {}).keys())
     for t in current_positions:
         t = str(t).upper()
-        if t not in seen:
+        if valid_scanner_ticker(t) and t not in seen:
             seen.add(t)
             out.append(t)
 
@@ -350,13 +375,22 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     if not auto_trading_enabled:
         print("⏸ Auto trading er deaktivert i app-innstillinger")
 
-    tickers = get_watchlist()
+    checkpoint = load_scanner_checkpoint()
+    current_tickers = get_watchlist()
+    checkpoint_tickers = _clean_scanner_tickers(checkpoint.get("tickers") or [])
+    if checkpoint.get("scan_run_id") and checkpoint_tickers:
+        # Finish the original bounded universe even if rankings/watchlists
+        # changed between cron invocations. Append genuinely new symbols only.
+        tickers = _merge_unique(checkpoint_tickers, current_tickers)
+        resume = True
+    else:
+        tickers = current_tickers
+        current_signature = hashlib.sha256("\n".join(tickers).encode("utf-8")).hexdigest()
+        resume = bool(checkpoint.get("ticker_signature") == current_signature and checkpoint.get("scan_run_id"))
     print(f"Scanner {len(tickers)} tickers: {tickers}")
 
     snapshot_service = get_market_snapshot_service()
     ticker_signature = hashlib.sha256("\n".join(tickers).encode("utf-8")).hexdigest()
-    checkpoint = load_scanner_checkpoint()
-    resume = bool(checkpoint.get("ticker_signature") == ticker_signature and checkpoint.get("scan_run_id"))
     scan_run_id = str(checkpoint.get("scan_run_id")) if resume else f"PAPER-SCAN-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     update_scanner_status(scan_run_id=scan_run_id, markets_open=markets, tickers_total=len(tickers), tickers_processed=0)
     market_snapshot_id = snapshot_service.new_snapshot_id(run_id=scan_run_id, source="paper_scanner")
@@ -368,13 +402,18 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
         print(f"Gjenopptar komplett skanning ved ticker {start_index + 1}/{len(tickers)}; ingen tickere fjernes")
 
     for ticker_index, ticker in enumerate(tickers[start_index:], start=start_index + 1):
-        memory = memory_snapshot()
+        cleanup_before_gate = release_process_memory("paper_scanner:pre_ticker_gate")
+        memory = cleanup_before_gate.get("after") or memory_snapshot()
         soft_limit_mb = float(os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "410") or 410)
+        minimum_progress = max(1, int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1))
+        processed_this_cycle = (ticker_index - 1) - start_index
         used_mb = float(memory.get("cgroup_memory_current_mb") or memory.get("process_rss_mb") or 0)
         headroom_mb = float(memory.get("cgroup_memory_headroom_mb") or 9999)
-        if used_mb >= soft_limit_mb or headroom_mb < 80:
+        memory_pressure = used_mb >= soft_limit_mb or headroom_mb < 80
+        if memory_pressure and processed_this_cycle >= minimum_progress:
             save_scanner_checkpoint({
                 "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
+                "tickers": tickers,
                 "next_index": ticker_index - 1, "candidate_snapshots": candidate_snapshots,
                 "latest_prices": latest_prices, "trades_executed": trades_executed,
             })
@@ -384,8 +423,16 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                 trades_executed=trades_executed, memory=memory,
                 message="Minnemykt kontrollpunkt lagret; neste cron fortsetter automatisk med resterende tickere",
             )
-            print(f"Minnemykt kontrollpunkt ved {used_mb:.1f} MB; fortsetter neste cron uten redusert omfang")
+            print(
+                f"Minnemykt kontrollpunkt ved {used_mb:.1f} MB etter "
+                f"{processed_this_cycle} ticker(e) denne cron; neste indeks {ticker_index}/{len(tickers)}"
+            )
             return trades_executed
+        if memory_pressure:
+            print(
+                f"Minnepress ved {used_mb:.1f} MB, men gjennomfører minst "
+                f"{minimum_progress} ticker(e) for å sikre fremdrift"
+            )
         result = None
         try:
             update_scanner_status(
@@ -497,6 +544,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
             cleanup = release_process_memory(f"paper_scanner:{ticker}")
             save_scanner_checkpoint({
                 "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
+                "tickers": tickers,
                 "next_index": ticker_index, "candidate_snapshots": candidate_snapshots,
                 "latest_prices": latest_prices, "trades_executed": trades_executed,
             })
