@@ -432,6 +432,7 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
         _section("report_reliability", "Utfaset samlet rapportscore - kompatibilitet", dict(decision_report.get("reliability") or {}), 50),
         _section("source_consensus", "Kildekonsensus", dict(decision_report.get("source_consensus") or {}), 55),
         _section("controlled_learning_guard", "Kontrollert læringsvern", dict(decision_report.get("controlled_learning_guard") or {}), 58),
+        _section("decision_plausibility", "Beslutnings- og læringsplausibilitet", dict(run.get("decision_plausibility") or {}), 58.5),
         _section("learning_portfolio", "Kanonisk læringsportefølje", {
             "summary": dict(run.get("learning_portfolio_summary") or {}),
             "consistency_audit": dict(run.get("learning_report_consistency") or {}),

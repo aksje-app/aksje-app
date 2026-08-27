@@ -705,6 +705,12 @@ def load_learning_observations(limit: int = 5000) -> list[dict[str, Any]]:
     return [dict(row) for row in rows[:max(0, limit)] if isinstance(row, Mapping)] if isinstance(rows, list) else []
 
 
+def load_learning_trades(limit: int = 5000) -> list[dict[str, Any]]:
+    """Read the durable theoretical-learning ledger without production effects."""
+    rows = _read(LEARNING_TRADES_PATH, [])
+    return [dict(row) for row in rows[:max(0, limit)] if isinstance(row, Mapping)] if isinstance(rows, list) else []
+
+
 def _compact_learning_observations(rows: Sequence[Mapping[str, Any]], limit: int = LEARNING_OBSERVATION_LIMIT) -> list[dict[str, Any]]:
     """Protect one oldest active cohort per ticker so it can reach 20/60 days.
 
@@ -1040,6 +1046,14 @@ def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: floa
         "value": round(quantity * price, 2), "pnl": round(pnl, 2), "pnl_pct": closed["pnl_pct"],
         "reason": reason, "strategy": pos.get("strategy"), "mode": "LEARNING_ONLY", "learning_probe": True,
         **_candidate_snapshot_metadata(pos),
+        "entry_score": pos.get("entry_score"),
+        "entry_base_score": pos.get("entry_base_score"),
+        "entry_risk_score": pos.get("entry_risk_score"),
+        "entry_data_quality": pos.get("entry_data_quality"),
+        "production_blockers_at_entry": list(pos.get("production_blockers_at_entry") or []),
+        "evidence_valid_at_entry": pos.get("evidence_valid_at_entry") is True,
+        "observation_days": int(pos.get("observation_days") or 0),
+        "outcome_measurements": list(pos.get("outcome_measurements") or []),
     }
     _record_learning_trade(trade)
     return trade
@@ -1771,7 +1785,14 @@ def run_autonomous_cycle(
             strategy_version_id="autonomy_learning@2.0.0",
             display_name="Autonomi læringskonto", role="LEARNING",
             status=str(learning_portfolio.get("status") or "ACTIVE"), run_id=run_id,
-            metadata={"source": "autonomous_portfolio", "canonical_learning_bridge": True},
+            metadata={
+                "source": "autonomous_portfolio", "canonical_learning_bridge": True,
+                "accounting_mode": "INDEPENDENT_NOTIONAL_OBSERVATIONS",
+                "entry_notional": round(sum(
+                    _f(position.get("quantity")) * _f(position.get("average_price"))
+                    for position in (learning_portfolio.get("positions") or {}).values()
+                ), 2),
+            },
         )
         learning_orders: list[dict[str, Any]] = []
         learning_fills: list[dict[str, Any]] = []

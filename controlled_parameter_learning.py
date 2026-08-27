@@ -20,8 +20,8 @@ from storage_architecture import runtime_data_path
 from persistent_config_store import read_persistent_json, write_persistent_json, persistence_status
 from autonomous_portfolio import (
     AutonomousParameters, load_parameters, save_parameters, load_portfolio,
-    calculate_performance, load_learning_observations,
-    TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
+    calculate_performance, load_learning_observations, load_learning_trades,
+    TRADES_PATH, LEARNING_TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH,
 )
 from durable_runtime import append_event, read_events
 from app_version import APP_VERSION, CONTROLLED_LEARNING_POLICY_VERSION
@@ -181,6 +181,57 @@ def _closed_trades() -> list[dict[str, Any]]:
     return [t for t in trades if isinstance(t, dict) and t.get("action") == "SELL"] if isinstance(trades, list) else []
 
 
+def _closed_learning_trades() -> list[dict[str, Any]]:
+    """Return deduplicated, theoretical learning exits as usable evidence.
+
+    These rows may support hypotheses and shadow tests, but can never authorize
+    an order or mutate protected production parameters.
+    """
+    rows = load_learning_trades()
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in rows if isinstance(rows, list) else []:
+        if not isinstance(raw, Mapping) or str(raw.get("action") or "").upper() != "SELL":
+            continue
+        row = dict(raw)
+        identity = str(row.get("trade_id") or "|").strip() or "|".join(map(str, (
+            row.get("ticker"), row.get("timestamp"), row.get("price"), row.get("pnl"), row.get("reason"),
+        )))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        row["learning_evidence"] = True
+        row["evidence_class"] = (
+            "PROMOTED_TO_PRODUCTION" if "PROMOTERT" in str(row.get("reason") or "").upper()
+            else "NATURAL_LEARNING_EXIT"
+        )
+        result.append(row)
+    return result
+
+
+def learning_evidence_summary() -> dict[str, Any]:
+    ordinary = _closed_trades()
+    learning = _closed_learning_trades()
+    natural = [row for row in learning if row.get("evidence_class") == "NATURAL_LEARNING_EXIT"]
+    promoted = [row for row in learning if row.get("evidence_class") == "PROMOTED_TO_PRODUCTION"]
+    return {
+        "ordinary_closed_trades": len(ordinary),
+        "learning_closed_trades": len(learning),
+        "natural_learning_exits": len(natural),
+        "promoted_learning_exits": len(promoted),
+        "ordinary_statistics": _stats(ordinary),
+        "natural_learning_statistics": _stats(natural),
+        "promoted_learning_statistics": _stats(promoted),
+        "usable_hypothesis_evidence": len(ordinary) + len(learning),
+        "production_parameters_changed": False,
+    }
+
+
+def _hypothesis_evidence_trades() -> list[dict[str, Any]]:
+    """Ordinary and theoretical exits used only for controlled evaluation."""
+    return _closed_trades() + _closed_learning_trades()
+
+
 def _stats(trades: list[dict[str, Any]]) -> dict[str, float]:
     pnl = [_f(t.get("pnl")) for t in trades]
     winners = [x for x in pnl if x > 0]
@@ -259,7 +310,9 @@ def ensure_champion_version() -> dict[str, Any]:
 
 
 def generate_hypotheses() -> list[dict[str, Any]]:
-    state, params, trades = load_state(), load_parameters(), _closed_trades()
+    state, params, ordinary_trades = load_state(), load_parameters(), _closed_trades()
+    learning_trades = _closed_learning_trades()
+    trades = ordinary_trades + learning_trades
     observation_evidence = _mature_observation_evidence()
     enough_trades = len(trades) >= int(state["hypothesis_min_closed_trades"])
     enough_observations = int(observation_evidence["mature_count"]) >= int(state.get("hypothesis_min_mature_observations", 20))
@@ -296,7 +349,7 @@ def generate_hypotheses() -> list[dict[str, Any]]:
             "closed_trade_statistics": stats,
             "observation_statistics": observation_evidence,
         }
-        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "NEW", "lifecycle_status": "HYPOTESE", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": evidence, "evidence_basis": "MATURE_OBSERVATIONS" if enough_observations and not enough_trades else "CLOSED_TRADES_AND_OBSERVATIONS", "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM", "production_applied": False}
+        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "NEW", "lifecycle_status": "HYPOTESE", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": {**evidence, "ordinary_closed_trades": len(ordinary_trades), "learning_closed_trades": len(learning_trades)}, "evidence_basis": "MATURE_OBSERVATIONS" if enough_observations and not enough_trades else "ORDINARY_AND_THEORETICAL_CLOSED_TRADES", "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM", "production_applied": False}
         existing.insert(0, h); created.append(h); _audit("HYPOTHESIS_CREATED", h)
         _notify("Learning: ny hypotese", f"{parameter}: {before:g} → {after:g}. {reason}", h)
     _write(HYPOTHESES_PATH, existing)
@@ -546,7 +599,9 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
     due_hours = 24 if frequency == "DAILY" else 24 * 7
     if not force and last and (now - last).total_seconds() < due_hours * 3600:
         return None
-    trades = _closed_trades()
+    ordinary_trades = _closed_trades()
+    learning_trades = _closed_learning_trades()
+    trades = ordinary_trades + learning_trades
     stats = _stats(trades)
     observation_evidence = _mature_observation_evidence()
     observations_all = load_learning_observations()
@@ -565,7 +620,8 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
     if not observations: observations.append("Ingen kritiske lærings- eller risikohendelser i perioden.")
     report = {
         "report_id": "MR-" + uuid.uuid4().hex[:10], "created_at": _now(), "frequency": frequency,
-        "mode": state.get("mode"), "closed_trades": len(trades), "statistics": stats, "performance": perf,
+        "mode": state.get("mode"), "closed_trades": len(trades), "ordinary_closed_trades": len(ordinary_trades),
+        "learning_closed_trades": len(learning_trades), "statistics": stats, "performance": perf,
         "open_hypotheses": len(open_h), "active_experiments": len(active_tests),
         "open_observations": len(open_observations),
         "mature_observations": int(observation_evidence["mature_count"]),
@@ -637,7 +693,7 @@ def run_automatic_learning_if_due(trigger: str = "APP", force: bool = False) -> 
 
 
 def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
-    state = load_state(); perf = calculate_performance(); trades = _closed_trades(); stats = _stats(trades); actions: list[Any] = []
+    state = load_state(); perf = calculate_performance(); ordinary_trades = _closed_trades(); learning_trades = _closed_learning_trades(); trades = ordinary_trades + learning_trades; stats = _stats(trades); actions: list[Any] = []
     policy = _mode_policy(state)
     ensure_champion_version()
     experiments = _refresh_experiments(state, perf, stats)
@@ -688,7 +744,7 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
                 if _f(perf.get("drawdown_pct")) >= baseline_dd + _f(state.get("rollback_drawdown_delta_pct"), 3.0):
                     rb = rollback(); actions.append({"type": "AUTOMATIC_ROLLBACK", "version_id": rb["version_id"]})
     state["last_evaluation_at"] = _now(); state["last_action"] = actions[-1] if actions else "Ingen endring"; _write(STATE_PATH, state)
-    result = {"timestamp": _now(), "trigger": trigger, "mode": state.get("mode"), "closed_trades": len(trades), "statistics": stats, "performance": perf, "actions": actions}
+    result = {"timestamp": _now(), "trigger": trigger, "mode": state.get("mode"), "closed_trades": len(trades), "ordinary_closed_trades": len(ordinary_trades), "learning_closed_trades": len(learning_trades), "statistics": stats, "performance": perf, "actions": actions, "production_parameters_changed": False}
     _audit("LEARNING_EVALUATED", result)
     return result
 
