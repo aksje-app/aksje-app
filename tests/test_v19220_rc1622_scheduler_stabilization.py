@@ -30,7 +30,7 @@ def test_cron_has_narrow_report_lock_cadence_and_production_capacity():
     assert "already_coordinated=False" in runner
     assert "The report lock must never cover paper scanning" in runner
     assert "REPORT_MAINTENANCE_INTERVAL_MINUTES" in runner
-    assert 'schedule: "*/30 * * * *"' in blueprint
+    assert 'schedule: "*/15 * * * *"' in blueprint
     assert "plan: standard" in blueprint
 
 
