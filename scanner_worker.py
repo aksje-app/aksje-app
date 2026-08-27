@@ -3,13 +3,22 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 from cron_control import should_run_background_scan, mark_background_scan_started
 from currency_alert_service import run_currency_alert_checks
 
-def _ticker_market(ticker):
-    t = str(ticker).upper()
-    if t.endswith(".OL"):
-        return "NORGE"
-    if t.endswith(".ST"):
-        return "SVERIGE"
-    return "USA"
+AUTOMATED_SCANNER_MARKETS = ("USA", "NORGE", "SVERIGE")
+
+
+def _open_automated_markets():
+    try:
+        values = open_markets(AUTOMATED_SCANNER_MARKETS)
+    except TypeError:  # compatibility with older injected/test providers
+        values = open_markets()
+    return [market for market in values if market in AUTOMATED_SCANNER_MARKETS]
+
+
+def _automated_market_status_lines():
+    try:
+        return market_status_lines(AUTOMATED_SCANNER_MARKETS)
+    except TypeError:  # compatibility with older injected/test providers
+        return market_status_lines()
 
 def _filter_items_by_settings(items, settings):
     allowed = set(enabled_markets(settings))
@@ -43,7 +52,7 @@ from paper_scanner_runtime import (
 from paper_store import force_schema_migration
 from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
 from alert_state import should_send_alert, record_alert
-from market_hours import open_markets, should_process_ticker, market_status_lines
+from market_hours import open_markets, should_process_ticker, market_status_lines, ticker_market as _ticker_market
 from background_guard import print_market_guard_summary
 
 from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, US_FALLBACK, NORWEGIAN_STOCKS, SWEDISH_STOCKS
@@ -152,16 +161,16 @@ def latest_ui_buy_candidate_tickers(settings=None):
     return out
 
 def get_watchlist():
+    settings = load_settings()
+    enabled = set(enabled_markets(settings)) & set(AUTOMATED_SCANNER_MARKETS)
+    markets = _open_automated_markets()
     custom = os.getenv("SCANNER_WATCHLIST", "").strip()
     if custom:
-        return _clean_scanner_tickers(custom.replace(";", ",").split(","))
+        return [ticker for ticker in _clean_scanner_tickers(custom.replace(";", ",").split(","))
+                if _ticker_market(ticker) in enabled]
 
-    settings = load_settings()
-    enabled = set(enabled_markets(settings))
     max_per_market = int(settings.get("max_tickers_per_market", 20))
     scan_top_only = bool(settings.get("scan_top_picks_only", True))
-
-    markets = open_markets()
     tickers = []
 
     # 1) Kandidater som UI nettopp viste som KJØP NÅ prioriteres først.
@@ -199,11 +208,48 @@ def get_watchlist():
     current_positions = list(load_portfolio().get("positions", {}).keys())
     for t in current_positions:
         t = str(t).upper()
-        if valid_scanner_ticker(t) and t not in seen:
+        if valid_scanner_ticker(t) and _ticker_market(t) in enabled and t not in seen:
             seen.add(t)
             out.append(t)
 
     return out[:max(SCANNER_MAX_TICKERS, len(current_positions), max_per_market)]
+
+
+def scanner_memory_decision(memory, *, soft_limit_mb, minimum_headroom_mb=80.0):
+    """Return an auditable decision instead of an unexplained boolean gate."""
+    snapshot = dict(memory or {})
+    current = snapshot.get("cgroup_memory_current_mb")
+    rss = snapshot.get("process_rss_mb")
+    used_mb = float(current if current is not None else (rss or 0))
+    raw_headroom = snapshot.get("cgroup_memory_headroom_mb")
+    headroom_mb = float(raw_headroom) if raw_headroom is not None else None
+    reasons = []
+    if used_mb >= float(soft_limit_mb):
+        reasons.append("SOFT_LIMIT")
+    if headroom_mb is not None and headroom_mb < float(minimum_headroom_mb):
+        reasons.append("CGROUP_HEADROOM")
+    return {
+        "pressure": bool(reasons),
+        "reasons": reasons,
+        "reason": "+".join(reasons) if reasons else "NONE",
+        "configured_soft_limit_mb": float(soft_limit_mb),
+        "minimum_headroom_mb": float(minimum_headroom_mb),
+        "used_mb": used_mb,
+        "cgroup_limit_mb": snapshot.get("cgroup_memory_limit_mb"),
+        "cgroup_headroom_mb": headroom_mb,
+        "process_rss_mb": snapshot.get("process_rss_mb"),
+    }
+
+
+def _memory_policy_line(decision):
+    limit = decision.get("cgroup_limit_mb")
+    headroom = decision.get("cgroup_headroom_mb")
+    line = (
+        f"Scanner minnevern: brukt={decision['used_mb']:.1f} MB, "
+        f"softgrense={decision['configured_soft_limit_mb']:.1f} MB, "
+        + (f"cgroup-grense={float(limit):.1f} MB" if limit is not None else "cgroup-grense=ukjent")
+    )
+    return line + (f", ledig={float(headroom):.1f} MB" if headroom is not None else ", ledig=ukjent")
 
 
 
@@ -352,10 +398,10 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
         mark_background_scan_started()
 
     print_market_guard_summary()
-    for line in market_status_lines():
+    for line in _automated_market_status_lines():
         print(line)
 
-    markets = open_markets()
+    markets = _open_automated_markets()
     if not markets:
         print("⏸ Alle markeder stengt - ingen scanning")
         update_scanner_status(state="MARKET_CLOSED", markets_open=[], message="Alle markeder er stengt")
@@ -401,6 +447,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     if resume:
         print(f"Gjenopptar komplett skanning ved ticker {start_index + 1}/{len(tickers)}; ingen tickere fjernes")
 
+    memory_policy_logged = False
     for ticker_index, ticker in enumerate(tickers[start_index:], start=start_index + 1):
         cleanup_before_gate = release_process_memory("paper_scanner:pre_ticker_gate")
         memory = cleanup_before_gate.get("after") or memory_snapshot()
@@ -408,8 +455,12 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
         minimum_progress = max(1, int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1))
         processed_this_cycle = (ticker_index - 1) - start_index
         used_mb = float(memory.get("cgroup_memory_current_mb") or memory.get("process_rss_mb") or 0)
-        headroom_mb = float(memory.get("cgroup_memory_headroom_mb") or 9999)
-        memory_pressure = used_mb >= soft_limit_mb or headroom_mb < 80
+        memory_decision = scanner_memory_decision(memory, soft_limit_mb=soft_limit_mb)
+        memory_pressure = bool(memory_decision["pressure"])
+        if not memory_policy_logged:
+            print(_memory_policy_line(memory_decision))
+            update_scanner_status(memory=memory, memory_policy=memory_decision)
+            memory_policy_logged = True
         if memory_pressure and processed_this_cycle >= minimum_progress:
             save_scanner_checkpoint({
                 "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
@@ -421,16 +472,17 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                 state="PARTIAL_CHECKPOINT", scan_run_id=scan_run_id,
                 tickers_processed=ticker_index - 1, tickers_total=len(tickers),
                 trades_executed=trades_executed, memory=memory,
+                memory_policy=memory_decision, memory_pressure_reason=memory_decision["reason"],
                 message="Minnemykt kontrollpunkt lagret; neste cron fortsetter automatisk med resterende tickere",
             )
             print(
-                f"Minnemykt kontrollpunkt ved {used_mb:.1f} MB etter "
+                f"Minnemykt kontrollpunkt ved {used_mb:.1f} MB; årsak={memory_decision['reason']} etter "
                 f"{processed_this_cycle} ticker(e) denne cron; neste indeks {ticker_index}/{len(tickers)}"
             )
             return trades_executed
         if memory_pressure:
             print(
-                f"Minnepress ved {used_mb:.1f} MB, men gjennomfører minst "
+                f"Minnepress ved {used_mb:.1f} MB; årsak={memory_decision['reason']}, men gjennomfører minst "
                 f"{minimum_progress} ticker(e) for å sikre fremdrift"
             )
         result = None

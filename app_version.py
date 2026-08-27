@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ar"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ar Live Cron Recovery"
+APP_VERSION = "v19.22.0-rc16.31as"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31as Production Stabilization"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31aq"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ar"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31as: Produksjonsstabilisering av den varige Paper-skanneren. Automatisk markedskontroll er låst til Norge, Sverige og USA mens øvrige markeder fortsatt kan brukes manuelt. Scan-cooldown starter ved terminal fullføring i stedet for oppstart, slik at køede Render-jobber ikke starter en ny runde umiddelbart etter en lang skanning. Minneporten lagrer og logger konkret utløser, softgrense, cgroup-grense, forbruk og margin. Diagnosepakken inkluderer aktuell skannerstatus, kontrollpunkt, hemmelighetsfri konfigurasjon og minnetelemetri. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ar: Gjenoppretter synlige, konkrete analyseresultater uten å åpne for transaksjoner. Streng Kjøpskandidat er uendret. En separat moderat kjøpsanbefaling kan gis til en ny aksje med gyldige markedsdata, godkjent risiko, kontrollert evidensfase og score inntil seks poeng under produksjonsterskelen, når ingen kritisk negativ kilde, kildekonflikt eller teknisk ventestatus foreligger. Eksisterende posisjoner, kildefeil og ugyldige data kan ikke få moderat kjøpsanbefaling. PDF, JSON, Pushover og plausibilitetskontroll teller samme analytiske anbefalinger. Ingen anbefaling autoriserer virkelig eller simulert handel.",
     "v19.22.0-rc16.31al: Ende-til-ende-stabilisering uten nye funksjoner. Én felles dekningskontrakt avstemmer kandidatantall og status for markedsdata, nyheter, innsider og short i JSON, PDF, teknisk PDF, UI og Pushover. Dokumenterte rang-, budsjett- og kildebegrensninger skilles fra teknisk ufullstendighet. Portefølje-only-posisjoner får eksplisitt rolle, markedsverdi, short- og innsiderkontroll og én porteføljekvittering. Mobil rapportvisning beholder retur, ny fane og nedlasting/deling over PDF-en. Sluttavstemming kjøres etter Autonomi og før lagring, publisering og varsling. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er endret eller redusert.",
     "v19.22.0-rc16.31ak: Stabiliserer sluttkontrakten uten nye funksjoner. Alle kanoniske kandidater, også eksisterende porteføljeposisjoner, får en eksplisitt porteføljevurderingskvittering. Brasilianske .SA-symboler rutes til Brasil/CVM i stedet for USA/SEC. Kandidat- og porteføljetabeller bruker samme normaliserte short-snapshot. Hovedrapport, teknisk vedlegg, JSON, arkiv og sluttstatus bygges på nytt etter den endelige kjedekvitteringen, slik at en mislykket kjøring ikke kan publiseres som fullført. Samlet Autonomi-steg får en meningsfull arbeidsbeskrivelse. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",

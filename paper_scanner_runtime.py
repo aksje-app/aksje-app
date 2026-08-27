@@ -146,8 +146,12 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
         status = loaded_status if str(loaded_status.get("execution_id") or "") == execution_id else status
         terminal_state = str(status.get("state") or "RUNNING")
         completed_scan = terminal_state not in {"MARKET_CLOSED", "SKIPPED_POLICY", "PARTIAL_CHECKPOINT"}
+        terminal_outcome = "COMPLETED" if completed_scan else terminal_state
+        if terminal_state != "SKIPPED_POLICY":
+            from cron_control import mark_background_scan_completed
+            status["cooldown_started_at"] = mark_background_scan_completed(terminal_outcome)
         status.update({
-            "state": "COMPLETED" if completed_scan else terminal_state,
+            "state": terminal_outcome,
             "completed_at": scanner_now(),
             "trades_executed": trades,
             "heartbeat_at": scanner_now(),

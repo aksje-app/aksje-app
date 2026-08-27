@@ -525,7 +525,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         scheduler = load_unattended_state()
         scheduler = {key: scheduler.get(key) for key in (
             "state", "started_at", "completed_at", "process", "scheduler",
-            "scheduler_health", "report_test_mode", "error",
+            "scheduler_health", "report_test_mode", "paper_scanner", "error",
         ) if key in scheduler}
     except Exception as exc:
         scheduler = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
@@ -539,9 +539,49 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         runtime_identities = runtime_identity_snapshot()
     except Exception as exc:
         runtime_identities = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from paper_scanner_runtime import load_scanner_checkpoint, load_scanner_status
+        raw_scanner_status = load_scanner_status()
+        raw_scanner_checkpoint = load_scanner_checkpoint()
+        scanner_status_fields = {
+            "execution_id", "state", "started_at", "completed_at", "heartbeat_at",
+            "last_successful_scan_at", "cooldown_started_at", "scan_run_id", "message",
+            "tickers_processed", "tickers_total", "current_ticker", "markets_open",
+            "trades_executed", "memory", "memory_policy", "memory_pressure_reason",
+            "runtime_identity", "runtime_alignment", "cluster_alignment", "error",
+        }
+        paper_scanner_status = {
+            key: value for key, value in raw_scanner_status.items() if key in scanner_status_fields
+        }
+        paper_scanner_checkpoint = {
+            "scan_run_id": raw_scanner_checkpoint.get("scan_run_id"),
+            "ticker_signature": raw_scanner_checkpoint.get("ticker_signature"),
+            "tickers": list(raw_scanner_checkpoint.get("tickers") or []),
+            "next_index": int(raw_scanner_checkpoint.get("next_index") or 0),
+            "candidate_count": len(raw_scanner_checkpoint.get("candidate_snapshots") or []),
+            "latest_price_count": len(raw_scanner_checkpoint.get("latest_prices") or {}),
+            "trades_executed": int(raw_scanner_checkpoint.get("trades_executed") or 0),
+            "updated_at": raw_scanner_checkpoint.get("updated_at"),
+        }
+    except Exception as exc:
+        paper_scanner_status = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+        paper_scanner_checkpoint = {"status": "UNAVAILABLE"}
+    try:
+        from runtime_memory import memory_snapshot
+        diagnostic_memory = memory_snapshot()
+    except Exception as exc:
+        diagnostic_memory = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    scanner_configuration = {
+        "automated_markets": ["USA", "NORGE", "SVERIGE"],
+        "scanner_max_tickers": int(os.getenv("SCANNER_MAX_TICKERS", "30") or 30),
+        "scanner_memory_soft_limit_mb": float(os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "410") or 410),
+        "scanner_min_tickers_per_cycle": int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1),
+        "secret_values_included": False,
+    }
     readme = (
         "Diagnosepakke for manuell bakgrunnskjøring.\n"
-        "Pakken inneholder status, fremdrift og avgrenset Autonomi-læringsbevis. "
+        "Pakken inneholder status, fremdrift, papirskannerens kontrollpunkt og minnebevis, "
+        "samt avgrenset Autonomi-læringsbevis. "
         "API-nøkler, tokens, passord, miljøverdier, fulle rapporter og ordinær "
         "portefølje er ikke inkludert. Læringsposisjoner er teoretiske.\n"
     )
@@ -553,6 +593,10 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_EXECUTION_OWNER.json": json.dumps(lock_owner, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/RUNTIME_IDENTITIES.json": json.dumps(runtime_identities, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scanner/PAPER_SCANNER_STATUS.json": json.dumps(paper_scanner_status, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scanner/PAPER_SCANNER_CHECKPOINT.json": json.dumps(paper_scanner_checkpoint, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scanner/SCANNER_CONFIGURATION.json": json.dumps(scanner_configuration, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/DIAGNOSTIC_COLLECTOR_MEMORY.json": json.dumps(diagnostic_memory, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_TIMELINE.json": json.dumps(report_test.get("timeline") or [], ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_SYSTEM_CHECK.json": json.dumps(system_check, ensure_ascii=False, indent=2, default=str).encode("utf-8"),

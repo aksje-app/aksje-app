@@ -240,6 +240,11 @@ def _run_once_locked() -> dict[str, Any]:
             "tickers_processed": int(scanner_status.get("tickers_processed") or 0),
             "tickers_total": int(scanner_status.get("tickers_total") or 0),
             "memory_before_scan": before_scan.get("after"),
+            "memory": scanner_status.get("memory"),
+            "memory_policy": scanner_status.get("memory_policy"),
+            "memory_pressure_reason": str(scanner_status.get("memory_pressure_reason") or ""),
+            "markets_open": list(scanner_status.get("markets_open") or []),
+            "cooldown_started_at": scanner_status.get("cooldown_started_at"),
             "error": str(scanner_status.get("error") or "")[:500],
         }
     except Exception as exc:

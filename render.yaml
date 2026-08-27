@@ -132,3 +132,5 @@ services:
         value: "8"
       - key: SCANNER_MEMORY_SOFT_LIMIT_MB
         value: "1700"
+      - key: SCANNER_MIN_TICKERS_PER_CYCLE
+        value: "1"

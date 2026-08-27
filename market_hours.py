@@ -364,16 +364,21 @@ def _format_status_line(status):
     return f"{name} stengt: {status.get('reason', 'ukjent')}"
 
 
-def market_statuses():
-    return {m: market_status(m) for m in ["USA", "NORGE", "SVERIGE", "FINLAND", "DANMARK", "BRASIL"]}
+ALL_MARKETS = ("USA", "NORGE", "SVERIGE", "FINLAND", "DANMARK", "BRASIL")
 
 
-def market_status_lines():
-    return [market_status(m)["label"] for m in ["USA", "NORGE", "SVERIGE", "FINLAND", "DANMARK", "BRASIL"]]
+def market_statuses(markets=None):
+    selected = tuple(markets or ALL_MARKETS)
+    return {m: market_status(m) for m in selected if m in ALL_MARKETS}
 
 
-def open_markets():
-    return [m for m, s in market_statuses().items() if s.get("is_open")]
+def market_status_lines(markets=None):
+    selected = tuple(markets or ALL_MARKETS)
+    return [market_status(m)["label"] for m in selected if m in ALL_MARKETS]
+
+
+def open_markets(markets=None):
+    return [m for m, s in market_statuses(markets).items() if s.get("is_open")]
 
 
 def ticker_market(ticker):

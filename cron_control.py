@@ -85,7 +85,9 @@ def should_run_background_scan(mark_complete=True):
 
     interval = max(1, min(interval, 1440))
 
-    last_scan = _parse_iso(settings.get("last_scan_at"))
+    # Cooldown is measured from terminal completion. Older installations only
+    # have last_scan_at, so retain it as a migration fallback.
+    last_scan = _parse_iso(settings.get("last_scan_completed_at") or settings.get("last_scan_at"))
     if last_scan:
         elapsed = (now - last_scan).total_seconds() / 60.0
         if elapsed < interval:
@@ -97,15 +99,26 @@ def should_run_background_scan(mark_complete=True):
 
 def mark_background_scan_started():
     settings = load_settings()
-    settings["last_scan_at"] = _utc_now().isoformat()
+    settings["last_scan_started_at"] = _utc_now().isoformat()
     save_settings(settings)
+
+
+def mark_background_scan_completed(outcome="COMPLETED"):
+    """Start the cooldown only after one real scanner attempt terminates."""
+    settings = load_settings()
+    completed_at = _utc_now().isoformat()
+    settings["last_scan_at"] = completed_at  # compatibility for existing UI
+    settings["last_scan_completed_at"] = completed_at
+    settings["last_scan_outcome"] = str(outcome or "COMPLETED").upper()
+    save_settings(settings)
+    return completed_at
 
 
 def cron_status_text():
     settings = load_settings()
     allowed, reason = should_run_background_scan()
     pause_to = settings.get("pause_scanning_until")
-    last_scan = settings.get("last_scan_at")
+    last_scan = settings.get("last_scan_completed_at") or settings.get("last_scan_at")
     scan_source = "legacy_settings"
     try:
         # The coordinated worker persists this independently of Streamlit and
@@ -196,6 +209,9 @@ def deactivate_full_stop():
     settings["auto_trading_enabled"] = True
     settings["pause_scanning_until"] = None
     settings["last_scan_at"] = None
+    settings["last_scan_started_at"] = None
+    settings["last_scan_completed_at"] = None
+    settings["last_scan_outcome"] = ""
     settings["full_stop_reason"] = ""
     save_settings(settings)
     return settings
