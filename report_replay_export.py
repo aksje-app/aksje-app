@@ -311,12 +311,46 @@ def _portfolio_snapshot(run: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _candidate_scores(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Export score coverage without inventing scores for portfolio-only rows."""
+    rows = []
+    scored = 0
+    for item in (run.get("candidates") or []):
+        if not isinstance(item, Mapping):
+            continue
+        raw = item.get("raw") if isinstance(item.get("raw"), Mapping) else {}
+        score = item.get("investment_score")
+        if score is None:
+            score = raw.get("investment_score")
+        role = str(item.get("coverage_role") or item.get("candidate_role") or item.get("role") or "ANALYSIS_CANDIDATE").upper()
+        portfolio_only = score is None and bool(
+            item.get("already_in_portfolio") or item.get("in_portfolio")
+            or role in {"PORTFOLIO_ONLY", "PORTFOLIO_ONLY_EXISTING_POSITION", "EXISTING_POSITION"}
+        )
+        status = "SCORED" if score is not None else ("NOT_APPLICABLE_PORTFOLIO_ONLY" if portfolio_only else "MISSING")
+        scored += int(score is not None)
+        rows.append({
+            "ticker": str(item.get("ticker") or ""),
+            "candidate_role": "PORTFOLIO_ONLY" if portfolio_only else role,
+            "investment_score": score,
+            "status": status,
+        })
+    return {
+        "candidate_count": len(rows),
+        "scored_count": scored,
+        "not_applicable_count": sum(row["status"] == "NOT_APPLICABLE_PORTFOLIO_ONLY" for row in rows),
+        "missing_count": sum(row["status"] == "MISSING" for row in rows),
+        "rows": rows,
+    }
+
+
 def classify_replay_case(run: Mapping[str, Any]) -> tuple[str, list[str]]:
     missing: list[str] = []
     candidates = [item for item in (run.get("candidates") or []) if isinstance(item, Mapping)]
     if not candidates:
         return "REPORT_ONLY", ["candidates"]
-    has_scores = all(item.get("investment_score") is not None for item in candidates)
+    score_contract = _candidate_scores(run)
+    has_scores = int(score_contract.get("missing_count") or 0) == 0 and int(score_contract.get("scored_count") or 0) > 0
     has_decisions = all(
         item.get("portfolio_action") is not None
         or item.get("autonomy_outcome") is not None
@@ -429,6 +463,7 @@ def build_single_report_package(
         f"{report_dir}/input_snapshot.json": _json_bytes(_input_snapshot(clean_run)),
         f"{report_dir}/portfolio_snapshot.json": _json_bytes(portfolio_snapshot),
         f"{report_dir}/decision_trace.json": _json_bytes(_candidate_trace(clean_run)),
+        f"{report_dir}/candidate_scores.json": _json_bytes(_candidate_scores(clean_run)),
         f"{report_dir}/replay_result_rc16.json": _json_bytes(replay_result),
         f"{report_dir}/source_manifest.json": _json_bytes(sanitize_for_export({
             "source_health": clean_run.get("source_health") or {},

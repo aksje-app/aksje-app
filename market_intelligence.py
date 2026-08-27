@@ -1864,6 +1864,8 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     source_rows = list(source_health.get("sources") or [])
     reserve_feed_used = any(bool(row.get("fallback_used")) for row in source_rows if isinstance(row, Mapping))
     source_error_count = sum(int(row.get("errors") or 0) for row in source_rows if isinstance(row, Mapping))
+    trigger = str(run.get("trigger") or "").upper()
+    is_revalidation = trigger == "REVALIDATION"
     return {
         "run_id": run.get("run_id"), "created_at": run.get("created_at"),
         "operations_trace_id": run.get("operations_trace_id") or "",
@@ -1894,6 +1896,9 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "report_revision": revision.get("revision") or 1,
         "report_revision_label": revision.get("revision_label") or "R1",
         "supersedes_run_id": revision.get("supersedes_run_id") or "",
+        "trigger": trigger,
+        "is_revalidation": is_revalidation,
+        "archive_category": "REVALIDATION" if is_revalidation else "REPORT",
         "content_sha256": revision.get("content_sha256") or "",
         # Legacy compatibility values are retained in the archive payload but
         # not used as a user-facing single quality indicator in RC8.
@@ -6112,6 +6117,7 @@ def revalidate_provisional_reports(
 
     now = (now or _now()).astimezone(timezone.utc)
     wait_hours = max(1, int(os.getenv("REPORT_REVALIDATION_HOURS", "6") or 6))
+    max_age_hours = max(wait_hours, int(os.getenv("REPORT_REVALIDATION_MAX_AGE_HOURS", "24") or 24))
     max_attempts = max(1, int(os.getenv("REPORT_REVALIDATION_MAX_ATTEMPTS", "3") or 3))
     reserve = max(0, int(os.getenv("NEWSAPI_REVALIDATION_RESERVE", "10") or 10))
     try:
@@ -6128,11 +6134,20 @@ def revalidate_provisional_reports(
             "runs": [],
         }
     jobs = {job.job_id: job for job in load_jobs()}
+    archive_rows = _load_report_archive()
     latest_by_series: dict[str, dict[str, Any]] = {}
-    for entry in _load_report_archive():
+    origin_by_series: dict[str, datetime] = {}
+    for entry in archive_rows:
         series = str(entry.get("report_series_id") or entry.get("run_id") or "")
         if series and series not in latest_by_series:
             latest_by_series[series] = dict(entry)
+        try:
+            parsed_created = datetime.fromisoformat(str(entry.get("created_at") or "").replace("Z", "+00:00"))
+            parsed_created = parsed_created.replace(tzinfo=parsed_created.tzinfo or timezone.utc).astimezone(timezone.utc)
+        except Exception:
+            parsed_created = None
+        if series and parsed_created and (series not in origin_by_series or parsed_created < origin_by_series[series]):
+            origin_by_series[series] = parsed_created
     candidates: list[tuple[datetime, dict[str, Any], dict[str, Any], JobProfile]] = []
     for entry in latest_by_series.values():
         if not entry.get("revalidation_required") and str(entry.get("report_state") or "") != "PROVISIONAL":
@@ -6153,6 +6168,10 @@ def revalidate_provisional_reports(
             continue
         if now - created < timedelta(hours=wait_hours):
             continue
+        series = str(entry.get("report_series_id") or entry.get("run_id") or "")
+        origin = origin_by_series.get(series, created)
+        if now - origin > timedelta(hours=max_age_hours):
+            continue
         candidates.append((created, entry, run, job))
     results: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -6166,10 +6185,11 @@ def revalidate_provisional_reports(
                 send_notifications=False,
             )
             revised_state = str((revised.get("report_status") or {}).get("state") or "")
+            # Revalidation is an internal quality-control run.  The normal
+            # run path already applies suppress_notifications=True and this
+            # function must never bypass that fail-closed decision.
             notification_sent = False
-            notification_detail = ""
-            if revised_state == "FINAL":
-                notification_sent, notification_detail = _notification(job, revised)
+            notification_detail = "Ikke sendt: automatisk revalidering er alltid stille"
             results.append({
                 "parent_run_id": parent.get("run_id"),
                 "run_id": revised.get("run_id"),
@@ -7435,7 +7455,13 @@ def render_market_intelligence() -> None:
             )
         for row in visible_archive_rows_v19220_rc1617:
             shown_time = row.get("created_at_local") or local_display(row.get("created_at"), str(row.get("timezone_name") or DEFAULT_TIMEZONE))
-            label = f"{'⭐ ' if row.get('favorite') else ''}{row.get('report_label','Rapport')} · {row.get('job_name','-')} · {shown_time}"
+            if row.get("is_revalidation") or str(row.get("trigger") or "").upper() == "REVALIDATION":
+                history_kind = "Automatisk revalidering"
+                history_name = f"Revisjon av {row.get('supersedes_run_id') or row.get('report_series_id') or 'tidligere rapport'}"
+            else:
+                history_kind = row.get("report_label", "Rapport")
+                history_name = row.get("job_name", "-")
+            label = f"{'⭐ ' if row.get('favorite') else ''}{history_kind} · {history_name} · {shown_time}"
             with st.expander(label, expanded=False):
                 state_label = row.get("report_status_label") or row.get("report_state") or "Eldre rapport"
                 st.caption(

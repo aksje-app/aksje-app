@@ -1,0 +1,29 @@
+{
+  "version": "v19.22.0-rc16.31am",
+  "base_version": "v19.22.0-rc16.31al",
+  "package": "delta",
+  "generated_at": "2026-08-27T10:18:31+00:00",
+  "file_count": 4,
+  "files": [
+    {
+      "path": "app_version.py",
+      "size": 98410,
+      "sha256": "8f6b153103bcf07a412b0c06517cecbbd60c8a5c66e80f5372b501474b616859"
+    },
+    {
+      "path": "market_intelligence.py",
+      "size": 471851,
+      "sha256": "b7f9c3c17ee54b98f6310d561798c8d0f4cd542c4a665d80a0933d19c622bbc0"
+    },
+    {
+      "path": "report_export_audit.py",
+      "size": 8346,
+      "sha256": "ee1032f062ee5539aa67dacff9168d318f3d96dc983f9e7e9986738caa1648ec"
+    },
+    {
+      "path": "report_replay_export.py",
+      "size": 47072,
+      "sha256": "310309be6737e7b5f1a5e1ba3969f55d3a8c34a1ed33be1d9001adcb2764c380"
+    }
+  ]
+}

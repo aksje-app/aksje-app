@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31al"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31al End-to-End Stabilization"
+APP_VERSION = "v19.22.0-rc16.31am"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31am End-to-End Stabilization"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ak"
@@ -156,7 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
-    "v19.22.0-rc16.31al: Ende-til-ende-stabilisering uten nye funksjoner. Én felles dekningskontrakt avstemmer kandidatantall og status for markedsdata, nyheter, innsider og short i JSON, PDF, teknisk PDF, UI og Pushover. Dokumenterte rang-, budsjett- og kildebegrensninger skilles fra teknisk ufullstendighet. Portefølje-only-posisjoner får eksplisitt rolle, markedsverdi, short- og innsiderkontroll og én porteføljekvittering. Mobil rapportvisning beholder retur, ny fane og nedlasting/deling over PDF-en. Sluttavstemming kjøres etter Autonomi og før lagring, publisering og varsling. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er endret eller redusert.",
+    "v19.22.0-rc16.31am: Ende-til-ende-stabilisering uten nye funksjoner. Én felles dekningskontrakt avstemmer kandidatantall og status for markedsdata, nyheter, innsider og short i JSON, PDF, teknisk PDF, UI og Pushover. Dokumenterte rang-, budsjett- og kildebegrensninger skilles fra teknisk ufullstendighet. Portefølje-only-posisjoner får eksplisitt rolle, markedsverdi, short- og innsiderkontroll og én porteføljekvittering. Mobil rapportvisning beholder retur, ny fane og nedlasting/deling over PDF-en. Sluttavstemming kjøres etter Autonomi og før lagring, publisering og varsling. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er endret eller redusert.",
     "v19.22.0-rc16.31ak: Stabiliserer sluttkontrakten uten nye funksjoner. Alle kanoniske kandidater, også eksisterende porteføljeposisjoner, får en eksplisitt porteføljevurderingskvittering. Brasilianske .SA-symboler rutes til Brasil/CVM i stedet for USA/SEC. Kandidat- og porteføljetabeller bruker samme normaliserte short-snapshot. Hovedrapport, teknisk vedlegg, JSON, arkiv og sluttstatus bygges på nytt etter den endelige kjedekvitteringen, slik at en mislykket kjøring ikke kan publiseres som fullført. Samlet Autonomi-steg får en meningsfull arbeidsbeskrivelse. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",
     "v19.22.0-rc16.31aj: Stabiliserer rapportintegriteten ved å avstemme nøyaktig én porteføljebeslutning mot hver kanoniske kandidat, erstatter utgått Streamlit-komponent-API og lar den varige tickerkarantenen stoppe gjentatte ugyldige Yahoo-oppslag i den sentrale markedsdatahentingen. DELTA-pakken inneholder bare nødvendige runtimefiler; tester, verktøy og releasehistorikk ligger kun i FULL. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",
     "v19.22.0-rc16.31ai: Produksjonsstabilisering som låser short- og innsiderevidens fra analysekandidat til eid posisjon og stopper motstridende kontrollstatus før publisering. Porteføljeposisjoner utenfor kandidatlisten får en avgrenset, eksplisitt evidenskontroll. Rapportplanleggerlåsen omfatter ikke lenger Paper-skanning, slik at faste rapporter 08:00, 14:00 og 22:00 ikke blokkeres av en lang skann. Mobil rapportvisning beholder en synlig retur til programmet, markedsstatusfarger har regressjonslås, og samme varige tickerkarantene brukes av rapport- og Paper-motoren med periodisk ny kontroll. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er redusert.",

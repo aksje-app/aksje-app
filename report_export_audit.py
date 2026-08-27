@@ -142,7 +142,7 @@ def validate_zip(payload: bytes) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as z:
             bad=z.testzip(); names=set(z.namelist())
-            required={"report/report.pdf","report/report.txt","report/report.json","REPORT_CONSISTENCY_AUDIT.json"}
+            required={"report/report.pdf","report/report.txt","report/report.json","report/candidate_scores.json","REPORT_CONSISTENCY_AUDIT.json"}
             errors=[]
             if bad: errors.append(f"Korrupt ZIP-medlem: {bad}")
             missing=sorted(required-names)
