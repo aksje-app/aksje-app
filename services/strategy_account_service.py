@@ -195,9 +195,28 @@ class StrategyAccountService:
 
     def metrics(self, account_id: str) -> dict[str, Any]:
         account = self.get(account_id) or {}
-        equity = self.equity(account)
-        initial = _f(account.get("initial_cash"), equity)
-        high = max(_f(account.get("high_watermark"), equity), equity)
+        metadata = dict(account.get("metadata") or {})
+        accounting_mode = str(metadata.get("accounting_mode") or "CASH_ACCOUNT").upper()
+        positions_value = sum(
+            _f(pos.get("quantity")) * _f(pos.get("last_price"), _f(pos.get("average_price")))
+            for pos in (account.get("positions") or {}).values()
+        )
+        if accounting_mode == "INDEPENDENT_NOTIONAL_OBSERVATIONS":
+            entry_notional = _f(metadata.get("entry_notional")) or sum(
+                _f(pos.get("quantity")) * _f(pos.get("average_price"))
+                for pos in (account.get("positions") or {}).values()
+            )
+            total_pnl = positions_value - entry_notional + _f(account.get("realized_pnl"))
+            initial = entry_notional
+            equity = entry_notional + total_pnl
+        else:
+            equity = self.equity(account)
+            initial = _f(account.get("initial_cash"), equity)
+        high = (
+            max(initial, equity)
+            if accounting_mode == "INDEPENDENT_NOTIONAL_OBSERVATIONS"
+            else max(_f(account.get("high_watermark"), equity), equity)
+        )
         return {
             "account_id": account_id,
             "display_name": account.get("display_name"),
@@ -205,7 +224,7 @@ class StrategyAccountService:
             "role": account.get("role"),
             "status": account.get("status"),
             "cash": round(_f(account.get("cash")), 2),
-            "positions_value": round(equity - _f(account.get("cash")), 2),
+            "positions_value": round(positions_value, 2),
             "equity": round(equity, 2),
             "return_value": round(equity - initial, 2),
             "return_pct": round(((equity / initial) - 1) * 100, 4) if initial else 0.0,
@@ -216,6 +235,8 @@ class StrategyAccountService:
             "slippage_paid": round(_f(account.get("slippage_paid")), 2),
             "last_run_id": account.get("last_run_id"),
             "updated_at": account.get("updated_at"),
+            "accounting_mode": accounting_mode,
+            "return_basis": "ENTRY_NOTIONAL" if accounting_mode == "INDEPENDENT_NOTIONAL_OBSERVATIONS" else "INITIAL_CASH",
         }
 
     def snapshot(self, account_id: str, *, run_id: str, source: str = "strategy_account_service") -> dict[str, Any]:
