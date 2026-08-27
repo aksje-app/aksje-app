@@ -1424,14 +1424,15 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         lines.append("- Ingen sammenlignbar beslutningsdiff er tilgjengelig.")
 
     lines.extend(["", "KANDIDATBESLUTNINGER"])
-    for candidate in list(candidates)[:10]:
+    for recommendation_rank, candidate in enumerate(list(candidates)[:10], 1):
         raw_action = str(candidate.get("action") or candidate.get("status") or "REVIEW")
         action = decision_label(raw_action)
-        lines.append(f"#{int(candidate.get('rank') or 0)} {candidate.get('ticker') or '-'} · Beslutning: {candidate.get('decision_label') or action}")
+        display_label = str(candidate.get("decision_label") or candidate.get("status") or action)
+        lines.append(f"#{recommendation_rank} {candidate.get('ticker') or '-'} · Beslutning: {display_label}")
         consensus = candidate.get("source_consensus") if isinstance(candidate.get("source_consensus"), Mapping) else {}
         profile = candidate.get("confidence") if isinstance(candidate.get("confidence"), Mapping) else {}
         validity = candidate.get("validity") if isinstance(candidate.get("validity"), Mapping) else {}
-        lines.append(f"{candidate.get('rank', '-')}. {candidate.get('ticker', '-')} ({candidate.get('market', '-')}) – score {candidate.get('score', '-')} – {action}")
+        lines.append(f"{recommendation_rank}. {candidate.get('ticker', '-')} ({candidate.get('market', '-')}) – score {candidate.get('score', '-')} – {display_label}")
         lines.append(f"   Kildekonsensus: {consensus.get('level', '-')} · Markedsdata {profile.get('market_data_coverage', 0)} · Dokumentasjon {profile.get('documentation_coverage', profile.get('data_coverage', 0))} · Kilder {profile.get('source_confidence', 0)} · Beslutning {profile.get('decision_confidence', 0)}")
         lines.append(f"   Gyldig til: {validity.get('valid_until') or '-'}")
         for blocker in list(candidate.get("blockers") or [])[:3]:
@@ -6114,7 +6115,14 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
             "planned_at": planned_at,
         })
         try:
-            result = run_job(job, trigger="SCHEDULED", scheduled_for=planned_at)
+            # The 14:00 report exists to catch information published after
+            # the 08:00 run while Nordic exchanges are still open. Bypass the
+            # normal six-hour cache so this slot always attempts fresh data.
+            force_fresh = job.job_id == "MI-REQUIRED-AFTERNOON"
+            result = run_job(
+                job, trigger="SCHEDULED", scheduled_for=planned_at,
+                force_refresh=force_fresh,
+            )
             results.append(result)
             _audit("SCHEDULED_RUN_COMPLETED", {
                 "job_id": job.job_id, "job_name": job.name, "run_id": result.get("run_id"),

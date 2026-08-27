@@ -29,7 +29,11 @@ def build_channel_projection(document: Mapping[str, Any]) -> dict[str, Any]:
             "ticker": str(item.get("ticker") or ""),
             "market": str(item.get("market") or ""),
             "decision": str(item.get("action") or item.get("status") or ""),
-            "decision_label": str(item.get("decision_label") or item.get("action_label") or item.get("action") or item.get("status") or ""),
+            # ReportDocument stores the machine code in ``action`` and the
+            # human-facing label in ``status``.  Every public channel must
+            # compare the display label with the display label, never the
+            # internal enum with translated PDF text.
+            "decision_label": str(item.get("decision_label") or item.get("action_label") or item.get("status") or item.get("action") or ""),
             "score": item.get("score"),
         })
     ranking.sort(key=lambda row: (int(row["rank"]), row["ticker"]))

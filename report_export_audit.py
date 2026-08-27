@@ -119,12 +119,18 @@ def validate_artifacts(*, run: Mapping[str, Any], pdf: bytes, txt: bytes, json_b
             decision_label = str(row.get("decision_label") or row.get("decision") or "").strip()
             if decision_label and decision_label not in pdf_text:
                 errors.append(f"PDF mangler beslutning for {row.get('ticker')}")
-        for row in expected["learning_fills"]:
-            if row["ticker"] not in pdf_text:
-                errors.append(f"PDF mangler læringshandler for {row['ticker']}")
-            price_no = f"{row['price']:.2f}".replace(".", ",")
-            if price_no not in pdf_text:
-                errors.append(f"PDF mangler læringspris for {row['ticker']}")
+        # The compact main PDF intentionally omits the detailed learning-fill
+        # appendix.  When that appendix is present (technical/full PDF), its
+        # fills remain mandatory and exact.  Recommendation identity and
+        # decisions above are mandatory in every PDF variant.
+        has_learning_appendix = "KANONISKE LÆRINGSHANDLER" in pdf_text.upper()
+        if has_learning_appendix:
+            for row in expected["learning_fills"]:
+                if row["ticker"] not in pdf_text:
+                    errors.append(f"PDF mangler læringshandler for {row['ticker']}")
+                price_no = f"{row['price']:.2f}".replace(".", ",")
+                if price_no not in pdf_text:
+                    errors.append(f"PDF mangler læringspris for {row['ticker']}")
         fonts=set()
         for page in PdfReader(io.BytesIO(pdf)).pages:
             resources=page.get("/Resources") or {}
