@@ -437,6 +437,17 @@ def _parse_time(value: Any) -> datetime | None:
         return None
 
 
+def risk_proposal_notification_due(
+    state: Mapping[str, Any], fingerprint: str, *, now: datetime | None = None
+) -> bool:
+    """Notify only for a changed proposal or one weekly reminder."""
+    current = now or datetime.now(timezone.utc).astimezone()
+    previous = _parse_time(state.get("last_risk_proposal_notification_at"))
+    if str(state.get("last_risk_proposal_fingerprint") or "") != str(fingerprint):
+        return True
+    return bool(not previous or (current - previous).total_seconds() >= 7 * 24 * 3600)
+
+
 def _mode_policy(state: Mapping[str, Any]) -> dict[str, bool]:
     mode = str(state.get("mode") or "ASSISTED").upper()
     stopped = bool(state.get("emergency_stop", False))
@@ -709,7 +720,20 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
                 p = load_parameters(); reduced = max(0.5, p.maximum_position_pct * float(state["risk_reduction_factor"]))
                 if reduced < p.maximum_position_pct:
                     action = {"type": "RISK_REDUCTION_PROPOSED", "parameter": "maximum_position_pct", "before": p.maximum_position_pct, "after": reduced, "reason": "Drawdown/negativ expectancy trigger", "applied": False, "requires_explicit_user_approval": True}
-                    actions.append(action); _audit("RISK_PROTECTION_PROPOSAL", action); _notify("Learning: risikoforslag", f"Forslag: maks posisjon {p.maximum_position_pct:.2f}% → {reduced:.2f}%. Ingen automatisk endring er utført.", action)
+                    risk_fingerprint = "|".join(map(str, (
+                        action["parameter"], round(float(action["before"]), 6),
+                        round(float(action["after"]), 6), action["reason"],
+                    )))
+                    notify_risk = risk_proposal_notification_due(state, risk_fingerprint)
+                    action["notification_sent"] = notify_risk
+                    actions.append(action)
+                    if notify_risk:
+                        _audit("RISK_PROTECTION_PROPOSAL", action)
+                        _notify("Learning: risikoforslag", f"Forslag: maks posisjon {p.maximum_position_pct:.2f}% → {reduced:.2f}%. Ingen automatisk endring er utført.", action)
+                        state["last_risk_proposal_notification_at"] = _now()
+                        state["last_risk_proposal_fingerprint"] = risk_fingerprint
+                    else:
+                        _audit("RISK_PROTECTION_PROPOSAL_DUPLICATE_SUPPRESSED", action)
         hypotheses = _read(HYPOTHESES_PATH, []); hypotheses = hypotheses if isinstance(hypotheses, list) else []
         if policy["auto_challenger"] and len(trades) >= int(state["challenger_min_closed_trades"]):
             candidate = next((h for h in hypotheses if h.get("status") == "NEW"), None)

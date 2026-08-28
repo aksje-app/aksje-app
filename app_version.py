@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31as"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31as Production Stabilization"
+APP_VERSION = "v19.22.0-rc16.31at"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31at Live Report Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ar"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31as"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31at: Lukker liveavvik etter 08:00- og 14:00-kjøringene. Scannerens effektive minnekonfigurasjon lagres av cronprosessen og brukes autoritativt i diagnosepakken; standard softgrense er 1700 MB. Diagnosefilnavn og ferskhetsmetadata følger innsamlingstidspunktet. Render kontrollerer forfalte rapporter hvert femte minutt. PDF, JSON og Pushover bruker samme beslutningsjusterte markedsdata- og evidenstellere. Markeder utenfor aktivt rapportomfang merkes som eksisterende posisjoner, interne blokkoder oversettes, moderate anbefalinger dupliseres ikke i observasjonskøen, og identiske risikoforslag varsles høyst ukentlig. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31as: Produksjonsstabilisering av den varige Paper-skanneren. Automatisk markedskontroll er låst til Norge, Sverige og USA mens øvrige markeder fortsatt kan brukes manuelt. Scan-cooldown starter ved terminal fullføring i stedet for oppstart, slik at køede Render-jobber ikke starter en ny runde umiddelbart etter en lang skanning. Minneporten lagrer og logger konkret utløser, softgrense, cgroup-grense, forbruk og margin. Diagnosepakken inkluderer aktuell skannerstatus, kontrollpunkt, hemmelighetsfri konfigurasjon og minnetelemetri. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31ar: Gjenoppretter synlige, konkrete analyseresultater uten å åpne for transaksjoner. Streng Kjøpskandidat er uendret. En separat moderat kjøpsanbefaling kan gis til en ny aksje med gyldige markedsdata, godkjent risiko, kontrollert evidensfase og score inntil seks poeng under produksjonsterskelen, når ingen kritisk negativ kilde, kildekonflikt eller teknisk ventestatus foreligger. Eksisterende posisjoner, kildefeil og ugyldige data kan ikke få moderat kjøpsanbefaling. PDF, JSON, Pushover og plausibilitetskontroll teller samme analytiske anbefalinger. Ingen anbefaling autoriserer virkelig eller simulert handel.",
     "v19.22.0-rc16.31al: Ende-til-ende-stabilisering uten nye funksjoner. Én felles dekningskontrakt avstemmer kandidatantall og status for markedsdata, nyheter, innsider og short i JSON, PDF, teknisk PDF, UI og Pushover. Dokumenterte rang-, budsjett- og kildebegrensninger skilles fra teknisk ufullstendighet. Portefølje-only-posisjoner får eksplisitt rolle, markedsverdi, short- og innsiderkontroll og én porteføljekvittering. Mobil rapportvisning beholder retur, ny fane og nedlasting/deling over PDF-en. Sluttavstemming kjøres etter Autonomi og før lagring, publisering og varsling. Ingen score-, risiko-, portefølje-, handels- eller datakilderegel er endret eller redusert.",

@@ -905,7 +905,16 @@ def build_decision_report(
     confidence = build_report_confidence(run, candidate_contracts)
     reliability = build_report_reliability(run, candidate_contracts)
     combined_quality = _mapping(run.get("combined_data_quality") or run.get("combined_quality"))
-    evaluated_count = _safe_int(combined_quality.get("evaluated"), len(candidate_contracts))
+    # The public report population can also contain already-owned positions
+    # appended for portfolio control.  All channels must use that same
+    # denominator instead of silently switching back to the smaller analysis
+    # provider population.
+    report_summary = _mapping(run.get("report_summary"))
+    evaluated_count = _safe_int(
+        report_summary.get("coverage_candidate_total"),
+        _safe_int(combined_quality.get("evaluated"), len(candidate_contracts)),
+    )
+    evaluated_count = max(evaluated_count, len(candidate_contracts))
     evidence_ready_count = _safe_int(combined_quality.get("overall_valid"), sum(
         1 for row in candidate_contracts if _mapping(row.get("confidence")).get("evidence_data_ready")
     ))

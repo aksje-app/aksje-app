@@ -2310,7 +2310,6 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
                 + local_display(run.get("scheduled_for"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
             )
         report_summary_notice = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
-        quality_notice = run.get("data_quality") if isinstance(run.get("data_quality"), Mapping) else {}
         # One denominator for JSON, PDF, UI and Pushover.  Do not fall back to
         # an earlier scan/deep-analysis counter after portfolio-only positions
         # have been appended to the canonical report population.
@@ -2321,7 +2320,18 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             or run.get("summary", {}).get("deep_analyzed", 0)
             or 0
         )
-        evidence_ready_notice = int(report_summary_notice.get("evidence_data_ready") or 0)
+        channel_quality_notice = (
+            channel_projection.get("quality")
+            if isinstance(channel_projection.get("quality"), Mapping) else {}
+        )
+        candidate_total_notice = int(
+            channel_quality_notice.get("candidate_total") or candidate_total_notice
+        )
+        evidence_ready_notice = int(
+            channel_quality_notice.get("evidence_ready")
+            or report_summary_notice.get("evidence_data_ready") or 0
+        )
+        market_quality_notice = int(channel_quality_notice.get("market_data_score") or 0)
         report_created_local = str(
             (run.get("report_document") or {}).get("metadata", {}).get("created_at_local")
             if isinstance(run.get("report_document"), Mapping) else ""
@@ -2338,7 +2348,8 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             f"Konkrete kjøpsanbefalinger: {int(report_summary_notice.get('analytical_buy_recommendations') or 0)} "
             f"(strenge {int(report_summary_notice.get('buy_candidates') or 0)} · moderate {int(report_summary_notice.get('moderate_buy_recommendations') or 0)})",
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
-            f"Datastatus: markedsdata {_format_summary_value_for_notice(quality_notice.get('score', 0))}/100 · evidens {evidence_ready_notice}/{candidate_total_notice}",
+            f"Datastatus: markedsdata (beslutningsjustert) {market_quality_notice}/100 · "
+            f"evidens {evidence_ready_notice}/{candidate_total_notice}",
         ])
         learning_acceptance = run.get("learning_acceptance") if isinstance(run.get("learning_acceptance"), Mapping) else {}
         plausibility = run.get("decision_plausibility") if isinstance(run.get("decision_plausibility"), Mapping) else {}
@@ -2783,6 +2794,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             return f"{float(value):.{decimals}f}".rstrip("0").rstrip(".").replace(".", ",")
         except (TypeError, ValueError):
             return value
+
+    def _fmt_signed(value: Any, decimals: int = 2) -> str:
+        try:
+            number = float(value or 0)
+            return (f"{number:+.{decimals}f}").replace(".", ",")
+        except (TypeError, ValueError):
+            return str(value if value is not None else "-")
 
     def _norwegian_decimal_text(value: Any) -> str:
         """Localise standalone decimal numbers without changing versions, IDs or URLs."""
@@ -3277,11 +3295,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             Paragraph(f"Konkrete kjøpsanbefalinger ({len(decision_candidates)})", styles["Section"]),
             recommendation_table,
             Paragraph(
-                "Moderate anbefalinger er analyseresultater. De kan ikke opprette ordre eller transaksjoner.",
+                "Anbefalingene er analyseresultater. Moderate anbefalinger kan ikke opprette ordre eller transaksjoner.",
                 styles["Small"],
             ),
         ]
     compact_candidates = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
+    active_report_markets = {str(value) for value in (run.get("markets") or [])}
+
+    def _market_scope_label(value: Any) -> str:
+        market = str(value or "Ukjent")
+        if active_report_markets and market not in active_report_markets:
+            return f"{market} (eksisterende)"
+        return market
     short_market_rows = {row["market"]: row for row in short_coverage_by_market(compact_candidates)}
     insider_market_rows = {row["market"]: row for row in insider_coverage_by_market(compact_candidates)}
     evidence_markets = sorted(set(short_market_rows) | set(insider_market_rows))
@@ -3291,7 +3316,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             short_row = short_market_rows.get(market, {})
             insider_row = insider_market_rows.get(market, {})
             evidence_rows.append([
-                market, str(short_row.get("checked", 0)),
+                _market_scope_label(market), str(short_row.get("checked", 0)),
                 str(int(short_row.get("not_searched", 0)) + int(short_row.get("not_supported", 0))),
                 str(insider_row.get("checked", 0)),
                 str(int(insider_row.get("not_searched", 0)) + int(insider_row.get("not_configured", 0))),
@@ -3303,7 +3328,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             Paragraph("Short- og innsiderdekning", styles["Subsection"]), evidence_table,
             Paragraph(
                 "UKJENT betyr at eksponering ikke er dokumentert og regnes aldri som null. "
-                "Innsiderstatus skiller kontroll uten hendelser fra ikke søkt og kildefeil.", styles["Small"],
+                "Innsiderstatus skiller kontroll uten hendelser fra ikke søkt og kildefeil. "
+                "Markeder merket «kun eksisterende posisjon» inngår ikke i den aktive kandidatskanningen.", styles["Small"],
             ),
         ]
     portfolio_rows = [["Ticker", "Antall", "Inngang", "Nå", "Kostpris", "Markedsverdi", "Vekt %"]]
@@ -3348,13 +3374,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         }.get(insider_coverage, "UTILSTR. DEKNING")
         portfolio_result_rows.append([
             _rawp(row.get("ticker") or "-", "Tiny"),
-            _p(f"{float(row.get('unrealized_pnl') or 0):+.2f}", "Tiny"),
-            _p(f"{float(row.get('unrealized_pnl_pct') or 0):+.2f}%", "Tiny"),
+            _p(_fmt_signed(row.get("unrealized_pnl"), 2), "Tiny"),
+            _p(f"{_fmt_signed(row.get('unrealized_pnl_pct'), 2)}%", "Tiny"),
             _p(f"{row.get('holding_days', 0)} dager", "Tiny"),
             _p(f"{float(row.get('entry_score') or 0):.1f} / {float(row.get('current_score') or 0):.1f}", "Tiny"),
             _p(short_label, "Tiny"),
             _p(insider_label, "Tiny"),
-            _p(str(row.get("capital_efficiency_status") or "BEHOLD"), "Tiny"),
+            _p("VURDER KAPITALBRUK" if str(row.get("capital_efficiency_status") or "").upper() == "KAPITALEFFEKTIVITETSVARSEL" else str(row.get("capital_efficiency_status") or "BEHOLD"), "Tiny"),
         ])
     if len(portfolio_result_rows) == 1:
         portfolio_result_rows.append(["-", "-", "-", "-", "-", "-", "-", "Ingen åpne posisjoner"])
@@ -3367,9 +3393,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
          _p("Kontanter", "Tiny"), _p(f"{_fmt(decision_portfolio.get('cash', 0))} ({_fmt(decision_portfolio.get('cash_pct', 0))} %)", "Tiny")],
         [_p("Ledig kjøpslimit", "Tiny"), _p(_fmt(decision_portfolio.get("available_purchase_limit", 0)), "Tiny"),
          _p("Påkrevd reserve", "Tiny"), _p(f"{_fmt(decision_portfolio.get('required_cash_reserve', 0))} ({_fmt(decision_portfolio.get('reserve_cash_pct', 0))} %)", "Tiny")],
-        [_p("Realisert resultat", "Tiny"), _p(f"{float(decision_portfolio.get('realized_pnl') or 0):+.2f}", "Tiny"),
-         _p("Urealisert resultat", "Tiny"), _p(f"{float(decision_portfolio.get('unrealized_pnl') or 0):+.2f}", "Tiny")],
-        [_p("Samlet resultat", "Tiny"), _p(f"{float(decision_portfolio.get('total_result') or 0):+.2f} ({float(decision_portfolio.get('total_return_pct') or 0):+.2f} %)", "Tiny"),
+        [_p("Realisert resultat", "Tiny"), _p(_fmt_signed(decision_portfolio.get("realized_pnl"), 2), "Tiny"),
+         _p("Urealisert resultat", "Tiny"), _p(_fmt_signed(decision_portfolio.get("unrealized_pnl"), 2), "Tiny")],
+        [_p("Samlet resultat", "Tiny"), _p(f"{_fmt_signed(decision_portfolio.get('total_result'), 2)} ({_fmt_signed(decision_portfolio.get('total_return_pct'), 2)} %)", "Tiny"),
          _p("Ledige posisjonsplasser", "Tiny"), _p(str(decision_portfolio.get("remaining_position_slots", 0)), "Tiny")],
     ]
     accounting_table = Table(accounting_rows, colWidths=[39*mm, 50*mm, 39*mm, 51*mm])
@@ -3393,10 +3419,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     short_exposure = decision_portfolio.get("short_exposure") if isinstance(decision_portfolio.get("short_exposure"), Mapping) else {}
     if short_exposure:
         weighted_short = short_exposure.get("capital_weighted_short_interest_pct")
-        weighted_label = f"{float(weighted_short):.2f} %" if weighted_short is not None else "UKJENT"
+        weighted_label = f"{_fmt(weighted_short, 2)} %" if weighted_short is not None else "UKJENT"
         decision_story.append(Paragraph(
-            f"Shortdekning for porteføljen: {float(short_exposure.get('verified_short_coverage_pct') or 0):.2f} % av markedsverdien · "
-            f"kapitalvektet shortandel {weighted_label} · høy-short-eksponering {float(short_exposure.get('high_short_exposure_pct') or 0):.2f} %. "
+            f"Shortdekning for porteføljen: {_fmt(short_exposure.get('verified_short_coverage_pct'), 2)} % av markedsverdien · "
+            f"kapitalvektet shortandel {weighted_label} · høy-short-eksponering {_fmt(short_exposure.get('high_short_exposure_pct'), 2)} %. "
             "UKJENT er ekskludert og erstattes aldri av volum/momentum.", styles["Small"]))
     active_exit = decision_portfolio.get("active_exit_policy") if isinstance(decision_portfolio.get("active_exit_policy"), Mapping) else {}
     if active_exit:
@@ -3417,21 +3443,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         decision_story += [Paragraph("Automatisk systemvakt", styles["Section"])]
         for alert in decision_anomalies:
             decision_story.append(Paragraph(
-                f"<b>{escape(str(alert.get('severity') or 'WARNING'))}</b> · {escape(str(alert.get('message') or '-'))} "
-                f"({escape(str(alert.get('code') or '-'))})", styles["BodyCompact"]))
+                f"<b>{escape(label_for(alert.get('severity') or 'WARNING'))}</b> · {escape(str(alert.get('message') or '-'))} "
+                "Ingen handel tillates før evidenskravet er oppfylt.", styles["BodyCompact"]))
     if decision_watch_queue:
         watch_rows = [["Ticker", "Marked", "Score", "Til 73", "Andre blokkeringer"]]
         for row in list(decision_watch_queue)[:15]:
             watch_rows.append([_rawp(row.get("ticker") or "-", "Tiny"), _p(row.get("market") or "-", "Tiny"),
                                _p(f"{float(row.get('score') or 0):.2f}", "Tiny"), _p(f"{float(row.get('distance_to_production_threshold') or 0):.2f}", "Tiny"),
-                               _p(", ".join(row.get("blocker_codes") or []) or "Ingen", "Tiny")])
+                               _p(", ".join(label_for(value) for value in (row.get("blocker_codes") or [])) or "Ingen", "Tiny")])
         watch_table = Table(watch_rows, repeatRows=1, colWidths=[28*mm, 28*mm, 22*mm, 22*mm, 84*mm])
         watch_table.setStyle(_table_style(5.4, padding=1.2))
         decision_story += [Paragraph("Observasjonskø 68-73", styles["Section"]), watch_table,
                            Paragraph("Observasjonskøen er ikke en kjøpsanbefaling. Kandidatene vurderes automatisk på nytt.", styles["Small"])]
     rejected_rows = [["Ticker", "Marked", "Score", "Status / kort grunn"]]
     for row in rejected_control:
-        rejected_rows.append([row.get("ticker") or "-", row.get("market") or "-", _fmt(row.get("score")), _p(_short(row.get("reason") or row.get("status") or "Avvist", 120), "Tiny")])
+        rejected_rows.append([row.get("ticker") or "-", _market_scope_label(row.get("market") or "-"), _fmt(row.get("score")), _p(_short(row.get("reason") or row.get("status") or "Avvist", 120), "Tiny")])
     if len(rejected_rows) == 1:
         rejected_rows.append(["-", "-", "-", "Ingen automatisk avviste aksjer"] )
     rejected_table = Table(rejected_rows, repeatRows=1, colWidths=[25*mm, 25*mm, 18*mm, 116*mm])

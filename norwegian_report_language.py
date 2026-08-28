@@ -220,6 +220,14 @@ WORD_LABELS: dict[str, str] = {
     "DOCUMENT": "Dokumentasjon",
     "DECISION READY": "Endelig beslutningsklar",
     "EVIDENCE READY": "Evidens- og dataklar",
+    "MISSION_INELIGIBLE": "Utenfor investeringsoppdraget",
+    "SCORE_BELOW_THRESHOLD": "Score under streng kjøpsgrense",
+    "RISK_ABOVE_THRESHOLD": "Risiko over tillatt grense",
+    "MAX_OPEN_POSITIONS": "Ingen ledig posisjonsplass",
+    "EVIDENCE_NOT_READY": "Evidensgrunnlaget er ikke beslutningsklart",
+    "DATA_CONTRACT_INVALID": "Datagrunnlaget oppfyller ikke beslutningskravene",
+    "STRATEGY_NOT_MATCHED": "Ingen godkjent strategi passer",
+    "TECHNICAL_ENTRY_WAIT": "Teknisk inngangssignal står på vent",
 }
 
 # Longer phrases first so "Event Recovery" is handled before "Recovery" etc.

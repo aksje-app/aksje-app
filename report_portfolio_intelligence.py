@@ -346,6 +346,8 @@ def build_candidate_watch_queue(candidates: Sequence[Mapping[str, Any]], *, lowe
     """Keep near-threshold candidates visible without turning them into buys."""
     queue = []
     for row in candidates:
+        if bool(row.get("analytical_recommendation_ready")):
+            continue
         score = _f(row.get("effective_entry_score"), _f(row.get("investment_score")))
         decision = row.get("portfolio_decision") if isinstance(row.get("portfolio_decision"), Mapping) else {}
         if not (lower <= score < upper) or decision.get("existing_position"):

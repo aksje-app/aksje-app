@@ -548,7 +548,8 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
             "last_successful_scan_at", "cooldown_started_at", "scan_run_id", "message",
             "tickers_processed", "tickers_total", "current_ticker", "markets_open",
             "trades_executed", "memory", "memory_policy", "memory_pressure_reason",
-            "runtime_identity", "runtime_alignment", "cluster_alignment", "error",
+            "runtime_identity", "runtime_alignment", "cluster_alignment",
+            "scanner_configuration", "error",
         }
         paper_scanner_status = {
             key: value for key, value in raw_scanner_status.items() if key in scanner_status_fields
@@ -571,13 +572,48 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         diagnostic_memory = memory_snapshot()
     except Exception as exc:
         diagnostic_memory = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    runtime_scanner_configuration = paper_scanner_status.get("scanner_configuration")
+    if not isinstance(runtime_scanner_configuration, Mapping):
+        runtime_scanner_configuration = {}
+    try:
+        from paper_scanner_runtime import scanner_configuration_snapshot
+        collector_scanner_configuration = scanner_configuration_snapshot()
+    except (ImportError, AttributeError):
+        collector_scanner_configuration = {
+            "automated_markets": ["USA", "NORGE", "SVERIGE"],
+            "scanner_max_tickers": int(os.getenv("SCANNER_MAX_TICKERS", "30") or 30),
+            "scanner_memory_soft_limit_mb": float(
+                os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "1700") or 1700
+            ),
+            "scanner_min_tickers_per_cycle": max(
+                1, int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1)
+            ),
+            "source": "diagnostic_collector_compatibility_fallback",
+            "secret_values_included": False,
+        }
     scanner_configuration = {
-        "automated_markets": ["USA", "NORGE", "SVERIGE"],
-        "scanner_max_tickers": int(os.getenv("SCANNER_MAX_TICKERS", "30") or 30),
-        "scanner_memory_soft_limit_mb": float(os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "410") or 410),
-        "scanner_min_tickers_per_cycle": int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1),
+        **collector_scanner_configuration,
+        **runtime_scanner_configuration,
+        "source": (
+            "persisted_paper_scanner_runtime"
+            if runtime_scanner_configuration else "diagnostic_collector_fallback"
+        ),
+        "collector_process_soft_limit_mb": float(
+            collector_scanner_configuration["scanner_memory_soft_limit_mb"]
+        ),
         "secret_values_included": False,
     }
+    collected_at = _now()
+    selected_updated_at = str(sanitized.get("updated_at") or sanitized.get("completed_at") or "")
+    diagnostic_context = {
+        "collected_at": collected_at,
+        "selected_execution_id": str(sanitized.get("execution_id") or execution_id),
+        "selected_status_updated_at": selected_updated_at,
+        "selected_status_is_historical": bool(
+            selected_updated_at and not selected_updated_at.startswith(collected_at[:10])
+        ),
+    }
+    sanitized["diagnostic_context"] = diagnostic_context
     readme = (
         "Diagnosepakke for manuell bakgrunnskjøring.\n"
         "Pakken inneholder status, fremdrift, papirskannerens kontrollpunkt og minnebevis, "
@@ -588,6 +624,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     payloads = {
         "README.txt": readme.encode("utf-8"),
         "status.json": json.dumps(sanitized, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/DIAGNOSTIC_CONTEXT.json": json.dumps(diagnostic_context, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_DIAGNOSTICS.json": json.dumps(learning, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
@@ -609,7 +646,8 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         for name, data in payloads.items():
             archive.writestr(name, data)
     safe_id = "".join(character for character in execution_id if character.isalnum() or character in "-_") or "ukjent"
-    return buffer.getvalue(), f"Bakgrunnsjobb_diagnose_{safe_id}.zip"
+    collected_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return buffer.getvalue(), f"Bakgrunnsjobb_diagnose_{collected_stamp}_{safe_id}.zip"
 
 
 def _worker(

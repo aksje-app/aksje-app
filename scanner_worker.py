@@ -46,7 +46,8 @@ import re
 from datetime import datetime, timezone
 from paper_scanner_runtime import (
     clear_scanner_checkpoint, load_scanner_checkpoint, load_scanner_status,
-    run_coordinated, save_scanner_checkpoint, update_scanner_status,
+    run_coordinated, save_scanner_checkpoint, scanner_configuration_snapshot,
+    update_scanner_status,
 )
 
 from paper_store import force_schema_migration
@@ -371,6 +372,7 @@ def maybe_send_trade_alert(result, msg):
 
 
 def _run_once_impl(force=False, *, check_currency_alerts=True):
+    effective_scanner_configuration = scanner_configuration_snapshot()
     # Currency alerts are independent of the stock scanner gate and market hours.
     # This must run before should_run_background_scan(), otherwise closed markets,
     # pause windows or scanner cooldowns silently suppress every FX alert.
@@ -451,8 +453,8 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     for ticker_index, ticker in enumerate(tickers[start_index:], start=start_index + 1):
         cleanup_before_gate = release_process_memory("paper_scanner:pre_ticker_gate")
         memory = cleanup_before_gate.get("after") or memory_snapshot()
-        soft_limit_mb = float(os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "410") or 410)
-        minimum_progress = max(1, int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1))
+        soft_limit_mb = float(effective_scanner_configuration["scanner_memory_soft_limit_mb"])
+        minimum_progress = int(effective_scanner_configuration["scanner_min_tickers_per_cycle"])
         processed_this_cycle = (ticker_index - 1) - start_index
         used_mb = float(memory.get("cgroup_memory_current_mb") or memory.get("process_rss_mb") or 0)
         memory_decision = scanner_memory_decision(memory, soft_limit_mb=soft_limit_mb)

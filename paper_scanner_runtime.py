@@ -19,6 +19,22 @@ PAPER_SCANNER_CHECKPOINT_PATH = runtime_data_path("paper_trading", "scanner_chec
 PAPER_SCANNER_ADVISORY_LOCK_ID = 1871503
 
 
+def scanner_configuration_snapshot() -> dict:
+    """Return the effective, non-secret scanner configuration for this process."""
+    return {
+        "automated_markets": ["USA", "NORGE", "SVERIGE"],
+        "scanner_max_tickers": int(os.getenv("SCANNER_MAX_TICKERS", "30") or 30),
+        "scanner_memory_soft_limit_mb": float(
+            os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "1700") or 1700
+        ),
+        "scanner_min_tickers_per_cycle": max(
+            1, int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1)
+        ),
+        "source": "paper_scanner_runtime",
+        "secret_values_included": False,
+    }
+
+
 def scanner_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -112,6 +128,7 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
         "process": "scanner_worker",
         "trades_executed": 0,
         "error": "",
+        "scanner_configuration": scanner_configuration_snapshot(),
         "runtime_identity": publish_runtime_identity("paper_scanner"),
     }
     write_scanner_status(status)
