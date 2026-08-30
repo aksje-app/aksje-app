@@ -1488,7 +1488,8 @@ def validate_pdf_semantics(pdf_bytes: bytes, run: Mapping[str, Any]) -> dict[str
         return {"ok": False, "errors": [f"PDF kunne ikke leses for semantisk kontroll: {exc}"], "warnings": []}
     normalized = " ".join(text.split())
     candidates = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
-    if candidates and (APP_VERSION not in normalized or REPORT_SCHEMA_VERSION not in normalized):
+    schema_visible = REPORT_SCHEMA_VERSION in normalized or REPORT_SCHEMA_VERSION.replace(".", ",") in normalized
+    if candidates and (APP_VERSION not in normalized or not schema_visible):
         errors.append("PDF-versjon og rapportskjema samsvarer ikke med kanonisk JSON")
     summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
     reconciliation = (

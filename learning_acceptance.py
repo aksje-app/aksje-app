@@ -159,11 +159,14 @@ def build_learning_diagnostics() -> dict[str, Any]:
             "entry_score", "entry_risk_score", "entry_data_quality", "source_run_id",
             "observation_days", "observation_horizon_days", "production_blockers_at_entry",
             "paper_signal_action", "evidence_valid_at_entry",
+            "learning_tier", "learning_cohort", "program_version_at_entry",
+            "market", "benchmark_ticker", "benchmark_entry_status",
+            "freshness_status", "stale_evaluation_count",
         )})
     decisions = _rows(ap._read(ap.LEARNING_DECISIONS_PATH, []))[:250]
     for row in decisions:
         row.setdefault("first_blocker_code", first_blocker_code(row))
-    trades = _rows(ap._read(ap.LEARNING_TRADES_PATH, []))[:250]
+    trades = ap.load_learning_trades(250)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _now(),
@@ -175,6 +178,7 @@ def build_learning_diagnostics() -> dict[str, Any]:
             "closed_position_count": len(portfolio.get("closed_positions") or []),
         },
         "performance": dict(ap._read(ap.LEARNING_PERFORMANCE_PATH, {}) or {}),
+        "quality_diagnostics": ap.learning_quality_diagnostics(portfolio, ap.load_learning_trades()),
         "recent_decisions": decisions,
         "recent_trades": trades,
         "acceptance": load_latest_learning_acceptance(),

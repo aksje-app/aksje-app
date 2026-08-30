@@ -17,6 +17,7 @@ import uuid
 import zipfile
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 from durable_runtime import read_json, write_json
@@ -648,6 +649,34 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     safe_id = "".join(character for character in execution_id if character.isalnum() or character in "-_") or "ukjent"
     collected_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     return buffer.getvalue(), f"Bakgrunnsjobb_diagnose_{collected_stamp}_{safe_id}.zip"
+
+
+def publish_diagnostic_download(bundle: bytes, filename: str) -> dict[str, str]:
+    """Publish a secret-free diagnostic ZIP through a mobile-safe new-tab URL.
+
+    Streamlit's session-bound download control can replace the entire iOS/PWA
+    webview with Quick Look.  A static URL opened in a new tab preserves the
+    application tab and therefore a reliable return path.
+    """
+    payload = bytes(bundle or b"")
+    if not payload.startswith(b"PK"):
+        raise ValueError("Diagnosepakken er ikke et gyldig ZIP-arkiv")
+    safe_stem = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in Path(str(filename or "diagnose.zip")).stem)
+    digest = hashlib.sha256(payload).hexdigest()[:16]
+    public_name = f"{safe_stem[:96]}_{digest}.zip"
+    target_dir = Path(__file__).resolve().parent / "static" / "diagnostics"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / public_name
+    if not target.exists() or target.read_bytes() != payload:
+        temporary = target.with_suffix(".zip.tmp")
+        temporary.write_bytes(payload)
+        temporary.replace(target)
+    return {
+        "filename": str(filename or public_name),
+        "public_name": public_name,
+        "url": f"/app/static/diagnostics/{public_name}",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
 
 
 def _worker(

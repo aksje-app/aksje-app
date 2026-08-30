@@ -24,7 +24,7 @@ from durable_runtime import read_json
 from local_time import local_display
 from manual_job_background import (
     diagnostic_bundle, force_release, get_active_status, get_active_status_snapshot,
-    is_running, request_cancel, start_manual_job,
+    is_running, publish_diagnostic_download, request_cancel, start_manual_job,
 )
 from market_intelligence import (
     _load_report_archive, load_draft_job, load_jobs, load_run,
@@ -379,10 +379,21 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     execution_id = str(status.get("execution_id") or "")
     if execution_id and state in TERMINAL_STATES:
         bundle, filename = diagnostic_bundle(execution_id)
-        st.download_button(
-            "🩺 Last ned diagnosepakke", data=bundle, file_name=filename,
-            mime="application/zip", key=f"manual_job_diag_{execution_id}",
+        delivery = publish_diagnostic_download(bundle, filename)
+        st.markdown(
+            '<a class="diagnostic-download-mobile-v19220rc1631au" '
+            f'href="{escape(delivery["url"], quote=True)}" target="_blank" rel="noopener noreferrer" '
+            'style="display:block;text-align:center;padding:.8rem 1rem;border-radius:.55rem;'
+            'background:#0284c7;color:white;text-decoration:none;font-weight:800">'
+            '🩺 Last ned diagnosepakke i ny fane</a>',
+            unsafe_allow_html=True,
         )
+        st.caption("På iPhone beholdes programmet i den opprinnelige fanen. Lukk filvisningen for å gå tilbake.")
+        with st.expander("Alternativ direkte nedlasting", expanded=False):
+            st.download_button(
+                "Last ned ZIP direkte", data=bundle, file_name=filename,
+                mime="application/zip", key=f"manual_job_diag_{execution_id}",
+            )
     if snapshot.get("running"):
         confirm = st.checkbox("Bekreft kontrollert avbrudd", key="autonomy_overview_cancel_confirm_v1883")
         if st.button("⛔ Avbryt pågående kjøring", disabled=not confirm, key="autonomy_overview_cancel_v1883"):

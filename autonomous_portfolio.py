@@ -693,6 +693,32 @@ def _production_blockers_for_learning(candidate: Mapping[str, Any], params: "Aut
 
 LEARNING_OUTCOME_HORIZONS = (5, 10, 20, 60)
 LEARNING_OBSERVATION_LIMIT = 2000
+LEARNING_VALIDATION_MINIMUM_SCORE = 67.0
+LEARNING_VALIDATION_MAXIMUM_RISK = 65.0
+LEARNING_MAX_OPEN_POSITIONS = 60
+LEARNING_MAX_EXPLORATION_BUYS_PER_CYCLE = 1
+LEARNING_MAX_GROWTH_BUYS_PER_CYCLE = 1
+
+
+def _learning_tier(candidate: Mapping[str, Any]) -> str:
+    """Separate decision-quality validation from bounded exploration."""
+    if (
+        candidate.get("valid_for_decision") is True
+        and candidate.get("evidence_valid_for_decision") is True
+        and _candidate_entry_score(candidate) >= LEARNING_VALIDATION_MINIMUM_SCORE
+        and _candidate_risk(candidate) <= LEARNING_VALIDATION_MAXIMUM_RISK
+    ):
+        return "VALIDATION"
+    return "EXPLORATION"
+
+
+def _learning_benchmark(candidate: Mapping[str, Any]) -> tuple[str, str]:
+    market = str(candidate.get("market") or candidate.get("country") or "").upper()
+    ticker = str(candidate.get("ticker") or "").upper()
+    if not market:
+        market = "NORGE" if ticker.endswith(".OL") else "SVERIGE" if ticker.endswith(".ST") else "USA"
+    benchmark = {"NORGE": "^OSEAX", "SVERIGE": "^OMX", "USA": "^GSPC"}.get(market, "")
+    return market, benchmark
 
 
 def load_learning_observations(limit: int = 5000) -> list[dict[str, Any]]:
@@ -706,9 +732,68 @@ def load_learning_observations(limit: int = 5000) -> list[dict[str, Any]]:
 
 
 def load_learning_trades(limit: int = 5000) -> list[dict[str, Any]]:
-    """Read the durable theoretical-learning ledger without production effects."""
+    """Read the ledger and non-destructively restore entry context on old SELL rows."""
     rows = _read(LEARNING_TRADES_PATH, [])
-    return [dict(row) for row in rows[:max(0, limit)] if isinstance(row, Mapping)] if isinstance(rows, list) else []
+    normalized = _backfill_learning_trade_context(rows if isinstance(rows, list) else [])
+    return normalized[:max(0, limit)]
+
+
+def _trade_timestamp(row: Mapping[str, Any]) -> datetime:
+    try:
+        value = datetime.fromisoformat(str(row.get("timestamp") or "").replace("Z", "+00:00"))
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _backfill_learning_trade_context(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Join legacy exits to their preceding entry without rewriting the raw ledger."""
+    output = [dict(row) for row in rows if isinstance(row, Mapping)]
+    buys_by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for row in output:
+        if str(row.get("action") or "").upper() == "BUY":
+            buys_by_ticker.setdefault(str(row.get("ticker") or "").upper(), []).append(row)
+    for values in buys_by_ticker.values():
+        values.sort(key=_trade_timestamp)
+    used: set[str] = set()
+    for sell in sorted(
+        (row for row in output if str(row.get("action") or "").upper() == "SELL"),
+        key=_trade_timestamp,
+    ):
+        if sell.get("entry_score") not in (None, ""):
+            continue
+        candidates = [
+            row for row in buys_by_ticker.get(str(sell.get("ticker") or "").upper(), [])
+            if _trade_timestamp(row) <= _trade_timestamp(sell)
+            and str(row.get("trade_id") or id(row)) not in used
+        ]
+        if not candidates:
+            continue
+        buy = candidates[-1]
+        used.add(str(buy.get("trade_id") or id(buy)))
+        for target, sources in {
+            "entry_score": ("entry_score", "autonomy_adjusted_investment_score", "score"),
+            "entry_base_score": ("entry_base_score", "autonomy_base_investment_score"),
+            "entry_risk_score": ("entry_risk_score", "risk"),
+            "entry_data_quality": ("entry_data_quality", "data_quality"),
+            "evidence_valid_at_entry": ("evidence_valid_at_entry", "evidence_valid_for_decision"),
+            "learning_tier": ("learning_tier",),
+            "learning_cohort": ("learning_cohort",),
+            "benchmark_ticker": ("benchmark_ticker",),
+        }.items():
+            for source in sources:
+                if buy.get(source) not in (None, ""):
+                    sell[target] = buy.get(source)
+                    break
+        sell["entry_timestamp"] = buy.get("timestamp")
+        sell["source_buy_trade_id"] = buy.get("trade_id")
+        if sell.get("entry_risk_score") in (None, ""):
+            components = buy.get("entry_components") if isinstance(buy.get("entry_components"), Mapping) else {}
+            if components.get("risk_adjustment") not in (None, ""):
+                sell["entry_risk_score"] = round(100.0 - _f(components.get("risk_adjustment")), 2)
+        sell.setdefault("learning_cohort", buy.get("strategy_implementation_version") or buy.get("strategy_version") or "LEGACY_UKJENT")
+        sell["entry_context_backfilled"] = True
+    return output
 
 
 def _compact_learning_observations(rows: Sequence[Mapping[str, Any]], limit: int = LEARNING_OBSERVATION_LIMIT) -> list[dict[str, Any]]:
@@ -972,13 +1057,82 @@ def learning_portfolio_performance(portfolio: Mapping[str, Any] | None = None) -
     realized = _f(portfolio.get("realized_pnl"))
     total_entry = max(_f(portfolio.get("total_entry_notional")), entry_open)
     total_pnl = realized + unrealized
+    mature_open = sum(1 for row in positions.values() if _days_opened(row.get("opened_at")) >= 20)
+    closed_positions = list(portfolio.get("closed_positions") or [])
+    mature_closed = sum(1 for row in closed_positions if int(row.get("observation_days") or _days_opened(row.get("opened_at"))) >= 20)
     return {
         "updated_at": _now(), "open_positions": len(positions),
         "entry_notional": round(entry_open, 2), "current_value": round(current_open, 2),
         "unrealized_pnl": round(unrealized, 2), "realized_pnl": round(realized, 2),
         "total_pnl": round(total_pnl, 2),
         "return_pct": round(total_pnl / total_entry * 100, 2) if total_entry else 0.0,
-        "total_observations": len(positions) + len(portfolio.get("closed_positions") or []),
+        "return_denominator": "CUMULATIVE_ENTRY_NOTIONAL",
+        "total_observations": len(positions) + len(closed_positions),
+        "mature_observations_20d": mature_open + mature_closed,
+        "immature_observations_20d": len(positions) + len(closed_positions) - mature_open - mature_closed,
+    }
+
+
+def learning_quality_diagnostics(
+    portfolio: Mapping[str, Any] | None = None,
+    trades: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Explain learning quality, cohorts and exits without changing any policy."""
+    portfolio = dict(portfolio or load_learning_portfolio())
+    positions = [dict(row) for row in dict(portfolio.get("positions") or {}).values() if isinstance(row, Mapping)]
+    ledger = [dict(row) for row in (trades if trades is not None else load_learning_trades()) if isinstance(row, Mapping)]
+    exits = [row for row in ledger if str(row.get("action") or "").upper() == "SELL"]
+    wins = [row for row in exits if _f(row.get("pnl")) > 0]
+    losses = [row for row in exits if _f(row.get("pnl")) < 0]
+    gross_profit = sum(_f(row.get("pnl")) for row in wins)
+    gross_loss = abs(sum(_f(row.get("pnl")) for row in losses))
+    now_utc = datetime.now(timezone.utc)
+    def _is_stale(row: Mapping[str, Any]) -> bool:
+        if str(row.get("freshness_status") or "").startswith("STALE"):
+            return True
+        try:
+            checked = datetime.fromisoformat(str(row.get("last_evaluated_at") or "").replace("Z", "+00:00"))
+            checked = checked.replace(tzinfo=timezone.utc) if checked.tzinfo is None else checked.astimezone(timezone.utc)
+            return now_utc - checked > timedelta(days=3)
+        except (TypeError, ValueError):
+            return True
+    stale = [row for row in positions if _is_stale(row)]
+    valid_entry = [row for row in positions if row.get("evidence_valid_at_entry") is True]
+    benchmark_ready = [row for row in positions if row.get("benchmark_ticker") or _learning_benchmark(row)[1]]
+    cohorts: dict[str, dict[str, Any]] = {}
+    for row in ledger:
+        cohort = str(row.get("learning_cohort") or row.get("strategy_implementation_version") or row.get("strategy_version") or "LEGACY_UKJENT")
+        item = cohorts.setdefault(cohort, {"cohort": cohort, "buys": 0, "exits": 0, "realized_pnl": 0.0})
+        action = str(row.get("action") or "").upper()
+        item["buys"] += int(action == "BUY")
+        item["exits"] += int(action == "SELL")
+        if action == "SELL":
+            item["realized_pnl"] += _f(row.get("pnl"))
+    cohort_rows = []
+    for item in cohorts.values():
+        item["realized_pnl"] = round(_f(item.get("realized_pnl")), 2)
+        cohort_rows.append(item)
+    cohort_rows.sort(key=lambda row: str(row.get("cohort")))
+    stop_exits = [row for row in exits if "stop loss" in str(row.get("reason") or "").lower()]
+    delayed_stop = [row for row in stop_exits if row.get("gap_or_delayed_exit") is True]
+    return {
+        "generated_at": _now(),
+        "open_positions": len(positions),
+        "open_position_cap": LEARNING_MAX_OPEN_POSITIONS,
+        "new_entries_blocked_by_cap": len(positions) >= LEARNING_MAX_OPEN_POSITIONS,
+        "evidence_valid_open": len(valid_entry),
+        "evidence_invalid_or_unknown_open": len(positions) - len(valid_entry),
+        "stale_open": len(stale),
+        "closed_observations": len(exits),
+        "wins": len(wins), "losses": len(losses),
+        "win_rate_pct": round(len(wins) / len(exits) * 100, 2) if exits else None,
+        "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else None,
+        "stop_loss_exits": len(stop_exits),
+        "gap_or_delayed_stop_exits": len(delayed_stop),
+        "benchmark_mapping_coverage": len(benchmark_ready),
+        "benchmark_return_status": "PENDING_MARKET_SERIES" if positions else "NOT_APPLICABLE",
+        "cohorts": cohort_rows,
+        "interpretation": "Resultater fra ulike programversjoner og umodne observasjoner skal ikke tolkes som én validert strategi.",
     }
 
 
@@ -1037,7 +1191,18 @@ def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: floa
     entry = _f(pos.get("average_price"), price)
     pnl = quantity * (price - entry)
     portfolio["realized_pnl"] = _f(portfolio.get("realized_pnl")) + pnl
-    closed = {**dict(pos), "closed_at": _now(), "close_price": price, "close_reason": reason, "pnl": round(pnl, 2), "pnl_pct": round((price / entry - 1) * 100, 2) if entry else 0.0}
+    pnl_pct = round((price / entry - 1) * 100, 2) if entry else 0.0
+    is_stop = "stop loss" in reason.lower()
+    configured_trigger = -load_parameters().normalized().stop_loss_pct if is_stop else None
+    trigger_slippage = round(pnl_pct - configured_trigger, 2) if configured_trigger is not None else None
+    closed = {
+        **dict(pos), "closed_at": _now(), "close_price": price, "close_reason": reason,
+        "pnl": round(pnl, 2), "pnl_pct": pnl_pct,
+        "exit_rule": "STOP_LOSS" if is_stop else "OTHER",
+        "configured_trigger_pct": configured_trigger,
+        "trigger_slippage_pct": trigger_slippage,
+        "gap_or_delayed_exit": bool(is_stop and trigger_slippage is not None and trigger_slippage < -0.5),
+    }
     portfolio.setdefault("closed_positions", []).insert(0, closed)
     del portfolio["positions"][ticker]
     trade = {
@@ -1054,6 +1219,13 @@ def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: floa
         "evidence_valid_at_entry": pos.get("evidence_valid_at_entry") is True,
         "observation_days": int(pos.get("observation_days") or 0),
         "outcome_measurements": list(pos.get("outcome_measurements") or []),
+        "learning_tier": pos.get("learning_tier"),
+        "learning_cohort": pos.get("learning_cohort"),
+        "benchmark_ticker": pos.get("benchmark_ticker"),
+        "exit_rule": closed["exit_rule"],
+        "configured_trigger_pct": closed["configured_trigger_pct"],
+        "trigger_slippage_pct": closed["trigger_slippage_pct"],
+        "gap_or_delayed_exit": closed["gap_or_delayed_exit"],
     }
     _record_learning_trade(trade)
     return trade
@@ -1065,6 +1237,8 @@ def _update_learning_positions(portfolio: dict[str, Any], candidate_map: Mapping
     for ticker, pos in list((portfolio.get("positions") or {}).items()):
         candidate = candidate_map.get(ticker, {})
         if not candidate:
+            pos["stale_evaluation_count"] = int(pos.get("stale_evaluation_count") or 0) + 1
+            pos["freshness_status"] = "STALE_NOT_IN_CANDIDATE_SET"
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Ikke med i dagens kandidatsett; siste markering beholdes", "learning_probe": True})
             continue
         price = _candidate_price(candidate, pos)
@@ -1074,6 +1248,8 @@ def _update_learning_positions(portfolio: dict[str, Any], candidate_map: Mapping
         pos["last_price"] = price
         pos["highest_price"] = max(_f(pos.get("highest_price"), price), price)
         pos["last_evaluated_at"] = _now()
+        pos["stale_evaluation_count"] = 0
+        pos["freshness_status"] = "FRESH"
         _record_learning_outcome_measurement(pos, candidate, price)
         avg = _f(pos.get("average_price"), price)
         score = _candidate_score(candidate, _f(pos.get("entry_score"), 100.0))
@@ -1607,17 +1783,40 @@ def run_autonomous_cycle(
         # it prevents a week of Autonomi runs from producing zero learning data.
         normal_buys_this_cycle = [t for t in trades if t.get("action") == "BUY" and not t.get("learning_probe")]
         if params.enable_learning_probe_buys and not normal_buys_this_cycle and candidates:
-            learning_ranked = sorted(candidates, key=lambda c: _candidate_entry_score(c), reverse=True)
+            learning_ranked = sorted(
+                candidates,
+                key=lambda c: (_learning_tier(c) == "VALIDATION", _candidate_entry_score(c)),
+                reverse=True,
+            )
             learning_count = 0
+            exploration_count = 0
+            growth_count = 0
             for candidate in learning_ranked:
                 ticker = str(candidate.get("ticker") or "").upper()
                 if not ticker:
+                    continue
+                learning_tier = _learning_tier(candidate)
+                strategy = _candidate_strategy(candidate)
+                market, benchmark_ticker = _learning_benchmark(candidate)
+                if len(learning_portfolio["positions"]) >= LEARNING_MAX_OPEN_POSITIONS:
+                    learning_decisions.append({
+                        "timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                        "action": "OBSERVE", "reason": f"Læringsporteføljen har nådd hard grense {LEARNING_MAX_OPEN_POSITIONS}",
+                        "reason_code": "LEARNING_PORTFOLIO_CAP", "learning_probe": True,
+                        "learning_tier": learning_tier,
+                    })
                     continue
                 if ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
                     learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Finnes allerede i ordinær portefølje, læringsportefølje eller ble lukket i samme syklus", "learning_probe": True})
                     continue
                 if learning_count >= params.learning_probe_max_buys:
                     learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Maks {params.learning_probe_max_buys} nye læringsposisjoner per kjøring er nådd", "learning_probe": True})
+                    continue
+                if learning_tier == "EXPLORATION" and exploration_count >= LEARNING_MAX_EXPLORATION_BUYS_PER_CYCLE:
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Maks én ny utforskende observasjon per kjøring", "reason_code": "LEARNING_EXPLORATION_CAP", "learning_probe": True, "learning_tier": learning_tier})
+                    continue
+                if str(strategy).upper() == "GROWTH" and growth_count >= LEARNING_MAX_GROWTH_BUYS_PER_CYCLE:
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Maks én ny Growth-observasjon per kjøring", "reason_code": "LEARNING_GROWTH_CAP", "learning_probe": True, "learning_tier": learning_tier})
                     continue
                 base_score = _candidate_score(candidate)
                 score = _candidate_entry_score(candidate)
@@ -1654,13 +1853,20 @@ def run_autonomous_cycle(
                 learning_portfolio["positions"][ticker] = {
                     "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
                     "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
-                    "opened_at": _now(), "strategy": _candidate_strategy(candidate),
+                    "opened_at": _now(), "strategy": strategy,
                     "entry_score": score, "entry_base_score": base_score, "entry_risk_score": risk, "entry_data_quality": quality,
                     "source_run_id": run_id, **_candidate_snapshot_metadata(candidate, market_snapshot_row), **_technical_contribution_metadata(candidate), "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
                     "observation_horizon_days": params.learning_probe_horizon_days,
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "production_blockers_at_entry": production_blockers,
                     "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
+                    "learning_tier": learning_tier,
+                    "learning_cohort": APP_VERSION,
+                    "program_version_at_entry": APP_VERSION,
+                    "market": market,
+                    "benchmark_ticker": benchmark_ticker,
+                    "benchmark_entry_status": "PENDING_MARKET_SERIES",
+                    "freshness_status": "FRESH",
                     "evaluation_dates": [], "observation_days": 0, "outcome_measurements": [],
                     **paper_signal,
                     "entry_components": {
@@ -1677,12 +1883,18 @@ def run_autonomous_cycle(
                     "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
                     "value": round(value, 2), "pnl": 0.0,
                     "reason": f"Læringskjøp: ingen ordinære kjøp ble utløst. Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
-                    "strategy": _candidate_strategy(candidate), "mode": "LEARNING_ONLY", "learning_probe": True, "portfolio_type": "LEARNING",
+                    "strategy": strategy, "mode": "LEARNING_ONLY", "learning_probe": True, "portfolio_type": "LEARNING",
                     **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                     **_technical_contribution_metadata(candidate),
                     "entry_confidence": _f(candidate.get("confidence_score")),
                     "production_blockers_at_entry": production_blockers,
                     "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
+                    "learning_tier": learning_tier,
+                    "learning_cohort": APP_VERSION,
+                    "program_version_at_entry": APP_VERSION,
+                    "market": market,
+                    "benchmark_ticker": benchmark_ticker,
+                    "benchmark_entry_status": "PENDING_MARKET_SERIES",
                     **paper_signal,
                     "entry_components": {
                         "discovery": _f(candidate.get("discovery_score")),
@@ -1702,9 +1914,11 @@ def run_autonomous_cycle(
                     trade["notification"] = {"status": "SKIPPED_POLICY", "detail": "Læringsvarsling deaktivert"}
                 _record_learning_trade(trade)
                 learning_trades.append(trade)
-                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "risk": risk, "learning_probe": True, "production_blockers_at_entry": production_blockers, "notification": dict(trade["notification"]), **paper_signal})
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "risk": risk, "learning_probe": True, "learning_tier": learning_tier, "learning_cohort": APP_VERSION, "production_blockers_at_entry": production_blockers, "notification": dict(trade["notification"]), **paper_signal})
                 learning_portfolio["total_entry_notional"] = _f(learning_portfolio.get("total_entry_notional")) + value
                 learning_count += 1
+                exploration_count += int(learning_tier == "EXPLORATION")
+                growth_count += int(str(strategy).upper() == "GROWTH")
 
     emit_progress(6, progress_total, "Kjøps- og læringsbeslutninger er ferdige")
 
@@ -2015,6 +2229,26 @@ def render_learning_portfolio() -> None:
     c3.metric("Nåverdi", f"{perf['current_value']:,.0f}")
     c4.metric("Samlet P/L", f"{perf['total_pnl']:+,.0f}")
     c5.metric("Læringsavkastning", f"{perf['return_pct']:+.2f}%")
+    quality = learning_quality_diagnostics(portfolio)
+    st.caption(
+        "Avkastningen bruker kumulativ inngangsnotional som nevner og blander ikke automatisk kohorter i en "
+        "produksjonskonklusjon. Realisert og urealisert resultat må vurderes separat."
+    )
+    q1, q2, q3, q4 = st.columns(4)
+    q1.metric("Modne observasjoner (20 d)", perf["mature_observations_20d"])
+    q2.metric("Gyldig evidens ved inngang", quality["evidence_valid_open"])
+    q3.metric("Utdaterte åpne", quality["stale_open"])
+    q4.metric("Realiserte vinnere / tapere", f"{quality['wins']} / {quality['losses']}")
+    if quality["new_entries_blocked_by_cap"]:
+        st.warning(
+            f"Nye læringskjøp er midlertidig blokkert: {quality['open_positions']} åpne overstiger "
+            f"hardgrensen {quality['open_position_cap']}. Eksisterende observasjoner slettes ikke."
+        )
+    st.caption(
+        f"Realisert P/L {perf['realized_pnl']:+,.0f} · urealisert P/L {perf['unrealized_pnl']:+,.0f} · "
+        f"profit factor {quality['profit_factor'] if quality['profit_factor'] is not None else '-'} · "
+        f"benchmark {quality['benchmark_return_status']}."
+    )
     st.info(f"Fast notional per ny læringsposisjon: {params.learning_probe_notional_value:,.0f}. Normal observasjonshorisont: {params.learning_probe_horizon_days} dager.")
     if abs(float(params.learning_probe_notional_value) - RC16_RECOMMENDED_LEARNING_NOTIONAL) > 0.01:
         st.caption("RC16 anbefaler 15 000 i rent teoretisk notional per læringsposisjon for mer realistiske kostnads-, valuta- og porteføljeobservasjoner. Eksisterende verdi endres ikke automatisk.")
@@ -2055,13 +2289,17 @@ def render_learning_portfolio() -> None:
                 "P/L": qty * (last - avg), "P/L %": (last / avg - 1) * 100 if avg else 0,
                 "Inngangsscore": pos.get("entry_score"), "Åpnet": pos.get("opened_at"),
                 "Sist vurdert": pos.get("last_evaluated_at"), "Horisont dager": pos.get("observation_horizon_days", params.learning_probe_horizon_days),
+                "Kohort": pos.get("learning_cohort") or pos.get("strategy_implementation_version") or "Eldre/ukjent",
+                "Læringstype": pos.get("learning_tier") or "Eldre/ukjent",
+                "Ferskhet": pos.get("freshness_status") or "Ikke klassifisert",
+                "Benchmark": pos.get("benchmark_ticker") or _learning_benchmark(pos)[1] or "-",
                 "Opprinnelse": "Autonomi læringsobservasjon",
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     else:
         st.info("Ingen åpne læringsposisjoner.")
 
-    learning_trades = _read(LEARNING_TRADES_PATH, [])
+    learning_trades = load_learning_trades()
     learning_decisions = _read(LEARNING_DECISIONS_PATH, [])
     closed = portfolio.get("closed_positions") or []
     t1, t2, t3 = st.tabs(["Læringshandler", "Observasjonsbeslutninger", "Lukkede observasjoner"])

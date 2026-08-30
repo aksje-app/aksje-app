@@ -1073,15 +1073,27 @@ def retry_pending_required_report_deliveries(limit: int = 3) -> dict[str, Any]:
         run_id = str(row.get("run_id") or "")
         if job_id not in jobs or not run_id or run_id in seen or row.get("pushover_sent") is True:
             continue
+        # Only a real fixed scheduled slot can require delivery repair.
+        # Test, manual and revalidation runs reuse the same job profile but
+        # must never enter the Pushover repair queue.
+        row_type = str(row.get("type") or "").strip().casefold()
+        row_trigger = str(row.get("trigger") or "").upper()
+        if row_type and row_type != "planlagt":
+            continue
+        if row_trigger and row_trigger != "SCHEDULED":
+            continue
         seen.add(run_id)
         run = load_run(run_id)
         if not run or not bool((run.get("persistence") or {}).get("ok")):
+            continue
+        run_trigger = str(run.get("trigger") or "").upper()
+        if run.get("test_run") or run.get("suppress_notifications") or (run_trigger and run_trigger != "SCHEDULED"):
             continue
         pdf = run.get("pdf_delivery") if isinstance(run.get("pdf_delivery"), Mapping) else {}
         if not (pdf.get("generated") and pdf.get("validated") and pdf.get("published")):
             continue
         notification = run.get("notification") if isinstance(run.get("notification"), Mapping) else {}
-        if notification.get("sent") is True or notification.get("terminal") is True:
+        if notification.get("required") is False or notification.get("sent") is True or notification.get("terminal") is True:
             continue
         ok, detail = _notification(jobs[job_id], run)
         expired = str(detail or "").startswith("Varsel utløpt:")
@@ -3271,8 +3283,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         Paragraph("Prioritert vurderingsrekkefølge 1-3", styles["Section"]),
         candidate_table_decision,
         Paragraph(
-            "Dette er de høyest rangerte analysene for videre vurdering, med faktisk utfall synlig. "
-            "Listen er ikke en kjøpsanbefaling; kjøpsgodkjent antall vises separat.",
+            "Dette er de høyest rangerte analysene med faktisk utfall synlig. Bare rader som uttrykkelig "
+            "er merket streng eller moderat kjøpsanbefaling er anbefalinger; øvrige rader er videre vurdering.",
             styles["Small"],
         ),
     ]
@@ -3329,7 +3341,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             Paragraph(
                 "UKJENT betyr at eksponering ikke er dokumentert og regnes aldri som null. "
                 "Innsiderstatus skiller kontroll uten hendelser fra ikke søkt og kildefeil. "
-                "Markeder merket «kun eksisterende posisjon» inngår ikke i den aktive kandidatskanningen.", styles["Small"],
+                "Markeder merket «eksisterende» inngår ikke i den aktive kandidatskanningen.", styles["Small"],
             ),
         ]
     portfolio_rows = [["Ticker", "Antall", "Inngang", "Nå", "Kostpris", "Markedsverdi", "Vekt %"]]
@@ -3587,13 +3599,6 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         Paragraph(escape(historical_text + " | " + guard_text), styles["Small"]),
         Paragraph("Kvalitetsavvik og forbedringspunkter", styles["Subsection"]),
         Paragraph(escape(_norwegian_decimal_text(deduction_text)), styles["Small"]),
-        Paragraph(
-            f"Sporbarhet: program {APP_VERSION} · rapportskjema {REPORT_SCHEMA_VERSION} · rapport-ID "
-            f"{report_metadata.get('report_id') or run.get('run_id') or '-'} · generert "
-            f"{report_metadata.get('created_at_local') or local_display(run.get('created_at'), str(run.get('timezone_name') or DEFAULT_TIMEZONE))}. "
-            "Vurderinger utløper ved oppgitt tidspunkt eller tidligere ved vesentlig kurs-, kilde-, data- eller hendelsesendring.",
-            styles["Footer"],
-        ),
     ]
 
     story = [Paragraph("AI Aksje Analyzer Pro", styles["ReportTitle"]), Paragraph(escape(report_type), styles["Section"]), meta, Spacer(1, 2*mm)]
@@ -5008,6 +5013,7 @@ def _run_job_impl(
     _trace_id: str = "",
 ) -> dict[str, Any]:
     full_run_started = time_module.perf_counter()
+    execution_started_at = _now_iso()
     requested_job = job
     trigger = str(trigger or "MANUAL").upper()
     delayed_catchup = trigger == "MISSED_SCHEDULE_CATCHUP"
@@ -5474,6 +5480,7 @@ def _run_job_impl(
     partial_market_failure = bool(failed_markets and all_candidates)
     run_created_at = _now_iso()
     run = {"version": VERSION, "run_id": run_id, "created_at": run_created_at,
+           "execution_started_at": execution_started_at,
            "operations_trace_id": _trace_id,
            "created_at_local": local_display(run_created_at, job.timezone_name), "job_id": job.job_id, "job_name": job.name,
            "timezone_name": valid_timezone(job.timezone_name),
@@ -5911,17 +5918,24 @@ def _run_job_impl(
         run["controlled_discovery_learning"] = {"version": "v18.9.4", "error": str(exc), "production_changed": False}
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
-    job.last_run_at = run["created_at"]
-    job.last_completed_at = run["created_at"]
-    job.last_scheduled_at = scheduled_for or job.last_scheduled_at
+    if trigger != "REVALIDATION":
+        job.last_run_at = run["created_at"]
+        job.last_completed_at = run["created_at"]
+        job.last_scheduled_at = scheduled_for or job.last_scheduled_at
     job.last_notification_status = str((run.get("notification") or {}).get("status_label") or "")
     job.last_status = "FULLFØRT MED MARKEDSFEIL" if partial_market_failure else ("FULLFØRT MED FEIL" if errors else ("OK MED DATAVARSLER" if warnings else "OK"))
-    if not bool(run.get("test_run")) and not str(job.job_id or "").upper().startswith("MI-AUTONOMY-REPORT-TEST"):
+    if trigger != "REVALIDATION" and not bool(run.get("test_run")) and not str(job.job_id or "").upper().startswith("MI-AUTONOMY-REPORT-TEST"):
         upsert_job(job)
+    history_type = (
+        "Test" if run.get("test_run") else
+        ("Planlagt" if trigger == "SCHEDULED" else
+         ("Revalidering" if trigger == "REVALIDATION" else "Manuell"))
+    )
     _append_job_history({
         "job_id": job.job_id, "job_name": job.name, "run_id": run_id,
-        "type": "Test" if run.get("test_run") else ("Planlagt" if str(trigger or "").upper() == "SCHEDULED" else "Manuell"),
-        "trigger": trigger, "planned_at": scheduled_for or "", "started_at": run_created_at,
+        "type": history_type,
+        "trigger": trigger, "planned_at": scheduled_for or "", "started_at": execution_started_at,
+        "report_created_at": run_created_at,
         "completed_at": _now_iso(), "status": "Fullført" if not errors else "Fullført med feil",
         "pdf": bool(run.get("pdf_path")), "report_url": report_public_url(run),
         "pushover_attempted": bool((run.get("notification") or {}).get("attempted")),
@@ -6252,9 +6266,19 @@ def revalidate_provisional_reports(
             )
             revised_state = str((revised.get("report_status") or {}).get("state") or "")
             notification_sent = False
-            notification_detail = ""
-            if revised_state == "FINAL":
-                notification_sent, notification_detail = _notification(job, revised)
+            notification_detail = "Revalidering er ferdig; Pushover er ikke påkrevd"
+            revised_notification = dict(revised.get("notification") or {})
+            revised["notification"] = {
+                **revised_notification,
+                "sent": False,
+                "attempted": False,
+                "required": False,
+                "terminal": True,
+                "terminal_reason": "SUPPRESSED_REVALIDATION",
+                "status_label": "Ikke påkrevd",
+                "detail": notification_detail,
+            }
+            _write(RUNS_DIR / f"{revised.get('run_id')}.json", revised)
             results.append({
                 "parent_run_id": parent.get("run_id"),
                 "run_id": revised.get("run_id"),
@@ -6291,7 +6315,10 @@ def _manual_report_status_label_v1924(state: Any) -> str:
 def _render_manual_report_progress_v1924() -> None:
     """Render durable progress for report-center jobs without blocking navigation."""
     import streamlit as st
-    from manual_job_background import diagnostic_bundle, force_release, get_active_status_snapshot, is_running, request_cancel
+    from manual_job_background import (
+        diagnostic_bundle, force_release, get_active_status_snapshot, is_running,
+        publish_diagnostic_download, request_cancel,
+    )
 
     status = get_active_status_snapshot()
     if not status:
@@ -6360,7 +6387,19 @@ def _render_manual_report_progress_v1924() -> None:
                     _rerun_reports_v19220_rc11(st)
         if state in {"FAILED", "STALLED", "CANCELLED"}:
             bundle, filename = diagnostic_bundle(execution_id)
-            st.download_button("Last ned diagnosepakke", data=bundle, file_name=filename, mime="application/zip", key=f"mi_diag_{execution_id}")
+            delivery = publish_diagnostic_download(bundle, filename)
+            st.markdown(
+                '<a class="diagnostic-download-mobile-v19220rc1631au" '
+                f'href="{html_escape(str(delivery["url"]))}" target="_blank" rel="noopener">'
+                '🩺 Last ned diagnosepakke i ny fane</a>',
+                unsafe_allow_html=True,
+            )
+            st.caption("Ny fane gjør at iPhone kan åpne ZIP uten å erstatte programmet.")
+            with st.expander("Alternativ nedlasting", expanded=False):
+                st.download_button(
+                    "Last ned direkte", data=bundle, file_name=filename,
+                    mime="application/zip", key=f"mi_diag_{execution_id}",
+                )
 
     # RC14: a fragment must never trigger an automatic full-app rerun when a
     # job reaches terminal state. Streamlit kept the old fragment DOM while the

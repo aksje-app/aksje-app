@@ -342,7 +342,10 @@ def build_system_anomaly_watch(candidates: Sequence[Mapping[str, Any]]) -> list[
     return alerts
 
 
-def build_candidate_watch_queue(candidates: Sequence[Mapping[str, Any]], *, lower: float = 68.0, upper: float = 73.0) -> list[dict[str, Any]]:
+def build_candidate_watch_queue(
+    candidates: Sequence[Mapping[str, Any]], *, lower: float = 68.0,
+    upper: float = 73.0, available_position_slots: int | None = None,
+) -> list[dict[str, Any]]:
     """Keep near-threshold candidates visible without turning them into buys."""
     queue = []
     for row in candidates:
@@ -353,6 +356,8 @@ def build_candidate_watch_queue(candidates: Sequence[Mapping[str, Any]], *, lowe
         if not (lower <= score < upper) or decision.get("existing_position"):
             continue
         blockers = list(decision.get("blocker_codes") or [])
+        if available_position_slots is not None and int(available_position_slots) > 0:
+            blockers = [code for code in blockers if str(code).upper() != "MAX_OPEN_POSITIONS"]
         queue.append({
             "ticker": str(row.get("ticker") or ""), "market": row.get("market"), "sector": row.get("sector"),
             "score": round(score, 2), "distance_to_production_threshold": round(upper - score, 2),

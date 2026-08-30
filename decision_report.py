@@ -838,6 +838,9 @@ def build_decision_overview(
         action = str(row.get("action") or "REVIEW").upper()
         actions[action] = actions.get(action, 0) + 1
     urgent_tasks = sum(1 for row in tasks if str(row.get("priority")) in {"KRITISK", "HØY"})
+    summary = _mapping(run.get("report_summary"))
+    strict_buys = int(_mapping(run.get("autonomous_decision_reduction")).get("buy_candidates") or 0)
+    moderate_buys = int(summary.get("moderate_buy_recommendations") or 0)
     return {
         "report_type": identity.get("type"),
         "mission_label": identity.get("mission_label"),
@@ -853,7 +856,7 @@ def build_decision_overview(
         "confidence": dict(confidence),
         "reliability": dict(reliability),
         "conclusion": (
-            f"{int(_mapping(run.get('autonomous_decision_reduction')).get('buy_candidates') or 0)} kjøpskandidat(er), "
+            f"{strict_buys} strengt kjøpsgodkjent(e), {moderate_buys} moderat kjøpsanbefalt(e), "
             f"{int(_mapping(run.get('autonomous_decision_reduction')).get('automatic_watch') or 0)} overvåkes automatisk, "
             f"{int(_mapping(run.get('autonomous_decision_reduction')).get('automatic_rejected') or 0)} er automatisk avvist, "
             f"og {int(_mapping(run.get('autonomous_decision_reduction')).get('manual_task_count') or 0)} konkret(e) manuell(e) oppgave(r) er opprettet."
@@ -951,7 +954,10 @@ def build_decision_report(
     portfolio = _mapping(run.get("autonomous_portfolio_snapshot") or run.get("portfolio_snapshot") or run.get("portfolio_context"))
     portfolio_intelligence = build_portfolio_report(portfolio, _rows(run.get("candidates")), now=_created_at(run))
     system_anomaly_watch = build_system_anomaly_watch(_rows(run.get("candidates")))
-    candidate_watch_queue = build_candidate_watch_queue(_rows(run.get("candidates")))
+    candidate_watch_queue = build_candidate_watch_queue(
+        _rows(run.get("candidates")),
+        available_position_slots=int(portfolio_intelligence.get("remaining_position_slots") or 0),
+    )
     candidate_data_audit = build_candidate_data_audit(_rows(run.get("candidates")))
     short_intelligence = build_short_report(_rows(run.get("candidates")))
     return {

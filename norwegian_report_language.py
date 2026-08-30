@@ -225,6 +225,7 @@ WORD_LABELS: dict[str, str] = {
     "RISK_ABOVE_THRESHOLD": "Risiko over tillatt grense",
     "MAX_OPEN_POSITIONS": "Ingen ledig posisjonsplass",
     "EVIDENCE_NOT_READY": "Evidensgrunnlaget er ikke beslutningsklart",
+    "LIQUIDITY_BELOW_THRESHOLD": "Likviditeten er under minimumskravet",
     "DATA_CONTRACT_INVALID": "Datagrunnlaget oppfyller ikke beslutningskravene",
     "STRATEGY_NOT_MATCHED": "Ingen godkjent strategi passer",
     "TECHNICAL_ENTRY_WAIT": "Teknisk inngangssignal står på vent",
