@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31au"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31au Learning Stabilization"
+APP_VERSION = "v19.22.0-rc16.31av"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31av Production and Learning Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31at"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31au"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31av: Produksjons- og læringslukking basert på faktiske AU-artefakter. Den autoritative integritets- og kanalporten kjøres etter Shadow og Controlled Learning, og en rapport kan ikke merkes endelig når ferdig JSON, tekst eller PDF avviker. Teksteksporten beholder hele anbefalingsrangeringen. Diagnose, JSON og offentlig PDF bruker én mobilflate med varig lenke, direkte nedlasting, kopiering, deling og eksplisitt retur. Schedulerhelse teller bare reelle SCHEDULED-rader. Ny AV-læring isoleres fra legacy, bruker 1/5/20/60-dagers horisonter, gyldig evidens, egen kohortgrense og separat benchmark-/strategikvalitetsport. Ingen moderate anbefalinger kan autorisere handel, og produksjonsregler kan ikke promoteres automatisk.",
     "v19.22.0-rc16.31au: Stabiliserer rapportdrift og kontrollert læring etter livegjennomgang. Diagnose-ZIP åpnes mobiltrygt i ny fane med direkte nedlasting som reserve. Planlagte rapporter, tester og revalideringer har separate historikk- og varslingsregler, og varighet måles fra faktisk jobbstart. PDF skiller strenge og moderate anbefalinger, bruker reell porteføljekapasitet, oversetter interne blokkoder og unngår en tom sluttside. Læringsporteføljen skiller validering fra utforskning, har hard kapasitetsgrense og syklusgrenser, bevarer kohort-, evidens- og benchmarkkontekst, markerer utdaterte posisjoner, måler stop-loss-avvik og gjenoppretter manglende inngangskontekst på eldre avslutninger uten å omskrive råloggen. Ingen læringsobservasjon kan autorisere handel eller automatisk endre produksjonsregler.",
     "v19.22.0-rc16.31at: Lukker liveavvik etter 08:00- og 14:00-kjøringene. Scannerens effektive minnekonfigurasjon lagres av cronprosessen og brukes autoritativt i diagnosepakken; standard softgrense er 1700 MB. Diagnosefilnavn og ferskhetsmetadata følger innsamlingstidspunktet. Render kontrollerer forfalte rapporter hvert femte minutt. PDF, JSON og Pushover bruker samme beslutningsjusterte markedsdata- og evidenstellere. Markeder utenfor aktivt rapportomfang merkes som eksisterende posisjoner, interne blokkoder oversettes, moderate anbefalinger dupliseres ikke i observasjonskøen, og identiske risikoforslag varsles høyst ukentlig. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31as: Produksjonsstabilisering av den varige Paper-skanneren. Automatisk markedskontroll er låst til Norge, Sverige og USA mens øvrige markeder fortsatt kan brukes manuelt. Scan-cooldown starter ved terminal fullføring i stedet for oppstart, slik at køede Render-jobber ikke starter en ny runde umiddelbart etter en lang skanning. Minneporten lagrer og logger konkret utløser, softgrense, cgroup-grense, forbruk og margin. Diagnosepakken inkluderer aktuell skannerstatus, kontrollpunkt, hemmelighetsfri konfigurasjon og minnetelemetri. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",

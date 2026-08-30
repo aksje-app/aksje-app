@@ -593,6 +593,12 @@ def load_learning_portfolio() -> dict[str, Any]:
         _write(LEARNING_PORTFOLIO_PATH, value)
     value.setdefault("positions", {})
     value["positions"] = _normalise_runtime_positions(value.get("positions"))
+    # AV keeps historical observations intact but labels previously unversioned
+    # positions explicitly.  New-cohort statistics can therefore exclude old,
+    # mixed-quality evidence without deleting or rewriting the audit history.
+    for row in value["positions"].values():
+        row.setdefault("learning_cohort", "LEGACY_OBSERVATION")
+        row.setdefault("program_version_at_entry", str(row.get("learning_cohort") or "LEGACY_OBSERVATION"))
     value.setdefault("closed_positions", [])
     return value
 
@@ -691,11 +697,13 @@ def _production_blockers_for_learning(candidate: Mapping[str, Any], params: "Aut
     return list(dict.fromkeys(blockers))
 
 
-LEARNING_OUTCOME_HORIZONS = (5, 10, 20, 60)
+LEARNING_OUTCOME_HORIZONS = (1, 5, 20, 60)
 LEARNING_OBSERVATION_LIMIT = 2000
 LEARNING_VALIDATION_MINIMUM_SCORE = 67.0
 LEARNING_VALIDATION_MAXIMUM_RISK = 65.0
 LEARNING_MAX_OPEN_POSITIONS = 60
+LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS = 30
+LEARNING_TOTAL_SAFETY_CAP = 120
 LEARNING_MAX_EXPLORATION_BUYS_PER_CYCLE = 1
 LEARNING_MAX_GROWTH_BUYS_PER_CYCLE = 1
 
@@ -1099,6 +1107,24 @@ def learning_quality_diagnostics(
     stale = [row for row in positions if _is_stale(row)]
     valid_entry = [row for row in positions if row.get("evidence_valid_at_entry") is True]
     benchmark_ready = [row for row in positions if row.get("benchmark_ticker") or _learning_benchmark(row)[1]]
+    active_cohort = [row for row in positions if str(row.get("learning_cohort") or "") == APP_VERSION]
+    legacy_cohort = [row for row in positions if row not in active_cohort]
+    active_exits = [
+        row for row in exits if str(row.get("learning_cohort") or "") == APP_VERSION
+    ]
+    active_entry_open = sum(
+        _f(row.get("quantity")) * _f(row.get("average_price")) for row in active_cohort
+    )
+    active_current_open = sum(
+        _f(row.get("quantity")) * _f(row.get("last_price"), _f(row.get("average_price")))
+        for row in active_cohort
+    )
+    active_realized = sum(_f(row.get("pnl")) for row in active_exits)
+    active_total_pnl = active_current_open - active_entry_open + active_realized
+    active_denominator = active_entry_open + sum(
+        _f(row.get("quantity")) * _f(row.get("average_price"), _f(row.get("price")))
+        for row in active_exits
+    )
     cohorts: dict[str, dict[str, Any]] = {}
     for row in ledger:
         cohort = str(row.get("learning_cohort") or row.get("strategy_implementation_version") or row.get("strategy_version") or "LEGACY_UKJENT")
@@ -1119,7 +1145,25 @@ def learning_quality_diagnostics(
         "generated_at": _now(),
         "open_positions": len(positions),
         "open_position_cap": LEARNING_MAX_OPEN_POSITIONS,
-        "new_entries_blocked_by_cap": len(positions) >= LEARNING_MAX_OPEN_POSITIONS,
+        "active_cohort": APP_VERSION,
+        "active_cohort_open": len(active_cohort),
+        "active_cohort_cap": LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS,
+        "legacy_open": len(legacy_cohort),
+        "active_cohort_performance": {
+            "open_positions": len(active_cohort),
+            "closed_positions": len(active_exits),
+            "unrealized_pnl": round(active_current_open - active_entry_open, 2),
+            "realized_pnl": round(active_realized, 2),
+            "total_pnl": round(active_total_pnl, 2),
+            "return_pct": round(active_total_pnl / active_denominator * 100, 4)
+            if active_denominator else 0.0,
+            "benchmark_excess_return_status": "PENDING_MARKET_SERIES",
+        },
+        "total_safety_cap": LEARNING_TOTAL_SAFETY_CAP,
+        "new_entries_blocked_by_cap": (
+            len(active_cohort) >= LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS
+            or len(positions) >= LEARNING_TOTAL_SAFETY_CAP
+        ),
         "evidence_valid_open": len(valid_entry),
         "evidence_invalid_or_unknown_open": len(positions) - len(valid_entry),
         "stale_open": len(stale),
@@ -1132,7 +1176,8 @@ def learning_quality_diagnostics(
         "benchmark_mapping_coverage": len(benchmark_ready),
         "benchmark_return_status": "PENDING_MARKET_SERIES" if positions else "NOT_APPLICABLE",
         "cohorts": cohort_rows,
-        "interpretation": "Resultater fra ulike programversjoner og umodne observasjoner skal ikke tolkes som én validert strategi.",
+        "strategy_readiness": "NOT_VALIDATED",
+        "interpretation": "AV vurderes som egen ren kohort. Legacy, andre programversjoner og umodne observasjoner kan ikke promotere en strategi.",
     }
 
 
@@ -1798,12 +1843,26 @@ def run_autonomous_cycle(
                 learning_tier = _learning_tier(candidate)
                 strategy = _candidate_strategy(candidate)
                 market, benchmark_ticker = _learning_benchmark(candidate)
-                if len(learning_portfolio["positions"]) >= LEARNING_MAX_OPEN_POSITIONS:
+                active_cohort_positions = sum(
+                    1 for row in learning_portfolio["positions"].values()
+                    if isinstance(row, Mapping) and str(row.get("learning_cohort") or "") == APP_VERSION
+                )
+                total_learning_positions = len(learning_portfolio["positions"])
+                if total_learning_positions >= LEARNING_TOTAL_SAFETY_CAP:
                     learning_decisions.append({
                         "timestamp": _now(), "run_id": run_id, "ticker": ticker,
-                        "action": "OBSERVE", "reason": f"Læringsporteføljen har nådd hard grense {LEARNING_MAX_OPEN_POSITIONS}",
-                        "reason_code": "LEARNING_PORTFOLIO_CAP", "learning_probe": True,
+                        "action": "OBSERVE", "reason": f"Læringsporteføljen har nådd absolutt sikkerhetsgrense {LEARNING_TOTAL_SAFETY_CAP}",
+                        "reason_code": "LEARNING_TOTAL_SAFETY_CAP", "learning_probe": True,
                         "learning_tier": learning_tier,
+                    })
+                    continue
+                if active_cohort_positions >= LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS:
+                    learning_decisions.append({
+                        "timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                        "action": "OBSERVE",
+                        "reason": f"Aktiv AV-læringskohort har nådd grensen {LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS}",
+                        "reason_code": "LEARNING_ACTIVE_COHORT_CAP", "learning_probe": True,
+                        "learning_tier": learning_tier, "learning_cohort": APP_VERSION,
                     })
                     continue
                 if ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
@@ -1836,6 +1895,14 @@ def run_autonomous_cycle(
                 quality = _candidate_quality(candidate)
                 if candidate.get("valid_for_decision") is not True:
                     learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Markedsdata er ikke beslutningsgyldige for læringskjøp", "score": score, "risk": risk, "learning_probe": True, **paper_signal})
+                    continue
+                if candidate.get("evidence_valid_for_decision") is not True:
+                    learning_decisions.append({
+                        "timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                        "action": "OBSERVE", "reason": "Evidensen er ikke beslutningsgyldig for ren AV-læring",
+                        "reason_code": "LEARNING_EVIDENCE_INVALID", "score": score, "risk": risk,
+                        "learning_probe": True, "learning_cohort": APP_VERSION, **paper_signal,
+                    })
                     continue
                 if risk > params.learning_probe_maximum_risk_score:
                     learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Risiko {risk:.1f} over læringsgrense {params.learning_probe_maximum_risk_score:.1f}", "score": score, "risk": risk, "learning_probe": True, **paper_signal})

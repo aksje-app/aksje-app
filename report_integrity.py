@@ -1059,7 +1059,19 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         for area in ("news", "insider"):
             key = f"{area}_intelligence"
             payload = raw.get(key) if isinstance(raw.get(key), Mapping) else {}
-            raw[key] = normalize_evidence_payload(payload, area=area)
+            portfolio_only = (
+                str(candidate.get("coverage_role") or "").upper()
+                == "PORTFOLIO_ONLY_EXISTING_POSITION"
+            )
+            has_search_log = bool(
+                isinstance(payload, Mapping) and payload.get("search_log")
+            )
+            raw[key] = normalize_evidence_payload(
+                payload,
+                area=area,
+                default_reason_code=("PORTFOLIO_ONLY_EXISTING_POSITION" if portfolio_only and not has_search_log else ""),
+                default_reason=("Eksisterende posisjon utenfor aktivt kandidatsøk." if portfolio_only and not has_search_log else ""),
+            )
 
     _synchronise_derived_views(result, canonical_candidates)
     # Ranking explanation is regenerated after evidence filtering and all final outcomes.

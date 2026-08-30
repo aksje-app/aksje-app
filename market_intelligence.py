@@ -41,7 +41,13 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
 from navigation_state import pin_autonomy_workspace_route_v19220_rc11
-from report_integrity import apply_report_integrity, canonical_report_view, compact_candidate_reference, validate_pdf_semantics
+from report_integrity import (
+    apply_report_integrity,
+    canonical_report_view,
+    compact_candidate_reference,
+    validate_pdf_semantics,
+    validate_report_integrity,
+)
 from report_contracts import (
     build_report_identity as build_report_identity_contract,
     ensure_report_document,
@@ -1164,6 +1170,13 @@ def _scheduled_history_for_slot_v19220_rc13(job: JobProfile, planned_utc: dateti
     for row in load_job_history(limit=1000):
         if str(row.get("job_id") or "") != str(job.job_id or ""):
             continue
+        row_type = str(row.get("type") or "").strip().casefold()
+        row_trigger = str(row.get("trigger") or "").strip().upper()
+        # Legacy scheduled rows predate explicit type/trigger fields.  They are
+        # accepted only when both fields are absent; any explicit test,
+        # revalidation, manual or repair identity is rejected.
+        if (row_type or row_trigger) and (row_type != "planlagt" or row_trigger != "SCHEDULED"):
+            continue
         raw = str(row.get("planned_at") or "").strip()
         if not raw:
             continue
@@ -1175,6 +1188,24 @@ def _scheduled_history_for_slot_v19220_rc13(job: JobProfile, planned_utc: dateti
         if abs((value - target).total_seconds()) <= 1:
             matches.append(dict(row))
     return matches[0] if matches else {}
+
+
+def _latest_scheduled_actual(job: JobProfile) -> datetime | None:
+    """Return only a real fixed-slot completion, never test/revalidation time."""
+    for row in load_job_history(limit=1000):
+        if str(row.get("job_id") or "") != str(job.job_id or ""):
+            continue
+        row_type = str(row.get("type") or "").strip().casefold()
+        row_trigger = str(row.get("trigger") or "").strip().upper()
+        if (row_type or row_trigger) and (row_type != "planlagt" or row_trigger != "SCHEDULED"):
+            continue
+        raw = str(row.get("completed_at") or row.get("report_created_at") or row.get("started_at") or "").strip()
+        try:
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def schedule_timeline(
@@ -1202,8 +1233,16 @@ def schedule_timeline(
     previous_slot = max(past) if past else None
     next_slot = min(future) if future else None
     previous_utc = previous_slot.astimezone(timezone.utc) if previous_slot else None
+    latest_scheduled_utc = _latest_scheduled_actual(job)
     try:
-        last_run = as_local(job.last_run_at, job.timezone_name) if job.last_run_at else None
+        # ``last_run_at`` remains a compatibility fallback for installations
+        # with no durable history yet.  As soon as scheduled history exists it
+        # is authoritative and non-scheduled rows can no longer pollute health.
+        last_run = (
+            as_local(latest_scheduled_utc, job.timezone_name)
+            if latest_scheduled_utc else
+            (as_local(job.last_run_at, job.timezone_name) if job.last_run_at else None)
+        )
     except Exception:
         last_run = None
 
@@ -1436,7 +1475,10 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         lines.append("- Ingen sammenlignbar beslutningsdiff er tilgjengelig.")
 
     lines.extend(["", "KANDIDATBESLUTNINGER"])
-    for recommendation_rank, candidate in enumerate(list(candidates)[:10], 1):
+    # The text channel is part of the canonical report package.  It must never
+    # silently truncate a longer public ranking: the real AU run contained 13
+    # recommendations while this historic ``[:10]`` limit exported only ten.
+    for recommendation_rank, candidate in enumerate(list(candidates), 1):
         raw_action = str(candidate.get("action") or candidate.get("status") or "REVIEW")
         action = decision_label(raw_action)
         display_label = str(candidate.get("decision_label") or candidate.get("status") or action)
@@ -1721,7 +1763,11 @@ def durable_json_download(run: Mapping[str, Any]) -> dict[str, Any]:
     streamed by the web service instead of being retained as another widget
     payload in browser/session memory.
     """
-    payload = json.dumps(dict(run or {}), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+    # Compact encoding materially lowers both iPhone transfer size and the
+    # transient duplicate-memory peak on the 2 GiB Render service.  The JSON
+    # remains complete and standards-compliant; only cosmetic whitespace is
+    # omitted.
+    payload = json.dumps(run or {}, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
     filename = safe_report_filename(run, "json")
     token = str(run.get("public_report_token") or "").strip()
     if len(token) < 32:
@@ -1744,15 +1790,11 @@ def durable_json_download(run: Mapping[str, Any]) -> dict[str, Any]:
 
 def render_durable_json_download(st, run: Mapping[str, Any], *, label: str = "{ } Last ned JSON") -> None:
     delivery = durable_json_download(run)
-    safe_url = html_escape(str(delivery["url"]), quote=True)
-    safe_name = html_escape(str(delivery["filename"]), quote=True)
-    safe_label = html_escape(label)
-    st.markdown(
-        f'<a href="{safe_url}" download="{safe_name}" '
-        'style="display:block;text-align:center;padding:.55rem .8rem;border-radius:.5rem;'
-        'background:#0796cf;border:1px solid #42c9ff;color:white;text-decoration:none;font-weight:700">'
-        f'{safe_label}</a>',
-        unsafe_allow_html=True,
+    from mobile_file_delivery import render_mobile_file_delivery
+    render_mobile_file_delivery(
+        st, url=str(delivery["url"]), filename=str(delivery["filename"]),
+        label=label, mime="application/json", data=bytes(delivery["data"]),
+        key=f"json_{str(run.get('run_id') or run.get('report_id') or 'report')}",
     )
     st.caption(f"Varig JSON-fil · {int(delivery['size']) / (1024 * 1024):.1f} MB")
 
@@ -4729,6 +4771,13 @@ def _finalize_completed_report_artifacts(
     if not run.get("pdf_path"):
         return {"generated": False, "reason": "PDF ikke bestilt"}
 
+    # Re-canonicalise at the actual artifact boundary.  Downstream stages such
+    # as parallel validation and controlled learning may enrich the run after
+    # the first report render; a stored integrity result from before those
+    # stages is therefore not authoritative.
+    run.pop("report_document", None)
+    run.pop("decision_report", None)
+    apply_report_integrity(run)
     run.pop("report_document", None)
     run.pop("decision_report", None)
     ensure_report_document(run, previous)
@@ -5916,6 +5965,89 @@ def _run_job_impl(
         run["controlled_discovery_learning"] = run_controlled_discovery_learning(load_parallel_validation_history(100))
     except Exception as exc:
         run["controlled_discovery_learning"] = {"version": "v18.9.4", "error": str(exc), "production_changed": False}
+
+    # AV hard release gate: parallel validation and controlled learning are the
+    # final domain mutations.  Rebuild the canonical model and every artifact
+    # only now, then run the same cross-channel audit used for downloadable
+    # report packages.  A mismatch is a report failure, never a green status.
+    run["errors"] = list(errors)
+    run["full_autonomy_execution"] = build_full_execution_receipt(run)
+    run["final_artifact_sync"] = {
+        "generated": False,
+        "canonicalized_after_all_domain_stages": True,
+        "release_gate": "PENDING",
+    }
+    run.pop("report_document", None)
+    run.pop("decision_report", None)
+    apply_report_integrity(run)
+    try:
+        run["final_artifact_sync"] = {
+            **dict(run.get("final_artifact_sync") or {}),
+            **_finalize_completed_report_artifacts(run, previous=previous),
+        }
+        from report_export_audit import validate_artifacts
+        final_pdf = Path(str(run.get("pdf_path") or "")).read_bytes() if run.get("pdf_path") else b""
+        final_json = json.dumps(run, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        final_text = build_text_report(run).encode("utf-8")
+        export_gate = validate_artifacts(
+            run=run,
+            pdf=final_pdf,
+            txt=final_text,
+            json_bytes=final_json,
+        )
+        live_integrity = validate_report_integrity(run)
+        if not live_integrity.get("ok"):
+            raise RuntimeError(
+                "Slutt-JSON feilet ny integritetskontroll: "
+                + "; ".join(live_integrity.get("errors") or [])
+            )
+        if not export_gate.get("ok"):
+            raise RuntimeError(
+                "Sluttkanalene avviker: " + "; ".join(export_gate.get("errors") or [])
+            )
+        trade_authorization_true_count = sum(
+            1 for row in (run.get("candidates") or [])
+            if isinstance(row, Mapping) and row.get("trade_authorized") is True
+        )
+        moderate_trade_authorizations = [
+            str(row.get("ticker") or "-") for row in (run.get("candidates") or [])
+            if isinstance(row, Mapping)
+            and str(row.get("autonomy_outcome_code") or "").upper() == "MODERAT_KJØPSANBEFALING"
+            and row.get("trade_authorized") is True
+        ]
+        if moderate_trade_authorizations:
+            raise RuntimeError(
+                "Moderate anbefalinger fikk handelsfullmakt: "
+                + ", ".join(moderate_trade_authorizations)
+            )
+        run["final_release_gate"] = {
+            "ok": True,
+            "integrity_checked_after_all_domain_stages": True,
+            "json_integrity": live_integrity,
+            "channel_export": export_gate,
+            "trade_authorization_true_count": trade_authorization_true_count,
+            "moderate_trade_authorization_true_count": len(moderate_trade_authorizations),
+        }
+        run["final_artifact_sync"]["release_gate"] = "PASSED"
+    except Exception as exc:
+        errors.append(f"AV sluttport feilet: {exc}")
+        run["errors"] = list(errors)
+        run["final_release_gate"] = {
+            "ok": False,
+            "integrity_checked_after_all_domain_stages": True,
+            "error": str(exc),
+        }
+        run["final_artifact_sync"] = {
+            **dict(run.get("final_artifact_sync") or {}),
+            "release_gate": "FAILED",
+        }
+        run["report_status"] = {
+            **dict(run.get("report_status") or {}),
+            "state": "FAILED_VALIDATION",
+            "label": "IKKE ENDELIG – SLUTTKONTROLL FEILET",
+        }
+    from production_readiness import assess_production_readiness
+    run["production_readiness"] = assess_production_readiness(run)
     _write(RUNS_DIR / f"{run_id}.json", run)
     _write(LATEST_PATH, run)
     if trigger != "REVALIDATION":
@@ -6388,18 +6520,12 @@ def _render_manual_report_progress_v1924() -> None:
         if state in {"FAILED", "STALLED", "CANCELLED"}:
             bundle, filename = diagnostic_bundle(execution_id)
             delivery = publish_diagnostic_download(bundle, filename)
-            st.markdown(
-                '<a class="diagnostic-download-mobile-v19220rc1631au" '
-                f'href="{html_escape(str(delivery["url"]))}" target="_blank" rel="noopener">'
-                '🩺 Last ned diagnosepakke i ny fane</a>',
-                unsafe_allow_html=True,
+            from mobile_file_delivery import render_mobile_file_delivery
+            render_mobile_file_delivery(
+                st, url=str(delivery["url"]), filename=filename,
+                label="🩺 Åpne diagnosepakke", mime="application/zip", data=bundle,
+                key=f"mi_diag_{execution_id}",
             )
-            st.caption("Ny fane gjør at iPhone kan åpne ZIP uten å erstatte programmet.")
-            with st.expander("Alternativ nedlasting", expanded=False):
-                st.download_button(
-                    "Last ned direkte", data=bundle, file_name=filename,
-                    mime="application/zip", key=f"mi_diag_{execution_id}",
-                )
 
     # RC14: a fragment must never trigger an automatic full-app rerun when a
     # job reaches terminal state. Streamlit kept the old fragment DOM while the

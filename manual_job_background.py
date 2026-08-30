@@ -471,6 +471,14 @@ def force_release(execution_id: str, requested_by: str = "UI") -> dict[str, Any]
 
 def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     """Create a bounded, secret-free job and learning support bundle."""
+    # Diagnostics are requested from the long-lived Streamlit process.  Drop
+    # disposable caches before materialising several JSON payloads so support
+    # collection cannot itself become the last allocation before a Render OOM.
+    try:
+        from runtime_memory import release_process_memory
+        collector_memory_cleanup = release_process_memory("diagnostic_bundle:pre_collect")
+    except Exception as exc:
+        collector_memory_cleanup = {"error": f"{type(exc).__name__}: {str(exc)[:300]}"}
     status = dict(get_status(execution_id) or {})
     allowed = {
         "execution_id", "state", "phase", "active_stage", "completed_steps",
@@ -635,6 +643,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "scanner/PAPER_SCANNER_CHECKPOINT.json": json.dumps(paper_scanner_checkpoint, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scanner/SCANNER_CONFIGURATION.json": json.dumps(scanner_configuration, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_COLLECTOR_MEMORY.json": json.dumps(diagnostic_memory, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/DIAGNOSTIC_PRECOLLECT_CLEANUP.json": json.dumps(collector_memory_cleanup, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_TIMELINE.json": json.dumps(report_test.get("timeline") or [], ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_SYSTEM_CHECK.json": json.dumps(system_check, ensure_ascii=False, indent=2, default=str).encode("utf-8"),

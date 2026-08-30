@@ -74,9 +74,11 @@ def render_public_report(st) -> bool:
         st.link_button("← Tilbake til programmet", "/", width="stretch")
     with action_columns[1]:
         st.link_button("Åpne PDF i ny fane", static_url, width="stretch")
-    st.download_button(
-        "Last ned / del PDF", data=report["data"], file_name=str(report.get("filename") or "rapport.pdf"),
-        mime="application/pdf", type="primary", width="stretch",
+    from mobile_file_delivery import render_mobile_file_delivery
+    render_mobile_file_delivery(
+        st, url=static_url, filename=str(report.get("filename") or "rapport.pdf"),
+        label="Åpne PDF for nedlasting eller deling", mime="application/pdf",
+        data=bytes(report["data"]), key=f"public_pdf_{token}",
     )
     st.markdown(_report_landing_actions(static_url), unsafe_allow_html=True)
     return True

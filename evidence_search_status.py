@@ -41,9 +41,9 @@ _SUCCESS_NO_RESULTS = {
 }
 _FAILURE = {
     "ERROR", "SOURCE_ERROR", "PARTIAL_SOURCE_FAILURE", "RATE_LIMITED",
-    "DAILY_QUOTA_EXCEEDED", "STALE", "UNAVAILABLE",
+    "STALE", "UNAVAILABLE",
 }
-_BUDGET = {"SKIPPED_BUDGET_POLICY", "NOT_SEARCHED_BUDGET"}
+_BUDGET = {"SKIPPED_BUDGET_POLICY", "NOT_SEARCHED_BUDGET", "DAILY_QUOTA_EXCEEDED"}
 _DISABLED = {"NOT_CONFIGURED", "DISABLED", "NOT_SEARCHED_DISABLED"}
 _UNSUPPORTED = {"NOT_SUPPORTED", "UNSUPPORTED", "NOT_SEARCHED_UNSUPPORTED"}
 _NOT_APPLICABLE = {"NOT_APPLICABLE", "N/A", "NA"}
@@ -83,10 +83,10 @@ def infer_reason_code(
         return "NO_RELEVANT_RESULTS"
     if status == "RATE_LIMITED" or "429" in text or "rate" in text:
         return "RATE_LIMITED"
-    if status in _BUDGET:
-        return "BUDGET_POLICY"
     if status == "DAILY_QUOTA_EXCEEDED" or "quota exceeded" in text:
         return "DAILY_QUOTA_EXCEEDED"
+    if status in _BUDGET:
+        return "BUDGET_POLICY"
     if "budsjett" in text:
         return "BUDGET_POLICY"
     if status in _UNSUPPORTED or "ikke støttet" in text or "unsupported" in text:
@@ -158,6 +158,16 @@ def normalize_search_attempt(
         search_status = SEARCH_FAILED if error else SEARCHED_NO_RESULTS
     else:
         search_status = NOT_SEARCHED_POLICY
+
+    # Search success/failure is itself proof that a source call was attempted.
+    # Conversely a locally exhausted daily budget means no external attempt.
+    # Canonicalise contradictory legacy flags instead of exporting a status
+    # that says both "searched" and ``attempted=false``.
+    if legacy_status == "DAILY_QUOTA_EXCEEDED":
+        search_status = NOT_SEARCHED_BUDGET
+        attempted = False
+    elif search_status in {SEARCHED_RESULTS_FOUND, SEARCHED_NO_RESULTS, SEARCH_FAILED}:
+        attempted = True
 
     reason_code = _upper(row.get("reason_code")) or infer_reason_code(
         legacy_status,

@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
+from app_version import APP_VERSION
 
 STATE_KEY = "controlled_learning/acceptance_latest.json"
 STATE_PATH = runtime_data_path("controlled_learning", "acceptance_latest.json")
@@ -106,10 +107,59 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
     else:
         verdict = "PARTIAL"
 
+    # Operational accounting and investment-strategy quality are different
+    # claims.  AU displayed PASS for a technically complete ledger even when
+    # the mixed legacy portfolio had weak outcomes.  AV keeps the compatibility
+    # verdict, but exposes a separate fail-closed promotion gate based only on
+    # the current clean cohort and benchmark-relative mature observations.
+    active_positions = [
+        row for row in positions.values()
+        if isinstance(row, Mapping) and str(row.get("learning_cohort") or "") == APP_VERSION
+    ]
+    active_closed = [
+        row for row in closed
+        if str(row.get("learning_cohort") or "") == APP_VERSION
+    ]
+    mature_closed = [
+        row for row in active_closed
+        if int(row.get("observation_days") or 0) >= 20
+    ]
+    benchmark_measured = [
+        row for row in mature_closed
+        if row.get("excess_return_pct") is not None or row.get("benchmark_return_pct") is not None
+    ]
+    pnl_values = [float(row.get("pnl") or 0.0) for row in mature_closed]
+    gross_profit = sum(value for value in pnl_values if value > 0)
+    gross_loss = abs(sum(value for value in pnl_values if value < 0))
+    cohort_profit_factor = gross_profit / gross_loss if gross_loss else (999.0 if gross_profit else 0.0)
+    excess_values = [float(row.get("excess_return_pct") or 0.0) for row in benchmark_measured]
+    average_excess = sum(excess_values) / len(excess_values) if excess_values else None
+    strategy_checks = {
+        "clean_current_cohort": all(str(row.get("learning_cohort") or "") == APP_VERSION for row in active_positions + active_closed),
+        "minimum_mature_observations": len(mature_closed) >= 30,
+        "benchmark_coverage_complete": bool(mature_closed) and len(benchmark_measured) == len(mature_closed),
+        "positive_average_excess_return": average_excess is not None and average_excess > 0,
+        "profit_factor_at_least_1_10": cohort_profit_factor >= 1.10,
+        "no_production_application": all(row.get("production_applied") is not True for row in active_closed),
+    }
+    strategy_readiness = "VALIDATED_CANDIDATE" if all(strategy_checks.values()) else "NOT_VALIDATED"
+
     result = {
         "schema_version": SCHEMA_VERSION,
         "evaluated_at": _now(),
         "verdict": verdict,
+        "operational_verdict": verdict,
+        "strategy_readiness": strategy_readiness,
+        "strategy_quality_gate": {
+            "cohort": APP_VERSION,
+            "checks": strategy_checks,
+            "open_positions": len(active_positions),
+            "mature_closed_positions": len(mature_closed),
+            "benchmark_measured_positions": len(benchmark_measured),
+            "profit_factor": round(cohort_profit_factor, 4),
+            "average_excess_return_pct": round(average_excess, 4) if average_excess is not None else None,
+            "automatic_production_promotion_allowed": False,
+        },
         "report_id": report_id,
         "trigger": str(run.get("trigger") or ""),
         "job_id": str(run.get("job_id") or ""),
@@ -125,7 +175,7 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
         "blocker_counts": [{"first_blocker_code": code, "count": count} for code, count in blockers.most_common()],
         "decision_trace": decision_trace,
         "learning_trade_ids": [str(row.get("trade_id") or "") for row in learning_trades if row.get("trade_id")],
-        "note": "PASS krever reell lagret læringsobservasjon. PARTIAL betyr at kjeden og blokkdiagnostikken virker, men ingen kvalifisert læringsposisjon ble opprettet.",
+        "note": "Operativ PASS betyr bare at læringsregnskapet er komplett. Strategien er ikke validert før den separate kohort- og benchmarkporten består.",
     }
     write_json(STATE_KEY, STATE_PATH, result)
     return result
