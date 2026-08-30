@@ -26,6 +26,15 @@ def _hydrate_static_pdf(token: str, report: dict) -> tuple[Path, str]:
     return target, f"/app/static/reports/{quote(target.name)}"
 
 
+def _hydrate_static_file(token: str, artifact: dict) -> tuple[Path, str]:
+    from report_delivery import PUBLIC_REPORT_DIR
+    safe="".join(ch for ch in str(token or "") if ch.isalnum() or ch in "-_"); suffix=Path(str(artifact.get("filename") or "nedlasting.bin")).suffix.lower()
+    if len(safe)<32 or suffix not in {".json",".txt",".zip"}: raise ValueError("Ugyldig filtoken")
+    target=PUBLIC_REPORT_DIR/f"public_file_{safe}{suffix}"; target.parent.mkdir(parents=True,exist_ok=True)
+    temporary=target.with_suffix(f"{suffix}.tmp"); temporary.write_bytes(bytes(artifact["data"])); temporary.replace(target)
+    return target,f"/app/static/reports/{quote(target.name)}"
+
+
 def _report_landing_actions(static_url: str) -> str:
     """Return a mobile report viewer that always retains an app return path."""
     safe_pdf = escape(str(static_url or ""), quote=True)
@@ -56,6 +65,16 @@ def _report_landing_actions(static_url: str) -> str:
 
 
 def render_public_report(st) -> bool:
+    file_token=str(st.query_params.get("public_file_token") or "").strip()
+    if file_token:
+        from public_report_store import load_public_file
+        artifact=load_public_file(file_token)
+        if not artifact: st.error("Fillenken er ugyldig eller utløpt."); st.stop()
+        _,static_url=_hydrate_static_file(file_token,artifact)
+        st.markdown("### 📦 Filen er klar"); st.info("Åpne filen i ny fane for deling, eller bruk tilbakeknappen for å beholde programmet åpent.")
+        from mobile_file_delivery import render_mobile_file_delivery
+        render_mobile_file_delivery(st,url=static_url,filename=str(artifact.get("filename") or "nedlasting"),label="Åpne fil for nedlasting eller deling",mime=str(artifact.get("mime") or "application/octet-stream"),data=bytes(artifact["data"]),key=f"public_file_{file_token}")
+        return True
     token = str(st.query_params.get("public_report_token") or "").strip()
     if not token:
         return False

@@ -5966,7 +5966,16 @@ def _run_job_impl(
     except Exception as exc:
         run["controlled_discovery_learning"] = {"version": "v18.9.4", "error": str(exc), "production_changed": False}
 
-    # AV hard release gate: parallel validation and controlled learning are the
+    try:
+        if trigger == "SCHEDULED" and not bool(run.get("test_run")):
+            from learning_observation_engine import register_report_observations
+            learning_observation_plan = register_report_observations(run, commit=False)
+        else:
+            learning_observation_plan = {"status":"SKIPPED_NON_SCHEDULED","created":0,"committed":False,"production_changed":False,"trade_authorized":False}
+    except Exception as exc:
+        learning_observation_plan = {"status":"FAILED","error":str(exc)[:500],"production_changed":False,"trade_authorized":False}
+
+    # AW hard release gate: parallel validation and controlled learning are the
     # final domain mutations.  Rebuild the canonical model and every artifact
     # only now, then run the same cross-channel audit used for downloadable
     # report packages.  A mismatch is a report failure, never a green status.
@@ -6029,6 +6038,13 @@ def _run_job_impl(
             "moderate_trade_authorization_true_count": len(moderate_trade_authorizations),
         }
         run["final_artifact_sync"]["release_gate"] = "PASSED"
+        if str(learning_observation_plan.get("status") or "") == "COMMIT_AFTER_FINAL_GATE":
+            try:
+                from learning_observation_engine import register_report_observations
+                committed_observations = register_report_observations(run, commit=True)
+                _audit("LEARNING_OBSERVATIONS_COMMITTED", {"run_id":run_id,"created":int(committed_observations.get("created") or 0),"created_by_group":dict(committed_observations.get("created_by_group") or {}),"production_changed":False})
+            except Exception as learning_exc:
+                _audit("LEARNING_OBSERVATION_COMMIT_FAILED", {"run_id":run_id,"error":str(learning_exc)[:500],"production_changed":False})
     except Exception as exc:
         errors.append(f"AV sluttport feilet: {exc}")
         run["errors"] = list(errors)

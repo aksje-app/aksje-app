@@ -2344,6 +2344,12 @@ def render_learning_portfolio() -> None:
     else:
         st.info("Ingen læringshistorikk ennå. Historikk opprettes etter neste autonome beslutningssyklus.")
 
+    try:
+        from learning_observation_engine import render_weekly_learning_reports
+        render_weekly_learning_reports()
+    except Exception as exc:
+        st.warning(f"Ukentlige kontrollerte læringsrapporter er midlertidig utilgjengelige: {str(exc)[:240]}")
+
     positions = list((portfolio.get("positions") or {}).values())
     st.markdown("##### Åpne læringsposisjoner")
     if positions:

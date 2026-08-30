@@ -105,6 +105,7 @@ def _run_once_locked() -> dict[str, Any]:
         "scheduler": {},
         "report_test_mode": {},
         "currency_alerts": {},
+        "learning_observation_maintenance": {},
         "report_repair": {},
         "report_revalidation": {},
         "error": "",
@@ -220,6 +221,14 @@ def _run_once_locked() -> dict[str, Any]:
         # A provider failure must be visible, but must not suppress scheduled reports.
         state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
 
+    try:
+        from runtime_memory import release_process_memory
+        release_process_memory("scheduled_runner:before_learning_observations")
+        from learning_observation_engine import run_learning_maintenance
+        state["learning_observation_maintenance"] = dict(run_learning_maintenance() or {})
+    except Exception as exc:
+        state["learning_observation_maintenance"] = {"status":"FAILED","error":f"{type(exc).__name__}: {str(exc)[:500]}","production_changed":False}
+
     # Paper scanning is intentionally owned by this 2 GiB scheduler service.
     # Reports and scanning run sequentially, never in parallel, so the already
     # allocated Standard memory can be reused without reducing ticker, market
@@ -318,6 +327,7 @@ def main() -> int:
         "scheduled_runs": (state.get("scheduler") or {}).get("runs", 0),
         "report_test_mode": (state.get("report_test_mode") or {}).get("run_state"),
         "currency_alerts": (state.get("currency_alerts") or {}).get("state"),
+        "learning_observations": (state.get("learning_observation_maintenance") or {}).get("status"),
         "report_repair": (state.get("report_repair") or {}).get("state"),
         "report_revalidation": (state.get("report_revalidation") or {}).get("state"),
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),

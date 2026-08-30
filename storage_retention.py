@@ -27,12 +27,13 @@ def run_storage_retention() -> dict[str, Any]:
     for name, keep in JSONL_LIMITS.items():
         if name in logs:
             rows = storage.read_jsonl(name, limit=keep); storage.replace_jsonl(name, rows); trimmed[name] = len(rows)
-    from public_report_store import prune_expired_public_reports
+    from public_report_store import prune_expired_public_files, prune_expired_public_reports
     public_reports = prune_expired_public_reports()
+    public_files = prune_expired_public_files()
     after = storage.storage_usage_report()
     state = {"state": "COMPLETED", "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
              "deleted_keys": deleted, "retained_event_rows": trimmed,
-             "public_reports": public_reports, "usage_before": before, "usage_after": after,
+             "public_reports": public_reports, "public_files": public_files, "usage_before": before, "usage_after": after,
              "protected": ["portfolio", "trades", "positions", "decisions", "settings", "audit",
                            "bounded_learning_observations"]}
     write_json(STATE_KEY, STATE_PATH, state); return state

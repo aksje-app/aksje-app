@@ -217,6 +217,11 @@ def build_learning_diagnostics() -> dict[str, Any]:
     for row in decisions:
         row.setdefault("first_blocker_code", first_blocker_code(row))
     trades = ap.load_learning_trades(250)
+    try:
+        from learning_observation_engine import diagnostics as observation_diagnostics
+        controlled_observations = observation_diagnostics()
+    except Exception as exc:
+        controlled_observations = {"status":"UNAVAILABLE","error":str(exc)[:500],"production_changed":False}
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _now(),
@@ -232,4 +237,5 @@ def build_learning_diagnostics() -> dict[str, Any]:
         "recent_decisions": decisions,
         "recent_trades": trades,
         "acceptance": load_latest_learning_acceptance(),
+        "controlled_observation_engine": controlled_observations,
     }
