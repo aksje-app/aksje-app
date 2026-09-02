@@ -491,12 +491,31 @@ class StorageService:
                 event_count, event_payload, event_relation = cur.fetchone()
                 cur.execute("SELECT pg_database_size(current_database())")
                 database_bytes = int(cur.fetchone()[0] or 0)
+                cur.execute(
+                    """SELECT split_part(name, '/', 1) AS namespace,
+                              COUNT(*), COALESCE(SUM(octet_length(payload)), 0)
+                       FROM app_kv_store GROUP BY 1 ORDER BY 3 DESC LIMIT 20"""
+                )
+                namespaces = [
+                    {"namespace": str(row[0] or "root"), "rows": int(row[1] or 0),
+                     "payload_bytes": int(row[2] or 0)} for row in cur.fetchall()
+                ]
+                cur.execute(
+                    """SELECT name, octet_length(payload) FROM app_kv_store
+                       ORDER BY octet_length(payload) DESC LIMIT 20"""
+                )
+                largest = [{"name": str(row[0]), "payload_bytes": int(row[1] or 0)} for row in cur.fetchall()]
+                capacity_bytes = max(1, int(os.getenv("DATABASE_CAPACITY_BYTES", str(5 * 1024**3)) or 5 * 1024**3))
+                capacity_pct = round(database_bytes * 100.0 / capacity_bytes, 2)
                 return {
                     "backend": "postgres", "database_bytes": database_bytes,
+                    "capacity_bytes": capacity_bytes, "capacity_pct": capacity_pct,
+                    "capacity_state": "CRITICAL" if capacity_pct >= 85 else "WARNING" if capacity_pct >= 70 else "OK",
                     "kv_rows": int(kv_count or 0), "kv_payload_bytes": int(kv_payload or 0),
                     "kv_relation_bytes": int(kv_relation or 0),
                     "event_rows": int(event_count or 0), "event_payload_bytes": int(event_payload or 0),
                     "event_relation_bytes": int(event_relation or 0),
+                    "kv_namespaces": namespaces, "largest_kv_documents": largest,
                 }
             finally:
                 conn.close()
