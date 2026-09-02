@@ -18,6 +18,11 @@ DEFAULT_RULES = {
     # Re-entry protection: after stop-loss sell, block new BUY in same ticker.
     "stop_loss_cooldown_days": 5,
     "stop_loss_reentry_min_confidence_delta": 3,
+    "sell_signal_cooldown_days": 5,
+    "risk_exit_cooldown_days": 10,
+    "automatic_signal_max_age_minutes": 120,
+    "block_rebuy_above_recent_sell_pct": 0.5,
+    "automatic_same_ticker_buy_cooldown_hours": 24,
 
     # HOLD
     "min_hold_days": 1,
@@ -37,6 +42,8 @@ DEFAULT_RULES = {
     "stagnation_days": DEFAULT_EXIT_POLICY.stagnation_days,
     "stagnation_band_pct": DEFAULT_EXIT_POLICY.stagnation_band_pct,
     "replacement_score_advantage": DEFAULT_EXIT_POLICY.replacement_score_advantage,
+    "cash_review_days": 40,
+    "cash_review_max_return_pct": 1.0,
 }
 
 LOCAL_RULES_FILE = "trading_rules.json"  # legacy fallback only

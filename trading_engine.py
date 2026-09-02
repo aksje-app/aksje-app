@@ -282,6 +282,11 @@ TRADE_CONTEXT_KEYS = (
     "strategy_implementation_version",
     "strategy_config_checksum",
     "strategy_binding_verified",
+    "run_id",
+    "scan_id",
+    "scanner_execution_id",
+    "decision_id",
+    "market_data_at",
 )
 
 
@@ -357,20 +362,28 @@ def _parse_trade_time_v18660(value):
         return None
 
 
-def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
-    """Block immediate re-buy after a stop-loss sell in same paper ticker.
-
-    This prevents SELL by stop-loss followed by BUY in the same symbol on the
-    next cron/update while the symbol is still visible as a buy candidate.
-    """
+def _automatic_signal_fresh_v1931ay(trade_context, rules, now=None):
+    """Fail closed when an automatic order lacks a fresh market-data timestamp."""
+    ctx = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
+    if not bool(ctx.get("automatic")):
+        return True, ""
+    stamp = _parse_trade_time_v18660(ctx.get("market_data_at"))
+    if stamp is None:
+        return False, "Automatisk handel blokkert: tidspunkt for markedsdata mangler eller er ugyldig."
     try:
-        cooldown_days = int(rules.get("stop_loss_cooldown_days", 5) or 0)
+        max_age = max(1.0, float((rules or {}).get("automatic_signal_max_age_minutes", 120) or 120))
     except Exception:
-        cooldown_days = 5
-    if cooldown_days <= 0:
-        return False, ""
+        max_age = 120.0
+    age_minutes = ((now or datetime.now()) - stamp).total_seconds() / 60.0
+    if age_minutes < -5.0 or age_minutes > max_age:
+        return False, f"Automatisk handel blokkert: markedsdata er {age_minutes:.1f} minutter gamle (maks {max_age:.0f})."
+    return True, ""
+
+
+def _reentry_block_v1931ay(portfolio, ticker, confidence, rules, buy_price=None, now=None):
+    """Block churn after every SELL; risk exits receive a longer quarantine."""
     ticker = str(ticker or "").upper().strip()
-    now = datetime.now()
+    now = now or datetime.now()
     trades = list((portfolio or {}).get("trades", []) or [])
     for trade in reversed(trades):
         try:
@@ -380,30 +393,60 @@ def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
                 continue
             reason = str(trade.get("reason") or "").lower()
             rule_used = str(trade.get("rule_used") or "").lower()
-            if "stop loss" not in reason and "stop-loss" not in rule_used and "stop loss" not in rule_used:
-                continue
+            risk_exit = any(token in f"{reason} {rule_used}" for token in ("stop loss", "stop-loss", "trailing stop"))
+            cooldown_key = "risk_exit_cooldown_days" if risk_exit else "sell_signal_cooldown_days"
+            cooldown_days = int((rules or {}).get(cooldown_key, 10 if risk_exit else 5) or 0)
+            if cooldown_days <= 0:
+                return False, ""
             sold_at = _parse_trade_time_v18660(trade.get("time"))
             if sold_at is None:
-                # If timestamp is missing, be conservative for current run.
-                return True, f"{ticker} er blokkert for nytt kjøp etter stop-loss. Cooldown: {cooldown_days} dager."
+                return True, f"{ticker} er blokkert for nytt kjøp etter salg. Karantene: {cooldown_days} dager."
             age_days = (now - sold_at).total_seconds() / 86400.0
             if age_days < cooldown_days:
                 remaining = max(1, int(round(cooldown_days - age_days)))
-                try:
-                    delta = int(rules.get("stop_loss_reentry_min_confidence_delta", 3) or 0)
-                    old_conf = int(trade.get("confidence") or 0)
-                    new_conf = int(confidence or 0)
-                    if delta > 0 and new_conf >= old_conf + delta and age_days >= 1:
-                        return False, ""
-                except Exception:
-                    pass
                 return True, (
-                    f"{ticker} ble nylig solgt på stop-loss og kan ikke kjøpes igjen ennå. "
-                    f"Cooldown gjenstår ca. {remaining} dag(er)."
+                    f"{ticker} ble nylig solgt ({'risikoutgang' if risk_exit else 'ordinært salg'}) og kan ikke kjøpes igjen ennå. "
+                    f"Karantene gjenstår ca. {remaining} dag(er)."
                 )
+            try:
+                sold_price = float(trade.get("price") or 0)
+                max_premium = float((rules or {}).get("block_rebuy_above_recent_sell_pct", 0.5) or 0.5)
+                premium = ((float(buy_price) / sold_price) - 1) * 100 if sold_price > 0 and buy_price is not None else 0.0
+                if premium > max_premium and age_days < max(cooldown_days * 2, 10):
+                    return True, f"{ticker} kan ikke kjøpes {premium:.2f}% dyrere kort tid etter salg uten dokumentert regimeskifte."
+            except Exception:
+                pass
             return False, ""
         except Exception:
             continue
+    return False, ""
+
+
+def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
+    """Compatibility alias; v19.22.0-rc16.31ay protects every SELL."""
+    return _reentry_block_v1931ay(portfolio, ticker, confidence, rules)
+
+
+def _automatic_repeat_buy_block_v1931ay(portfolio, ticker, rules, now=None):
+    """Prevent duplicate/addition BUYs from overlapping or repeated cron runs."""
+    try:
+        cooldown_hours = max(0.0, float((rules or {}).get("automatic_same_ticker_buy_cooldown_hours", 24) or 0))
+    except Exception:
+        cooldown_hours = 24.0
+    if cooldown_hours <= 0:
+        return False, ""
+    ticker = str(ticker or "").upper().strip()
+    now = now or datetime.now()
+    for trade in (portfolio or {}).get("trades", []) or []:
+        if str(trade.get("ticker") or "").upper().strip() != ticker or str(trade.get("type") or "").upper() != "BUY":
+            continue
+        bought_at = _parse_trade_time_v18660(trade.get("time"))
+        if bought_at is None:
+            return True, f"Automatisk tilleggskjøp i {ticker} blokkert fordi forrige kjøp mangler gyldig tidspunkt."
+        age_hours = (now - bought_at).total_seconds() / 3600.0
+        if age_hours < cooldown_hours:
+            return True, f"Automatisk tilleggskjøp i {ticker} blokkert: forrige kjøp var for {age_hours:.1f} timer siden (minimum {cooldown_hours:.0f})."
+        return False, ""
     return False, ""
 
 
@@ -419,6 +462,9 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     if not gate.allowed:
         return False, explain_blocked_action([gate.message], action="Kjøp")
     rules = load_rules()
+    fresh, freshness_msg = _automatic_signal_fresh_v1931ay(gate_context, rules)
+    if not fresh:
+        return False, explain_blocked_action([freshness_msg], action="Kjøp")
     max_open_positions = int(rules.get("max_open_positions", MAX_OPEN_POSITIONS))
     max_trades_per_day = int(rules.get("max_trades_per_day", 3))
     min_buy_confidence = int(rules.get("min_buy_confidence", MIN_BUY_CONFIDENCE))
@@ -428,6 +474,11 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     ticker = str(ticker).upper()
     trade_ctx = _merge_trade_context(ticker, trade_context)
     manual_override_state = normalize_manual_override_state(manual_override)
+    if bool(gate_context.get("automatic")):
+        repeat_blocked, repeat_msg = _automatic_repeat_buy_block_v1931ay(portfolio, ticker, rules)
+        if repeat_blocked:
+            audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "automatic_repeat_buy", "message": repeat_msg}, level="WARNING")
+            return False, explain_blocked_action([repeat_msg], action="Kjøp")
     if not trade_ctx.get("rule_used"):
         trade_ctx["rule_used"] = "BUY signal"
     if not trade_ctx.get("measured_value"):
@@ -447,12 +498,12 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         msg = "Manuell overstyring: REVIEW_ONLY - kjøp er ikke gjennomført. Aksjen skal legges i Gule flagg / Manuell vurdering."
         audit_state_transition("paper_buy_review_only", before, detail={"ticker": ticker, "reason": "manual_review_only", "manual_override": manual_override_state, "message": msg}, level="INFO")
         return False, msg
-    blocked, cooldown_msg = _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules)
-    if blocked and manual_override_state != "FORCE_ALLOW":
-        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "stop_loss_cooldown", "manual_override": manual_override_state, "message": cooldown_msg}, level="WARNING")
+    blocked, cooldown_msg = _reentry_block_v1931ay(portfolio, ticker, confidence, rules, buy_price=price)
+    if blocked and (bool(gate_context.get("automatic")) or manual_override_state != "FORCE_ALLOW"):
+        audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "reason": "sell_reentry_quarantine", "manual_override": manual_override_state, "message": cooldown_msg}, level="WARNING")
         return False, explain_blocked_action([cooldown_msg], action="Kjøp")
     if blocked and manual_override_state == "FORCE_ALLOW":
-        audit_state_transition("paper_buy_manual_override_bypass", before, detail={"ticker": ticker, "reason": "stop_loss_cooldown", "manual_override": manual_override_state, "message": cooldown_msg}, level="WARNING")
+        audit_state_transition("paper_buy_manual_override_bypass", before, detail={"ticker": ticker, "reason": "sell_reentry_quarantine", "manual_override": manual_override_state, "message": cooldown_msg}, level="WARNING")
     try:
         price = float(price)
     except Exception:

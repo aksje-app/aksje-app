@@ -179,12 +179,13 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
                                       holding_days=holding_days,
                                       take_profit_taken=bool(position.get("partial_take_profit_taken")),
                                       best_replacement_score=best_replacement_score, policy=active_policy)
-        sideways = exit_decision["reason_code"] in {"CAPITAL_STAGNATION", "CAPITAL_REPLACEMENT"}
+        sideways = exit_decision["reason_code"] in {"CAPITAL_STAGNATION", "CAPITAL_REPLACEMENT", "OPPORTUNITY_COST"}
         weakened = bool(entry_score and score_change <= -active_policy.score_drop_review_points)
         label = {
             "SELL": "SELG",
             "SELL_PARTIAL": "SIKRE DELVIS GEVINST",
             "REPLACE_REVIEW": "VURDER UTSKIFTING",
+            "CASH_REVIEW": "VURDER SALG TIL KONTANTER",
             "REVIEW": "KAPITALEFFEKTIVITETSVARSEL",
         }.get(exit_decision["action"], "BEHOLD")
         evidence_row = _with_canonical_evidence(position, candidate)

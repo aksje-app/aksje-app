@@ -32,6 +32,8 @@ class ExitPolicy:
     stagnation_days: int = 20
     stagnation_band_pct: float = 2.0
     replacement_score_advantage: float = 6.0
+    cash_review_days: int = 40
+    cash_review_max_return_pct: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,6 +65,8 @@ def policy_from(source: Mapping[str, Any] | Any | None = None) -> ExitPolicy:
         stagnation_days=max(1, int(_f(base["stagnation_days"], 20))),
         stagnation_band_pct=max(0.0, _f(base["stagnation_band_pct"], 2)),
         replacement_score_advantage=max(0.0, _f(base["replacement_score_advantage"], 6)),
+        cash_review_days=max(20, int(_f(base["cash_review_days"], 40))),
+        cash_review_max_return_pct=max(0.0, _f(base["cash_review_max_return_pct"], 1)),
     )
 
 
@@ -99,6 +103,9 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
     if stagnating and score_drop >= p.score_drop_review_points and replacement_advantage >= p.replacement_score_advantage:
         return {**result, "action": "REPLACE_REVIEW", "reason_code": "CAPITAL_REPLACEMENT",
                 "reason": f"Sidelengs {holding_days} dager; erstatning er {replacement_advantage:.1f} scorepoeng bedre"}
+    if int(holding_days) >= p.cash_review_days and pnl_pct <= p.cash_review_max_return_pct and (score_drop >= p.score_drop_review_points or score < _f(entry_score)):
+        return {**result, "action": "CASH_REVIEW", "reason_code": "OPPORTUNITY_COST",
+                "reason": f"Kapital bundet i {holding_days} dager med {pnl_pct:.2f}% avkastning og svekket score; kontanter vurderes"}
     if stagnating:
         return {**result, "action": "REVIEW", "reason_code": "CAPITAL_STAGNATION", "reason": f"Kapitalstagnasjon i {holding_days} dager"}
     if score_drop >= p.score_drop_review_points:
