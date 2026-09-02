@@ -1788,13 +1788,16 @@ def durable_json_download(run: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def render_durable_json_download(st, run: Mapping[str, Any], *, label: str = "{ } Last ned JSON") -> None:
+def render_durable_json_download(
+    st, run: Mapping[str, Any], *, label: str = "{ } Last ned JSON", instance_key: str = "report",
+) -> None:
     delivery = durable_json_download(run)
     from mobile_file_delivery import render_mobile_file_delivery
     render_mobile_file_delivery(
         st, url=str(delivery["url"]), filename=str(delivery["filename"]),
         label=label, mime="application/json", data=bytes(delivery["data"]),
         key=f"json_{str(run.get('run_id') or run.get('report_id') or 'report')}",
+        instance_key=instance_key,
     )
     st.caption(f"Varig JSON-fil · {int(delivery['size']) / (1024 * 1024):.1f} MB")
 
@@ -1925,6 +1928,8 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "result_id": (run.get("canonical_result") or {}).get("result_id"),
         "created_at_local": local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)),
         "timezone_name": valid_timezone(run.get("timezone_name")), "job_name": run.get("job_name"),
+        "trigger": str(run.get("trigger") or ""),
+        "history_kind": "REVALIDATION" if str(run.get("trigger") or "").upper() == "REVALIDATION" else "REPORT",
         "report_type": identity.get("type"), "report_label": identity.get("label"),
         "report_id": metadata.get("report_id") or run.get("run_id"),
         "mission_code": metadata.get("mission_code") or identity.get("mission_code"),
@@ -4816,7 +4821,8 @@ def _finalize_completed_report_artifacts(
     }
 
     _write(RUNS_DIR / f"{run.get('run_id')}.json", run)
-    _write(LATEST_PATH, run)
+    if str(run.get("trigger") or "").upper() != "REVALIDATION":
+        _write(LATEST_PATH, run)
     archive_report(run)
     persistence = verify_report_persistence(str(run.get("run_id") or ""))
     if not persistence.get("ok"):
@@ -5828,7 +5834,8 @@ def _run_job_impl(
             }
         emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
         _write(RUNS_DIR / f"{run_id}.json", run)
-        _write(LATEST_PATH, run)
+        if trigger != "REVALIDATION":
+            _write(LATEST_PATH, run)
         _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
         archive_view = dict(canonical_run)
         archive_view.update({key: run.get(key) for key in (
@@ -6065,7 +6072,10 @@ def _run_job_impl(
     from production_readiness import assess_production_readiness
     run["production_readiness"] = assess_production_readiness(run)
     _write(RUNS_DIR / f"{run_id}.json", run)
-    _write(LATEST_PATH, run)
+    # A maintenance revision belongs in its immutable series and archive, but
+    # must not masquerade as the latest ordinary 08/14/22 report in the UI.
+    if trigger != "REVALIDATION":
+        _write(LATEST_PATH, run)
     if trigger != "REVALIDATION":
         job.last_run_at = run["created_at"]
         job.last_completed_at = run["created_at"]
@@ -6344,6 +6354,28 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
     return results
 
 
+def revalidation_blackout_status(now: datetime | None = None) -> dict[str, Any]:
+    """Protect the mandatory 08/14/22 reports from maintenance contention."""
+    from zoneinfo import ZoneInfo
+
+    current = (now or _now()).astimezone(ZoneInfo(DEFAULT_TIMEZONE))
+    minute = current.hour * 60 + current.minute
+    # Start well before the due time because a revalidation may use the shared
+    # report owner for more than 20 minutes. Keep a post-run recovery margin.
+    windows = ((7 * 60 + 15, 9 * 60 + 30, "08:00"),
+               (13 * 60 + 15, 15 * 60 + 30, "14:00"),
+               (21 * 60 + 15, 23 * 60 + 30, "22:00"))
+    for start, end, schedule in windows:
+        if start <= minute <= end:
+            return {
+                "blocked": True, "schedule": schedule,
+                "state": "SKIPPED_MANDATORY_REPORT_WINDOW",
+                "checked_at": current.isoformat(timespec="seconds"),
+            }
+    return {"blocked": False, "schedule": "", "state": "ALLOWED",
+            "checked_at": current.isoformat(timespec="seconds")}
+
+
 def revalidate_provisional_reports(
     now: datetime | None = None,
     *,
@@ -6358,8 +6390,11 @@ def revalidate_provisional_reports(
     import os
 
     now = (now or _now()).astimezone(timezone.utc)
+    blackout = revalidation_blackout_status(now)
+    if blackout["blocked"]:
+        return {**blackout, "eligible": 0, "runs": [], "errors": []}
     wait_hours = max(1, int(os.getenv("REPORT_REVALIDATION_HOURS", "6") or 6))
-    max_attempts = max(1, int(os.getenv("REPORT_REVALIDATION_MAX_ATTEMPTS", "3") or 3))
+    max_attempts = max(1, int(os.getenv("REPORT_REVALIDATION_MAX_ATTEMPTS", "1") or 1))
     reserve = max(0, int(os.getenv("NEWSAPI_REVALIDATION_RESERVE", "10") or 10))
     try:
         from newsapi_budget import health_snapshot
@@ -7567,7 +7602,7 @@ def render_market_intelligence() -> None:
             else:
                 e2.error(str(delivery.get("error") or "Kort PDF-rapport er ikke tilgjengelig."))
             ensure_report_document(latest)
-            render_durable_json_download(st, latest, label="{ } Last ned JSON")
+            render_durable_json_download(st, latest, label="{ } Last ned JSON", instance_key="latest")
             st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", width="stretch", key="mi_download_txt_v1914")
             latest_package_key = "mi_latest_report_package_bytes_v19220_rc16"
             latest_package_name_key = "mi_latest_report_package_name_v19220_rc16"
@@ -7701,7 +7736,9 @@ def render_market_intelligence() -> None:
             )
         for row in visible_archive_rows_v19220_rc1617:
             shown_time = row.get("created_at_local") or local_display(row.get("created_at"), str(row.get("timezone_name") or DEFAULT_TIMEZONE))
-            label = f"{'⭐ ' if row.get('favorite') else ''}{row.get('report_label','Rapport')} · {row.get('job_name','-')} · {shown_time}"
+            kind = "Revalidering" if str(row.get("history_kind") or row.get("trigger") or "").upper() == "REVALIDATION" else str(row.get("report_label") or "Rapport")
+            job_label = str(row.get("job_name") or "-")
+            label = f"{'⭐ ' if row.get('favorite') else ''}{kind} · {job_label} · {shown_time}"
             with st.expander(label, expanded=False):
                 state_label = row.get("report_status_label") or row.get("report_state") or "Eldre rapport"
                 st.caption(
@@ -7773,7 +7810,10 @@ def render_market_intelligence() -> None:
                     a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
                 if json_data:
                     with b:
-                        render_durable_json_download(st, saved_run or row, label="{ } Last ned JSON")
+                        render_durable_json_download(
+                            st, saved_run or row, label="{ } Last ned JSON",
+                            instance_key=f"archive_{row.get('run_id')}",
+                        )
                 if saved_run:
                     c.download_button("Last ned tekst", data=build_text_report(saved_run), file_name=safe_ascii_report_filename(saved_run, "txt"), mime="text/plain", key=f"mi_dl_txt_{row.get('run_id')}", width="stretch")
                 fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"

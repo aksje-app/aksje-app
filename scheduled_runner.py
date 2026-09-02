@@ -282,10 +282,12 @@ def _run_once_locked() -> dict[str, Any]:
     # ordinary scheduler.
     if _maintenance_due(previous, "report_revalidation", default_minutes=360):
         try:
-            from market_intelligence import revalidate_provisional_reports
+            from market_intelligence import revalidate_provisional_reports, revalidation_blackout_status
 
+            blackout = revalidation_blackout_status()
             state["report_revalidation"] = {
-                **dict(revalidate_provisional_reports(limit=1) or {}), "completed_at": _now(),
+                **dict(blackout if blackout.get("blocked") else revalidate_provisional_reports(limit=1) or {}),
+                "completed_at": _now(),
             }
         except Exception as exc:
             state["report_revalidation"] = {"state": "FAILED", "completed_at": _now(), "error": str(exc)[:500]}

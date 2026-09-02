@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31aw"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31aw Controlled Observation Learning"
+APP_VERSION = "v19.22.0-rc16.31ax"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ax Production Stabilization"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31av"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31aw"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31ax: Produksjonsstabilisering etter første komplette AW-driftsdag. Revalidering har sperrevinduer rundt de tre obligatoriske rapportene og identifiseres separat i historikken. Mobil nedlasting bruker panelavgrensede widgetnøkler. Diagnosepakken inkluderer siste obligatoriske rapporter og databasekapasitet uavhengig av valgt manuell jobb. Databasevedlikehold er målbart og tørrkjører som standard; sletting av kjente, avgrensede retensjonskandidater krever eksplisitt aktivering. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
     "v19.22.0-rc16.31aw: Innfører kontrollert, uavhengig observasjonslæring for Norge, Sverige og USA. Inntil 120 passive observasjoner fordeles mellom strenge anbefalinger, moderate anbefalinger, nær-terskel og markeds-/sektormatchede kontroller. Beslutningsgrunnlaget fryses ved inngang, mens kurs og relevant markedsbenchmark følges daglig og måles etter 1/5/20/60 børsdager også etter et simulert salg. En ukentlig hoved- og teknisk læringsrapport med JSON og Pushover viser eksplisitt datamodenhet, helse, meravkastning og approval-only Shadow-forslag. Varige JSON-filer har samme mobil åpne-, dele-, kopiere-, laste ned- og returflyt som PDF. Ingen læring kan autorisere handel eller automatisk endre produksjonsparametere.",
     "v19.22.0-rc16.31av: Produksjons- og læringslukking basert på faktiske AU-artefakter. Den autoritative integritets- og kanalporten kjøres etter Shadow og Controlled Learning, og en rapport kan ikke merkes endelig når ferdig JSON, tekst eller PDF avviker. Teksteksporten beholder hele anbefalingsrangeringen. Diagnose, JSON og offentlig PDF bruker én mobilflate med varig lenke, direkte nedlasting, kopiering, deling og eksplisitt retur. Schedulerhelse teller bare reelle SCHEDULED-rader. Ny AV-læring isoleres fra legacy, bruker 1/5/20/60-dagers horisonter, gyldig evidens, egen kohortgrense og separat benchmark-/strategikvalitetsport. Ingen moderate anbefalinger kan autorisere handel, og produksjonsregler kan ikke promoteres automatisk.",
     "v19.22.0-rc16.31au: Stabiliserer rapportdrift og kontrollert læring etter livegjennomgang. Diagnose-ZIP åpnes mobiltrygt i ny fane med direkte nedlasting som reserve. Planlagte rapporter, tester og revalideringer har separate historikk- og varslingsregler, og varighet måles fra faktisk jobbstart. PDF skiller strenge og moderate anbefalinger, bruker reell porteføljekapasitet, oversetter interne blokkoder og unngår en tom sluttside. Læringsporteføljen skiller validering fra utforskning, har hard kapasitetsgrense og syklusgrenser, bevarer kohort-, evidens- og benchmarkkontekst, markerer utdaterte posisjoner, måler stop-loss-avvik og gjenoppretter manglende inngangskontekst på eldre avslutninger uten å omskrive råloggen. Ingen læringsobservasjon kan autorisere handel eller automatisk endre produksjonsregler.",

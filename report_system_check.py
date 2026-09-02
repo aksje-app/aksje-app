@@ -74,6 +74,17 @@ def _operational_observability_checks() -> list[dict[str, str]]:
         ))
     except Exception as exc:
         rows.append(_row("Lagringsretensjon", "FAIL", f"{type(exc).__name__}: {exc}"))
+    try:
+        from services.storage_service import get_storage_service
+        capacity = get_storage_service().storage_usage_report()
+        state = str(capacity.get("capacity_state") or "UNKNOWN")
+        rows.append(_row(
+            "Databasekapasitet", "FAIL" if state == "CRITICAL" else "WARN" if state in {"WARNING", "UNKNOWN"} else "PASS",
+            f"Bruk {float(capacity.get('capacity_pct') or 0):.2f}% · "
+            f"{int(capacity.get('database_bytes') or 0) / (1024**3):.2f} GiB · tilstand {state}",
+        ))
+    except Exception as exc:
+        rows.append(_row("Databasekapasitet", "FAIL", f"{type(exc).__name__}: {exc}"))
     return rows
 
 

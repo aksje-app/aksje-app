@@ -535,6 +535,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         scheduler = {key: scheduler.get(key) for key in (
             "state", "started_at", "completed_at", "process", "scheduler",
             "scheduler_health", "report_test_mode", "paper_scanner", "error",
+            "report_revalidation", "storage_retention", "learning_observation_maintenance",
         ) if key in scheduler}
     except Exception as exc:
         scheduler = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
@@ -581,6 +582,17 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         diagnostic_memory = memory_snapshot()
     except Exception as exc:
         diagnostic_memory = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from services.storage_service import get_storage_service
+        database_capacity = get_storage_service().storage_usage_report()
+    except Exception as exc:
+        database_capacity = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from market_intelligence import _load_report_archive
+        recent_required_reports = [dict(row) for row in _load_report_archive()
+                                   if str(row.get("job_name") or "").casefold().startswith("obligatorisk")][:12]
+    except Exception as exc:
+        recent_required_reports = [{"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}]
     runtime_scanner_configuration = paper_scanner_status.get("scanner_configuration")
     if not isinstance(runtime_scanner_configuration, Mapping):
         runtime_scanner_configuration = {}
@@ -643,6 +655,8 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "scanner/PAPER_SCANNER_CHECKPOINT.json": json.dumps(paper_scanner_checkpoint, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scanner/SCANNER_CONFIGURATION.json": json.dumps(scanner_configuration, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_COLLECTOR_MEMORY.json": json.dumps(diagnostic_memory, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/DATABASE_CAPACITY.json": json.dumps(database_capacity, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "scheduler/RECENT_REQUIRED_REPORTS.json": json.dumps(recent_required_reports, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_PRECOLLECT_CLEANUP.json": json.dumps(collector_memory_cleanup, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_TIMELINE.json": json.dumps(report_test.get("timeline") or [], ensure_ascii=False, indent=2, default=str).encode("utf-8"),

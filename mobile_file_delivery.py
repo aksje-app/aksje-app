@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from html import escape
+import hashlib
 from typing import Any
 
 
@@ -15,6 +16,7 @@ def render_mobile_file_delivery(
     data: bytes | None = None,
     key: str,
     return_url: str = "/",
+    instance_key: str = "",
 ) -> None:
     """Render open, download, copy, share and return without losing the app.
 
@@ -49,13 +51,18 @@ def render_mobile_file_delivery(
     st.code(str(url or ""), language=None)
 
     if data is not None:
+        # The same report can legitimately be visible in both "Siste rapport"
+        # and the archive.  Scope the native widget to its panel so Streamlit
+        # never receives two identical keys in one render pass.
+        identity = "|".join((str(key), str(instance_key), str(url), str(filename)))
+        fallback_key = f"{key}_{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:12]}_fallback"
         with st.expander("Reserve: direkte nedlasting", expanded=False):
             st.download_button(
                 "Last ned direkte",
                 data=bytes(data),
                 file_name=str(filename or "nedlasting"),
                 mime=str(mime or "application/octet-stream"),
-                key=f"{key}_fallback",
+                key=fallback_key,
                 width="stretch",
             )
 
