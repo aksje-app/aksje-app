@@ -743,7 +743,14 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     # explicit evidence limit), not only the smaller presentation count.  This
     # prevents high-scoring candidates from being rejected merely because no
     # evidence search was started for their rank.
-    evidence_order = [item.ticker.upper() for item in preliminary[: cfg.evidence_analysis_count]]
+    ranked_evidence_order = [item.ticker.upper() for item in preliminary]
+    try:
+        from candidate_actionability import evidence_priority_tickers
+        carry_forward = [ticker for ticker in evidence_priority_tickers(cfg.evidence_analysis_count)
+                         if ticker in source_by_ticker]
+    except Exception:
+        carry_forward = []
+    evidence_order = list(dict.fromkeys(carry_forward + ranked_evidence_order))[: cfg.evidence_analysis_count]
     evidence_tickers = set(evidence_order)
     # A data quarantine may block a trading decision, but must not silently
     # suppress the very evidence collection that can explain or clear it.
@@ -752,13 +759,16 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     evidence_rows = [source_by_ticker[ticker] for ticker in evidence_order if ticker in source_by_ticker]
     for row in evidence_rows:
         row["analysis_stage"] = "EVIDENCE_CONTROLLED"
+        if str(row.get("ticker") or "").upper() in carry_forward:
+            row["evidence_retry_escalation"] = "STALLED_EVIDENCE"
+            row["evidence_refresh_reason"] = "REPEATED_TOP3_BLOCK"
         if bool(row.get("analysis_quarantine")):
             row["evidence_quarantine_override"] = True
             row["evidence_refresh_reason"] = "TOP_RANKED_MINIMUM"
         # Only this bounded top-ranked set may spend the per-report NewsAPI
         # budget. Other consumers retain the conservative fallback policy.
         row["newsapi_priority"] = True
-        row["evidence_priority"] = True
+        row["evidence_priority"] = "CRITICAL" if str(row.get("ticker") or "").upper() in carry_forward else True
         row["evidence_budget"] = {"max_source_areas": 2, "candidate_rank_budget": cfg.evidence_analysis_count, "strict_refresh": intelligence_force_refresh}
         if not cfg.use_insider_intelligence:
             _mark_intelligence_not_searched(

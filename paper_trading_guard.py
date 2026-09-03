@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Any, Mapping
 
+from durable_runtime import read_json, write_json
 from runtime_safety import paper_trading_decision
+from storage_architecture import runtime_data_path
 
 
 class PaperTradingDisabledError(RuntimeError):
@@ -27,6 +29,21 @@ class TradeGateResult:
 _LOCK = RLock()
 _RUN_ACTIONS: "OrderedDict[str, dict[str, set[str]]]" = OrderedDict()
 _MAX_RUNS = 200
+_PERSISTENT_KEY = "paper_trading/trade_run_registry.json"
+_PERSISTENT_PATH = runtime_data_path("paper_trading", "trade_run_registry.json")
+
+
+def _persistent_actions() -> dict[str, dict[str, list[str]]]:
+    value = read_json(_PERSISTENT_KEY, _PERSISTENT_PATH, {})
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        str(run_id): {
+            str(ticker).upper(): sorted({str(action).upper() for action in actions})
+            for ticker, actions in tickers.items() if isinstance(actions, (list, tuple, set))
+        }
+        for run_id, tickers in value.items() if isinstance(tickers, Mapping)
+    }
 
 
 def _normalise_action(action: Any) -> str:
@@ -79,7 +96,9 @@ def check_paper_trade(
     if run_n and ticker_n:
         opposite = "SELL" if action_n == "BUY" else "BUY" if action_n == "SELL" else ""
         with _LOCK:
-            actions = _RUN_ACTIONS.get(run_n, {}).get(ticker_n, set())
+            memory_actions = _RUN_ACTIONS.get(run_n, {}).get(ticker_n, set())
+            durable_actions = set(_persistent_actions().get(run_n, {}).get(ticker_n, []))
+            actions = set(memory_actions) | durable_actions
             if opposite and opposite in actions:
                 return TradeGateResult(
                     False, "SAME_RUN_ROUNDTRIP",
@@ -101,6 +120,13 @@ def record_paper_trade(action: Any, *, ticker: Any = "", run_id: Any = "") -> No
         _RUN_ACTIONS.move_to_end(run_n)
         while len(_RUN_ACTIONS) > _MAX_RUNS:
             _RUN_ACTIONS.popitem(last=False)
+        durable = _persistent_actions()
+        tickers = durable.setdefault(run_n, {})
+        tickers[ticker_n] = sorted(set(tickers.get(ticker_n, [])) | {action_n})
+        if len(durable) > _MAX_RUNS:
+            for old_run in list(durable)[:-_MAX_RUNS]:
+                durable.pop(old_run, None)
+        write_json(_PERSISTENT_KEY, _PERSISTENT_PATH, durable)
 
 
 def require_paper_trade(action: Any, **kwargs: Any) -> TradeGateResult:
@@ -113,6 +139,7 @@ def require_paper_trade(action: Any, **kwargs: Any) -> TradeGateResult:
 def clear_trade_registry() -> None:
     with _LOCK:
         _RUN_ACTIONS.clear()
+        write_json(_PERSISTENT_KEY, _PERSISTENT_PATH, {})
 
 
 __all__ = [

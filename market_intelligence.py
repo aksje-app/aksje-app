@@ -1384,6 +1384,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     historical_evaluations = section_payload(document, "historical_evaluations", []) or []
     learning_guard = section_payload(document, "controlled_learning_guard", {}) or {}
     result_learning = section_payload(document, "result_learning_control", {}) or {}
+    candidate_actionability = section_payload(document, "candidate_actionability", {}) or {}
     learning_summary = run.get("learning_portfolio_summary") if isinstance(run.get("learning_portfolio_summary"), Mapping) else {}
     candidates = section_payload(document, "candidate_decisions", []) or []
     rejected_control = section_payload(document, "rejected_control_appendix", []) or []
@@ -1458,6 +1459,24 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     signal_alpha = separated.get("signal_20d_excess_return_pct")
     lines.append(f"- Signalresultat 20d mot indeks: {'-' if signal_alpha is None else f'{float(signal_alpha):+.2f} %'} ({int(separated.get('signal_20d_count') or 0)} signaler) · paper-portefølje: {'-' if separated.get('paper_portfolio_return_pct') is None else f'{float(separated.get('paper_portfolio_return_pct')):+.2f} %'}")
     lines.append("- Læringen er isolert: ingen handel eller produksjonsregel kan endres automatisk.")
+    selection_quality = result_learning.get("selection_quality") if isinstance(result_learning.get("selection_quality"), Mapping) else {}
+    lines.append(
+        f"- Utvalg mot matchet kontroll, 20d: {selection_quality.get('status') or 'FOR LITE DATA'} · "
+        f"forskjell {selection_quality.get('selected_minus_control_pct_points') if selection_quality.get('selected_minus_control_pct_points') is not None else '-'} prosentpoeng"
+    )
+
+    lines.extend(["", "ANALYSE MOT KJØPSKLARHET"])
+    lines.append(
+        f"- Analytisk Top 3: {', '.join(str(row.get('ticker') or '-') for row in candidate_actionability.get('analysis_top3') or []) or 'Ingen'}"
+    )
+    lines.append(
+        f"- Kjøpsklar Top 3: {', '.join(str(row.get('ticker') or '-') for row in candidate_actionability.get('buy_ready_top3') or []) or 'Ingen'}"
+    )
+    for row in candidate_actionability.get("analysis_top3") or []:
+        lines.append(
+            f"- {row.get('ticker')}: {row.get('status')} · score {row.get('score')} · "
+            f"sperrer {', '.join(row.get('blocker_codes') or []) or 'ingen'}"
+        )
 
     lines.extend(["", "ENDRINGER SIDEN SIST"])
     if not changes.get("has_previous"):
@@ -2416,12 +2435,20 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             f"Status: {(run.get('report_status') or {}).get('label', 'Eldre rapport')} · {revision.get('revision_label', 'R1')}",
             f"Jobb: {deduplicated_display_name(job.name)}", f"Markeder: {', '.join(run.get('markets', []))}",
             f"Analysert: {candidate_total_notice}",
-            f"Konkrete kjøpsanbefalinger: {int(report_summary_notice.get('analytical_buy_recommendations') or 0)} "
+            f"Analytiske anbefalinger: {int(report_summary_notice.get('analytical_buy_recommendations') or 0)} "
             f"(strenge {int(report_summary_notice.get('buy_candidates') or 0)} · moderate {int(report_summary_notice.get('moderate_buy_recommendations') or 0)})",
             f"Nye: {len(changes.get('new', []))} | Forbedret: {len(changes.get('improved', []))}",
             f"Datastatus: markedsdata (beslutningsjustert) {market_quality_notice}/100 · "
             f"evidens {evidence_ready_notice}/{candidate_total_notice}",
         ])
+        actionability_notice = run.get("candidate_actionability") if isinstance(run.get("candidate_actionability"), Mapping) else {}
+        lines.append(f"Kjøpsklare nå: {int(actionability_notice.get('buy_ready_count') or 0)}")
+        for blocked in list(actionability_notice.get("analysis_top3") or [])[:3]:
+            if str(blocked.get("status") or "") != "KJØPSKLAR":
+                lines.append(
+                    f"⛔ {blocked.get('ticker') or '-'}: {blocked.get('status') or 'BLOKKERT'} · "
+                    f"{', '.join(blocked.get('blocker_codes') or []) or 'ukjent sperre'}"
+                )
         learning_acceptance = run.get("learning_acceptance") if isinstance(run.get("learning_acceptance"), Mapping) else {}
         plausibility = run.get("decision_plausibility") if isinstance(run.get("decision_plausibility"), Mapping) else {}
         if plausibility:
@@ -3129,6 +3156,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     decision_historical = section_payload(report_document, "historical_evaluations", []) or []
     decision_learning_guard = section_payload(report_document, "controlled_learning_guard", {}) or {}
     decision_result_learning = section_payload(report_document, "result_learning_control", {}) or {}
+    decision_actionability = section_payload(report_document, "candidate_actionability", {}) or {}
     decision_tasks = section_payload(report_document, "next_run_tasks", []) or []
     decision_events = section_payload(report_document, "events", []) or []
     decision_confidence = section_payload(report_document, "confidence_profile", {}) or {}
@@ -3352,6 +3380,30 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             styles["Small"],
         ),
     ]
+    actionability_rows = [["Liste", "Ticker", "Score", "Status", "Konkret sperre"]]
+    for row in decision_actionability.get("analysis_top3") or []:
+        actionability_rows.append([
+            "Analyse", _rawp(row.get("ticker") or "-", "Tiny"), _p(_fmt(row.get("score")), "Tiny"),
+            _p(row.get("status") or "-", "Tiny"),
+            _p(", ".join(label_for(value) for value in (row.get("blocker_codes") or [])) or "Ingen", "Tiny"),
+        ])
+    for row in decision_actionability.get("buy_ready_top3") or []:
+        actionability_rows.append([
+            "Kjøpsklar", _rawp(row.get("ticker") or "-", "Tiny"), _p(_fmt(row.get("score")), "Tiny"),
+            _p("KJØPSKLAR", "Tiny"), _p("Ingen analyseport", "Tiny"),
+        ])
+    if len(actionability_rows) == 1:
+        actionability_rows.append(["Analyse", "Ingen", "-", "INGEN KANDIDATER", "-"])
+    actionability_table = Table(actionability_rows, repeatRows=1, colWidths=[21*mm, 25*mm, 18*mm, 36*mm, 84*mm])
+    actionability_table.setStyle(_table_style(5.4, padding=1.2))
+    decision_story += [
+        Paragraph("Analyse mot kjøpsklarhet", styles["Section"]), actionability_table,
+        Paragraph(
+            "Analytisk rangering viser attraktivitet. Kjøpsklar-listen inneholder bare kandidater som har passert "
+            "data-, evidens-, beslutnings- og gjenkjøpsportene. En plass i analytisk Top 3 er ikke kjøpsfullmakt.",
+            styles["Small"],
+        ),
+    ]
     if decision_candidates:
         recommendation_rows = [["Ticker", "Marked", "Score", "Anbefaling", "Handel"]]
         for row in decision_candidates:
@@ -3368,7 +3420,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         )
         recommendation_table.setStyle(_table_style(5.5, padding=1.3))
         decision_story += [
-            Paragraph(f"Konkrete kjøpsanbefalinger ({len(decision_candidates)})", styles["Section"]),
+            Paragraph(f"Analytiske anbefalinger – kjøpsklarhet vises separat ({len(decision_candidates)})", styles["Section"]),
             recommendation_table,
             Paragraph(
                 "Anbefalingene er analyseresultater. Moderate anbefalinger kan ikke opprette ordre eller transaksjoner.",
@@ -3588,6 +3640,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     learning_measurements = decision_result_learning.get("measurements_1_5_20_60") or {}
     baseline_status = decision_result_learning.get("historical_baseline") or {}
     separate_results = decision_result_learning.get("separate_results") or {}
+    learning_health = decision_result_learning.get("health_detail") if isinstance(decision_result_learning.get("health_detail"), Mapping) else {}
+    learning_selection = decision_result_learning.get("selection_quality") if isinstance(decision_result_learning.get("selection_quality"), Mapping) else {}
     learning_rows = [
         ["Status", "Aktive / modne", "Ferdige 1/5/20/60", "Benchmark", "Historisk baseline"],
         [
@@ -3615,6 +3669,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             + f" ({int(separate_results.get('signal_20d_count') or 0)} signaler) · paper-portefølje "
             + ("-" if separate_results.get("paper_portfolio_return_pct") is None else f"{float(separate_results.get('paper_portfolio_return_pct')):+.2f} %")
             + f" · utvelgelsesstatus {escape(str(separate_results.get('selection_alpha_status') or 'FOR LITE DATA'))}.",
+            styles["Small"],
+        ),
+        Paragraph(
+            f"Helseforklaring: {escape(', '.join(learning_health.get('reason_codes') or []) or 'ingen feil')} · "
+            f"berørte tickere {escape(', '.join(learning_health.get('affected_tickers') or []) or 'ingen')} · "
+            f"neste forsøk {escape(str(learning_health.get('next_attempt') or '-'))}.",
+            styles["Small"],
+        ),
+        Paragraph(
+            f"Valgte mot matchet kontroll etter 20 børsdager: {escape(str(learning_selection.get('status') or 'FOR LITE DATA'))} · "
+            f"forskjell {escape(str(learning_selection.get('selected_minus_control_pct_points') if learning_selection.get('selected_minus_control_pct_points') is not None else '-'))} prosentpoeng. "
+            "Dette er beskrivende kontroll, ikke automatisk regelendring.",
             styles["Small"],
         ),
     ]
@@ -6061,6 +6127,15 @@ def _run_job_impl(
             "production_parameters_changed": False, "trade_authorized": False,
         }
 
+    try:
+        from candidate_actionability import build_actionability
+        build_actionability(run, previous=previous)
+    except Exception as exc:
+        run["candidate_actionability"] = {
+            "status": "FEIL", "error": str(exc)[:500], "analysis_top3": [], "buy_ready_top3": [],
+            "production_rules_changed": False, "trade_authorized": False,
+        }
+
     # AW hard release gate: parallel validation and controlled learning are the
     # final domain mutations.  Rebuild the canonical model and every artifact
     # only now, then run the same cross-channel audit used for downloadable
@@ -6131,6 +6206,11 @@ def _run_job_impl(
                 _audit("LEARNING_OBSERVATIONS_COMMITTED", {"run_id":run_id,"created":int(committed_observations.get("created") or 0),"created_by_group":dict(committed_observations.get("created_by_group") or {}),"production_changed":False})
             except Exception as learning_exc:
                 _audit("LEARNING_OBSERVATION_COMMIT_FAILED", {"run_id":run_id,"error":str(learning_exc)[:500],"production_changed":False})
+        try:
+            from candidate_actionability import commit_candidate_passports
+            run["candidate_passport_commit"] = commit_candidate_passports(run)
+        except Exception as passport_exc:
+            _audit("CANDIDATE_PASSPORT_COMMIT_FAILED", {"run_id": run_id, "error": str(passport_exc)[:500]})
     except Exception as exc:
         errors.append(f"AV sluttport feilet: {exc}")
         run["errors"] = list(errors)

@@ -145,6 +145,7 @@ def compact_candidate_reference(row: Mapping[str, Any]) -> dict[str, Any]:
         "strategy_matches", "strategy_match", "score_trend", "trend", "score_delta",
         "rank", "raw_rank", "priority_rank", "evidence_ready_rank", "decision_ready_rank",
         "proposed_position_pct", "mission_eligible", "mission_fit", "proposal_stage", "proposal_label",
+        "analysis_rank", "buy_ready", "trade_authority_label", "actionability",
     )
     return {key: deepcopy(row.get(key)) for key in fields if key in row}
 

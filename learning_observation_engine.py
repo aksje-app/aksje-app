@@ -23,7 +23,7 @@ from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path
 
 SCHEMA_VERSION = "1.1"
-ENGINE_VERSION = "v19.22.0-rc16.31az"
+ENGINE_VERSION = "v19.22.0-rc16.31ba"
 CORE_MARKETS = ("NORGE", "SVERIGE", "USA")
 BENCHMARKS = {"NORGE": "OSEBX.OL", "SVERIGE": "^OMX", "USA": "^GSPC"}
 HORIZONS = (1, 5, 20, 60)
@@ -387,6 +387,31 @@ def _stats(values: Sequence[float]) -> dict[str, Any]:
             "maturity": _maturity(len(clean))}
 
 
+def _factor_attribution(observations: Sequence[Mapping[str, Any]], horizon: int = 20) -> list[dict[str, Any]]:
+    """Descriptive Pearson association; never a causal claim or production weight."""
+    fields = ("score", "technical_score", "fundamental_score", "news_score", "research_score",
+              "validation_score", "portfolio_fit_score", "data_quality", "confidence_score")
+    result: list[dict[str, Any]] = []
+    for field in fields:
+        pairs: list[tuple[float, float]] = []
+        for row in observations:
+            snapshot = row.get("decision_snapshot") if isinstance(row.get("decision_snapshot"), Mapping) else {}
+            measurement = (row.get("horizon_measurements") or {}).get(str(horizon)) if isinstance(row.get("horizon_measurements"), Mapping) else {}
+            x = _number(snapshot.get(field)); y = _number((measurement or {}).get("excess_return_pct"))
+            if x is not None and y is not None:
+                pairs.append((x, y))
+        correlation = None
+        if len(pairs) >= 10:
+            x_mean = sum(x for x, _ in pairs) / len(pairs); y_mean = sum(y for _, y in pairs) / len(pairs)
+            numerator = sum((x - x_mean) * (y - y_mean) for x, y in pairs)
+            x_var = sum((x - x_mean) ** 2 for x, _ in pairs); y_var = sum((y - y_mean) ** 2 for _, y in pairs)
+            denominator = math.sqrt(x_var * y_var)
+            correlation = round(numerator / denominator, 4) if denominator else 0.0
+        result.append({"factor": field, "count": len(pairs), "correlation_with_20d_excess": correlation,
+                       "status": "MÅLT" if correlation is not None else "FOR LITE DATA"})
+    return sorted(result, key=lambda row: abs(row.get("correlation_with_20d_excess") or 0), reverse=True)
+
+
 def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, now: datetime | None = None) -> dict[str, Any]:
     observations = [dict(row) for row in (rows if rows is not None else load_observations()) if isinstance(row, Mapping)]
     active = [row for row in observations if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
@@ -427,6 +452,35 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
                           "evidence": "For få sammenlignbare modne observasjoner til et forsvarlig Challenger-forslag.",
                           "status": "OBSERVE", "approval_required": True, "production_applied": False,
                           "uncertainty": "FOR_TIDLIG"})
+    selected_20: list[float] = []
+    control_20: list[float] = []
+    missed_winners: list[dict[str, Any]] = []
+    for row in observations:
+        measurement = ((row.get("horizon_measurements") or {}).get("20") or {}) if isinstance(row.get("horizon_measurements"), Mapping) else {}
+        excess = _number(measurement.get("excess_return_pct"))
+        if excess is None:
+            continue
+        if str(row.get("group") or "") in {"STRICT", "MODERATE"}:
+            selected_20.append(excess)
+        elif str(row.get("group") or "") == "MATCHED_CONTROL":
+            control_20.append(excess)
+            if excess > 0:
+                missed_winners.append({"ticker": str(row.get("ticker") or ""), "excess_return_pct": round(excess, 4),
+                                       "market": str(row.get("market") or ""), "sector": str(row.get("sector") or "Ukjent")})
+    selected_stats = _stats(selected_20); control_stats = _stats(control_20)
+    comparable = min(int(selected_stats.get("count") or 0), int(control_stats.get("count") or 0))
+    delta = None
+    if selected_stats.get("average") is not None and control_stats.get("average") is not None:
+        delta = round(float(selected_stats["average"]) - float(control_stats["average"]), 4)
+    selection_value_status = "FOR LITE DATA" if comparable < 10 else ("DOKUMENTERT MERVERDI" if (delta or 0) > 0 else "INGEN DOKUMENTERT MERVERDI")
+    selection_quality = {
+        "horizon_days": 20, "selected": selected_stats, "matched_control": control_stats,
+        "selected_minus_control_pct_points": delta, "comparable_minimum_count": comparable,
+        "status": selection_value_status, "value_alarm": comparable >= 10 and (delta or 0) <= 0,
+        "missed_winners": sorted(missed_winners, key=lambda item: -float(item["excess_return_pct"]))[:10],
+        "factor_attribution": _factor_attribution(observations),
+        "causal_claim": False, "production_changed": False,
+    }
     return {"schema_version": SCHEMA_VERSION, "engine_version": ENGINE_VERSION, "generated_at": _now_iso(now),
             "cohort": APP_VERSION, "observation_count": len(observations), "active_count": len(active),
             "matured_count": sum(str(row.get("status") or "").upper() == "MATURED" for row in observations),
@@ -438,6 +492,7 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
                        "all_measurements_accounted": not missing,
                        "benchmark_mapping_complete": all(str(row.get("benchmark_ticker") or "") in set(BENCHMARKS.values()) for row in observations),
                        "production_mutations": 0},
+            "selection_quality": selection_quality,
             "shadow_proposals": proposals, "strategy_readiness": "NOT_VALIDATED",
             "production_parameters_changed": False,
             "note": "Foreløpige trender er beskrivende. Ingen regel eller vekt endres automatisk."}
@@ -460,9 +515,22 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
     horizon_20 = next((row for row in (analysis.get("horizons") or []) if int(row.get("horizon_days") or 0) == 20), {})
     excess_20 = horizon_20.get("excess_return") if isinstance(horizon_20.get("excess_return"), Mapping) else {}
     health = dict(analysis.get("health") or {})
-    status = "FEIL" if health.get("status") not in {"OK", None} else (
-        "FOR LITE DATA" if min(horizons.values() or [0]) < 10 else "OK"
-    )
+    daily = dict(state.get("daily") or {})
+    health_status = str(health.get("status") or "OK").upper()
+    if str(daily.get("status") or "").upper() == "FAILED":
+        status = "FEIL"
+    elif health_status == "DEGRADED":
+        status = "DEGRADERT"
+    else:
+        status = "FOR LITE DATA" if min(horizons.values() or [0]) < 10 else "OK"
+    missing_tickers = [str(value) for value in (health.get("missing_tickers") or []) if str(value)]
+    reason_codes = []
+    if status == "FEIL":
+        reason_codes.append("MEASUREMENT_JOB_FAILED")
+    if missing_tickers:
+        reason_codes.append("MISSING_OR_STALE_SERIES")
+    if not bool(health.get("benchmark_mapping_complete", True)):
+        reason_codes.append("BENCHMARK_MAPPING_INCOMPLETE")
     payload = {
         "status": status,
         "engine_status": "AKTIV",
@@ -473,7 +541,17 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
         "pending_registration": int(pending.get("created") or 0),
         "benchmark_complete": bool(health.get("benchmark_mapping_complete", True)),
         "missing_or_stale": int(health.get("missing_or_stale") or 0),
-        "last_measurement_job": dict(state.get("daily") or {}),
+        "last_measurement_job": daily,
+        "health_detail": {
+            "level": status,
+            "reason_codes": reason_codes,
+            "affected_tickers": missing_tickers,
+            "affected_count": int(health.get("missing_or_stale") or 0),
+            "last_attempt_at": str(daily.get("completed_at") or ""),
+            "last_error": str(daily.get("error") or ""),
+            "next_attempt": "NESTE DAGLIGE LÆRINGSKJØRING" if status in {"FEIL", "DEGRADERT"} else "ETTER NESTE BØRSDAG",
+            "partial_results_preserved": status != "FEIL" or any(horizons.values()),
+        },
         "historical_baseline": {
             "status": str(baseline.get("status") or "VENTER"),
             "signals": int(baseline.get("signal_count") or 0),
@@ -487,6 +565,7 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
             "selection_alpha_status": "FOR LITE DATA" if int(excess_20.get("count") or 0) < 10 else "MÅLT",
             "separation_verified": True,
         },
+        "selection_quality": dict(analysis.get("selection_quality") or {}),
         "production_parameters_changed": False,
         "trade_authorized": False,
         "generated_at": _now_iso(now),
@@ -687,7 +766,22 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
     groups = Table(group_data, repeatRows=1)
     groups.setStyle(TableStyle([("FONTNAME",(0,0),(-1,0),bold),("FONTNAME",(0,1),(-1,-1),regular),("FONTSIZE",(0,0),(-1,-1),7),
                                 ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#e2e8f0")),("GRID",(0,0),(-1,-1),.3,colors.HexColor("#94a3b8"))]))
-    story.extend([groups, Paragraph("Shadow-forslag", heading)])
+    story.append(groups)
+    selection = analysis.get("selection_quality") if isinstance(analysis.get("selection_quality"), Mapping) else {}
+    selected = selection.get("selected") if isinstance(selection.get("selected"), Mapping) else {}
+    control = selection.get("matched_control") if isinstance(selection.get("matched_control"), Mapping) else {}
+    story.extend([
+        Paragraph("Utvalg mot kontrollgruppe", heading),
+        Paragraph(
+            f"Status {selection.get('status') or 'FOR LITE DATA'} | 20d valgte {selected.get('count', 0)} "
+            f"(gj.snitt meravkastning {selected.get('average') if selected.get('average') is not None else '-'}) | "
+            f"matchet kontroll {control.get('count', 0)} (gj.snitt {control.get('average') if control.get('average') is not None else '-'}) | "
+            f"forskjell {selection.get('selected_minus_control_pct_points') if selection.get('selected_minus_control_pct_points') is not None else '-'} prosentpoeng.",
+            body,
+        ),
+        Paragraph("Sammenhenger er foreløpige og beskrivende; de er ikke dokumentasjon på årsak.", small),
+        Paragraph("Shadow-forslag", heading),
+    ])
     for proposal in analysis.get("shadow_proposals") or []:
         story.append(Paragraph(f"<b>{proposal.get('status')}</b>: {proposal.get('proposal')}<br/>{proposal.get('evidence')} Usikkerhet: {proposal.get('uncertainty')}. Manuell godkjenning kreves.", body))
     if technical: story.append(PageBreak())

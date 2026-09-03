@@ -153,7 +153,8 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
     candidate_by_issuer = {issuer_identity(row): row for row in candidates if isinstance(row, Mapping)}
     owned_issuers_pre = {issuer_identity(dict(raw) if isinstance(raw, Mapping) else {"ticker": ticker}) for ticker, raw in positions.items()}
     replacement_candidates = [row for row in candidates if isinstance(row, Mapping) and issuer_identity(row) not in owned_issuers_pre
-                              and bool(row.get("valid_for_decision", True)) and bool(row.get("evidence_valid_for_decision", False))]
+                              and bool(row.get("final_decision_ready", False))
+                              and not bool((row.get("reentry_control") or {}).get("blocked") if isinstance(row.get("reentry_control"), Mapping) else False)]
     replacement_candidates.sort(key=lambda row: _f(row.get("effective_entry_score"), _f(row.get("investment_score"))), reverse=True)
     best_replacement = replacement_candidates[0] if replacement_candidates else {}
     best_replacement_score = _f(best_replacement.get("effective_entry_score"), _f(best_replacement.get("investment_score"))) if best_replacement else None
@@ -203,6 +204,8 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "exit_reason": exit_decision["reason"], "suggested_sell_pct": exit_decision["sell_pct"],
             "replacement_ticker": str(best_replacement.get("ticker") or "") if exit_decision["action"] == "REPLACE_REVIEW" else "",
             "replacement_score": round(best_replacement_score, 2) if best_replacement_score is not None and exit_decision["action"] == "REPLACE_REVIEW" else None,
+            "opportunity_cost_score_gap": round(best_replacement_score - current_score, 2) if best_replacement_score is not None else None,
+            "replacement_is_buy_ready": bool(best_replacement),
             "source_run_id": str(position.get("source_run_id") or ""),
             "addition_policy": "TILLEGGSKJØP DEAKTIVERT",
             "short_intelligence": short_snapshot,

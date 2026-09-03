@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31az"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31az Verifiable Outcome Learning"
+APP_VERSION = "v19.22.0-rc16.31ba"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ba Actionability and Selection Audit"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ay"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31az"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31ba: Skiller analytisk rangering fra dokumentert kjøpsklarhet, innfører kandidatpass og sporbar evidenseskalering, og viser konkrete sperrer for topprangerte kandidater i PDF, JSON og tekst. Læringsstatus skiller delvis datamangel fra reell motorfeil og oppgir feilkoder, berørte tickere og neste forsøk. Ingen score, evidensport eller produksjonsregel svekkes, og kandidatpass lagres først etter bestått sluttsperre.",
     "v19.22.0-rc16.31az: Etterprøvbar resultat- og læringskontroll i ordinære rapporter. Låste observasjoner måles mot markedsbenchmark etter 1, 5, 20 og 60 børsdager, ukesrapport og historisk baseline får revisjonsspor, og all læring forblir isolert fra paper-porteføljen og produksjonsreglene. Mobil levering av PDF/JSON bruker varige lenker, deling og eksplisitt retur til programmet.",
     "v19.22.0-rc16.31ay: Stopper raskt salg og gjenkjøp på tvers av cronrunder. Alle salg gir varig gjenkjøpskarantene, risikoutganger får lengre karantene, automatiske kjøp krever ferskt datatidspunkt, og gjenkjøp dyrere enn nylig salg blokkeres uten dokumentert regimeskifte. Porteføljerapporten markerer posisjoner som etter 40 dager binder kapital med svak avkastning og svekket score som kandidater for salg til kontanter, uten å kreve en umiddelbar erstatning. Læringsobservasjoner beholdes uavhengig av paper-posisjonen.",
     "v19.22.0-rc16.31ax: Produksjonsstabilisering etter første komplette AW-driftsdag. Revalidering har sperrevinduer rundt de tre obligatoriske rapportene og identifiseres separat i historikken. Mobil nedlasting bruker panelavgrensede widgetnøkler. Diagnosepakken inkluderer siste obligatoriske rapporter og databasekapasitet uavhengig av valgt manuell jobb. Databasevedlikehold er målbart og tørrkjører som standard; sletting av kjente, avgrensede retensjonskandidater krever eksplisitt aktivering. Ingen score-, risiko-, portefølje- eller handelsregel er endret.",
