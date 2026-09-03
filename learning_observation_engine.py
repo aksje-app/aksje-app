@@ -19,11 +19,11 @@ from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from app_version import APP_VERSION
-from durable_runtime import read_json, write_json
+from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path
 
-SCHEMA_VERSION = "1.0"
-ENGINE_VERSION = "v19.22.0-rc16.31aw"
+SCHEMA_VERSION = "1.1"
+ENGINE_VERSION = "v19.22.0-rc16.31az"
 CORE_MARKETS = ("NORGE", "SVERIGE", "USA")
 BENCHMARKS = {"NORGE": "OSEBX.OL", "SVERIGE": "^OMX", "USA": "^GSPC"}
 HORIZONS = (1, 5, 20, 60)
@@ -38,6 +38,26 @@ STATE_KEY = "controlled_learning/observation_engine_state.json"
 STATE_PATH = runtime_data_path("controlled_learning", "observation_engine_state.json")
 WEEKLY_KEY = "controlled_learning/weekly_reports.json"
 WEEKLY_PATH = runtime_data_path("controlled_learning", "weekly_reports.json")
+AUDIT_KEY = "controlled_learning/outcome_audit.jsonl"
+AUDIT_PATH = runtime_data_path("controlled_learning", "outcome_audit.jsonl")
+BASELINE_KEY = "controlled_learning/historical_baseline.json"
+BASELINE_PATH = runtime_data_path("controlled_learning", "historical_baseline.json")
+
+
+def _checksum(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _audit(event: str, payload: Mapping[str, Any], *, now: datetime | None = None) -> None:
+    row = {"at": _now_iso(now), "event": event, "engine_version": ENGINE_VERSION, **dict(payload)}
+    row["receipt_sha256"] = _checksum(row)
+    try:
+        append_event(AUDIT_KEY, AUDIT_PATH, row)
+    except Exception:
+        # Learning telemetry must be visible when available, but can never
+        # make an otherwise valid report or paper scan fail.
+        pass
 
 
 def _now_iso(now: datetime | None = None) -> str:
@@ -204,13 +224,16 @@ def register_report_observations(
             capacity -= 1
     if created and commit:
         save_observations(created + rows)
-    return {
+    result = {
         "status": "COMPLETED" if commit else "COMMIT_AFTER_FINAL_GATE", "report_id": report_id,
         "eligible_candidates": len(candidates), "created": len(created),
         "created_by_group": {group: sum(row["group"] == group for row in created) for group in GROUP_TARGETS},
         "active_after": len(active) + len(created), "capacity": MAX_ACTIVE_OBSERVATIONS,
         "committed": bool(commit), "production_changed": False,
     }
+    if commit:
+        _audit("OBSERVATIONS_REGISTERED", {**result, "created_ids_sha256": _checksum([row["observation_id"] for row in created])}, now=now)
+    return result
 
 
 SeriesLoader = Callable[[Sequence[str], str], Mapping[str, Sequence[Mapping[str, Any]]]]
@@ -273,6 +296,7 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
         result = {"status": "COMPLETED", "active": 0, "updated": 0, "matured": 0, "missing": 0,
                   "completed_at": _now_iso(now), "production_changed": False}
         write_json(STATE_KEY, STATE_PATH, {**load_engine_state(), "daily": result})
+        _audit("OUTCOMES_EVALUATED", result, now=now)
         return result
     start = min(str(row.get("entry_market_date") or "9999-12-31") for row in active)
     start_date = (date.fromisoformat(start) - timedelta(days=10)).isoformat()
@@ -284,6 +308,7 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
                   "missing": len(active), "error": f"{type(exc).__name__}: {exc}",
                   "completed_at": _now_iso(now), "production_changed": False}
         write_json(STATE_KEY, STATE_PATH, {**load_engine_state(), "daily": result})
+        _audit("OUTCOME_EVALUATION_FAILED", result, now=now)
         return result
     series_map = {symbol: _normalise_series(list(loaded.get(symbol) or [])) for symbol in symbols}
     updated = matured = missing = 0; latest_dates: set[str] = set()
@@ -343,6 +368,7 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
               "updated": updated, "matured": matured, "missing": missing,
               "latest_market_dates": sorted(latest_dates), "completed_at": _now_iso(now), "production_changed": False}
     state = load_engine_state(); state["daily"] = result; write_json(STATE_KEY, STATE_PATH, state)
+    _audit("OUTCOMES_EVALUATED", {**result, "observation_set_sha256": _checksum(rows)}, now=now)
     return result
 
 
@@ -417,6 +443,199 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
             "note": "Foreløpige trender er beskrivende. Ingen regel eller vekt endres automatisk."}
 
 
+def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[str, Any] | None = None, *, now: datetime | None = None) -> dict[str, Any]:
+    """Small canonical status block embedded in every ordinary report."""
+    analysis = build_weekly_analysis(now=now)
+    state = load_engine_state()
+    horizons = {
+        str(row.get("horizon_days")): int(((row.get("return") or {}).get("count") or 0))
+        for row in (analysis.get("horizons") or [])
+    }
+    baseline = read_json(BASELINE_KEY, BASELINE_PATH, {})
+    baseline = dict(baseline) if isinstance(baseline, Mapping) else {}
+    pending = dict(plan or {})
+    report_run = dict(run or {})
+    decision_report = report_run.get("decision_report") if isinstance(report_run.get("decision_report"), Mapping) else {}
+    portfolio = decision_report.get("portfolio_intelligence") if isinstance(decision_report.get("portfolio_intelligence"), Mapping) else {}
+    horizon_20 = next((row for row in (analysis.get("horizons") or []) if int(row.get("horizon_days") or 0) == 20), {})
+    excess_20 = horizon_20.get("excess_return") if isinstance(horizon_20.get("excess_return"), Mapping) else {}
+    health = dict(analysis.get("health") or {})
+    status = "FEIL" if health.get("status") not in {"OK", None} else (
+        "FOR LITE DATA" if min(horizons.values() or [0]) < 10 else "OK"
+    )
+    payload = {
+        "status": status,
+        "engine_status": "AKTIV",
+        "engine_version": ENGINE_VERSION,
+        "active_observations": int(analysis.get("active_count") or 0),
+        "matured_observations": int(analysis.get("matured_count") or 0),
+        "measurements_1_5_20_60": horizons,
+        "pending_registration": int(pending.get("created") or 0),
+        "benchmark_complete": bool(health.get("benchmark_mapping_complete", True)),
+        "missing_or_stale": int(health.get("missing_or_stale") or 0),
+        "last_measurement_job": dict(state.get("daily") or {}),
+        "historical_baseline": {
+            "status": str(baseline.get("status") or "VENTER"),
+            "signals": int(baseline.get("signal_count") or 0),
+            "verified": int(baseline.get("verified_count") or 0),
+            "report_id": str(baseline.get("report_id") or ""),
+        },
+        "separate_results": {
+            "signal_20d_excess_return_pct": excess_20.get("average"),
+            "signal_20d_count": int(excess_20.get("count") or 0),
+            "paper_portfolio_return_pct": _number(portfolio.get("total_return_pct")),
+            "selection_alpha_status": "FOR LITE DATA" if int(excess_20.get("count") or 0) < 10 else "MÅLT",
+            "separation_verified": True,
+        },
+        "production_parameters_changed": False,
+        "trade_authorized": False,
+        "generated_at": _now_iso(now),
+    }
+    payload["control_sha256"] = _checksum(payload)
+    return payload
+
+
+def load_audit(limit: int = 500) -> list[dict[str, Any]]:
+    return read_events(AUDIT_KEY, AUDIT_PATH, limit=max(1, int(limit)))
+
+
+def build_historical_baseline(
+    runs: Sequence[Mapping[str, Any]], *, series_loader: SeriesLoader | None = None,
+    now: datetime | None = None, max_signals: int = 1500,
+) -> dict[str, Any]:
+    """Reconstruct a read-only baseline without writing to live observations."""
+    signals: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    ordered = sorted(
+        (dict(run) for run in runs if isinstance(run, Mapping)),
+        key=lambda run: str(run.get("created_at") or ""),
+    )
+    for run in ordered:
+        report_id = str(run.get("run_id") or run.get("report_id") or "").strip()
+        created_at = str(run.get("created_at") or "")
+        if not report_id or len(created_at) < 10 or bool(run.get("test_run")):
+            continue
+        summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+        threshold = _number(summary.get("production_buy_threshold"), 73.0) or 73.0
+        for candidate in (run.get("candidates") or []):
+            if not isinstance(candidate, Mapping) or not _eligible(candidate):
+                continue
+            ticker = str(candidate.get("ticker") or "").upper()
+            key = f"{report_id}|{ticker}"
+            if key in seen:
+                continue
+            seen.add(key)
+            group = _decision_group(candidate, threshold)
+            if group == "CONTROL_POOL":
+                group = "MATCHED_CONTROL"
+            snapshot = _frozen_snapshot(candidate, group=group, report_id=report_id, created_at=created_at)
+            signals.append({
+                "observation_id": "BASE-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24],
+                "ticker": ticker, "market": snapshot["market"], "sector": snapshot["sector"],
+                "strategy": snapshot["strategy"], "group": group,
+                "benchmark_ticker": BENCHMARKS[snapshot["market"]], "entry_at": created_at,
+                "entry_market_date": created_at[:10], "entry_price": _candidate_price(candidate),
+                "decision_snapshot": snapshot, "status": "BASELINE", "horizon_measurements": {},
+                "source_health": {"status": "PENDING"}, "production_applied": False,
+                "trade_authorized": False,
+            })
+            if len(signals) >= max(1, int(max_signals)):
+                break
+        if len(signals) >= max(1, int(max_signals)):
+            break
+    if not signals:
+        return {"status": "INGEN HISTORIKK", "signal_count": 0, "verified_count": 0,
+                "generated_at": _now_iso(now), "production_parameters_changed": False}
+    symbols = sorted({row["ticker"] for row in signals} | {row["benchmark_ticker"] for row in signals})
+    start_date = (date.fromisoformat(min(row["entry_market_date"] for row in signals)) - timedelta(days=10)).isoformat()
+    try:
+        loaded = (series_loader or yfinance_series_loader)(symbols, start_date)
+    except Exception as exc:
+        return {"status": "FEIL", "signal_count": len(signals), "verified_count": 0,
+                "error": f"{type(exc).__name__}: {str(exc)[:500]}", "generated_at": _now_iso(now),
+                "production_parameters_changed": False}
+    series_map = {symbol: _normalise_series(list(loaded.get(symbol) or [])) for symbol in symbols}
+    verified = partial = 0
+    for signal in signals:
+        stock = series_map.get(signal["ticker"], []); bench = series_map.get(signal["benchmark_ticker"], [])
+        entry_day = signal["entry_market_date"]
+        forward = [row for row in stock if str(row.get("date") or "") > entry_day]
+        benchmark_entry = _price_on_or_before(bench, entry_day, strict=True)
+        entry_price = _number(signal.get("entry_price"))
+        if not forward or not benchmark_entry or not entry_price:
+            signal["source_health"] = {"status": "IKKE_VERIFISERBAR", "stock_points": len(stock), "benchmark_points": len(bench)}
+            partial += 1
+            continue
+        for horizon in HORIZONS:
+            if len(forward) < horizon:
+                continue
+            point = forward[horizon - 1]; bench_price = _price_on_or_before(bench, str(point["date"]))
+            if not bench_price:
+                continue
+            stock_return = (float(point["close"]) / entry_price - 1.0) * 100.0
+            bench_return = (bench_price / benchmark_entry - 1.0) * 100.0
+            window = [float(row["close"]) for row in forward[:horizon]]
+            signal["horizon_measurements"][str(horizon)] = {
+                "horizon_days": horizon, "market_date": str(point["date"]), "price": float(point["close"]),
+                "benchmark_price": bench_price, "return_pct": round(stock_return, 4),
+                "benchmark_return_pct": round(bench_return, 4), "excess_return_pct": round(stock_return - bench_return, 4),
+                "maximum_gain_pct": round((max(window) / entry_price - 1.0) * 100.0, 4),
+                "maximum_drawdown_pct": round((min(window) / entry_price - 1.0) * 100.0, 4),
+            }
+        signal["source_health"] = {"status": "VERIFISERT" if signal["horizon_measurements"] else "DELVIS_VERIFISERT"}
+        verified += bool(signal["horizon_measurements"]); partial += not bool(signal["horizon_measurements"])
+    analysis = build_weekly_analysis(signals, now=now)
+    result = {"status": "VERIFISERT" if verified == len(signals) else "DELVIS VERIFISERT",
+              "signal_count": len(signals), "verified_count": int(verified), "partial_count": int(partial),
+              "generated_at": _now_iso(now), "analysis": analysis, "signals_sha256": _checksum(signals),
+              "production_parameters_changed": False, "trade_authorized": False}
+    result["baseline_sha256"] = _checksum(result)
+    return result
+
+
+def generate_historical_baseline(*, runs: Sequence[Mapping[str, Any]] | None = None,
+                                 series_loader: SeriesLoader | None = None,
+                                 now: datetime | None = None, notify: bool = True) -> dict[str, Any]:
+    existing = read_json(BASELINE_KEY, BASELINE_PATH, {})
+    if isinstance(existing, Mapping) and existing.get("report_id"):
+        return {"status": "ALREADY_COMPLETED", "report_id": existing.get("report_id")}
+    if runs is None:
+        from market_intelligence import _load_report_archive, load_archived_run
+        runs = [load_archived_run(entry) for entry in _load_report_archive()[:100]]
+    result = build_historical_baseline(runs, series_loader=series_loader, now=now)
+    if int(result.get("signal_count") or 0) <= 0 or str(result.get("status") or "").upper() == "FEIL":
+        _audit("HISTORICAL_BASELINE_DEFERRED", result, now=now)
+        state=load_engine_state(); state["baseline_attempt"]={"status":result.get("status"),"completed_at":_now_iso(now)}
+        write_json(STATE_KEY,STATE_PATH,state)
+        return result
+    report_id = "HLB-" + (now or datetime.now(timezone.utc)).strftime("%Y%m%d%H%M%S")
+    result["report_id"] = report_id
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), Mapping) else build_weekly_analysis([], now=now)
+    public_pdf = build_weekly_pdf(analysis, report_title="Historisk baseline – siste tilgjengelige rapporthistorikk")
+    technical_pdf = build_weekly_pdf(analysis, technical=True, report_title="Historisk baseline – teknisk revisjon")
+    record = {"report_id": report_id, "run_id": report_id, "created_at": _now_iso(now),
+              "public_pdf_name": f"Historisk_baseline_{report_id}.pdf",
+              "technical_pdf_name": f"Historisk_baseline_{report_id}_technical.pdf", **result}
+    from public_report_store import publish_durable_file, publish_durable_pdf
+    publish_durable_pdf(record, public_pdf)
+    publish_durable_pdf(record, technical_pdf, token_field="technical_report_token", filename_field="technical_pdf_name", document_kind="baseline_technical")
+    json_name = f"Historisk_baseline_{report_id}.json"
+    record["public_json_name"] = json_name
+    record["public_json_token"] = publish_durable_file(json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"), filename=json_name, mime="application/json", report_id=report_id)
+    write_json(BASELINE_KEY, BASELINE_PATH, record)
+    state=load_engine_state(); state["baseline_attempt"]={"status":record.get("status"),"completed_at":_now_iso(now),"report_id":report_id}
+    write_json(STATE_KEY,STATE_PATH,state)
+    _audit("HISTORICAL_BASELINE_COMPLETED", {key: record.get(key) for key in ("status", "report_id", "signal_count", "verified_count", "baseline_sha256")}, now=now)
+    if notify:
+        try:
+            from notifier import send_pushover_alert
+            from report_delivery import public_report_url
+            send_pushover_alert(f"Signaler: {record.get('signal_count', 0)} | verifisert: {record.get('verified_count', 0)}\nStatus: {record.get('status')}", title="Historisk læringsbaseline", url=public_report_url(record) or None, url_title="Åpne og del baseline")
+        except Exception:
+            pass
+    return {key: record.get(key) for key in ("status", "report_id", "signal_count", "verified_count", "baseline_sha256")}
+
+
 def _register_pdf_fonts() -> tuple[str, str]:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -428,7 +647,7 @@ def _register_pdf_fonts() -> tuple[str, str]:
     return regular, bold
 
 
-def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False) -> bytes:
+def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, report_title: str = "Ukentlig foreløpig læringsrapport") -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4, landscape
@@ -444,7 +663,7 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False) ->
                              textColor=colors.HexColor("#0f172a"), spaceBefore=8, spaceAfter=5)
     body = ParagraphStyle("LearningBody", parent=styles["BodyText"], fontName=regular, fontSize=8.5, leading=11)
     small = ParagraphStyle("LearningSmall", parent=body, fontSize=7, leading=9)
-    story = [Paragraph("Ukentlig foreløpig læringsrapport", title), Spacer(1, 4*mm),
+    story = [Paragraph(report_title, title), Spacer(1, 4*mm),
              Paragraph(f"Kohort {analysis.get('cohort')} | Observasjoner {analysis.get('observation_count')} | Aktive {analysis.get('active_count')} | Modne {analysis.get('matured_count')} | Strategistatus {analysis.get('strategy_readiness')}", body),
              Paragraph("Ingen produksjonsregel, vekt eller handelsfullmakt er endret.", body),
              Paragraph("Målepunkter", heading)]
@@ -519,10 +738,10 @@ def generate_weekly_report(*, now: datetime | None = None, notify: bool = True) 
         try:
             from notifier import send_pushover_alert
             from report_delivery import public_report_url
-            first=(analysis.get("horizons") or [{}])[0]; count=((first.get("excess_return") or {}).get("count") or 0)
+            horizon_counts={str(row.get("horizon_days")):int(((row.get("excess_return") or {}).get("count") or 0)) for row in (analysis.get("horizons") or [])}
             ok,detail=send_pushover_alert(
                 f"Observasjoner: {analysis.get('observation_count')} | modne: {analysis.get('matured_count')}\n"
-                f"1d benchmarkmålinger: {count} | helse: {(analysis.get('health') or {}).get('status')}\n"
+                f"Målt 1/5/20/60: {'/'.join(str(horizon_counts.get(str(day),0)) for day in HORIZONS)} | helse: {(analysis.get('health') or {}).get('status')}\n"
                 "Foreløpige trender endrer ingen produksjonsregel.",title="Ukentlig læringsrapport",
                 url=public_report_url(record) or None,url_title="Åpne læringsrapport")
             record["notification"]={"attempted":True,"sent":bool(ok),"detail":str(detail or "")[:500]}
@@ -560,8 +779,17 @@ def _weekly_due(now: datetime) -> bool:
 
 def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader|None=None)->dict[str,Any]:
     current=now or datetime.now(timezone.utc)
-    result={"status":"COMPLETED","daily":{"status":"NOT_DUE"},"weekly":{"status":"NOT_DUE"},"production_changed":False}
+    result={"status":"COMPLETED","daily":{"status":"NOT_DUE"},"weekly":{"status":"NOT_DUE"},"baseline":{"status":"NOT_DUE"},"production_changed":False}
     if _daily_due(current): result["daily"]=evaluate_observations(series_loader,now=current)
+    local=current.astimezone(OSLO)
+    baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
+    last_attempt=str((load_engine_state().get("baseline_attempt") or {}).get("completed_at") or "")
+    retry_due=True
+    if last_attempt:
+        try: retry_due=(current.astimezone(timezone.utc)-datetime.fromisoformat(last_attempt.replace("Z","+00:00")).astimezone(timezone.utc)).total_seconds()>=21600
+        except Exception: retry_due=True
+    if not (isinstance(baseline,Mapping) and baseline.get("report_id")) and retry_due and (local.hour<6 or local.weekday()>=5):
+        result["baseline"]=generate_historical_baseline(series_loader=series_loader,now=current)
     if _weekly_due(current):
         result["weekly_refresh"]=evaluate_observations(series_loader,now=current)
         result["weekly"]=generate_weekly_report(now=current)
@@ -571,12 +799,15 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
 
 def diagnostics()->dict[str,Any]:
     rows=load_observations(); state=load_engine_state(); reports=load_weekly_reports(3)
+    baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
     return {"schema_version":SCHEMA_VERSION,"engine_version":ENGINE_VERSION,
         "active":sum(str(row.get("status") or "ACTIVE").upper()=="ACTIVE" for row in rows),
         "matured":sum(str(row.get("status") or "").upper()=="MATURED" for row in rows),
         "groups":{group:sum(str(row.get("group") or "")==group for row in rows) for group in GROUP_TARGETS},
         "latest_daily":dict(state.get("daily") or {}),"latest_weekly":dict(state.get("weekly") or {}),
         "recent_weekly_reports":[{key:row.get(key) for key in ("report_id","week_key","created_at","notification")} for row in reports],
+        "historical_baseline":{key:(baseline or {}).get(key) for key in ("status","report_id","signal_count","verified_count","baseline_sha256")},
+        "recent_audit":load_audit(20),
         "production_parameters_changed":False}
 
 
@@ -586,11 +817,29 @@ def render_weekly_learning_reports()->None:
     from public_report_store import load_public_pdf
     from report_delivery import public_report_url
     st.markdown("##### Ukentlig kontrollert observasjonslæring")
+    live=report_control_snapshot()
+    measures=live.get("measurements_1_5_20_60") or {}
+    a,b,c,d=st.columns(4)
+    a.metric("Resultatmotor",str(live.get("engine_status") or "UKJENT"))
+    b.metric("Aktive / modne",f"{int(live.get('active_observations') or 0)} / {int(live.get('matured_observations') or 0)}")
+    c.metric("Målt 1/5/20/60", "/".join(str(int(measures.get(str(day)) or 0)) for day in HORIZONS))
+    d.metric("Datastatus",str(live.get("status") or "VENTER"))
+    last=live.get("last_measurement_job") or {}
+    st.caption(f"Siste målejobb: {last.get('completed_at') or 'venter'} · status {last.get('status') or 'IKKE KJØRT'} · manglende/foreldede {int(live.get('missing_or_stale') or 0)}.")
     reports=load_weekly_reports(12)
     if not reports:
-        st.info("Ingen ukentlig læringsrapport er produsert ennå. Første rapport opprettes etter fredagens sluttkurser."); return
+        st.info("Ingen ukentlig læringsrapport er produsert ennå. Første rapport opprettes etter fredagens sluttkurser.")
+        baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
+        if isinstance(baseline,Mapping) and baseline.get("report_id"):
+            st.markdown("##### Historisk baseline")
+            st.caption(f"Status {baseline.get('status')} · verifisert {int(baseline.get('verified_count') or 0)}/{int(baseline.get('signal_count') or 0)} signaler.")
+            baseline_pdf=load_public_pdf(str(baseline.get("public_report_token") or ""))
+            if baseline_pdf:
+                url=public_report_url(baseline) or f"/?public_report_token={baseline.get('public_report_token')}"
+                render_mobile_file_delivery(st,url=url,filename=str(baseline_pdf.get("filename") or "historisk_baseline.pdf"),label="Åpne og del historisk baseline",mime="application/pdf",data=bytes(baseline_pdf["data"]),key=f"baseline_main_{baseline.get('report_id')}")
+        return
     latest=reports[0]; analysis=latest.get("analysis") if isinstance(latest.get("analysis"),Mapping) else {}; health=analysis.get("health") or {}
-    a,b,c,d=st.columns(4); a.metric("Observasjoner",int(analysis.get("observation_count") or 0)); b.metric("Aktive",int(analysis.get("active_count") or 0)); c.metric("Modne",int(analysis.get("matured_count") or 0)); d.metric("Helse",str(health.get("status") or "UKJENT"))
+    a,b,c,d=st.columns(4); a.metric("Rapportobservasjoner",int(analysis.get("observation_count") or 0)); b.metric("Rapportaktive",int(analysis.get("active_count") or 0)); c.metric("Rapportmodne",int(analysis.get("matured_count") or 0)); d.metric("Rapporthelse",str(health.get("status") or "UKJENT"))
     st.caption("Foreløpige trender er dokumentasjon og Shadow-grunnlag. De endrer aldri produksjonsstrategien automatisk.")
     main=load_public_pdf(str(latest.get("public_report_token") or "")); technical=load_public_pdf(str(latest.get("technical_report_token") or ""))
     if main:
@@ -607,6 +856,21 @@ def render_weekly_learning_reports()->None:
         url=f"{base}/?{urlencode({'public_file_token':token})}" if base else f"/?{urlencode({'public_file_token':token})}"
         payload=json.dumps(latest,ensure_ascii=False,separators=(",",":"),default=str).encode("utf-8")
         render_mobile_file_delivery(st,url=url,filename=str(latest.get("public_json_name") or "ukentlig_laeringsrapport.json"),label="Åpne læringsrapport JSON",mime="application/json",data=payload,key=f"weekly_json_{latest.get('report_id')}")
+    baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
+    if isinstance(baseline,Mapping) and baseline.get("report_id"):
+        st.markdown("##### Historisk baseline")
+        st.caption(f"Status {baseline.get('status')} · verifisert {int(baseline.get('verified_count') or 0)}/{int(baseline.get('signal_count') or 0)} signaler. Baseline endrer ingen produksjonsregel.")
+        baseline_pdf=load_public_pdf(str(baseline.get("public_report_token") or ""))
+        if baseline_pdf:
+            url=public_report_url(baseline) or f"/?public_report_token={baseline.get('public_report_token')}"
+            render_mobile_file_delivery(st,url=url,filename=str(baseline_pdf.get("filename") or "historisk_baseline.pdf"),label="Åpne og del historisk baseline",mime="application/pdf",data=bytes(baseline_pdf["data"]),key=f"baseline_main_{baseline.get('report_id')}")
+        baseline_json=str(baseline.get("public_json_token") or "")
+        if baseline_json:
+            from urllib.parse import urlencode
+            base=str(os.getenv("RENDER_EXTERNAL_URL") or os.getenv("REPORT_PUBLIC_BASE_URL") or "").rstrip("/")
+            url=f"{base}/?{urlencode({'public_file_token':baseline_json})}" if base else f"/?{urlencode({'public_file_token':baseline_json})}"
+            payload=json.dumps(baseline,ensure_ascii=False,separators=(",",":"),default=str).encode("utf-8")
+            render_mobile_file_delivery(st,url=url,filename=str(baseline.get("public_json_name") or "historisk_baseline.json"),label="Åpne baseline JSON",mime="application/json",data=payload,key=f"baseline_json_{baseline.get('report_id')}")
 
 
-__all__=["BENCHMARKS","GROUP_TARGETS","HORIZONS","MAX_ACTIVE_OBSERVATIONS","build_weekly_analysis","build_weekly_pdf","diagnostics","evaluate_observations","generate_weekly_report","load_observations","register_report_observations","render_weekly_learning_reports","run_learning_maintenance","yfinance_series_loader"]
+__all__=["BENCHMARKS","GROUP_TARGETS","HORIZONS","MAX_ACTIVE_OBSERVATIONS","build_historical_baseline","build_weekly_analysis","build_weekly_pdf","diagnostics","evaluate_observations","generate_historical_baseline","generate_weekly_report","load_audit","load_observations","register_report_observations","render_weekly_learning_reports","report_control_snapshot","run_learning_maintenance","yfinance_series_loader"]

@@ -435,6 +435,7 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
         _section("report_reliability", "Utfaset samlet rapportscore - kompatibilitet", dict(decision_report.get("reliability") or {}), 50),
         _section("source_consensus", "Kildekonsensus", dict(decision_report.get("source_consensus") or {}), 55),
         _section("controlled_learning_guard", "Kontrollert læringsvern", dict(decision_report.get("controlled_learning_guard") or {}), 58),
+        _section("result_learning_control", "Resultat- og læringskontroll", dict(run.get("result_learning_control") or {}), 58.25),
         _section("decision_plausibility", "Beslutnings- og læringsplausibilitet", dict(run.get("decision_plausibility") or {}), 58.5),
         _section("learning_portfolio", "Kanonisk læringsportefølje", {
             "summary": dict(run.get("learning_portfolio_summary") or {}),
@@ -492,7 +493,7 @@ def validate_report_document(document: Mapping[str, Any], *, raise_on_error: boo
         "executive_summary", "decision_overview", "candidate_decisions", "changes",
         "next_run_tasks", "events", "confidence_profile", "quality_dimensions", "report_reliability",
         "source_consensus", "decision_diffs", "counter_hypotheses",
-        "historical_evaluations", "controlled_learning_guard", "technical_status",
+        "historical_evaluations", "controlled_learning_guard", "result_learning_control", "technical_status",
     ):
         if required not in keys:
             errors.append(f"Påkrevd seksjon mangler: {required}")

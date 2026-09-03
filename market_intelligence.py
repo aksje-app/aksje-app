@@ -1383,6 +1383,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     counter_hypotheses = section_payload(document, "counter_hypotheses", {}) or {}
     historical_evaluations = section_payload(document, "historical_evaluations", []) or []
     learning_guard = section_payload(document, "controlled_learning_guard", {}) or {}
+    result_learning = section_payload(document, "result_learning_control", {}) or {}
     learning_summary = run.get("learning_portfolio_summary") if isinstance(run.get("learning_portfolio_summary"), Mapping) else {}
     candidates = section_payload(document, "candidate_decisions", []) or []
     rejected_control = section_payload(document, "rejected_control_appendix", []) or []
@@ -1446,6 +1447,17 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     lines.extend(["", "OBSERVASJONSKØ 68-73 – IKKE KJØPSANBEFALINGER"])
     for row in candidate_watch_queue:
         lines.append(f"- {row.get('ticker')}: score {row.get('score')} · {row.get('distance_to_production_threshold')} poeng til 73 · {', '.join(row.get('blocker_codes') or []) or 'ingen annen blokkering'}")
+
+    measured = result_learning.get("measurements_1_5_20_60") or {}
+    lines.extend(["", "RESULTAT- OG LÆRINGSKONTROLL"])
+    lines.append(f"- Status: {result_learning.get('status') or 'VENTER'} · motor {result_learning.get('engine_status') or 'UKJENT'}")
+    lines.append(f"- Observasjoner: {result_learning.get('active_observations', 0)} aktive · {result_learning.get('matured_observations', 0)} modne · {result_learning.get('pending_registration', 0)} nye fra denne rapporten")
+    lines.append(f"- Ferdige 1/5/20/60 børsdager: {measured.get('1', 0)}/{measured.get('5', 0)}/{measured.get('20', 0)}/{measured.get('60', 0)}")
+    lines.append(f"- Benchmark komplett: {'JA' if result_learning.get('benchmark_complete') else 'NEI'} · manglende/foreldede: {result_learning.get('missing_or_stale', 0)}")
+    separated = result_learning.get("separate_results") or {}
+    signal_alpha = separated.get("signal_20d_excess_return_pct")
+    lines.append(f"- Signalresultat 20d mot indeks: {'-' if signal_alpha is None else f'{float(signal_alpha):+.2f} %'} ({int(separated.get('signal_20d_count') or 0)} signaler) · paper-portefølje: {'-' if separated.get('paper_portfolio_return_pct') is None else f'{float(separated.get('paper_portfolio_return_pct')):+.2f} %'}")
+    lines.append("- Læringen er isolert: ingen handel eller produksjonsregel kan endres automatisk.")
 
     lines.extend(["", "ENDRINGER SIDEN SIST"])
     if not changes.get("has_previous"):
@@ -3116,6 +3128,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     decision_counter_hypotheses = section_payload(report_document, "counter_hypotheses", {}) or {}
     decision_historical = section_payload(report_document, "historical_evaluations", []) or []
     decision_learning_guard = section_payload(report_document, "controlled_learning_guard", {}) or {}
+    decision_result_learning = section_payload(report_document, "result_learning_control", {}) or {}
     decision_tasks = section_payload(report_document, "next_run_tasks", []) or []
     decision_events = section_payload(report_document, "events", []) or []
     decision_confidence = section_payload(report_document, "confidence_profile", {}) or {}
@@ -3291,6 +3304,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         counter = candidate.get("counter_hypothesis") if isinstance(candidate.get("counter_hypothesis"), Mapping) else {}
         main_reason = str(candidate.get("autonomy_outcome_reason") or "") or "; ".join(rationale[:2]) or str(candidate.get("status") or "Ingen hovedgrunn registrert")
         main_risk = str(counter.get("strongest_argument") or (blockers[0] if blockers else "Ingen kritisk risiko registrert"))
+        reentry = candidate.get("reentry_control") if isinstance(candidate.get("reentry_control"), Mapping) else {}
+        if reentry.get("blocked"):
+            main_reason = "Rangert analyse – ikke kjøpsklar. " + main_reason
+            main_risk = str(reentry.get("message") or "Aktiv gjenkjøpskarantene")
         from short_intelligence import normalize_short_snapshot
         short_snapshot = normalize_short_snapshot(candidate)
         short_pct = short_snapshot.get("short_interest_pct_float")
@@ -3567,6 +3584,40 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     change_table_decision = Table(change_rows, repeatRows=1, colWidths=[42*mm, 142*mm])
     change_table_decision.setStyle(_table_style(5.9, padding=1.4))
     decision_story += [Paragraph("Endringer siden forrige rapport", styles["Section"]), change_table_decision]
+
+    learning_measurements = decision_result_learning.get("measurements_1_5_20_60") or {}
+    baseline_status = decision_result_learning.get("historical_baseline") or {}
+    separate_results = decision_result_learning.get("separate_results") or {}
+    learning_rows = [
+        ["Status", "Aktive / modne", "Ferdige 1/5/20/60", "Benchmark", "Historisk baseline"],
+        [
+            _p(f"{decision_result_learning.get('engine_status') or 'UKJENT'} · {decision_result_learning.get('status') or 'VENTER'}", "Tiny"),
+            _p(f"{int(decision_result_learning.get('active_observations') or 0)} / {int(decision_result_learning.get('matured_observations') or 0)}", "Tiny"),
+            _p("/".join(str(int(learning_measurements.get(str(day)) or 0)) for day in (1, 5, 20, 60)), "Tiny"),
+            _p("Komplett" if decision_result_learning.get("benchmark_complete") else f"Avvik {int(decision_result_learning.get('missing_or_stale') or 0)}", "Tiny"),
+            _p(f"{baseline_status.get('status') or 'VENTER'} · {int(baseline_status.get('verified') or 0)}/{int(baseline_status.get('signals') or 0)} verifisert", "Tiny"),
+        ],
+    ]
+    learning_table = Table(learning_rows, repeatRows=1, colWidths=[38*mm, 31*mm, 38*mm, 34*mm, 43*mm])
+    learning_table.setStyle(_table_style(5.4, padding=1.3))
+    decision_story += [
+        Paragraph("Resultat- og læringskontroll", styles["Section"]),
+        learning_table,
+        Paragraph(
+            "Nye låste signaler fra denne rapporten: "
+            f"{int(decision_result_learning.get('pending_registration') or 0)}. "
+            "Observasjonene er isolert fra paper-porteføljen; ingen handel eller produksjonsregel kan endres automatisk.",
+            styles["Small"],
+        ),
+        Paragraph(
+            "Tre separate resultater: signal 20d meravkastning "
+            + ("-" if separate_results.get("signal_20d_excess_return_pct") is None else f"{float(separate_results.get('signal_20d_excess_return_pct')):+.2f} %")
+            + f" ({int(separate_results.get('signal_20d_count') or 0)} signaler) · paper-portefølje "
+            + ("-" if separate_results.get("paper_portfolio_return_pct") is None else f"{float(separate_results.get('paper_portfolio_return_pct')):+.2f} %")
+            + f" · utvelgelsesstatus {escape(str(separate_results.get('selection_alpha_status') or 'FOR LITE DATA'))}.",
+            styles["Small"],
+        ),
+    ]
 
     diff_rows = [["Ticker", "Score", "Modell / regel", "Sterkeste motargument"]]
     diff_by_ticker = {str(row.get("ticker") or "").upper(): row for row in list(decision_diffs.get("candidates") or [])}
@@ -5981,6 +6032,34 @@ def _run_job_impl(
             learning_observation_plan = {"status":"SKIPPED_NON_SCHEDULED","created":0,"committed":False,"production_changed":False,"trade_authorized":False}
     except Exception as exc:
         learning_observation_plan = {"status":"FAILED","error":str(exc)[:500],"production_changed":False,"trade_authorized":False}
+
+    # Report-only projection of the AY sell/re-entry guard.  This makes a
+    # ranking appearance visibly different from permission to buy.
+    try:
+        from paper_store import load_portfolio as load_paper_portfolio
+        from trading_engine import paper_reentry_status
+        from trading_settings import load_rules as load_trading_rules
+        paper_portfolio = load_paper_portfolio() or {}
+        trading_rules = load_trading_rules() or {}
+        for candidate in (run.get("candidates") or []):
+            if not isinstance(candidate, MutableMapping):
+                continue
+            raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+            buy_price = candidate.get("current_price") or candidate.get("price") or raw.get("current_price") or raw.get("price")
+            candidate["reentry_control"] = paper_reentry_status(
+                candidate.get("ticker"), buy_price, portfolio=paper_portfolio, rules=trading_rules,
+            )
+    except Exception as exc:
+        _audit("REENTRY_REPORT_PROJECTION_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
+
+    try:
+        from learning_observation_engine import report_control_snapshot
+        run["result_learning_control"] = report_control_snapshot(learning_observation_plan, run)
+    except Exception as exc:
+        run["result_learning_control"] = {
+            "status": "FEIL", "engine_status": "DEGRADED", "error": str(exc)[:500],
+            "production_parameters_changed": False, "trade_authorized": False,
+        }
 
     # AW hard release gate: parallel validation and controlled learning are the
     # final domain mutations.  Rebuild the canonical model and every artifact

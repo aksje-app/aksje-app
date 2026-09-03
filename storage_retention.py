@@ -15,7 +15,8 @@ KV_LIMITS = {"operations/run_traces/": 180, "investment_pipeline/runs/": 60,
              "autonomi_core/parallel_validation/": 90, "autonomi_core/learning_reporting/": 90,
              "full_replay/": 60}
 JSONL_LIMITS = {"operations/run_traces.jsonl": 400,
-                "market_intelligence/job_history.jsonl": 300}
+                "market_intelligence/job_history.jsonl": 300,
+                "controlled_learning/outcome_audit.jsonl": 2000}
 
 def _enabled() -> bool:
     return str(os.getenv("STORAGE_RETENTION_APPLY", "false")).strip().lower() in {"1", "true", "yes", "on"}

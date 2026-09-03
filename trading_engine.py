@@ -427,6 +427,28 @@ def _stop_loss_reentry_block_v18660(portfolio, ticker, confidence, rules):
     return _reentry_block_v1931ay(portfolio, ticker, confidence, rules)
 
 
+def paper_reentry_status(ticker, buy_price=None, *, portfolio=None, rules=None, now=None):
+    """Explain the AY re-entry guard for reports without attempting a trade."""
+    portfolio = dict(portfolio or load_portfolio() or {})
+    rules = dict(rules or load_rules() or {})
+    ticker = str(ticker or "").upper().strip()
+    blocked, message = _reentry_block_v1931ay(portfolio, ticker, 0, rules, buy_price=buy_price, now=now)
+    latest_sell = next((dict(row) for row in reversed(list(portfolio.get("trades") or []))
+                        if str(row.get("ticker") or "").upper().strip() == ticker
+                        and str(row.get("type") or "").upper() == "SELL"), {})
+    return {
+        "ticker": ticker,
+        "status": "GJENKJØPSKARANTENE" if blocked else ("TIDLIGERE_SOLGT" if latest_sell else "INGEN_SALGSSPERRE"),
+        "blocked": bool(blocked),
+        "message": str(message or "Ingen aktiv gjenkjøpskarantene."),
+        "last_sell_at": str(latest_sell.get("time") or ""),
+        "last_sell_price": latest_sell.get("price"),
+        "last_sell_reason": str(latest_sell.get("reason") or latest_sell.get("rule_used") or ""),
+        "report_only": True,
+        "trade_attempted": False,
+    }
+
+
 def _automatic_repeat_buy_block_v1931ay(portfolio, ticker, rules, now=None):
     """Prevent duplicate/addition BUYs from overlapping or repeated cron runs."""
     try:
