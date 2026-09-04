@@ -168,7 +168,7 @@ def get_watchlist():
     custom = os.getenv("SCANNER_WATCHLIST", "").strip()
     if custom:
         return [ticker for ticker in _clean_scanner_tickers(custom.replace(";", ",").split(","))
-                if _ticker_market(ticker) in enabled]
+                if _ticker_market(ticker) in enabled][:max(1, SCANNER_MAX_TICKERS)]
 
     max_per_market = int(settings.get("max_tickers_per_market", 20))
     scan_top_only = bool(settings.get("scan_top_picks_only", True))
@@ -205,15 +205,17 @@ def get_watchlist():
             seen.add(t)
             out.append(t)
 
-    # Åpne posisjoner må alltid overvåkes for stop-loss/take-profit/trailing.
+    # Åpne posisjoner må prioriteres for stop-loss/take-profit/trailing, men
+    # SCANNER_MAX_TICKERS er en hard kontrakt for én skannesyklus.  Tidligere
+    # kunne max_per_market og et gjenopptatt kontrollpunkt utvide en 30-grense
+    # til 50 eller mer, slik produksjonsdiagnosen 04.09.2026 dokumenterte.
     current_positions = list(load_portfolio().get("positions", {}).keys())
+    prioritized_positions = []
     for t in current_positions:
         t = str(t).upper()
-        if valid_scanner_ticker(t) and _ticker_market(t) in enabled and t not in seen:
-            seen.add(t)
-            out.append(t)
-
-    return out[:max(SCANNER_MAX_TICKERS, len(current_positions), max_per_market)]
+        if valid_scanner_ticker(t) and _ticker_market(t) in enabled and t not in prioritized_positions:
+            prioritized_positions.append(t)
+    return _merge_unique(prioritized_positions, out)[:max(1, SCANNER_MAX_TICKERS)]
 
 
 def scanner_memory_decision(memory, *, soft_limit_mb, minimum_headroom_mb=80.0):
@@ -426,24 +428,34 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     checkpoint = load_scanner_checkpoint()
     current_tickers = get_watchlist()
     checkpoint_tickers = _clean_scanner_tickers(checkpoint.get("tickers") or [])
+    hard_limit = max(1, int(effective_scanner_configuration["scanner_max_tickers"]))
     if checkpoint.get("scan_run_id") and checkpoint_tickers:
-        # Finish the original bounded universe even if rankings/watchlists
-        # changed between cron invocations. Append genuinely new symbols only.
-        tickers = _merge_unique(checkpoint_tickers, current_tickers)
+        # Finish exactly the original bounded universe. New symbols belong to
+        # the next scan; appending them here previously made a 30-symbol run
+        # grow to 50 while it was being resumed.
+        tickers = checkpoint_tickers[:hard_limit]
         resume = True
     else:
-        tickers = current_tickers
+        tickers = current_tickers[:hard_limit]
         current_signature = hashlib.sha256("\n".join(tickers).encode("utf-8")).hexdigest()
         resume = bool(checkpoint.get("ticker_signature") == current_signature and checkpoint.get("scan_run_id"))
-    print(f"Scanner {len(tickers)} tickers: {tickers}")
+    tickers = _clean_scanner_tickers(tickers)[:hard_limit]
+    print(f"Scanner {len(tickers)}/{hard_limit} tickers: {tickers}")
 
     snapshot_service = get_market_snapshot_service()
     ticker_signature = hashlib.sha256("\n".join(tickers).encode("utf-8")).hexdigest()
     scan_run_id = str(checkpoint.get("scan_run_id")) if resume else f"PAPER-SCAN-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     update_scanner_status(scan_run_id=scan_run_id, markets_open=markets, tickers_total=len(tickers), tickers_processed=0)
     market_snapshot_id = snapshot_service.new_snapshot_id(run_id=scan_run_id, source="paper_scanner")
-    candidate_snapshots = list(checkpoint.get("candidate_snapshots") or []) if resume else []
-    latest_prices = dict(checkpoint.get("latest_prices") or {}) if resume else {}
+    allowed_ticker_set = {str(t).upper() for t in tickers}
+    candidate_snapshots = [
+        row for row in list(checkpoint.get("candidate_snapshots") or [])
+        if str((row or {}).get("ticker") or "").upper() in allowed_ticker_set
+    ] if resume else []
+    latest_prices = {
+        str(key).upper(): value for key, value in dict(checkpoint.get("latest_prices") or {}).items()
+        if str(key).upper() in allowed_ticker_set
+    } if resume else {}
     trades_executed = int(checkpoint.get("trades_executed") or 0) if resume else 0
     start_index = max(0, min(len(tickers), int(checkpoint.get("next_index") or 0))) if resume else 0
     if resume:

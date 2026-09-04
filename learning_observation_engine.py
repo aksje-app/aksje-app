@@ -23,7 +23,7 @@ from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path
 
 SCHEMA_VERSION = "1.1"
-ENGINE_VERSION = "v19.22.0-rc16.31ba"
+ENGINE_VERSION = "v19.22.0-rc16.31bb"
 CORE_MARKETS = ("NORGE", "SVERIGE", "USA")
 BENCHMARKS = {"NORGE": "OSEBX.OL", "SVERIGE": "^OMX", "USA": "^GSPC"}
 HORIZONS = (1, 5, 20, 60)

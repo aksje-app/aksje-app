@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ba"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ba Actionability and Selection Audit"
+APP_VERSION = "v19.22.0-rc16.31bb"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bb Production Recovery and Report Integrity"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31az"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ba"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31bb: Produksjonsstabilisering etter BA-drift. PostgreSQL recovery utsetter hele kjøringen før analyse/handel, sluttkvitteringer får kontrollert retry og lokal replay-kvittering, scannergrensen håndheves også ved gjenopptakelse, og retensjon kjører i små tidsavgrensede batcher med eksplisitt diagnosebevis. Rapporthistorikk skiller analytiske treff, kjøpsklarhet, kildeavvik og pipelinefeil; rapportfiler bruker kanonisk rapport-ID og detaljvisning unngår gjentatt lasting og republisering.",
     "v19.22.0-rc16.31ba: Skiller analytisk rangering fra dokumentert kjøpsklarhet, innfører kandidatpass og sporbar evidenseskalering, og viser konkrete sperrer for topprangerte kandidater i PDF, JSON og tekst. Læringsstatus skiller delvis datamangel fra reell motorfeil og oppgir feilkoder, berørte tickere og neste forsøk. Ingen score, evidensport eller produksjonsregel svekkes, og kandidatpass lagres først etter bestått sluttsperre.",
     "v19.22.0-rc16.31az: Etterprøvbar resultat- og læringskontroll i ordinære rapporter. Låste observasjoner måles mot markedsbenchmark etter 1, 5, 20 og 60 børsdager, ukesrapport og historisk baseline får revisjonsspor, og all læring forblir isolert fra paper-porteføljen og produksjonsreglene. Mobil levering av PDF/JSON bruker varige lenker, deling og eksplisitt retur til programmet.",
     "v19.22.0-rc16.31ay: Stopper raskt salg og gjenkjøp på tvers av cronrunder. Alle salg gir varig gjenkjøpskarantene, risikoutganger får lengre karantene, automatiske kjøp krever ferskt datatidspunkt, og gjenkjøp dyrere enn nylig salg blokkeres uten dokumentert regimeskifte. Porteføljerapporten markerer posisjoner som etter 40 dager binder kapital med svak avkastning og svekket score som kandidater for salg til kontanter, uten å kreve en umiddelbar erstatning. Læringsobservasjoner beholdes uavhengig av paper-posisjonen.",

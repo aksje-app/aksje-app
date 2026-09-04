@@ -588,6 +588,11 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     except Exception as exc:
         database_capacity = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     try:
+        from storage_retention import load_storage_retention_state
+        storage_retention = dict(load_storage_retention_state() or {})
+    except Exception as exc:
+        storage_retention = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
         from market_intelligence import _load_report_archive
         recent_required_reports = [dict(row) for row in _load_report_archive()
                                    if str(row.get("job_name") or "").casefold().startswith("obligatorisk")][:12]
@@ -656,6 +661,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "scanner/SCANNER_CONFIGURATION.json": json.dumps(scanner_configuration, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_COLLECTOR_MEMORY.json": json.dumps(diagnostic_memory, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DATABASE_CAPACITY.json": json.dumps(database_capacity, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/STORAGE_RETENTION.json": json.dumps(storage_retention, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/RECENT_REQUIRED_REPORTS.json": json.dumps(recent_required_reports, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_PRECOLLECT_CLEANUP.json": json.dumps(collector_memory_cleanup, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/REPORT_TEST_MODE.json": json.dumps(report_test, ensure_ascii=False, indent=2, default=str).encode("utf-8"),

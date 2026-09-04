@@ -671,7 +671,11 @@ def safe_report_filename(run: Mapping[str, Any], extension: str = "pdf") -> str:
     identity = resolve_report_identity(run)
     job_name = str(run.get("job_name") or "Analyse").strip().replace("–", "-")
     clean = "_".join(part for part in "".join(ch if ch.isalnum() or ch in " _-" else " " for ch in job_name).split())
-    stamp = local_compact_stamp(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
+    run_id = str(run.get("run_id") or "")
+    run_stamp = run_id.removeprefix("MI-").replace("-", "T", 1) if run_id.startswith("MI-") else ""
+    stamp = run_stamp if re.fullmatch(r"\d{8}T\d{6}", run_stamp) else local_compact_stamp(
+        run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)
+    )
     # A time-qualified draft already carries its report period. Keep the saved
     # job name in PDF metadata instead of duplicating/misleading in the filename.
     if str(identity.get("type") or "") == "UTKAST" and str(identity.get("slug") or "").startswith("UTKAST_"):
@@ -1006,7 +1010,8 @@ def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, An
         pdf_created = any(item.get("pdf") is True for item in candidates)
         stored_row = next((item for item in candidates if item.get("run_id")), latest)
         delivered_row = delivered_rows[0] if delivered_rows else stored_row
-        grace_end = planned_utc + timedelta(minutes=30)
+        grace_minutes = max(30, min(180, int(os.getenv("REQUIRED_REPORT_GRACE_MINUTES", "60") or 60)))
+        grace_end = planned_utc + timedelta(minutes=grace_minutes)
         if local_now.weekday() >= 5:
             status = "IKKE_PLANLAGT"
         elif delivered:
@@ -1024,6 +1029,7 @@ def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, An
             "pushover_sent": delivered, "run_id": delivered_row.get("run_id") or "",
             "error": "" if delivered else str(latest.get("error") or latest.get("notification_detail") or "")[:500],
             "active": bool(job and job.enabled),
+            "grace_minutes": grace_minutes,
         })
     return {
         "date": local_now.date().isoformat(), "timezone": "Europe/Oslo",
@@ -1036,6 +1042,14 @@ def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, An
     """Send one independent operations warning per missed required report."""
     ledger = required_report_delivery_ledger(now)
     overdue = [row for row in ledger["rows"] if row["status"] == "FORSINKET"]
+    try:
+        from execution_coordination import report_execution_owner
+        owner = dict(report_execution_owner() or {})
+        if str(owner.get("state") or "").upper() not in {"", "RELEASED", "COMPLETED", "FAILED"}:
+            active_job = str(owner.get("job_id") or "")
+            overdue = [row for row in overdue if str(row.get("job_id") or "") != active_job]
+    except Exception:
+        owner = {}
     receipt_key = "scheduler/required_report_missing_alerts.json"
     receipts = read_persistent_json(receipt_key, default={})
     receipts = dict(receipts) if isinstance(receipts, Mapping) else {}
@@ -1050,7 +1064,7 @@ def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, An
                 "\n".join([
                     f"Obligatorisk rapport: {row['name']}",
                     f"Planlagt: {row['schedule']} (Europe/Oslo)",
-                    "Status: Ikke levert innen 30 minutter",
+                    f"Status: Ikke levert innen {row.get('grace_minutes', 60)} minutter",
                     f"PDF: {'opprettet' if row['pdf_created'] else 'ikke bekreftet'}",
                     f"Lagring: {'bekreftet' if row['stored'] else 'ikke bekreftet'}",
                     f"Feil: {row['error'] or 'ingen detalj registrert'}",
@@ -1066,7 +1080,7 @@ def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, An
             row["alert_error"] = str(exc)[:500]
     if sent:
         write_persistent_json(receipt_key, receipts)
-    return {"ledger": ledger, "overdue": len(overdue), "alerts_sent": sent}
+    return {"ledger": ledger, "overdue": len(overdue), "alerts_sent": sent, "active_owner": owner}
 
 
 def retry_pending_required_report_deliveries(limit: int = 3) -> dict[str, Any]:
@@ -1953,6 +1967,10 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     source_rows = list(source_health.get("sources") or [])
     reserve_feed_used = any(bool(row.get("fallback_used")) for row in source_rows if isinstance(row, Mapping))
     source_error_count = sum(int(row.get("errors") or 0) for row in source_rows if isinstance(row, Mapping))
+    actionability = run.get("candidate_actionability") if isinstance(run.get("candidate_actionability"), Mapping) else {}
+    analytical_count = int((run.get("summary") or {}).get("recommended", 0))
+    buy_ready_count = int(actionability.get("buy_ready_count") or decision_overview.get("decision_ready_count") or 0)
+    pipeline_errors = list(run.get("errors") or [])
     return {
         "run_id": run.get("run_id"), "created_at": run.get("created_at"),
         "operations_trace_id": run.get("operations_trace_id") or "",
@@ -1974,7 +1992,10 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "technical_pdf_name": run.get("technical_pdf_name"),
         "technical_report_token": run.get("technical_report_token"),
         "technical_pdf_delivery": run.get("technical_pdf_delivery"),
-        "markets": list(run.get("markets") or []), "recommended": int((run.get("summary") or {}).get("recommended", 0)),
+        # Keep the legacy field for old archives, but expose unambiguous counts
+        # to every current UI/report consumer.
+        "markets": list(run.get("markets") or []), "recommended": analytical_count,
+        "analytical_recommended_count": analytical_count, "buy_ready_count": buy_ready_count,
         "top_ticker": top.get("ticker"), "top_score": top.get("investment_score"),
         "tickers": [str(x.get("ticker")) for x in candidates if x.get("ticker")],
         "favorite": False, "analysis_aborted": bool(run.get("analysis_aborted")),
@@ -1998,8 +2019,8 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "urgent_task_count": int(decision_overview.get("urgent_task_count") or 0),
         "next_task_count": len(next_tasks),
         "upcoming_event_count": len(report_events),
-        "has_errors": bool(run.get("errors") or source_error_count),
-        "error_count": len(run.get("errors") or []) + source_error_count,
+        "has_errors": bool(pipeline_errors), "error_count": len(pipeline_errors),
+        "source_issue_count": source_error_count,
         "reserve_feed_used": reserve_feed_used,
         "low_reliability": int(quality_dimensions.get("report_decision_strength") or 0) < 65,
     }
@@ -2121,10 +2142,12 @@ def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | N
     name = str(clean.get("public_pdf_name") or archived.get("public_pdf_name") or "").strip()
     target = PUBLIC_REPORT_DIR / Path(name).name if name else None
     pdf_bytes: bytes | None = None
+    needs_publish = True
     if target and target.is_file():
         candidate = target.read_bytes()
         if _valid_pdf_bytes(candidate):
             pdf_bytes = candidate
+            needs_publish = False
     if pdf_bytes is None:
         source = Path(str(clean.get("pdf_path") or archived.get("pdf_path") or ""))
         if source.is_file():
@@ -2143,12 +2166,13 @@ def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | N
             _audit("REPORT_REGENERATION_FAILED", {"run_id": clean.get("run_id"), "error": str(exc)})
             return {"ok": False, "error": f"Rapporten finnes ikke lokalt og kunne ikke regenereres: {exc}"}
     try:
-        publish_pdf(clean, pdf_bytes)
+        if needs_publish:
+            publish_pdf(clean, pdf_bytes)
         run_id = str(clean.get("run_id") or "")
-        if run_id:
+        if run_id and needs_publish:
             _write(RUNS_DIR / f"{run_id}.json", clean)
         url = report_public_url(clean)
-        if run_id:
+        if run_id and needs_publish:
             archive_rows = _load_report_archive()
             changed = False
             for row in archive_rows:
@@ -2185,11 +2209,13 @@ def resolve_technical_report_delivery(
     from public_report_store import load_public_pdf, publish_durable_pdf
     token = str(clean.get("technical_report_token") or archived.get("technical_report_token") or "").strip()
     pdf_bytes: bytes | None = None
+    needs_publish = True
     if token:
         stored = load_public_pdf(token)
         candidate = stored.get("data") if isinstance(stored, Mapping) else None
         if _valid_pdf_bytes(candidate):
             pdf_bytes = bytes(candidate)
+            needs_publish = False
     if pdf_bytes is None:
         source = Path(str(clean.get("technical_pdf_path") or archived.get("technical_pdf_path") or ""))
         if source.is_file():
@@ -2212,15 +2238,16 @@ def resolve_technical_report_delivery(
         or f"{safe_report_filename(clean, 'pdf')[:-4]}_technical.pdf"
     )).name
     try:
-        publish_durable_pdf(
-            clean, pdf_bytes, token_field="technical_report_token",
-            filename_field="technical_pdf_name", document_kind="technical",
-        )
+        if needs_publish:
+            publish_durable_pdf(
+                clean, pdf_bytes, token_field="technical_report_token",
+                filename_field="technical_pdf_name", document_kind="technical",
+            )
         clean["technical_pdf_delivery"] = {
             "generated": True, "validated": True, "durable": True,
             "regenerated": regenerated,
         }
-        if run_id:
+        if run_id and needs_publish:
             _write(RUNS_DIR / f"{run_id}.json", clean)
             rows = _load_report_archive()
             for row in rows:
@@ -7905,15 +7932,16 @@ def render_market_intelligence() -> None:
                     + (f" · Erstatter {row.get('supersedes_run_id')}" if row.get("supersedes_run_id") else "")
                 )
                 m1,m2,m3,m4,m5,m6 = st.columns(6)
-                m1.metric("Anbefalt", row.get("recommended",0))
+                m1.metric("Analytiske treff", row.get("analytical_recommended_count", row.get("recommended", 0)))
                 m2.metric("Topp", row.get("top_ticker") or "-")
                 m3.metric("Score", row.get("top_score") or 0)
-                m4.metric("Kjøpsgodkjente", row.get("decision_ready_count", 0))
+                m4.metric("Kjøpsklare", row.get("buy_ready_count", row.get("decision_ready_count", 0)))
                 m5.metric("Beslutningsstyrke", f"{row.get('report_decision_strength', 0)}/100")
                 m6.metric("Oppgaver", row.get("next_task_count", 0))
                 flags = []
                 if row.get("top3_changed"): flags.append("Endret Top 3")
                 if row.get("has_errors"): flags.append(f"Feil {row.get('error_count', 0)}")
+                if int(row.get("source_issue_count") or 0): flags.append(f"Kildeavvik {row.get('source_issue_count')}")
                 if row.get("reserve_feed_used"): flags.append("Reserve-feed")
                 if row.get("low_reliability"): flags.append("Lav beslutningsstyrke")
                 if flags:
@@ -7926,7 +7954,17 @@ def render_market_intelligence() -> None:
                 if not load_details_v19220_rc1617:
                     st.caption("Detaljer og rapportfiler er ikke lastet.")
                     continue
-                saved_run = load_archived_run(row)
+                # Keep at most one large canonical report in session memory.
+                # Re-running Streamlit controls inside the same expander must
+                # not reload an 11 MB JSON document from PostgreSQL each time.
+                detail_cache_key = "mi_single_archive_detail_cache_v19220_rc1631bb"
+                detail_cache = st.session_state.get(detail_cache_key) or {}
+                archive_run_id = str(row.get("run_id") or "")
+                if str(detail_cache.get("run_id") or "") == archive_run_id:
+                    saved_run = dict(detail_cache.get("run") or {})
+                else:
+                    saved_run = load_archived_run(row)
+                    st.session_state[detail_cache_key] = {"run_id": archive_run_id, "run": saved_run}
                 trace_id = str((saved_run or {}).get("operations_trace_id") or row.get("operations_trace_id") or "")
                 if trace_id and st.toggle("Vis komplett kjøringsspor", key=f"mi_trace_toggle_{row.get('run_id')}"):
                     try:

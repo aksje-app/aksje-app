@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +19,7 @@ from runtime_dependencies import assert_runtime_dependencies
 
 STATE_KEY = "scheduler/unattended_state.json"
 STATE_PATH = runtime_data_path("scheduler", "unattended_state.json")
+RECOVERY_PATH = runtime_data_path("scheduler", "unattended_recovery.json")
 
 
 def _configure_headless_logging() -> None:
@@ -55,8 +57,67 @@ def _now() -> str:
 
 
 def _save(state: dict[str, Any]) -> dict[str, Any]:
-    write_json(STATE_KEY, STATE_PATH, state)
+    last_error: Exception | None = None
+    for attempt in range(1, 6):
+        try:
+            write_json(STATE_KEY, STATE_PATH, state)
+            state["persistence_receipt"] = {
+                "state": "PERSISTED", "attempts": attempt, "at": _now(),
+            }
+            return state
+        except Exception as exc:
+            last_error = exc
+            if attempt < 5:
+                time.sleep(0.5 * (2 ** (attempt - 1)))
+    # A final status write must not turn otherwise completed work into an
+    # untraceable status-1 crash during a short PostgreSQL recovery.  Keep a
+    # local recovery receipt which the next healthy cron republishes.
+    receipt = {
+        "state": "PENDING_DATABASE_REPLAY", "at": _now(),
+        "error": f"{type(last_error).__name__}: {str(last_error)[:1000]}",
+        "payload": state,
+    }
+    RECOVERY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp = RECOVERY_PATH.with_suffix(".tmp")
+    temp.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    os.replace(temp, RECOVERY_PATH)
+    state["persistence_receipt"] = {
+        "state": "PENDING_DATABASE_REPLAY", "attempts": 5,
+        "at": receipt["at"], "error": receipt["error"],
+    }
     return state
+
+
+def _database_preflight(attempts: int = 3) -> dict[str, Any]:
+    """Require consecutive healthy probes before analyses or trades begin."""
+    from services.storage_service import get_storage_service
+    checks: list[dict[str, Any]] = []
+    for attempt in range(1, max(2, int(attempts)) + 1):
+        health = get_storage_service().health().to_dict()
+        production_database_required = bool(os.getenv("DATABASE_URL", "").strip())
+        probe_ok = bool(health.get("ok")) and (
+            not production_database_required or str(health.get("backend") or "").lower() == "postgres"
+        )
+        checks.append({"attempt": attempt, "ok": probe_ok, "backend": health.get("backend"), "message": str(health.get("message") or "")[:500]})
+        if not probe_ok:
+            return {"state": "DEFERRED_DATABASE", "ready": False, "checks": checks}
+        if attempt < attempts:
+            time.sleep(1.0)
+    return {"state": "READY", "ready": True, "checks": checks}
+
+
+def _replay_recovery_receipt() -> dict[str, Any]:
+    if not RECOVERY_PATH.is_file():
+        return {"state": "NOT_NEEDED"}
+    try:
+        receipt = json.loads(RECOVERY_PATH.read_text(encoding="utf-8"))
+        payload = receipt.get("payload") if isinstance(receipt, dict) else None
+        if isinstance(payload, dict):
+            write_json(STATE_KEY, STATE_PATH, payload)
+        RECOVERY_PATH.unlink(missing_ok=True)
+        return {"state": "REPLAYED", "original_at": receipt.get("at") if isinstance(receipt, dict) else ""}
+    except Exception as exc:
+        return {"state": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
 
 
 def load_unattended_state() -> dict[str, Any]:
@@ -113,6 +174,15 @@ def _run_once_locked() -> dict[str, Any]:
         "last_failure_fingerprint": previous.get("last_failure_fingerprint", ""),
     }
     _save(state)
+
+    state["database_preflight"] = _database_preflight()
+    if not state["database_preflight"].get("ready"):
+        state.update({
+            "state": "DEFERRED_DATABASE", "completed_at": _now(),
+            "error": "PostgreSQL er ikke stabilt skriveklar; hele kjøringen er utsatt uten analyse eller handel.",
+        })
+        return _save(state)
+    state["database_recovery_replay"] = _replay_recovery_receipt()
 
     state["runtime_identity"] = publish_runtime_identity("report_scheduler")
     aligned, alignment_reason = validate_expected_runtime()
@@ -294,7 +364,9 @@ def _run_once_locked() -> dict[str, Any]:
     else:
         state["report_revalidation"] = {**dict(previous.get("report_revalidation") or {}), "state": "NOT_DUE"}
 
-    if _maintenance_due(previous, "storage_retention", default_minutes=1440):
+    retention_previous_state = str((previous.get("storage_retention") or {}).get("state") or "")
+    retention_due = retention_previous_state in {"PARTIAL", "FAILED", "BLOCKED_DATABASE"} or _maintenance_due(previous, "storage_retention", default_minutes=1440)
+    if retention_due:
         try:
             from storage_retention import run_storage_retention
             state["storage_retention"] = dict(run_storage_retention() or {})
@@ -335,7 +407,7 @@ def main() -> int:
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
-    return 0 if state.get("state") in {"COMPLETED", "PARTIAL_CHECKPOINT"} else 1
+    return 0 if state.get("state") in {"COMPLETED", "PARTIAL_CHECKPOINT", "DEFERRED_DATABASE"} else 1
 
 
 if __name__ == "__main__":
