@@ -345,8 +345,11 @@ def load_portfolio():
                 logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return portfolio
     except Exception as e:
-        print(f"paper_portfolio load DB fallback: {e}")
-        return _load_json()
+        # Production must fail closed. A recovering PostgreSQL instance may not
+        # silently switch the trading portfolio to a local/legacy JSON copy.
+        print(f"paper_portfolio load DB unavailable: {e}")
+        from services.storage_service import StorageUnavailableError
+        raise StorageUnavailableError("paper_portfolio PostgreSQL load feilet; lokal fallback er blokkert i produksjon") from e
 
 def save_portfolio(portfolio):
     portfolio = _merge_portfolio(portfolio)
@@ -411,9 +414,11 @@ def save_portfolio(portfolio):
                 logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return True
     except Exception as e:
-        print(f"paper_portfolio save DB fallback: {e}")
-        _save_json(portfolio)
-        return False
+        # Never persist a divergent local portfolio when DATABASE_URL is the
+        # authoritative production store. Let the caller defer/retry instead.
+        print(f"paper_portfolio save DB unavailable: {e}")
+        from services.storage_service import StorageUnavailableError
+        raise StorageUnavailableError("paper_portfolio PostgreSQL save feilet; lokal fallback er blokkert i produksjon") from e
 
 def add_trade(portfolio, trade):
     require_paper_trade(

@@ -58,7 +58,8 @@ def _now() -> str:
 
 def _save(state: dict[str, Any]) -> dict[str, Any]:
     last_error: Exception | None = None
-    for attempt in range(1, 6):
+    retry_delays = (1.0, 2.0, 4.0, 8.0, 15.0)
+    for attempt in range(1, len(retry_delays) + 2):
         try:
             write_json(STATE_KEY, STATE_PATH, state)
             state["persistence_receipt"] = {
@@ -67,8 +68,8 @@ def _save(state: dict[str, Any]) -> dict[str, Any]:
             return state
         except Exception as exc:
             last_error = exc
-            if attempt < 5:
-                time.sleep(0.5 * (2 ** (attempt - 1)))
+            if attempt <= len(retry_delays):
+                time.sleep(retry_delays[attempt - 1])
     # A final status write must not turn otherwise completed work into an
     # untraceable status-1 crash during a short PostgreSQL recovery.  Keep a
     # local recovery receipt which the next healthy cron republishes.
@@ -82,7 +83,7 @@ def _save(state: dict[str, Any]) -> dict[str, Any]:
     temp.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     os.replace(temp, RECOVERY_PATH)
     state["persistence_receipt"] = {
-        "state": "PENDING_DATABASE_REPLAY", "attempts": 5,
+        "state": "PENDING_DATABASE_REPLAY", "attempts": len(retry_delays) + 1,
         "at": receipt["at"], "error": receipt["error"],
     }
     return state
@@ -119,6 +120,114 @@ def _replay_recovery_receipt() -> dict[str, Any]:
     except Exception as exc:
         return {"state": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
 
+
+
+
+def _is_transient_storage_error(exc: Exception | str) -> bool:
+    text = str(exc or "").lower()
+    markers = (
+        "recovery mode", "not yet accepting connections", "consistent recovery",
+        "connection reset", "connection refused", "server closed the connection",
+        "terminating connection", "storageunavailableerror", "could not connect",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _scanner_failure_state(exc: Exception) -> dict[str, Any]:
+    """Report storage-finalization failures without pretending analysis failed."""
+    result: dict[str, Any] = {
+        "state": "FAILED",
+        "execution_mode": "SEQUENTIAL_SHARED_2GB_SCHEDULER",
+        "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+    checkpoint: dict[str, Any] = {}
+    try:
+        from paper_scanner_runtime import load_scanner_status, load_scanner_checkpoint
+        scanner_status = dict(load_scanner_status() or {})
+        checkpoint = dict(load_scanner_checkpoint() or {})
+    except Exception:
+        # PostgreSQL may be in recovery precisely while we are classifying the
+        # failure. The local files are diagnostic mirrors from the last
+        # successful durable write and may be read only for classification;
+        # they are never used as authoritative trading state.
+        scanner_status = {}
+        try:
+            from paper_scanner_runtime import PAPER_SCANNER_STATUS_PATH, PAPER_SCANNER_CHECKPOINT_PATH
+            if PAPER_SCANNER_STATUS_PATH.is_file():
+                scanner_status = dict(json.loads(PAPER_SCANNER_STATUS_PATH.read_text(encoding="utf-8")) or {})
+            if PAPER_SCANNER_CHECKPOINT_PATH.is_file():
+                checkpoint = dict(json.loads(PAPER_SCANNER_CHECKPOINT_PATH.read_text(encoding="utf-8")) or {})
+        except Exception:
+            checkpoint = {}
+    processed = int(scanner_status.get("tickers_processed") or checkpoint.get("next_index") or 0)
+    total = int(scanner_status.get("tickers_total") or len(checkpoint.get("tickers") or []) or 0)
+    phase = str(scanner_status.get("phase") or checkpoint.get("phase") or "").upper()
+    result.update({
+        "scan_run_id": str(scanner_status.get("scan_run_id") or ""),
+        "tickers_processed": processed,
+        "tickers_total": total,
+        "phase": phase,
+    })
+    if _is_transient_storage_error(exc):
+        if total > 0 and processed >= total:
+            result["state"] = "FINALIZATION_PENDING_STORAGE"
+            result["analysis_completed"] = True
+            result["recovery_action"] = "Neste cron gjenopptar sluttbehandling uten ny tickeranalyse."
+        else:
+            result["state"] = "FAILED_STORAGE"
+            result["analysis_completed"] = False
+    return result
+
+
+def _derive_overall_state(state: dict[str, Any]) -> str:
+    """Derive a truthful cron result from critical and maintenance subsystems."""
+    current = str(state.get("state") or "")
+    if current in {"FAILED", "BLOCKED_DEPLOY_MISMATCH", "DEFERRED_DATABASE"}:
+        return current
+    scanner = str((state.get("paper_scanner") or {}).get("state") or "")
+    if scanner == "PARTIAL_CHECKPOINT":
+        return "PARTIAL_CHECKPOINT"
+    if scanner == "FINALIZATION_PENDING_STORAGE":
+        return "DEGRADED_STORAGE"
+    if scanner in {"FAILED", "FAILED_STORAGE"}:
+        return "FAILED"
+    warnings = []
+    for key, field in (
+        ("learning_observation_maintenance", "status"),
+        ("report_repair", "state"),
+        ("report_revalidation", "state"),
+        ("storage_retention", "state"),
+        ("report_delivery_retry", "state"),
+        ("required_reports", "state"),
+    ):
+        value = str((state.get(key) or {}).get(field) or "").upper()
+        if value in {"FAILED", "BLOCKED_DATABASE"}:
+            warnings.append(f"{key}:{value}")
+    state["degraded_components"] = warnings
+    return "COMPLETED_WITH_WARNINGS" if warnings else "COMPLETED"
+
+
+def _production_closure_snapshot(state: dict[str, Any]) -> dict[str, Any]:
+    """Compact live acceptance evidence emitted on every cron."""
+    retention = dict(state.get("storage_retention") or {})
+    scanner = dict(state.get("paper_scanner") or {})
+    checks = {
+        "database_preflight": bool((state.get("database_preflight") or {}).get("ready")),
+        "runtime_identity": bool((state.get("runtime_alignment") or {}).get("aligned")),
+        "cluster_identity": bool((state.get("cluster_alignment") or {}).get("aligned")),
+        "retention_apply_requested": retention.get("apply_requested") is True,
+        "retention_effective": retention.get("apply_enabled") is True and str(retention.get("state") or "") in {"PARTIAL", "COMPLETED"},
+        "scanner_not_failed": str(scanner.get("state") or "") not in {"FAILED", "FAILED_STORAGE"},
+        "no_unresolved_storage_finalization": str(scanner.get("state") or "") != "FINALIZATION_PENDING_STORAGE",
+        "no_degraded_components": not list(state.get("degraded_components") or []),
+    }
+    blockers = [name for name, ok in checks.items() if not ok]
+    return {
+        "state": "CRON_ACCEPTED" if not blockers else "CRON_NOT_ACCEPTED",
+        "checks": checks,
+        "blockers": blockers,
+        "note": "Produksjonsstatus krever i tillegg komplett 08:00/14:00/22:00-sekvens og leveringsbevis.",
+    }
 
 def load_unattended_state() -> dict[str, Any]:
     value = read_json(STATE_KEY, STATE_PATH, {})
@@ -319,10 +428,7 @@ def _run_once_locked() -> dict[str, Any]:
             "error": str(scanner_status.get("error") or "")[:500],
         }
     except Exception as exc:
-        state["paper_scanner"] = {
-            "state": "FAILED", "execution_mode": "SEQUENTIAL_SHARED_2GB_SCHEDULER",
-            "error": f"{type(exc).__name__}: {str(exc)[:500]}",
-        }
+        state["paper_scanner"] = _scanner_failure_state(exc)
 
     # Learning maintenance is non-time-critical. It intentionally runs after
     # the Paper scanner so a long observation-maintenance pass can never delay
@@ -367,8 +473,21 @@ def _run_once_locked() -> dict[str, Any]:
     else:
         state["report_revalidation"] = {**dict(previous.get("report_revalidation") or {}), "state": "NOT_DUE"}
 
-    retention_previous_state = str((previous.get("storage_retention") or {}).get("state") or "")
-    retention_due = retention_previous_state in {"PARTIAL", "FAILED", "BLOCKED_DATABASE"} or _maintenance_due(previous, "storage_retention", default_minutes=1440)
+    retention_previous = dict(previous.get("storage_retention") or {})
+    retention_previous_state = str(retention_previous.get("state") or "")
+    try:
+        from storage_retention import retention_apply_enabled
+        retention_env_enabled = bool(retention_apply_enabled())
+    except Exception:
+        retention_env_enabled = False
+    # If Render is switched from DRY_RUN to APPLY, do not wait up to 24 hours:
+    # run the first bounded delete batch on the very next cron.
+    retention_just_enabled = retention_env_enabled and retention_previous.get("apply_enabled") is not True
+    retention_due = (
+        retention_just_enabled
+        or retention_previous_state in {"PARTIAL", "FAILED", "BLOCKED_DATABASE"}
+        or _maintenance_due(previous, "storage_retention", default_minutes=1440)
+    )
     if retention_due:
         try:
             from storage_retention import run_storage_retention
@@ -379,9 +498,8 @@ def _run_once_locked() -> dict[str, Any]:
         state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "state": "NOT_DUE"}
 
     state["completed_at"] = _now()
-    scanner_state = str((state.get("paper_scanner") or {}).get("state") or "")
-    if state.get("state") == "COMPLETED" and scanner_state == "PARTIAL_CHECKPOINT":
-        state["state"] = "PARTIAL_CHECKPOINT"
+    state["state"] = _derive_overall_state(state)
+    state["production_closure"] = _production_closure_snapshot(state)
     _save(state)
     return state
 
@@ -410,7 +528,10 @@ def main() -> int:
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
-    return 0 if state.get("state") in {"COMPLETED", "PARTIAL_CHECKPOINT", "DEFERRED_DATABASE"} else 1
+    return 0 if state.get("state") in {
+        "COMPLETED", "COMPLETED_WITH_WARNINGS", "PARTIAL_CHECKPOINT",
+        "DEFERRED_DATABASE", "DEGRADED_STORAGE",
+    } else 1
 
 
 if __name__ == "__main__":

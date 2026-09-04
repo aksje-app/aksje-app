@@ -588,8 +588,14 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     except Exception as exc:
         database_capacity = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     try:
-        from storage_retention import load_storage_retention_state
+        from storage_retention import load_storage_retention_state, retention_configuration
         storage_retention = dict(load_storage_retention_state() or {})
+        current_retention_config = dict(retention_configuration() or {})
+        storage_retention["current_configuration"] = current_retention_config
+        storage_retention["configuration_state_mismatch"] = bool(
+            current_retention_config.get("parsed_apply_enabled") is True
+            and storage_retention.get("apply_enabled") is not True
+        )
     except Exception as exc:
         storage_retention = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     try:
