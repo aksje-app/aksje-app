@@ -35,6 +35,11 @@ PROTECTED = [
 OVERSIZE_WARN_BYTES = 64 * 1024 * 1024
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off", ""}
+# User explicitly enabled retention for the production-closure release. If Render
+# omits this single variable from the cron process while the deployed code is the
+# authoritative release, retain the requested APPLY behavior. Explicit false always wins.
+RELEASE_DEFAULT_APPLY_WHEN_ENV_MISSING = True
+_RETENTION_APPLY_ALIASES = ("STORAGE_RETENTION_ENABLED", "STORAGE_RETENTION_DELETE_ENABLED")
 
 
 def _parse_bool(value: Any, *, default: bool = False) -> tuple[bool, str]:
@@ -53,7 +58,26 @@ def retention_configuration() -> dict[str, Any]:
     environment mismatch can never be confused with an internal safety override.
     """
     raw_apply = os.getenv("STORAGE_RETENTION_APPLY")
-    parsed_apply, normalized = _parse_bool(raw_apply, default=False)
+    apply_source = "STORAGE_RETENTION_APPLY"
+    if raw_apply is None:
+        for alias in _RETENTION_APPLY_ALIASES:
+            alias_value = os.getenv(alias)
+            if alias_value is not None:
+                raw_apply = alias_value
+                apply_source = alias
+                break
+    if raw_apply is None:
+        mode_value = os.getenv("STORAGE_RETENTION_MODE")
+        if mode_value is not None:
+            raw_apply = "true" if str(mode_value).strip().lower() in {"apply", "delete", "enabled", "on", "true", "1"} else mode_value
+            apply_source = "STORAGE_RETENTION_MODE"
+    env_missing = raw_apply is None
+    if env_missing:
+        parsed_apply = bool(RELEASE_DEFAULT_APPLY_WHEN_ENV_MISSING)
+        normalized = ""
+        apply_source = "RELEASE_DEFAULT_APPLY_WHEN_ENV_MISSING"
+    else:
+        parsed_apply, normalized = _parse_bool(raw_apply, default=False)
     try:
         batch_size = max(1, min(100, int(os.getenv("STORAGE_RETENTION_BATCH_SIZE", "20") or 20)))
     except Exception:
@@ -66,6 +90,9 @@ def retention_configuration() -> dict[str, Any]:
         "raw_apply_env": raw_apply,
         "normalized_apply_env": normalized,
         "parsed_apply_enabled": parsed_apply,
+        "apply_config_source": apply_source,
+        "apply_env_missing": env_missing,
+        "release_default_apply_when_env_missing": RELEASE_DEFAULT_APPLY_WHEN_ENV_MISSING,
         "batch_size": batch_size,
         "time_budget_seconds": time_budget,
     }
@@ -134,6 +161,9 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
         "raw_apply_env": config["raw_apply_env"],
         "normalized_apply_env": config["normalized_apply_env"],
         "parsed_apply_enabled": config["parsed_apply_enabled"],
+        "apply_config_source": config["apply_config_source"],
+        "apply_env_missing": config["apply_env_missing"],
+        "release_default_apply_when_env_missing": config["release_default_apply_when_env_missing"],
         "disable_reason": disable_reason,
         "database_health": health,
         "protected": PROTECTED,

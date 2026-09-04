@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bd"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bd Production Closure"
+APP_VERSION = "v19.22.0-rc16.31be"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31be Production Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bc"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bd"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31be: Production Closure II. Retention bruker eksplisitt Render-konfigurasjon først og en release-APPLY-default når Render utelater bare apply-variabelen; eksplisitt false vinner alltid. PostgreSQL recovery klassifiseres gjennom innpakket exception-chain slik at ferdig 30/30 sluttbehandling blir DEGRADED_STORAGE og uferdig scan blir DEFERRED_DATABASE i stedet for falsk analysefeil.",
     "v19.22.0-rc16.31bd: Production Closure. Storage-retensjon reagerer nå umiddelbart når Render går fra DRY_RUN til APPLY, logger rå/normalisert/parset/effectiv konfigurasjon og blokkårsaker, og sletter fortsatt kun avgrensede ikke-beskyttede artefakter. Scheduler-status skiller reell analysefeil fra midlertidig PostgreSQL-sluttlagring, bruker lengre eksponentiell retry/replay, avleder sannferdig totalstatus og publiserer et kompakt live production-closure-bevis per cron. Diagnosepakken viser nå både sist lagret retention-state og gjeldende env-konfigurasjon.",
     "v19.22.0-rc16.31bc: Scannerens checkpoint-livssyklus skiller nå eksplisitt SCANNING og FINALIZING. Et avbrudd etter siste ticker gjenopptar sluttbehandling som N/N i stedet for en fiktiv N+1/N-ticker, market_snapshot_id beholdes stabil gjennom resume, og ikke-tidskritisk læringsvedlikehold kjøres etter Paper-scanneren slik at 15-minutters scan ikke forsinkes av vedlikehold.",
     "v19.22.0-rc16.31bb: Produksjonsstabilisering etter BA-drift. PostgreSQL recovery utsetter hele kjøringen før analyse/handel, sluttkvitteringer får kontrollert retry og lokal replay-kvittering, scannergrensen håndheves også ved gjenopptakelse, og retensjon kjører i små tidsavgrensede batcher med eksplisitt diagnosebevis. Rapporthistorikk skiller analytiske treff, kjøpsklarhet, kildeavvik og pipelinefeil; rapportfiler bruker kanonisk rapport-ID og detaljvisning unngår gjentatt lasting og republisering.",

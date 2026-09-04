@@ -123,12 +123,28 @@ def _replay_recovery_receipt() -> dict[str, Any]:
 
 
 
+def _exception_chain_text(exc: Exception | str) -> str:
+    """Flatten an exception chain so wrapped PostgreSQL recovery stays classifiable."""
+    if not isinstance(exc, BaseException):
+        return str(exc or "").lower()
+    parts: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__ or current.__context__
+    return " | ".join(parts).lower()
+
+
 def _is_transient_storage_error(exc: Exception | str) -> bool:
-    text = str(exc or "").lower()
+    text = _exception_chain_text(exc)
     markers = (
         "recovery mode", "not yet accepting connections", "consistent recovery",
+        "database system is in recovery", "database system is not yet accepting",
         "connection reset", "connection refused", "server closed the connection",
         "terminating connection", "storageunavailableerror", "could not connect",
+        "connection to server",
     )
     return any(marker in text for marker in markers)
 
@@ -174,8 +190,9 @@ def _scanner_failure_state(exc: Exception) -> dict[str, Any]:
             result["analysis_completed"] = True
             result["recovery_action"] = "Neste cron gjenopptar sluttbehandling uten ny tickeranalyse."
         else:
-            result["state"] = "FAILED_STORAGE"
+            result["state"] = "DEFERRED_DATABASE"
             result["analysis_completed"] = False
+            result["recovery_action"] = "Neste cron fortsetter fra siste autoritative checkpoint når PostgreSQL er skriveklar."
     return result
 
 
@@ -189,6 +206,8 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         return "PARTIAL_CHECKPOINT"
     if scanner == "FINALIZATION_PENDING_STORAGE":
         return "DEGRADED_STORAGE"
+    if scanner == "DEFERRED_DATABASE":
+        return "DEFERRED_DATABASE"
     if scanner in {"FAILED", "FAILED_STORAGE"}:
         return "FAILED"
     warnings = []
