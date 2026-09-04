@@ -446,7 +446,9 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     ticker_signature = hashlib.sha256("\n".join(tickers).encode("utf-8")).hexdigest()
     scan_run_id = str(checkpoint.get("scan_run_id")) if resume else f"PAPER-SCAN-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     update_scanner_status(scan_run_id=scan_run_id, markets_open=markets, tickers_total=len(tickers), tickers_processed=0)
-    market_snapshot_id = snapshot_service.new_snapshot_id(run_id=scan_run_id, source="paper_scanner")
+    market_snapshot_id = str(checkpoint.get("market_snapshot_id") or "").strip() if resume else ""
+    if not market_snapshot_id:
+        market_snapshot_id = snapshot_service.new_snapshot_id(run_id=scan_run_id, source="paper_scanner")
     allowed_ticker_set = {str(t).upper() for t in tickers}
     candidate_snapshots = [
         row for row in list(checkpoint.get("candidate_snapshots") or [])
@@ -459,7 +461,13 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     trades_executed = int(checkpoint.get("trades_executed") or 0) if resume else 0
     start_index = max(0, min(len(tickers), int(checkpoint.get("next_index") or 0))) if resume else 0
     if resume:
-        print(f"Gjenopptar komplett skanning ved ticker {start_index + 1}/{len(tickers)}; ingen tickere fjernes")
+        if start_index >= len(tickers):
+            print(
+                f"Gjenopptar sluttbehandling etter {len(tickers)}/{len(tickers)} ferdig analyserte tickere; "
+                "ingen ny ticker kjøres"
+            )
+        else:
+            print(f"Gjenopptar komplett skanning ved ticker {start_index + 1}/{len(tickers)}; ingen tickere fjernes")
 
     memory_policy_logged = False
     for ticker_index, ticker in enumerate(tickers[start_index:], start=start_index + 1):
@@ -478,6 +486,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
         if memory_pressure and processed_this_cycle >= minimum_progress:
             save_scanner_checkpoint({
                 "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
+                "market_snapshot_id": market_snapshot_id, "phase": "SCANNING",
                 "tickers": tickers,
                 "next_index": ticker_index - 1, "candidate_snapshots": candidate_snapshots,
                 "latest_prices": latest_prices, "trades_executed": trades_executed,
@@ -610,6 +619,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
             cleanup = release_process_memory(f"paper_scanner:{ticker}")
             save_scanner_checkpoint({
                 "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
+                "market_snapshot_id": market_snapshot_id, "phase": "SCANNING",
                 "tickers": tickers,
                 "next_index": ticker_index, "candidate_snapshots": candidate_snapshots,
                 "latest_prices": latest_prices, "trades_executed": trades_executed,
@@ -620,6 +630,17 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
         scan_run_id=scan_run_id, current_ticker="", tickers_processed=len(tickers),
         trades_executed=trades_executed,
     )
+    # A process can be terminated after the final ticker but before snapshot/
+    # strategy/account finalization. Persist an explicit terminal phase so the
+    # next cron resumes finalization, not a fictitious ticker N+1. Keeping the
+    # snapshot id stable also makes a finalization retry deterministic.
+    save_scanner_checkpoint({
+        "ticker_signature": ticker_signature, "scan_run_id": scan_run_id,
+        "market_snapshot_id": market_snapshot_id, "phase": "FINALIZING",
+        "tickers": tickers, "next_index": len(tickers),
+        "candidate_snapshots": candidate_snapshots, "latest_prices": latest_prices,
+        "trades_executed": trades_executed,
+    })
 
     if candidate_snapshots:
         try:

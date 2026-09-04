@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bb"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bb Production Recovery and Report Integrity"
+APP_VERSION = "v19.22.0-rc16.31bc"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bc Scanner Finalization Integrity"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ba"
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31bc: Scannerens checkpoint-livssyklus skiller nå eksplisitt SCANNING og FINALIZING. Et avbrudd etter siste ticker gjenopptar sluttbehandling som N/N i stedet for en fiktiv N+1/N-ticker, market_snapshot_id beholdes stabil gjennom resume, og ikke-tidskritisk læringsvedlikehold kjøres etter Paper-scanneren slik at 15-minutters scan ikke forsinkes av vedlikehold.",
     "v19.22.0-rc16.31bb: Produksjonsstabilisering etter BA-drift. PostgreSQL recovery utsetter hele kjøringen før analyse/handel, sluttkvitteringer får kontrollert retry og lokal replay-kvittering, scannergrensen håndheves også ved gjenopptakelse, og retensjon kjører i små tidsavgrensede batcher med eksplisitt diagnosebevis. Rapporthistorikk skiller analytiske treff, kjøpsklarhet, kildeavvik og pipelinefeil; rapportfiler bruker kanonisk rapport-ID og detaljvisning unngår gjentatt lasting og republisering.",
     "v19.22.0-rc16.31ba: Skiller analytisk rangering fra dokumentert kjøpsklarhet, innfører kandidatpass og sporbar evidenseskalering, og viser konkrete sperrer for topprangerte kandidater i PDF, JSON og tekst. Læringsstatus skiller delvis datamangel fra reell motorfeil og oppgir feilkoder, berørte tickere og neste forsøk. Ingen score, evidensport eller produksjonsregel svekkes, og kandidatpass lagres først etter bestått sluttsperre.",
     "v19.22.0-rc16.31az: Etterprøvbar resultat- og læringskontroll i ordinære rapporter. Låste observasjoner måles mot markedsbenchmark etter 1, 5, 20 og 60 børsdager, ukesrapport og historisk baseline får revisjonsspor, og all læring forblir isolert fra paper-porteføljen og produksjonsreglene. Mobil levering av PDF/JSON bruker varige lenker, deling og eksplisitt retur til programmet.",
