@@ -326,7 +326,7 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     t1.metric("Siste reelle fremdrift", f"{progress_age} sek siden" if progress_age is not None else "-")
     t2.metric("Worker-heartbeat", f"{heartbeat_age} sek siden" if heartbeat_age is not None else "-")
     work_completed, work_total = status.get("work_completed"), status.get("work_total")
-    t3.metric("Arbeidsenheter", f"{work_completed}/{work_total}" if work_total not in (None, "", 0) else "-")
+    t3.metric("Fasefremdrift", f"{work_completed}/{work_total}" if work_total not in (None, "", 0) else "-")
     context = status.get("active_ticker") or status.get("active_market")
     if not context and state == "RUNNING":
         stage = str(status.get("active_stage") or "").upper()
@@ -412,7 +412,7 @@ def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_termi
     status = get_active_status_snapshot() or {}
     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
     if is_running(status):
-        st.caption("Status og fremdrift oppdateres automatisk hvert 5. sekund mens kjøringen pågår.")
+        st.caption("Status og fremdrift oppdateres automatisk hvert 2. sekund mens kjøringen pågår. Hovedprosenten er samlet fremdrift; Fasefremdrift gjelder bare aktivt steg.")
     execution_id = str(status.get("execution_id") or "")
     if refresh_app_on_terminal and str(status.get("state") or "") in TERMINAL_STATES and execution_id:
         refresh_key = "autonomy_overview_terminal_refresh_v1902"
@@ -436,7 +436,7 @@ def _render_live_progress(
     running = is_running(status)
     fragment = getattr(st, "fragment", None)
     if running and callable(fragment):
-        fragment(run_every="5s")(_live_progress_panel)(
+        fragment(run_every="2s")(_live_progress_panel)(
             allow_quick_start=allow_quick_start,
             refresh_app_on_terminal=refresh_app_on_terminal,
         )

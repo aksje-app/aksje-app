@@ -6237,6 +6237,15 @@ def _run_job_impl(
     except Exception as exc:
         parallel["shadow_learning_error"] = str(exc)
     run["parallel_validation"] = save_parallel_validation(parallel)
+    # The shadow candidate tree duplicates much of the canonical candidate data.
+    # Release it before later report/audit stages so the long-lived web process
+    # does not carry both trees into final JSON/PDF validation.
+    try:
+        del shadow_rows, shadow_run, parallel
+    except (NameError, UnboundLocalError):
+        pass
+    from runtime_memory import release_process_memory
+    release_process_memory("after_parallel_validation")
     try:
         from autonomi_core.runtime.parallel_validation import load_parallel_validation_history
         from autonomi_core.discovery_data.controlled_learning import run_controlled_discovery_learning
@@ -6304,7 +6313,25 @@ def _run_job_impl(
     run.pop("report_document", None)
     run.pop("decision_report", None)
     apply_report_integrity(run)
+    final_pdf = b""
+    final_json = b""
+    final_text = b""
+    export_gate = {}
     try:
+        from runtime_memory import memory_guard, release_process_memory
+        pre_final_cleanup_v19220_rc1631bl = release_process_memory("before_final_export_validation")
+        pre_final_guard_v19220_rc1631bl = memory_guard(
+            "manual_report_before_final_export", soft_limit_mb=1450.0, raise_on_pressure=False,
+        )
+        mark_breadcrumb(
+            "report:memory_guard:before_final_export", component="market_intelligence",
+            detail={"cleanup": pre_final_cleanup_v19220_rc1631bl, "guard": pre_final_guard_v19220_rc1631bl},
+        )
+        if pre_final_guard_v19220_rc1631bl.get("pressure"):
+            raise RuntimeError(
+                f"Kontrollert minnestopp før sluttartefakter: {float(pre_final_guard_v19220_rc1631bl.get('observed_mb') or 0.0):.1f} MB "
+                f">= {float(pre_final_guard_v19220_rc1631bl.get('soft_limit_mb') or 1450.0):.1f} MB"
+            )
         run["final_artifact_sync"] = {
             **dict(run.get("final_artifact_sync") or {}),
             **_finalize_completed_report_artifacts(run, previous=previous),
@@ -6382,6 +6409,27 @@ def _run_job_impl(
             "state": "FAILED_VALIDATION",
             "label": "IKKE ENDELIG – SLUTTKONTROLL FEILET",
         }
+    # RC16.31bl manual-report memory closure: the three serialized final
+    # artifacts can together be hundreds of MB and used to remain referenced
+    # until the entire report function returned.  Their validation result is
+    # already copied into final_release_gate, so release the byte buffers before
+    # persistence, archive bookkeeping and the COMPLETE progress callback.
+    final_pdf = b""
+    final_json = b""
+    final_text = b""
+    export_gate = {}
+    # Previous full report and staging lists are no longer needed from here.
+    # Dropping these references matters on the 2 GiB Render web container.
+    previous = {}
+    market_runs = []
+    all_candidates = []
+    all_proposals = []
+    from runtime_memory import release_process_memory
+    cleanup_snapshot_v19220_rc1631bl = release_process_memory("after_final_export_validation")
+    mark_breadcrumb(
+        "report:memory_cleanup:after_final_gate", component="market_intelligence",
+        detail={"run_id": run_id, "cleanup": cleanup_snapshot_v19220_rc1631bl},
+    )
     from production_readiness import assess_production_readiness
     run["production_readiness"] = assess_production_readiness(run)
     _write(RUNS_DIR / f"{run_id}.json", run)
@@ -7885,8 +7933,11 @@ def render_market_intelligence() -> None:
                     with st.expander(f"Vis trend · {ticker} · {phase}", expanded=False):
                         series = [r for r in (receipt.get("price_trend_60d") or []) if isinstance(r, Mapping) and r.get("close") is not None]
                         if series:
+                            import plotly.graph_objects as go
                             chart_df = pd.DataFrame(series).copy()
+                            chart_df["date"] = pd.to_datetime(chart_df["date"], errors="coerce")
                             chart_df["close"] = pd.to_numeric(chart_df["close"], errors="coerce")
+                            chart_df = chart_df.dropna(subset=["date", "close"]).sort_values("date")
                             chart_df["SMA20"] = chart_df["close"].rolling(20).mean()
                             chart_df["SMA50"] = chart_df["close"].rolling(50).mean()
                             delta = chart_df["close"].diff()
@@ -7899,13 +7950,55 @@ def render_market_intelligence() -> None:
                                 key=f"trend_period_{ticker}_{latest.get('run_id','latest')}",
                                 label_visibility="collapsed",
                             )
-                            visible = chart_df.tail(20 if period == "20d" else 60).set_index("date")
-                            price_view = visible.rename(columns={"close":"Kurs"})[["Kurs", "SMA20", "SMA50"]]
-                            st.line_chart(price_view, height=190)
-                            rsi_view = visible[["RSI14"]].dropna()
-                            if not rsi_view.empty:
-                                st.caption("RSI(14) · 70 = overkjøpt referanse · 30 = oversolgt referanse")
-                                st.line_chart(rsi_view, height=105)
+                            visible = chart_df.tail(20 if period == "20d" else 60).copy()
+                            if not visible.empty:
+                                base = float(visible["close"].iloc[0]) or 1.0
+                                for col in ("close", "SMA20", "SMA50"):
+                                    visible[f"{col}_idx"] = pd.to_numeric(visible[col], errors="coerce") / base * 100.0
+                                plotted = [
+                                    float(v) for col in ("close_idx", "SMA20_idx", "SMA50_idx")
+                                    for v in visible[col].dropna().tolist()
+                                ]
+                                lo = min(plotted) if plotted else 95.0
+                                hi = max(plotted) if plotted else 105.0
+                                pad = max(0.8, (hi - lo) * 0.12)
+                                fig = go.Figure()
+                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["close_idx"], name="Kurs", mode="lines", line={"width": 3}))
+                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["SMA20_idx"], name="SMA20", mode="lines", line={"width": 1.6}))
+                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["SMA50_idx"], name="SMA50", mode="lines", line={"width": 1.6}))
+                                fig.add_trace(go.Scatter(
+                                    x=[visible["date"].iloc[-1]], y=[visible["close_idx"].iloc[-1]],
+                                    name="Siste", mode="markers", marker={"size": 8}, showlegend=False,
+                                    hovertemplate=f"Siste kurs: {float(visible['close'].iloc[-1]):.2f}<extra></extra>",
+                                ))
+                                first_seen = pd.to_datetime(receipt.get("first_discovered_at"), errors="coerce", utc=True)
+                                selected_at = pd.to_datetime((trend_row.get("raw") or {}).get("selected_at") or trend_row.get("selected_at"), errors="coerce", utc=True)
+                                start_date = pd.Timestamp(visible["date"].iloc[0])
+                                end_date = pd.Timestamp(visible["date"].iloc[-1])
+                                if start_date.tzinfo is None:
+                                    start_date = start_date.tz_localize("UTC")
+                                    end_date = end_date.tz_localize("UTC")
+                                for marker_date, marker_label in ((first_seen, "Først oppdaget"), (selected_at, "Valgt kandidat")):
+                                    if marker_date is not pd.NaT and pd.notna(marker_date) and start_date <= marker_date <= end_date:
+                                        fig.add_vline(x=marker_date.to_pydatetime(), line_width=1, line_dash="dot", annotation_text=marker_label, annotation_position="top")
+                                fig.update_layout(
+                                    height=260, margin={"l": 35, "r": 18, "t": 26, "b": 28},
+                                    hovermode="x unified", legend={"orientation": "h", "y": 1.12, "x": 0},
+                                    yaxis={"title": "Indeks (start = 100)", "range": [lo - pad, hi + pad], "fixedrange": False},
+                                    xaxis={"title": None},
+                                )
+                                st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+                                rsi_visible = visible.dropna(subset=["RSI14"])
+                                if not rsi_visible.empty:
+                                    rfig = go.Figure()
+                                    rfig.add_trace(go.Scatter(x=rsi_visible["date"], y=rsi_visible["RSI14"], name="RSI(14)", mode="lines", line={"width": 2}))
+                                    rfig.add_hline(y=70, line_dash="dot", annotation_text="70")
+                                    rfig.add_hline(y=30, line_dash="dot", annotation_text="30")
+                                    rfig.update_layout(
+                                        height=155, margin={"l": 35, "r": 18, "t": 15, "b": 25},
+                                        showlegend=False, yaxis={"title": "RSI", "range": [0, 100]}, xaxis={"title": None},
+                                    )
+                                    st.plotly_chart(rfig, width="stretch", config={"displayModeBar": False})
                         raw_trend = trend_row.get("raw") if isinstance(trend_row.get("raw"), Mapping) else {}
                         rsi_now = raw_trend.get("rsi")
                         volume_ratio = receipt.get("volume_ratio_20")
@@ -8098,12 +8191,18 @@ def render_market_intelligence() -> None:
                 f"{archive_start_v19220_rc1617 + len(visible_archive_rows_v19220_rc1617)} av {len(filtered)} rapporter. "
                 "Rapportfiler lastes bare når «Last rapportdetaljer» aktiveres."
             )
+        detail_query_key_v19220_rc1631bl = "report_detail"
+        try:
+            detail_query_run_id_v19220_rc1631bl = str(st.query_params.get(detail_query_key_v19220_rc1631bl) or "")
+        except Exception:
+            detail_query_run_id_v19220_rc1631bl = ""
         for row in visible_archive_rows_v19220_rc1617:
+            archive_run_id = str(row.get("run_id") or "")
             shown_time = row.get("created_at_local") or local_display(row.get("created_at"), str(row.get("timezone_name") or DEFAULT_TIMEZONE))
             kind = "Revalidering" if str(row.get("history_kind") or row.get("trigger") or "").upper() == "REVALIDATION" else str(row.get("report_label") or "Rapport")
             job_label = str(row.get("job_name") or "-")
             label = f"{'⭐ ' if row.get('favorite') else ''}{kind} · {job_label} · {shown_time}"
-            with st.expander(label, expanded=False):
+            with st.expander(label, expanded=(archive_run_id == detail_query_run_id_v19220_rc1631bl)):
                 state_label = row.get("report_status_label") or row.get("report_state") or "Eldre rapport"
                 st.caption(
                     f"Status: {state_label} · Revisjon: {row.get('report_revision_label') or 'R1'}"
@@ -8124,25 +8223,51 @@ def render_market_intelligence() -> None:
                 if row.get("low_reliability"): flags.append("Lav beslutningsstyrke")
                 if flags:
                     st.caption(" · ".join(flags))
+                detail_toggle_key_v19220_rc1631bl = f"mi_load_archive_details_v19220_rc1631bl_{archive_run_id}"
+                if detail_toggle_key_v19220_rc1631bl not in st.session_state:
+                    st.session_state[detail_toggle_key_v19220_rc1631bl] = archive_run_id == detail_query_run_id_v19220_rc1631bl
                 load_details_v19220_rc1617 = st.toggle(
                     "Last rapportdetaljer",
-                    key=f"mi_load_archive_details_v19220_rc1617_{row.get('run_id')}",
-                    help="Laster JSON, PDF, tekst, kjøringsspor og nedlastingshandlinger bare for denne rapporten.",
+                    key=detail_toggle_key_v19220_rc1631bl,
+                    help="Beholder valgt rapport gjennom sideoppdatering. Store rapportfiler lastes først når de klargjøres.",
                 )
+                try:
+                    if load_details_v19220_rc1617:
+                        if detail_query_run_id_v19220_rc1631bl != archive_run_id:
+                            st.query_params[detail_query_key_v19220_rc1631bl] = archive_run_id
+                            detail_query_run_id_v19220_rc1631bl = archive_run_id
+                    elif detail_query_run_id_v19220_rc1631bl == archive_run_id:
+                        if detail_query_key_v19220_rc1631bl in st.query_params:
+                            del st.query_params[detail_query_key_v19220_rc1631bl]
+                        detail_query_run_id_v19220_rc1631bl = ""
+                except Exception:
+                    pass
                 if not load_details_v19220_rc1617:
+                    stale_cache_v19220_rc1631bl = st.session_state.get("mi_single_archive_detail_cache_v19220_rc1631bl") or {}
+                    if str(stale_cache_v19220_rc1631bl.get("run_id") or "") == archive_run_id:
+                        st.session_state.pop("mi_single_archive_detail_cache_v19220_rc1631bl", None)
+                        try:
+                            from runtime_memory import release_process_memory
+                            release_process_memory("report_detail_closed")
+                        except Exception:
+                            pass
                     st.caption("Detaljer og rapportfiler er ikke lastet.")
                     continue
-                # Keep at most one large canonical report in session memory.
-                # Re-running Streamlit controls inside the same expander must
-                # not reload an 11 MB JSON document from PostgreSQL each time.
-                detail_cache_key = "mi_single_archive_detail_cache_v19220_rc1631bb"
+                st.caption("Rapportsammendraget er klart. PDF/JSON/tekst lastes separat for å holde Rapportsenteret raskt.")
+                # Keep at most one large canonical report in session memory, and
+                # do not fetch it merely because the lightweight detail panel is open.
+                detail_cache_key = "mi_single_archive_detail_cache_v19220_rc1631bl"
                 detail_cache = st.session_state.get(detail_cache_key) or {}
-                archive_run_id = str(row.get("run_id") or "")
                 if str(detail_cache.get("run_id") or "") == archive_run_id:
                     saved_run = dict(detail_cache.get("run") or {})
                 else:
+                    if not st.button("Klargjør rapportfiler", key=f"mi_prepare_archive_files_v19220_rc1631bl_{archive_run_id}", width="content"):
+                        st.info("Rapportfiler er ikke hentet ennå. Trykk «Klargjør rapportfiler» bare når du trenger PDF, JSON, tekst eller komplett kjøringsspor.")
+                        continue
+                    load_started_v19220_rc1631bl = time_module.perf_counter()
                     saved_run = load_archived_run(row)
                     st.session_state[detail_cache_key] = {"run_id": archive_run_id, "run": saved_run}
+                    st.caption(f"Rapportfilene ble klargjort på {time_module.perf_counter() - load_started_v19220_rc1631bl:.1f} sekunder.")
                 trace_id = str((saved_run or {}).get("operations_trace_id") or row.get("operations_trace_id") or "")
                 if trace_id and st.toggle("Vis komplett kjøringsspor", key=f"mi_trace_toggle_{row.get('run_id')}"):
                     try:

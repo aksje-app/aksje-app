@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bk"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bk Norway Scope and Trend UI Closure"
+APP_VERSION = "v19.22.0-rc16.31bl"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bl UI Stability and Manual Report Memory Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bj"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bk"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31bl: UI Stability and Manual Report Memory Closure. Autonomi-fremdrift velger nå ferskeste status mellom prosessminne og atomisk lokal statusfil og oppdateres hvert 2. sekund. Fasefremdrift skilles fra samlet prosent. Rapportsenteret beholder valgt rapport gjennom sideoppdatering via query-param, viser lett sammendrag umiddelbart og laster store PDF/JSON/tekstdata først etter eksplisitt klargjøring. Trendgrafene bruker stram, normalisert indeksvisning med Plotly, 20d/60d, SMA20/SMA50, tydelig RSI 30/70 og markører for første oppdagelse/valg når dato finnes. Sluttkontrollen frigjør store PDF/JSON/tekst- og Shadow-buffere før COMPLETE, med nytt memory-cleanup breadcrumb. Ingen analyse-, kjøps-, risiko-, portefølje- eller handelsgrenser er endret.",
     "v19.22.0-rc16.31bk: Norway Scope and Trend UI Closure. Manuelle testkjøringer følger nå den synlige markedsoverstyringen i både markets og market_profile, og PRODUCTION_NORWAY_ONLY=true låser alle manuelle stabiliseringskjøringer til Norge som ekstra runtime-vern. Utkast rapporteres som Utkast – Norge når dette vernet er aktivt. Trenddetaljer er tilgjengelig for 1–10 med 20d som standard, 60d som alternativ, SMA20/SMA50, RSI(14), volum mot 20d-snitt, avstand til 20d-topp og rangendring. Teknisk PDF bruker 20d kursgraf med SMA20/SMA50 og beholder 60d i nøkkeltall. Misvisende 70/20/10-tekst under full-univers grovskann er korrigert. Ingen analyse-, kjøps-, risiko- eller handelsgrenser er endret.",
     "v19.22.0-rc16.31bj: Learning Memory Closure. Historisk baseline laster ikke lenger opptil 100 komplette arkiverte rapporter samtidig. Rapportene behandles en om gangen, reduseres umiddelbart til et minimalt læringsgrunnlag og frigjøres mellom hver iterasjon. Learning maintenance har varige breadcrumbs rundt daily, baseline, arkivlasting, prisserier og weekly-steg. Ingen analyse-, handels-, risiko- eller porteføljeregler er endret.",
     "v19.22.0-rc16.31bi: OOM Root Cause Closure. Store legacy repository-samlinger leses ikke lenger som hele JSON-dokumenter i scheduler-kontekst. Market snapshots, strategy orders/fills/account snapshots bruker bounded indexed storage/fallback. StorageService logger store JSON-lesinger med payload-storrelse og RSS, og blokkerer kjente monolittiske repository-lesinger i scheduler før Python kan allokere flere GiB. Ingen analyse-, handels-, risiko- eller portefoljeregler er endret.",

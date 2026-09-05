@@ -376,34 +376,36 @@ def get_active_status() -> dict[str, Any]:
 
 
 def get_active_status_snapshot() -> dict[str, Any]:
-    """Return a read-only, low-latency status snapshot for periodic UI polls.
+    """Return the freshest low-latency status snapshot for UI polling.
 
-    Poll order is deliberately memory -> atomic local mirror -> durable store.
-    The common path performs no database connection, no mirror write, no orphan
-    reconciliation and no Session State mutation. This keeps a two-second
-    Streamlit fragment rerun small and prevents the full page from appearing
-    busy while the report worker continues.
+    RC16.31bl compares the in-process copy with the atomic local mirror on every
+    poll.  A Streamlit fragment can otherwise keep rendering an older module
+    snapshot while the worker has already persisted newer phase progress.  The
+    local mirror is tiny, requires no database connection and is authoritative
+    whenever its progress/heartbeat timestamp is newer.
     """
-    snapshot = _runtime_snapshot()
-    if snapshot.get("execution_id"):
-        if snapshot.get("last_progress_at") or snapshot.get("worker_process_identity"):
-            snapshot = reconcile_orphaned_status(snapshot)
-        snapshot["ui_poll_source"] = "PROCESS_MEMORY"
-        return snapshot
-
+    runtime = _runtime_snapshot()
     active = _read_local_status_file(ACTIVE_PATH)
-    execution_id = str(active.get("execution_id") or "")
-    if execution_id:
-        local_status = _read_local_status_file(_status_path(execution_id))
-        if local_status.get("execution_id"):
-            if local_status.get("last_progress_at") or local_status.get("worker_process_identity"):
-                local_status = reconcile_orphaned_status(local_status)
-            _publish_runtime_snapshot(local_status)
-            local_status["ui_poll_source"] = "LOCAL_ATOMIC_MIRROR"
-            return local_status
+    execution_id = str(active.get("execution_id") or runtime.get("execution_id") or "")
+    local_status = _read_local_status_file(_status_path(execution_id)) if execution_id else {}
 
-    # Cold process or missing mirror: one authoritative recovery read. Normal
-    # fragment ticks return from memory after this point.
+    def freshness(value: Mapping[str, Any]) -> datetime:
+        stamps = [
+            _parse_timestamp(value.get("last_progress_at")),
+            _parse_timestamp(value.get("worker_heartbeat_at") or value.get("heartbeat_at")),
+            _parse_timestamp(value.get("updated_at")),
+        ]
+        return max((stamp for stamp in stamps if stamp is not None), default=datetime.min.replace(tzinfo=timezone.utc))
+
+    candidates = [row for row in (runtime, local_status) if isinstance(row, Mapping) and row.get("execution_id")]
+    if candidates:
+        chosen = dict(max(candidates, key=freshness))
+        if chosen.get("last_progress_at") or chosen.get("worker_process_identity"):
+            chosen = reconcile_orphaned_status(chosen)
+        _publish_runtime_snapshot(chosen)
+        chosen["ui_poll_source"] = "LOCAL_ATOMIC_MIRROR" if local_status and freshness(local_status) >= freshness(runtime) else "PROCESS_MEMORY"
+        return chosen
+
     durable = get_active_status()
     if durable:
         durable = dict(durable)
@@ -942,6 +944,18 @@ def _worker(
             "completed_local": local_display(result.get("created_at"), str(result.get("timezone_name") or "Europe/Oslo")),
         })
         _write_status(final)
+        # The canonical report is already durable and the terminal status keeps
+        # only compact fields. Drop the returned full report tree immediately
+        # and trim allocator arenas so the Streamlit web process does not keep
+        # manual-report memory after completion.
+        result = {}
+        chain = {}
+        full_execution = {}
+        try:
+            from runtime_memory import release_process_memory
+            release_process_memory("manual_worker_after_terminal_status")
+        except Exception:
+            pass
     except ExecutionCancelled as exc:
         # Revoke the in-process worker/heartbeat before durable terminal I/O.
         # A slow database write must not leave the UI or watchdog believing
