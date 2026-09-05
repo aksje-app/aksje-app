@@ -319,6 +319,57 @@ class StorageService:
             logging.warning("Ugyldig lokal JSON %s: %s", path, exc)
             return default
 
+    def read_json_array_slice(self, name: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Read a bounded prefix of a legacy JSON array without transferring the whole payload."""
+        name = _safe_name(name); limit = max(0, min(int(limit), 5000))
+        if limit <= 0: return []
+        if self.using_postgres():
+            try:
+                self.init_db(); conn = self._conn()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("""SELECT elem::text FROM app_kv_store,
+                                      LATERAL jsonb_array_elements(payload::jsonb) WITH ORDINALITY AS x(elem, ord)
+                                      WHERE name=%s ORDER BY ord LIMIT %s""", (name, limit))
+                    rows = cur.fetchall()
+                finally:
+                    conn.close()
+                out=[]
+                for row in rows:
+                    val=json.loads(row[0])
+                    if isinstance(val, dict): out.append(val)
+                return out
+            except Exception as exc:
+                logging.warning("Postgres bounded JSON read feilet for %s: %s", name, exc)
+                if not self._local_allowed(): raise StorageUnavailableError(f"read_json_array_slice({name}) feilet") from exc
+        self._require_local_allowed("read_json_array_slice")
+        value=self.read_json(name, [])
+        return [dict(x) for x in value[:limit] if isinstance(x, dict)] if isinstance(value, list) else []
+
+    def read_json_array_item(self, name: str, id_field: str, record_id: Any, default: Any = None) -> Any:
+        """Find one row in a legacy JSON array server-side to avoid multi-hundred-MB Python allocations."""
+        name = _safe_name(name); wanted=str(record_id)
+        if self.using_postgres():
+            try:
+                self.init_db(); conn=self._conn()
+                try:
+                    cur=conn.cursor()
+                    cur.execute("""SELECT elem::text FROM app_kv_store,
+                                      LATERAL jsonb_array_elements(payload::jsonb) AS x(elem)
+                                      WHERE name=%s AND elem ->> %s = %s LIMIT 1""", (name, str(id_field), wanted))
+                    row=cur.fetchone()
+                finally:
+                    conn.close()
+                return default if not row else json.loads(row[0])
+            except Exception as exc:
+                logging.warning("Postgres bounded JSON item read feilet for %s: %s", name, exc)
+                if not self._local_allowed(): raise StorageUnavailableError(f"read_json_array_item({name}) feilet") from exc
+        self._require_local_allowed("read_json_array_item")
+        value=self.read_json(name, [])
+        if isinstance(value, list):
+            return next((dict(x) for x in value if isinstance(x, dict) and str(x.get(id_field) or "") == wanted), default)
+        return default
+
     def write_json(self, name: str, data: Any) -> bool:
         name = _safe_name(name)
         payload = json.dumps(data, ensure_ascii=False, default=str)

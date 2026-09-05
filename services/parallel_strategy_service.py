@@ -193,10 +193,10 @@ class ParallelStrategyService:
         return run_row
 
     def recent_runs(self, limit: int = 20) -> list[dict[str, Any]]:
-        return sorted(self.runs.list(), key=lambda row: str(row.get("completed_at") or ""), reverse=True)[: max(0, int(limit))]
+        return sorted(self.runs.list(limit=max(20, int(limit))), key=lambda row: str(row.get("completed_at") or ""), reverse=True)[: max(0, int(limit))]
 
     def recent_decisions(self, limit: int = 500) -> list[dict[str, Any]]:
-        return sorted(self.decisions.list(), key=lambda row: str(row.get("evaluated_at") or ""), reverse=True)[: max(0, int(limit))]
+        return sorted(self.decisions.list(limit=max(500, int(limit))), key=lambda row: str(row.get("evaluated_at") or ""), reverse=True)[: max(0, int(limit))]
 
 
 _default: ParallelStrategyService | None = None
