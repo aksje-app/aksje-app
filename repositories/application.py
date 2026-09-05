@@ -55,6 +55,8 @@ class MarketSnapshotRepository(JsonRepository):
 
     INDEX_KEY = "repositories/market_snapshots_index.json"
     ITEM_PREFIX = "repositories/market_snapshots/items"
+    INDEX_LIMIT = 5000
+    LEGACY_READ_LIMIT = 500
 
     def __init__(self, storage=None):
         super().__init__("market_snapshots", storage=storage, id_field="snapshot_id")
@@ -95,7 +97,7 @@ class MarketSnapshotRepository(JsonRepository):
             raise ValueError(f"Snapshot-ID {snapshot_id} finnes med annen checksum")
         index = [entry for entry in self._index() if str(entry.get("snapshot_id") or "") != snapshot_id]
         index.insert(0, self._index_entry(value, item_key))
-        return self.storage.write_json(self.INDEX_KEY, index)
+        return self.storage.write_json(self.INDEX_KEY, index[: self.INDEX_LIMIT])
 
     def get(self, record_id: Any) -> dict[str, Any] | None:
         snapshot_id = str(record_id or "")
@@ -112,17 +114,24 @@ class MarketSnapshotRepository(JsonRepository):
         return None
 
     def list(self, limit: int | None = None) -> list[dict[str, Any]]:
+        # Never deserialize the historical monolith in Python.  New snapshots
+        # are item documents; older rows are fetched with a bounded SQL-side
+        # slice only when the index cannot satisfy the requested window.
+        wanted = max(0, int(limit)) if limit is not None else self.LEGACY_READ_LIMIT
+        if wanted == 0:
+            return []
         rows: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for entry in self._index():
+        for entry in self._index()[:wanted]:
             snapshot_id = str(entry.get("snapshot_id") or "")
             row = self.storage.read_json(str(entry.get("item_key") or self._item_key(snapshot_id)), None)
             if isinstance(row, Mapping):
                 rows.append(dict(row)); seen.add(snapshot_id)
-                if limit is not None and len(rows) >= max(0, int(limit)):
+                if len(rows) >= wanted:
                     return rows
-        legacy = self.storage.read_json(self.key, [])
-        if isinstance(legacy, list):
+        remaining = max(0, wanted - len(rows))
+        if remaining:
+            legacy = self.storage.read_json_array_slice(self.key, min(self.LEGACY_READ_LIMIT, remaining + len(seen)))
             for row in legacy:
                 if not isinstance(row, Mapping):
                     continue
@@ -130,7 +139,7 @@ class MarketSnapshotRepository(JsonRepository):
                 if snapshot_id in seen:
                     continue
                 rows.append(dict(row)); seen.add(snapshot_id)
-                if limit is not None and len(rows) >= max(0, int(limit)):
+                if len(rows) >= wanted:
                     break
         return rows
 
@@ -181,11 +190,14 @@ class StrategyRunRepository(_BoundedIndexedRepository):
     def __init__(self, storage=None): super().__init__("strategy_runs", storage=storage, id_field="strategy_run_id")
 class StrategyAccountRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("strategy_accounts", storage=storage, id_field="account_id")
-class StrategyOrderRepository(JsonRepository):
+class StrategyOrderRepository(_BoundedIndexedRepository):
+    INDEX_KEY="repositories/strategy_orders_index.json"; ITEM_PREFIX="repositories/strategy_orders/items"; INDEX_LIMIT=5000; LEGACY_READ_LIMIT=1000
     def __init__(self, storage=None): super().__init__("strategy_orders", storage=storage, id_field="order_id")
-class StrategyFillRepository(JsonRepository):
+class StrategyFillRepository(_BoundedIndexedRepository):
+    INDEX_KEY="repositories/strategy_fills_index.json"; ITEM_PREFIX="repositories/strategy_fills/items"; INDEX_LIMIT=5000; LEGACY_READ_LIMIT=1000
     def __init__(self, storage=None): super().__init__("strategy_fills", storage=storage, id_field="fill_id")
-class StrategyAccountSnapshotRepository(JsonRepository):
+class StrategyAccountSnapshotRepository(_BoundedIndexedRepository):
+    INDEX_KEY="repositories/strategy_account_snapshots_index.json"; ITEM_PREFIX="repositories/strategy_account_snapshots/items"; INDEX_LIMIT=2000; LEGACY_READ_LIMIT=500
     def __init__(self, storage=None): super().__init__("strategy_account_snapshots", storage=storage, id_field="account_snapshot_id")
 class ActivationAnalysisRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("activation_analyses", storage=storage, id_field="analysis_id")
