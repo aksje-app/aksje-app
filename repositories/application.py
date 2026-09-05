@@ -139,9 +139,45 @@ class MarketSnapshotRepository(JsonRepository):
         for row in reversed([dict(value) for value in rows]):
             ok = self.upsert(row) and ok
         return ok
-class StrategyDecisionRepository(JsonRepository):
+class _BoundedIndexedRepository(JsonRepository):
+    INDEX_KEY = ""; ITEM_PREFIX = ""; INDEX_LIMIT = 1000; LEGACY_READ_LIMIT = 500
+    @classmethod
+    def _item_key(cls, record_id: str) -> str:
+        return f"{cls.ITEM_PREFIX}/{hashlib.sha256(str(record_id).encode('utf-8')).hexdigest()}.json"
+    def _index(self) -> list[dict[str, Any]]:
+        value=self.storage.read_json(self.INDEX_KEY, [])
+        return [dict(x) for x in value if isinstance(x, Mapping)] if isinstance(value, list) else []
+    def upsert(self, row: Mapping[str, Any]) -> bool:
+        value=dict(row); rid=str(value.get(self.id_field) or "")
+        if not rid: raise ValueError(f"Missing repository id field: {self.id_field}")
+        item_key=self._item_key(rid)
+        self.storage.write_json(item_key, value)
+        idx=[x for x in self._index() if str(x.get(self.id_field) or "") != rid]
+        idx.insert(0,{self.id_field:rid,"item_key":item_key,"run_id":str(value.get('run_id') or ''),"at":str(value.get('evaluated_at') or value.get('completed_at') or value.get('started_at') or '')})
+        return self.storage.write_json(self.INDEX_KEY, idx[: self.INDEX_LIMIT])
+    def get(self, record_id: Any) -> dict[str, Any] | None:
+        rid=str(record_id or ""); direct=self.storage.read_json(self._item_key(rid), None)
+        if isinstance(direct, Mapping): return dict(direct)
+        legacy=self.storage.read_json_array_item(self.key, self.id_field, rid, None)
+        return dict(legacy) if isinstance(legacy, Mapping) else None
+    def list(self, limit: int | None = None) -> list[dict[str, Any]]:
+        wanted=max(0,int(limit)) if limit is not None else self.LEGACY_READ_LIMIT
+        rows=[]
+        for entry in self._index()[:wanted]:
+            row=self.storage.read_json(str(entry.get('item_key') or self._item_key(entry.get(self.id_field))), None)
+            if isinstance(row, Mapping): rows.append(dict(row))
+        if rows or wanted == 0: return rows
+        return self.storage.read_json_array_slice(self.key, wanted)
+    def replace_all(self, rows: Iterable[Mapping[str, Any]]) -> bool:
+        ok=True
+        for row in reversed([dict(v) for v in rows]): ok=self.upsert(row) and ok
+        return ok
+
+class StrategyDecisionRepository(_BoundedIndexedRepository):
+    INDEX_KEY="repositories/strategy_decisions_index.json"; ITEM_PREFIX="repositories/strategy_decisions/items"; INDEX_LIMIT=5000; LEGACY_READ_LIMIT=1000
     def __init__(self, storage=None): super().__init__("strategy_decisions", storage=storage, id_field="decision_id")
-class StrategyRunRepository(JsonRepository):
+class StrategyRunRepository(_BoundedIndexedRepository):
+    INDEX_KEY="repositories/strategy_runs_index.json"; ITEM_PREFIX="repositories/strategy_runs/items"; INDEX_LIMIT=1000; LEGACY_READ_LIMIT=100
     def __init__(self, storage=None): super().__init__("strategy_runs", storage=storage, id_field="strategy_run_id")
 class StrategyAccountRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("strategy_accounts", storage=storage, id_field="account_id")
