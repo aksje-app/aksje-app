@@ -19,6 +19,7 @@ from typing import Any
 os.environ.setdefault("AI_RUNTIME_ROLE", "scheduler")
 
 from durable_runtime import read_json, write_json
+from runtime_breadcrumbs import mark_breadcrumb
 from storage_architecture import runtime_data_path
 from runtime_dependencies import assert_runtime_dependencies
 
@@ -309,6 +310,7 @@ def _run_once_locked() -> dict[str, Any]:
     }
     from runtime_memory import memory_guard
     def _mem(label: str, *, stop: bool = True):
+        mark_breadcrumb(label, component="scheduled_runner")
         observation = memory_guard(label, raise_on_pressure=False)
         state["memory_observations"].append(observation)
         if stop and observation.get("pressure"):
@@ -372,12 +374,14 @@ def _run_once_locked() -> dict[str, Any]:
         if not scheduler_enabled:
             raise RuntimeError(f"Autonomi-planleggeren er ikke aktivert for cron: {scheduler_reason}")
         from scheduler_background import run_scheduler_cycle
+        mark_breadcrumb("scheduler:due_jobs:run_scheduler_cycle:before", component="scheduled_runner")
 
         # Claim only the short report-scheduler section with the scheduler
         # advisory lock.  Paper scanning has its own lock and may take several
         # minutes; holding the report lock around that work previously made a
         # due 08/14/22 report wait for the following cron cycle.
         scheduler = dict(run_scheduler_cycle(authoritative_unattended=True, already_coordinated=False) or {})
+        mark_breadcrumb("scheduler:due_jobs:run_scheduler_cycle:after", component="scheduled_runner", detail={"runs": scheduler.get("runs"), "state": scheduler.get("state")})
         scheduler["execution_mode"] = "AUTHORITATIVE_UNATTENDED_CRON"
         state["scheduler"] = scheduler
         try:
@@ -455,7 +459,9 @@ def _run_once_locked() -> dict[str, Any]:
         from runtime_memory import release_process_memory
         before_scan = release_process_memory("scheduled_runner:before_paper_scanner")
         from scanner_worker import run_once as run_paper_scanner
+        mark_breadcrumb("scheduler:paper_scanner:before_run_once", component="scheduled_runner")
         trades = int(run_paper_scanner(force=False, check_currency_alerts=False) or 0)
+        mark_breadcrumb("scheduler:paper_scanner:after_run_once", component="scheduled_runner", detail={"trades": trades})
         from paper_scanner_runtime import load_scanner_status
         scanner_status = dict(load_scanner_status() or {})
         state["paper_scanner"] = {
@@ -485,7 +491,9 @@ def _run_once_locked() -> dict[str, Any]:
         from runtime_memory import release_process_memory
         release_process_memory("scheduled_runner:before_learning_observations")
         from learning_observation_engine import run_learning_maintenance
+        mark_breadcrumb("scheduler:learning_maintenance:before", component="scheduled_runner")
         state["learning_observation_maintenance"] = dict(run_learning_maintenance() or {})
+        mark_breadcrumb("scheduler:learning_maintenance:after", component="scheduled_runner", detail={"status": (state.get("learning_observation_maintenance") or {}).get("status")})
     except Exception as exc:
         state["learning_observation_maintenance"] = {"status":"FAILED","error":f"{type(exc).__name__}: {str(exc)[:500]}","production_changed":False}
 

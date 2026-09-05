@@ -39,6 +39,7 @@ from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser
                         install_browser_timezone_bootstrap, local_compact_stamp, local_display,
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
+from runtime_breadcrumbs import mark_breadcrumb
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
 from navigation_state import pin_autonomy_workspace_route_v19220_rc11
 from report_integrity import (
@@ -5413,7 +5414,9 @@ def _run_job_impl(
             for row in integrity_preflight.get("checks") or [] if row.get("blocking")
         )
         raise ValueError(f"Forhåndskontroll blokkerte kjøringen: {blockers or 'ukjent blokkering'}")
+    mark_breadcrumb("report:previous_run:before_read", component="market_intelligence", detail={"job_id": job.job_id, "trigger": trigger})
     previous = dict(revision_parent or {}) or _read(LATEST_PATH, {})
+    mark_breadcrumb("report:previous_run:after_read", component="market_intelligence", detail={"previous_run_id": previous.get("run_id") if isinstance(previous, Mapping) else ""})
     reusable = None if force_refresh or revision_parent else _recent_validated_draft(job, trigger)
     if reusable is not None:
         if progress_callback:
@@ -5422,6 +5425,7 @@ def _run_job_impl(
     def emit(phase: str, completed: int, total: int, message: str, **extra: Any) -> None:
         completed, total = normalise_progress_counts(completed, total)
         payload = {"phase": phase, "completed": completed, "total": total, "message": message, **extra}
+        mark_breadcrumb(f"report:{phase}:{completed}/{total}", component="market_intelligence", detail={"message": message, "market": extra.get("market", ""), "ticker": extra.get("ticker", "")})
         if progress_callback:
             progress_callback(payload)
         if _trace_id:
@@ -5898,6 +5902,7 @@ def _run_job_impl(
             run["memory_cleanup_before_autonomy"] = release_process_memory("before_autonomy")
             from autonomi_core.runtime.orchestrator import execute_market_mission
             emit("AUTONOMOUS", 0, 1, "Kjører teoretiske kjøps- og salgsbeslutninger")
+            mark_breadcrumb("report:autonomy:execute_market_mission:before", component="market_intelligence", detail={"run_id": run_id})
             run["autonomous_chain"] = execute_market_mission(
             run,
             run_autonomous=job.run_autonomous_portfolio,
@@ -5910,6 +5915,7 @@ def _run_job_impl(
                     ticker=str(event.get("ticker") or ""),
                 ),
             )
+            mark_breadcrumb("report:autonomy:execute_market_mission:after", component="market_intelligence", detail={"run_id": run_id, "chain_status": (run.get("autonomous_chain") or {}).get("status")})
             emit("AUTONOMOUS", 1, 3, "Autonomi fullført; kontrollerer lagrede læringsbeslutninger")
             from learning_acceptance import evaluate_learning_run
             run["learning_acceptance"] = evaluate_learning_run(run)
@@ -6001,20 +6007,27 @@ def _run_job_impl(
     report_path_hint = (SUMMARIES_DIR / safe_report_filename(run, "pdf")) if job.save_pdf else (RUNS_DIR / f"{run_id}.json")
     emit("REPORT", 0, 3, "Kontrollerer rapportlagring og filbaner")
     try:
+        mark_breadcrumb("report:persist:preflight:before", component="market_intelligence", detail={"run_id": run_id})
         run["report_storage_preflight"] = report_storage_preflight(run_id, report_path_hint)
         ensure_report_document(run, previous)
+        mark_breadcrumb("report:persist:canonical_save:before", component="market_intelligence", detail={"run_id": run_id})
         canonical_record = save_canonical_result(run)
+        mark_breadcrumb("report:persist:canonical_save:after", component="market_intelligence", detail={"run_id": run_id})
         canonical_run = canonical_payload(canonical_record)
         run["canonical_result"] = dict(canonical_run["canonical_result"])
         emit("REPORT", 0, 1, "Genererer rapport og lagrer resultat")
         if job.save_pdf:
             pdf_path = SUMMARIES_DIR / safe_report_filename(run, "pdf")
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            mark_breadcrumb("report:pdf:main:before", component="market_intelligence", detail={"run_id": run_id})
             pdf_bytes = build_main_pdf(canonical_run)
+            mark_breadcrumb("report:pdf:main:after", component="market_intelligence", detail={"run_id": run_id, "bytes": len(pdf_bytes)})
             pdf_path.write_bytes(pdf_bytes)
             run["pdf_path"] = str(pdf_path)
             technical_pdf_path = pdf_path.with_name(pdf_path.stem + "_technical.pdf")
+            mark_breadcrumb("report:pdf:technical:before", component="market_intelligence", detail={"run_id": run_id})
             technical_pdf_bytes = build_technical_pdf(canonical_run)
+            mark_breadcrumb("report:pdf:technical:after", component="market_intelligence", detail={"run_id": run_id, "bytes": len(technical_pdf_bytes)})
             technical_pdf_path.write_bytes(technical_pdf_bytes)
             run["technical_pdf_path"] = str(technical_pdf_path)
             run["technical_pdf_name"] = technical_pdf_path.name
@@ -6041,7 +6054,9 @@ def _run_job_impl(
                 "published": False, "report_url_available": False,
             }
         emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
+        mark_breadcrumb("report:persist:run_json:before", component="market_intelligence", detail={"run_id": run_id})
         _write(RUNS_DIR / f"{run_id}.json", run)
+        mark_breadcrumb("report:persist:run_json:after", component="market_intelligence", detail={"run_id": run_id})
         if trigger != "REVALIDATION":
             _write(LATEST_PATH, run)
         _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
@@ -6058,7 +6073,9 @@ def _run_job_impl(
         run["persistence"] = persistence
         try:
             from historical_learning import register_run
+            mark_breadcrumb("report:historical_learning:before", component="market_intelligence", detail={"run_id": run_id})
             run["historical_learning"] = {"snapshots_created": register_run(canonical_run), "mode": "DESCRIPTIVE_ONLY", "result_id": canonical_record["result_id"]}
+            mark_breadcrumb("report:historical_learning:after", component="market_intelligence", detail={"run_id": run_id, "snapshots": (run.get("historical_learning") or {}).get("snapshots_created")})
             _write(RUNS_DIR / f"{run_id}.json", run)
         except Exception as exc:
             run["historical_learning"] = {"snapshots_created": 0, "error": str(exc), "mode": "DESCRIPTIVE_ONLY"}

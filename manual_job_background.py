@@ -469,6 +469,54 @@ def force_release(execution_id: str, requested_by: str = "UI") -> dict[str, Any]
         return _write_status(status)
 
 
+def _compact_chain_for_status(chain: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Keep operational status small without altering canonical report storage."""
+    raw = dict(chain or {})
+    compact: dict[str, Any] = {
+        key: raw.get(key) for key in (
+            "version", "chain_id", "created_at", "created_at_local", "timezone_name",
+            "trigger", "source_run_id", "status", "execution", "completed_at",
+        ) if key in raw
+    }
+    compact["errors"] = [str(x)[:500] for x in list(raw.get("errors") or [])[:20]]
+    stages = []
+    for row in list(raw.get("stages") or [])[:40]:
+        if not isinstance(row, Mapping):
+            continue
+        stages.append({
+            key: row.get(key) for key in ("name", "status", "started_at", "completed_at", "duration_seconds") if key in row
+        })
+    compact["stages"] = stages
+    learning_decisions = list(raw.get("learning_decisions") or [])
+    learning_trades = list(raw.get("learning_trades") or [])
+    lp = raw.get("learning_portfolio") if isinstance(raw.get("learning_portfolio"), Mapping) else {}
+    compact["learning_summary"] = {
+        "decision_count": len(learning_decisions),
+        "trade_count": len(learning_trades),
+        "open_positions": len((lp or {}).get("positions") or {}),
+        "closed_positions": len((lp or {}).get("closed_positions") or []),
+        "last_run_id": (lp or {}).get("last_run_id"),
+        "status": (lp or {}).get("status"),
+    }
+    cycle = raw.get("autonomy_cycle") if isinstance(raw.get("autonomy_cycle"), Mapping) else {}
+    account = raw.get("autonomy_learning_account") if isinstance(raw.get("autonomy_learning_account"), Mapping) else {}
+    compact["autonomy_summary"] = {
+        "cycle_run_id": cycle.get("run_id"),
+        "cycle_decisions": len(cycle.get("decisions") or []),
+        "cycle_trades": len(cycle.get("trades") or []),
+        "learning_account_status": account.get("status"),
+        "learning_account_decisions": len(account.get("decisions") or []),
+    }
+    compact["status_compaction"] = {
+        "enabled": True, "canonical_report_unchanged": True,
+        "removed_heavy_fields": [
+            "learning_portfolio", "learning_decisions", "learning_trades",
+            "autonomy_cycle", "autonomy_learning_account", "autonomy_core",
+        ],
+    }
+    return compact
+
+
 def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     """Create a bounded, secret-free job and learning support bundle."""
     # Diagnostics are requested from the long-lived Streamlit process.  Drop
@@ -498,6 +546,8 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "orphan_reason_code",
     }
     sanitized = {key: status.get(key) for key in sorted(allowed) if key in status}
+    if isinstance(sanitized.get("chain"), Mapping):
+        sanitized["chain"] = _compact_chain_for_status(sanitized.get("chain"))
     try:
         from learning_acceptance import build_learning_diagnostics
         learning = build_learning_diagnostics()
@@ -637,6 +687,12 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         ),
         "secret_values_included": False,
     }
+    try:
+        from services.storage_service import get_storage_service
+        oom_breadcrumb = get_storage_service().read_json("runtime/oom_breadcrumb_latest.json", default={}) or {}
+    except Exception as exc:
+        oom_breadcrumb = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+
     collected_at = _now()
     selected_updated_at = str(sanitized.get("updated_at") or sanitized.get("completed_at") or "")
     diagnostic_context = {
@@ -659,6 +715,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "README.txt": readme.encode("utf-8"),
         "status.json": json.dumps(sanitized, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_CONTEXT.json": json.dumps(diagnostic_context, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/OOM_BREADCRUMB_LATEST.json": json.dumps(oom_breadcrumb, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_DIAGNOSTICS.json": json.dumps(learning, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
@@ -846,7 +903,7 @@ def _worker(
             "message": "Hele kjeden er ferdig", "updated_at": _now(),
             "completed_at": _now(), "run_id": result.get("run_id"),
             "chain_id": chain.get("chain_id"), "chain_status": chain.get("status"),
-            "chain": chain, "top_candidates": list(result.get("candidates") or [])[:3],
+            "chain": _compact_chain_for_status(chain), "top_candidates": list(result.get("candidates") or [])[:3],
             "data_refresh": dict(result.get("data_refresh") or {}), "error": "",
             "archive_saved": bool(persistence.get("archive_saved")) if isinstance(persistence, Mapping) else True,
             "run_json_saved": bool(persistence.get("run_json_saved")) if isinstance(persistence, Mapping) else True,
@@ -913,7 +970,7 @@ def _worker(
             "app_runtime_root": report_context.get("app_runtime_root") or "",
             "storage_mode": report_context.get("storage_mode") or "",
             "run_id": str(failed_result.get("run_id") or failed.get("run_id") or ""),
-            "chain": failed_chain,
+            "chain": _compact_chain_for_status(failed_chain),
             "chain_status": failed_chain.get("status"),
             "full_autonomy_execution": failed_execution,
         })
