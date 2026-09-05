@@ -196,19 +196,55 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     close = close.dropna()
     volume = hist.get("Volume")
     fields["last_price"] = _series_value(close, -1)
+    fields["return_5d"] = _return_pct(close, 5)
+    fields["return_10d"] = _return_pct(close, 10)
+    fields["return_20d"] = _return_pct(close, 20)
+    fields["return_60d"] = _return_pct(close, 60)
     fields["return_1m"] = _return_pct(close, 21)
     fields["return_3m"] = _return_pct(close, 63)
     fields["return_6m"] = _return_pct(close, 126)
     fields["rsi"] = _rsi(close)
     fields["rsi_score"] = None if fields["rsi"] is None else _clamp(100.0 - abs(fields["rsi"] - 60.0) * 2.0)
+    sma20 = _finite(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else None
     sma50 = _finite(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
     sma200 = _finite(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+    fields["sma20"] = sma20
     fields["sma50"] = sma50
     fields["sma200"] = sma200
     if sma50 is not None and sma200 not in (None, 0):
         fields["trend_score"] = _clamp(50.0 + ((sma50 / sma200) - 1.0) * 500.0)
     elif sma50 is not None and fields["last_price"] not in (None, 0):
         fields["trend_score"] = _clamp(50.0 + ((fields["last_price"] / sma50) - 1.0) * 350.0)
+
+    # RC16.31bf: compact, factual 60-session trend series for report charts and
+    # discovery auditing. Values come only from the fetched market history.
+    try:
+        tail = close.tail(60)
+        fields["price_trend_60d"] = [
+            {"date": (idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]),
+             "close": round(float(value), 6)}
+            for idx, value in tail.items() if _finite(value) is not None
+        ]
+    except Exception:
+        fields["price_trend_60d"] = []
+    try:
+        high20 = _finite(close.tail(20).max()) if len(close) >= 20 else None
+        high60 = _finite(close.tail(60).max()) if len(close) >= 60 else None
+        last = fields.get("last_price")
+        fields["distance_from_20d_high_pct"] = ((float(last) / high20) - 1.0) * 100.0 if last not in (None, 0) and high20 not in (None, 0) else None
+        fields["distance_from_60d_high_pct"] = ((float(last) / high60) - 1.0) * 100.0 if last not in (None, 0) and high60 not in (None, 0) else None
+    except Exception:
+        pass
+    if volume is not None:
+        try:
+            v = volume.dropna()
+            avg20 = float(v.tail(20).mean()) if len(v) >= 20 else None
+            latest_v = _finite(v.iloc[-1]) if len(v) else None
+            if avg20 and latest_v is not None:
+                fields["volume_ratio_20"] = latest_v / avg20
+        except Exception:
+            pass
+
     returns = close.pct_change().dropna()
     if len(returns) >= 20:
         fields["volatility_pct"] = float(returns.std() * math.sqrt(252) * 100.0)

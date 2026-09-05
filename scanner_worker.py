@@ -1,9 +1,10 @@
 import logging
+import os
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 from cron_control import should_run_background_scan, mark_background_scan_started
 from currency_alert_service import run_currency_alert_checks
 
-AUTOMATED_SCANNER_MARKETS = ("USA", "NORGE", "SVERIGE")
+AUTOMATED_SCANNER_MARKETS = (("NORGE",) if str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"} else ("USA", "NORGE", "SVERIGE"))
 
 
 def _open_automated_markets():
@@ -38,7 +39,6 @@ def _filter_items_by_settings(items, settings):
 
 from settings_store import load_settings, enabled_markets
 
-import os
 import time
 import requests
 import hashlib

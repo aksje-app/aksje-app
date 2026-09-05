@@ -2820,6 +2820,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import CondPageBreak, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.graphics.shapes import Drawing, Line, String
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
@@ -2926,6 +2927,41 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             return (f"{number:+.{decimals}f}").replace(".", ",")
         except (TypeError, ValueError):
             return str(value if value is not None else "-")
+
+    def _trend_receipt(candidate: Mapping[str, Any]) -> Mapping[str, Any]:
+        value = candidate.get("trend_receipt")
+        return value if isinstance(value, Mapping) else {}
+
+    def _trend_chart(candidate: Mapping[str, Any], width: float = 164*mm, height: float = 34*mm) -> Drawing | None:
+        receipt = _trend_receipt(candidate)
+        points = [row for row in (receipt.get("price_trend_60d") or []) if isinstance(row, Mapping)]
+        values = []
+        for row in points:
+            try:
+                values.append(float(row.get("close")))
+            except Exception:
+                values.append(None)
+        clean = [v for v in values if v is not None]
+        if len(clean) < 5:
+            return None
+        lo, hi = min(clean), max(clean)
+        span = max(hi-lo, max(abs(hi), 1.0)*0.01)
+        d = Drawing(width, height)
+        left, right, bottom, top = 7*mm, width-3*mm, 7*mm, height-4*mm
+        d.add(Line(left, bottom, right, bottom, strokeColor=colors.HexColor("#B8C4CE"), strokeWidth=.5))
+        coords=[]
+        n=max(1,len(values)-1)
+        for i,v in enumerate(values):
+            if v is None: continue
+            x=left+(right-left)*(i/n)
+            y=bottom+(top-bottom)*((v-lo)/span)
+            coords.append((x,y))
+        for a,b in zip(coords,coords[1:]):
+            d.add(Line(a[0],a[1],b[0],b[1],strokeColor=colors.HexColor("#245B78"),strokeWidth=1.25))
+        d.add(String(left, 1.5*mm, str(points[0].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
+        d.add(String(right-15*mm, 1.5*mm, str(points[-1].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
+        d.add(String(left, top+1*mm, f"{hi:.2f}", fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
+        return d
 
     def _norwegian_decimal_text(value: Any) -> str:
         """Localise standalone decimal numbers without changing versions, IDs or URLs."""
@@ -4238,6 +4274,25 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         ntable = Table(ndata, repeatRows=1, colWidths=[20*mm, 21*mm, 25*mm, 14*mm, 14*mm, 22*mm, 54*mm])
         ntable.setStyle(_table_style(6.4, padding=2))
         story += [Paragraph("Nyhets- og sentimentanalyse", styles["Section"]), Paragraph("Unike, ferske nyhetssaker vektes etter sentiment, kildekvalitet, aktualitet og hendelsespåvirkning. Manglende dekning gir nøytral score.", styles["Small"]), ntable]
+    trend_rows = [row for row in candidates[:3] if isinstance(row, Mapping)]
+    if trend_rows:
+        story += [Paragraph("Trendbevis – prioritert 1–3", styles["Section"]),
+                  Paragraph("60 handelsdager fra samme markedsdata som analysen. Trendbeviset er dokumentasjon og endrer ikke kjøpsgrensen.", styles["Small"])]
+        for trend_index, trend_candidate in enumerate(trend_rows, 1):
+            receipt = _trend_receipt(trend_candidate)
+            chart = _trend_chart(trend_candidate)
+            drivers = "; ".join(str(x) for x in (receipt.get("top_trend_drivers") or [])) or "Ingen komplette trenddrivere"
+            first_seen = _short_datetime(receipt.get("first_discovered_at")) if receipt.get("first_discovered_at") else "første observasjon ikke historisk registrert"
+            metrics = (
+                f"#{trend_index} {trend_candidate.get('ticker','-')} · {receipt.get('trend_phase','UKJENT')} · "
+                f"5d {_fmt_signed(receipt.get('return_5d_pct'))} % · 20d {_fmt_signed(receipt.get('return_20d_pct'))} % · "
+                f"60d {_fmt_signed(receipt.get('return_60d_pct'))} % · først sett {first_seen}. "
+                f"Drivere: {drivers}."
+            )
+            story += [Paragraph(escape(_norwegian_decimal_text(metrics)), styles["Small"])]
+            if chart is not None:
+                story += [chart, Spacer(1, 1.2*mm)]
+
     if run.get("analysis_aborted"):
         story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Section"]),
                   Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyCompact"])]
@@ -5803,6 +5858,15 @@ def _run_job_impl(
                    for item in market_runs
                },
            }}
+    # RC16.31bf: attach factual trend receipts before report integrity freezes the
+    # canonical payload. This layer is descriptive and never mutates scoring.
+    try:
+        from trend_intelligence import annotate_run as _annotate_trends_rc1631bf
+        _trend_history = _read(HISTORY_PATH, {})
+        _annotate_trends_rc1631bf(run, _trend_history if isinstance(_trend_history, Mapping) else {})
+    except Exception as _trend_exc:
+        run["trend_discovery"] = {"state": "DEGRADED", "error": str(_trend_exc)[:500], "production_scoring_changed": False}
+
     run["market_coverage"] = build_market_coverage_v19220_rc9(run)
     run["ranking_explanation"] = build_ranking_explanation(run)
     run["autonomy_candidate_handoff"] = build_autonomy_candidate_handoff(run)
@@ -6503,8 +6567,16 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
             # the 08:00 run while Nordic exchanges are still open. Bypass the
             # normal six-hour cache so this slot always attempts fresh data.
             force_fresh = job.job_id == "MI-REQUIRED-AFTERNOON"
+            effective_job = job
+            norway_only = str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"}
+            if norway_only and str(job.job_id or "").startswith("MI-REQUIRED-"):
+                effective_job = replace(job, markets=["Norge"], market_profile=infer_market_profile(["Norge"]))
+                _audit("NORWAY_PRODUCTION_STABILIZATION", {
+                    "job_id": job.job_id, "saved_markets": list(job.markets or []),
+                    "effective_markets": ["Norge"], "reversible_by_env": "PRODUCTION_NORWAY_ONLY=false",
+                })
             result = run_job(
-                job, trigger="SCHEDULED", scheduled_for=planned_at,
+                effective_job, trigger="SCHEDULED", scheduled_for=planned_at,
                 force_refresh=force_fresh,
             )
             results.append(result)
@@ -7740,6 +7812,23 @@ def render_market_intelligence() -> None:
                     "Handling": decision_label(action), "Status": x.get("autonomy_outcome_label") or decision_label(action),
                 })
             if table: st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True)
+            if candidates:
+                st.markdown("##### Trenddetaljer 4–10")
+                for trend_row in candidates[3:10]:
+                    receipt = trend_row.get("trend_receipt") if isinstance(trend_row.get("trend_receipt"), Mapping) else {}
+                    ticker = str(trend_row.get("ticker") or "-")
+                    phase = str(receipt.get("trend_phase") or "UKJENT")
+                    with st.expander(f"Vis trend · {ticker} · {phase}", expanded=False):
+                        series = [r for r in (receipt.get("price_trend_60d") or []) if isinstance(r, Mapping) and r.get("close") is not None]
+                        if series:
+                            chart_df = pd.DataFrame(series).set_index("date")
+                            st.line_chart(chart_df[["close"]], height=180)
+                        st.caption(
+                            f"Først oppdaget: {receipt.get('first_discovered_at') or 'ikke historisk registrert'} · "
+                            f"5d {receipt.get('return_5d_pct')} % · 20d {receipt.get('return_20d_pct')} % · 60d {receipt.get('return_60d_pct')} %"
+                        )
+                        if receipt.get("top_trend_drivers"):
+                            st.write("Drivere: " + " · ".join(str(x) for x in receipt.get("top_trend_drivers") or []))
             handoff = latest.get("autonomy_candidate_handoff") if isinstance(latest.get("autonomy_candidate_handoff"), Mapping) else {}
             if handoff:
                 st.markdown("#### Autonomi-kandidatoverlevering")
