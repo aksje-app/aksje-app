@@ -612,10 +612,12 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         collector_scanner_configuration = scanner_configuration_snapshot()
     except (ImportError, AttributeError):
         collector_scanner_configuration = {
-            "automated_markets": ["USA", "NORGE", "SVERIGE"],
+            "automated_markets": (["NORGE"] if str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"} else ["USA", "NORGE", "SVERIGE"]),
+            "production_norway_only": str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"},
             "scanner_max_tickers": int(os.getenv("SCANNER_MAX_TICKERS", "30") or 30),
-            "scanner_memory_soft_limit_mb": float(
-                os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "1700") or 1700
+            "scanner_memory_soft_limit_mb": min(
+                float(os.getenv("SCANNER_MEMORY_SOFT_LIMIT_MB", "1700") or 1700),
+                float(os.getenv("SCHEDULER_MEMORY_SOFT_LIMIT_MB", "1450") or 1450),
             ),
             "scanner_min_tickers_per_cycle": max(
                 1, int(os.getenv("SCANNER_MIN_TICKERS_PER_CYCLE", "1") or 1)

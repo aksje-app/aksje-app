@@ -89,3 +89,27 @@ def release_process_memory(reason: str = "") -> dict[str, Any]:
         "reason": str(reason or ""), "objects_collected": int(collected),
         "allocator_trimmed": trimmed, "before": before, "after": after,
     }
+
+
+class MemoryPressureError(RuntimeError):
+    pass
+
+
+def scheduler_memory_soft_limit_mb() -> float:
+    raw = os.getenv("SCHEDULER_MEMORY_SOFT_LIMIT_MB", "1450") or "1450"
+    try:
+        return max(512.0, float(raw))
+    except (TypeError, ValueError):
+        return 1450.0
+
+
+def memory_guard(reason: str = "", *, soft_limit_mb: float | None = None, raise_on_pressure: bool = True) -> dict[str, Any]:
+    snap = memory_snapshot()
+    limit = float(soft_limit_mb if soft_limit_mb is not None else scheduler_memory_soft_limit_mb())
+    rss = float(snap.get("process_rss_mb") or 0.0)
+    cgroup = float(snap.get("cgroup_memory_current_mb") or 0.0)
+    observed = max(rss, cgroup)
+    result = {"reason": str(reason or ""), "soft_limit_mb": limit, "observed_mb": observed, "pressure": observed >= limit, **snap}
+    if result["pressure"] and raise_on_pressure:
+        raise MemoryPressureError(f"Memory guard {reason}: {observed:.1f} MB >= {limit:.1f} MB")
+    return result

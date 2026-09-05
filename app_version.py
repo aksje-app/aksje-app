@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bf"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bf Norway Trend Discovery"
+APP_VERSION = "v19.22.0-rc16.31bg"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bg Memory Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 PREVIOUS_APP_VERSION = "v19.22.0-rc16.31be"
@@ -156,7 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
-    "v19.22.0-rc16.31bf: Norge-fokusert produksjonsstabilisering og Trend Discovery. Faste 08/14/22-rapporter og automatisk Paper-skanner dekker midlertidig bare Norge (reversibelt med PRODUCTION_NORWAY_ONLY=false), mens manuelle markeder beholdes. Markedsberikelsen lagrer faktiske 5/10/20/60-dagers avkastninger, SMA20/SMA50, volum/20d, avstand til 20/60-dagers topp og kompakt 60-dagers kursserie. Rapporter viser trendbevis for prioritet 1-3, klikkbare trenddetaljer for 4-10, første kjente observasjon, trendfase, drivere og rangendring. Trendlaget er beskrivende og endrer ingen produksjons-, risiko- eller handelsgrenser.",
+    "v19.22.0-rc16.31bg: Norge-fokusert produksjonsstabilisering og Trend Discovery. Faste 08/14/22-rapporter og automatisk Paper-skanner dekker midlertidig bare Norge (reversibelt med PRODUCTION_NORWAY_ONLY=false), mens manuelle markeder beholdes. Markedsberikelsen lagrer faktiske 5/10/20/60-dagers avkastninger, SMA20/SMA50, volum/20d, avstand til 20/60-dagers topp og kompakt 60-dagers kursserie. Rapporter viser trendbevis for prioritet 1-3, klikkbare trenddetaljer for 4-10, første kjente observasjon, trendfase, drivere og rangendring. Trendlaget er beskrivende og endrer ingen produksjons-, risiko- eller handelsgrenser.",
     "v19.22.0-rc16.31be: Production Closure II. Retention bruker eksplisitt Render-konfigurasjon først og en release-APPLY-default når Render utelater bare apply-variabelen; eksplisitt false vinner alltid. PostgreSQL recovery klassifiseres gjennom innpakket exception-chain slik at ferdig 30/30 sluttbehandling blir DEGRADED_STORAGE og uferdig scan blir DEFERRED_DATABASE i stedet for falsk analysefeil.",
     "v19.22.0-rc16.31bd: Production Closure. Storage-retensjon reagerer nå umiddelbart når Render går fra DRY_RUN til APPLY, logger rå/normalisert/parset/effectiv konfigurasjon og blokkårsaker, og sletter fortsatt kun avgrensede ikke-beskyttede artefakter. Scheduler-status skiller reell analysefeil fra midlertidig PostgreSQL-sluttlagring, bruker lengre eksponentiell retry/replay, avleder sannferdig totalstatus og publiserer et kompakt live production-closure-bevis per cron. Diagnosepakken viser nå både sist lagret retention-state og gjeldende env-konfigurasjon.",
     "v19.22.0-rc16.31bc: Scannerens checkpoint-livssyklus skiller nå eksplisitt SCANNING og FINALIZING. Et avbrudd etter siste ticker gjenopptar sluttbehandling som N/N i stedet for en fiktiv N+1/N-ticker, market_snapshot_id beholdes stabil gjennom resume, og ikke-tidskritisk læringsvedlikehold kjøres etter Paper-scanneren slik at 15-minutters scan ikke forsinkes av vedlikehold.",

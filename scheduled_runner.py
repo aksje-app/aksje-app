@@ -300,7 +300,19 @@ def _run_once_locked() -> dict[str, Any]:
         "error": "",
         "process": "scheduled_runner",
         "last_failure_fingerprint": previous.get("last_failure_fingerprint", ""),
+        "memory_observations": [],
     }
+    from runtime_memory import memory_guard
+    def _mem(label: str, *, stop: bool = True):
+        observation = memory_guard(label, raise_on_pressure=False)
+        state["memory_observations"].append(observation)
+        if stop and observation.get("pressure"):
+            state.update({"state":"MEMORY_DEFERRED","completed_at":_now(),"error":f"Memory soft limit reached before {label}: {observation.get('observed_mb')} MB"})
+            _save(state)
+            from runtime_memory import MemoryPressureError
+            raise MemoryPressureError(state["error"])
+        return observation
+    _mem("scheduler:start", stop=False)
     _save(state)
 
     state["database_preflight"] = _database_preflight()
@@ -340,6 +352,8 @@ def _run_once_locked() -> dict[str, Any]:
 
         return _save(state)
 
+    _mem("scheduler:before_due_jobs")
+
     # The due-job check is the primary purpose of this process and must run
     # before report repair, revalidation or other maintenance can consume the
     # cron execution window.
@@ -374,6 +388,8 @@ def _run_once_locked() -> dict[str, Any]:
         state["error"] = str(exc)[:1000]
         _notify_failure_once(state, state["error"])
 
+    _mem("scheduler:after_due_jobs")
+
     # The bounded acceptance mode runs only when no ordinary report was claimed
     # in this cron cycle. It uses the same report execution lock. Any positions
     # created are isolated LEARNING_ONLY observations; real trading is impossible.
@@ -385,6 +401,8 @@ def _run_once_locked() -> dict[str, Any]:
             state["report_test_mode"] = {"run_state": "SKIPPED_ORDINARY_REPORT"}
     except Exception as exc:
         state["report_test_mode"] = {"run_state": "FAILED", "error": str(exc)[:500]}
+
+    _mem("scheduler:after_report_test")
 
     # Retry only delivery artifacts from an already stored run. Market scan,
     # Autonomy and learning are never repeated by this step.
@@ -402,6 +420,8 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["required_reports"] = {"state": "FAILED", "error": str(exc)[:500]}
 
+    _mem("scheduler:before_currency_alerts")
+
     # Currency alerts share the durable five-minute Render cron. They run
     # independently of report due-times, market hours and user login.
     try:
@@ -418,6 +438,8 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         # A provider failure must be visible, but must not suppress scheduled reports.
         state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
+
+    _mem("scheduler:before_scanner")
 
     # Paper scanning is intentionally owned by this 2 GiB scheduler service.
     # Reports and scanning run sequentially, never in parallel, so the already
@@ -449,6 +471,8 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["paper_scanner"] = _scanner_failure_state(exc)
 
+    _mem("scheduler:after_scanner")
+
     # Learning maintenance is non-time-critical. It intentionally runs after
     # the Paper scanner so a long observation-maintenance pass can never delay
     # a due 15-minute market scan by tens of minutes.
@@ -459,6 +483,8 @@ def _run_once_locked() -> dict[str, Any]:
         state["learning_observation_maintenance"] = dict(run_learning_maintenance() or {})
     except Exception as exc:
         state["learning_observation_maintenance"] = {"status":"FAILED","error":f"{type(exc).__name__}: {str(exc)[:500]}","production_changed":False}
+
+    _mem("scheduler:after_learning")
 
     # Repair delivery artifacts, but never let this maintenance step block the
     # actual schedule check.
@@ -492,6 +518,8 @@ def _run_once_locked() -> dict[str, Any]:
     else:
         state["report_revalidation"] = {**dict(previous.get("report_revalidation") or {}), "state": "NOT_DUE"}
 
+    _mem("scheduler:before_retention")
+
     retention_previous = dict(previous.get("storage_retention") or {})
     retention_previous_state = str(retention_previous.get("state") or "")
     try:
@@ -516,6 +544,7 @@ def _run_once_locked() -> dict[str, Any]:
     else:
         state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "state": "NOT_DUE"}
 
+    _mem("scheduler:complete", stop=False)
     state["completed_at"] = _now()
     state["state"] = _derive_overall_state(state)
     state["production_closure"] = _production_closure_snapshot(state)
@@ -524,13 +553,24 @@ def _run_once_locked() -> dict[str, Any]:
 
 
 def run_once() -> dict[str, Any]:
-    """Run one cron cycle; each workload owns its narrow coordination lock.
-
-    The report lock must never cover paper scanning or maintenance.  Report
-    generation, paper scanning and maintenance already have independent
-    durable/idempotent contracts.
-    """
-    return _run_once_locked()
+    """Run one cron cycle with a controlled memory-pressure exit."""
+    try:
+        return _run_once_locked()
+    except Exception as exc:
+        from runtime_memory import MemoryPressureError
+        if not isinstance(exc, MemoryPressureError):
+            raise
+        try:
+            state = load_unattended_state()
+        except Exception:
+            state = {}
+        state.update({
+            "state": "MEMORY_DEFERRED", "completed_at": _now(),
+            "error": str(exc)[:1000], "process": "scheduled_runner",
+        })
+        try: _save(state)
+        except Exception: pass
+        return state
 
 
 def main() -> int:
@@ -549,7 +589,7 @@ def main() -> int:
     print(json.dumps(summary, ensure_ascii=False, default=str))
     return 0 if state.get("state") in {
         "COMPLETED", "COMPLETED_WITH_WARNINGS", "PARTIAL_CHECKPOINT",
-        "DEFERRED_DATABASE", "DEGRADED_STORAGE",
+        "DEFERRED_DATABASE", "DEGRADED_STORAGE", "MEMORY_DEFERRED",
     } else 1
 
 
