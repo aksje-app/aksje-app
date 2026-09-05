@@ -2936,13 +2936,34 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     def _trend_chart(candidate: Mapping[str, Any], width: float = 164*mm, height: float = 34*mm) -> Drawing | None:
         receipt = _trend_receipt(candidate)
         points = [row for row in (receipt.get("price_trend_60d") or []) if isinstance(row, Mapping)]
-        values = []
+        full_values: list[float | None] = []
         for row in points:
             try:
-                values.append(float(row.get("close")))
+                full_values.append(float(row.get("close")))
             except Exception:
-                values.append(None)
-        clean = [v for v in values if v is not None]
+                full_values.append(None)
+        if len([v for v in full_values if v is not None]) < 20:
+            return None
+
+        def rolling(values: list[float | None], window: int) -> list[float | None]:
+            out: list[float | None] = []
+            for i in range(len(values)):
+                segment = [v for v in values[max(0, i-window+1):i+1] if v is not None]
+                out.append(sum(segment)/len(segment) if len(segment) >= window else None)
+            return out
+
+        sma20 = rolling(full_values, 20)
+        sma50 = rolling(full_values, 50)
+        # The visual defaults to the last 20 trading days; 60d remains in the
+        # text metrics and the interactive UI can switch periods.
+        start_index = max(0, len(points) - 20)
+        display_points = points[start_index:]
+        series_map = {
+            "Kurs": full_values[start_index:],
+            "SMA20": sma20[start_index:],
+            "SMA50": sma50[start_index:],
+        }
+        clean = [v for values in series_map.values() for v in values if v is not None]
         if len(clean) < 5:
             return None
         lo, hi = min(clean), max(clean)
@@ -2950,18 +2971,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         d = Drawing(width, height)
         left, right, bottom, top = 7*mm, width-3*mm, 7*mm, height-4*mm
         d.add(Line(left, bottom, right, bottom, strokeColor=colors.HexColor("#B8C4CE"), strokeWidth=.5))
-        coords=[]
-        n=max(1,len(values)-1)
-        for i,v in enumerate(values):
-            if v is None: continue
-            x=left+(right-left)*(i/n)
-            y=bottom+(top-bottom)*((v-lo)/span)
-            coords.append((x,y))
-        for a,b in zip(coords,coords[1:]):
-            d.add(Line(a[0],a[1],b[0],b[1],strokeColor=colors.HexColor("#245B78"),strokeWidth=1.25))
-        d.add(String(left, 1.5*mm, str(points[0].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
-        d.add(String(right-15*mm, 1.5*mm, str(points[-1].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
-        d.add(String(left, top+1*mm, f"{hi:.2f}", fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
+        palette = {"Kurs":"#245B78", "SMA20":"#C77D1A", "SMA50":"#2E7D5A"}
+        for label, values in series_map.items():
+            coords=[]
+            n=max(1,len(values)-1)
+            for i,v in enumerate(values):
+                if v is None:
+                    continue
+                x=left+(right-left)*(i/n)
+                y=bottom+(top-bottom)*((v-lo)/span)
+                coords.append((x,y))
+            for a,b in zip(coords,coords[1:]):
+                d.add(Line(a[0],a[1],b[0],b[1],strokeColor=colors.HexColor(palette[label]),strokeWidth=1.25 if label=="Kurs" else .8))
+        d.add(String(left, 1.5*mm, str(display_points[0].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
+        d.add(String(right-15*mm, 1.5*mm, str(display_points[-1].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
+        d.add(String(left, top+1*mm, f"20d  Kurs  SMA20  SMA50", fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
         return d
 
     def _norwegian_decimal_text(value: Any) -> str:
@@ -4183,8 +4207,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         if len(discovery_rows) > 1:
             discovery_table = Table(discovery_rows, repeatRows=1, colWidths=[25*mm, 18*mm, 25*mm, 18*mm, 27*mm, 22*mm, 24*mm])
             discovery_table.setStyle(_table_style(6.5, padding=2))
+            full_universe_mode = any(
+                str((item or {}).get("selection_rule") or "").startswith("Alle gyldige symboler")
+                for item in (run.get("universe_coverage") or []) if isinstance(item, Mapping)
+            )
+            discovery_note = (
+                "Hele det konfigurerte universet grovskannes før shortlist. 70/20/10-rotasjon brukes derfor ikke i dette steget; rotasjon måles først når en eksplisitt discovery-pool er aktiv."
+                if full_universe_mode else
+                "Målfordeling: 70 % dokumenterte, 20 % nye og 10 % eksperimentelle kandidater. Uendrede kildebevis merkes med analysekarantene."
+            )
             story += [Paragraph("Kandidatfunn og datagrunnlag", styles["Subsection"]),
-                      Paragraph("Målfordeling: 70 % dokumenterte, 20 % nye og 10 % eksperimentelle kandidater. Uendrede kildebevis merkes med analysekarantene.", styles["Small"]),
+                      Paragraph(discovery_note, styles["Small"]),
                       discovery_table]
     refresh = run.get("data_refresh") or {}
     refresh_table = Table([
@@ -4278,16 +4311,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     trend_rows = [row for row in candidates[:3] if isinstance(row, Mapping)]
     if trend_rows:
         story += [Paragraph("Trendbevis – prioritert 1–3", styles["Section"]),
-                  Paragraph("60 handelsdager fra samme markedsdata som analysen. Trendbeviset er dokumentasjon og endrer ikke kjøpsgrensen.", styles["Small"])]
+                  Paragraph("Grafen viser siste 20 handelsdager med kurs, SMA20 og SMA50. 60-dagers utvikling beholdes i nøkkeltallene. Trendbeviset er dokumentasjon og endrer ikke kjøpsgrensen.", styles["Small"])]
         for trend_index, trend_candidate in enumerate(trend_rows, 1):
             receipt = _trend_receipt(trend_candidate)
             chart = _trend_chart(trend_candidate)
             drivers = "; ".join(str(x) for x in (receipt.get("top_trend_drivers") or [])) or "Ingen komplette trenddrivere"
             first_seen = _short_datetime(receipt.get("first_discovered_at")) if receipt.get("first_discovered_at") else "første observasjon ikke historisk registrert"
+            raw_trend = trend_candidate.get("raw") if isinstance(trend_candidate.get("raw"), Mapping) else {}
             metrics = (
                 f"#{trend_index} {trend_candidate.get('ticker','-')} · {receipt.get('trend_phase','UKJENT')} · "
                 f"5d {_fmt_signed(receipt.get('return_5d_pct'))} % · 20d {_fmt_signed(receipt.get('return_20d_pct'))} % · "
-                f"60d {_fmt_signed(receipt.get('return_60d_pct'))} % · først sett {first_seen}. "
+                f"60d {_fmt_signed(receipt.get('return_60d_pct'))} % · RSI {_fmt(raw_trend.get('rsi'))} · "
+                f"volum {_fmt(receipt.get('volume_ratio_20'))}x 20d-snitt · først sett {first_seen}. "
                 f"Drivere: {drivers}."
             )
             story += [Paragraph(escape(_norwegian_decimal_text(metrics)), styles["Small"])]
@@ -5053,8 +5088,19 @@ def _effective_execution_job(job: JobProfile, trigger: str) -> tuple[JobProfile,
     """
     trigger_key = str(trigger or "").upper()
     detail = {"requested_fingerprint": job_fingerprint(job), "draft_merged": False}
+    norway_stabilization = str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"}
+    if norway_stabilization and trigger_key.startswith("MANUAL"):
+        original = job_fingerprint(job)
+        effective_name = "Utkast – Norge" if job.job_id == DRAFT_JOB_ID else job.name
+        job = replace(job, name=effective_name, markets=["Norge"], market_profile=infer_market_profile(["Norge"]))
+        detail.update({
+            "norway_production_stabilization": True,
+            "pre_stabilization_fingerprint": original,
+            "effective_fingerprint": job_fingerprint(job),
+            "reversible_by_env": "PRODUCTION_NORWAY_ONLY=false",
+        })
     if trigger_key != "MANUAL_FULL_CHAIN" or job.job_id == DRAFT_JOB_ID:
-        detail["effective_fingerprint"] = job_fingerprint(job)
+        detail.setdefault("effective_fingerprint", job_fingerprint(job))
         return job, detail
     draft = load_draft_job()
     if not _same_job_name(job.name, draft.name):
@@ -7830,19 +7876,45 @@ def render_market_intelligence() -> None:
                 })
             if table: st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True)
             if candidates:
-                st.markdown("##### Trenddetaljer 4–10")
-                for trend_row in candidates[3:10]:
+                st.markdown("##### Trenddetaljer 1–10")
+                st.caption("20d er standard for tydelig trendretning. Bytt til 60d for lengre kontekst. RSI beregnes fra samme sluttkurser; volum vises relativt til 20-dagers snitt.")
+                for trend_row in candidates[:10]:
                     receipt = trend_row.get("trend_receipt") if isinstance(trend_row.get("trend_receipt"), Mapping) else {}
                     ticker = str(trend_row.get("ticker") or "-")
                     phase = str(receipt.get("trend_phase") or "UKJENT")
                     with st.expander(f"Vis trend · {ticker} · {phase}", expanded=False):
                         series = [r for r in (receipt.get("price_trend_60d") or []) if isinstance(r, Mapping) and r.get("close") is not None]
                         if series:
-                            chart_df = pd.DataFrame(series).set_index("date")
-                            st.line_chart(chart_df[["close"]], height=180)
+                            chart_df = pd.DataFrame(series).copy()
+                            chart_df["close"] = pd.to_numeric(chart_df["close"], errors="coerce")
+                            chart_df["SMA20"] = chart_df["close"].rolling(20).mean()
+                            chart_df["SMA50"] = chart_df["close"].rolling(50).mean()
+                            delta = chart_df["close"].diff()
+                            gain = delta.clip(lower=0).rolling(14).mean()
+                            loss = (-delta.clip(upper=0)).rolling(14).mean()
+                            rs = gain / loss.replace(0, float("nan"))
+                            chart_df["RSI14"] = 100 - (100 / (1 + rs))
+                            period = st.radio(
+                                "Periode", ["20d", "60d"], horizontal=True,
+                                key=f"trend_period_{ticker}_{latest.get('run_id','latest')}",
+                                label_visibility="collapsed",
+                            )
+                            visible = chart_df.tail(20 if period == "20d" else 60).set_index("date")
+                            price_view = visible.rename(columns={"close":"Kurs"})[["Kurs", "SMA20", "SMA50"]]
+                            st.line_chart(price_view, height=190)
+                            rsi_view = visible[["RSI14"]].dropna()
+                            if not rsi_view.empty:
+                                st.caption("RSI(14) · 70 = overkjøpt referanse · 30 = oversolgt referanse")
+                                st.line_chart(rsi_view, height=105)
+                        raw_trend = trend_row.get("raw") if isinstance(trend_row.get("raw"), Mapping) else {}
+                        rsi_now = raw_trend.get("rsi")
+                        volume_ratio = receipt.get("volume_ratio_20")
+                        dist20 = receipt.get("distance_from_20d_high_pct")
                         st.caption(
                             f"Først oppdaget: {receipt.get('first_discovered_at') or 'ikke historisk registrert'} · "
-                            f"5d {receipt.get('return_5d_pct')} % · 20d {receipt.get('return_20d_pct')} % · 60d {receipt.get('return_60d_pct')} %"
+                            f"5d {receipt.get('return_5d_pct')} % · 20d {receipt.get('return_20d_pct')} % · 60d {receipt.get('return_60d_pct')} % · "
+                            f"RSI {rsi_now if rsi_now is not None else '-'} · volum {volume_ratio if volume_ratio is not None else '-'}x · "
+                            f"fra 20d-topp {dist20 if dist20 is not None else '-'} % · rangendring {receipt.get('rank_change', 0)}"
                         )
                         if receipt.get("top_trend_drivers"):
                             st.write("Drivere: " + " · ".join(str(x) for x in receipt.get("top_trend_drivers") or []))

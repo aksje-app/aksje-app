@@ -15,7 +15,7 @@ import threading
 import traceback
 import uuid
 import zipfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -93,6 +93,28 @@ def _explicit_job_name(job: Any) -> str:
     market_label = " + ".join(markets) if markets else "valgte markeder"
     return f"Utkast – {market_label}"
 
+
+
+
+def _apply_manual_norway_stabilization(job: Any, trigger: str) -> Any:
+    """Apply the same reversible Norway-only contract to every manual run path.
+
+    This is defense in depth for Report Center/Overview entry points that do not
+    pass through the orchestrator market selector.  The saved profile is never
+    mutated; only the accepted execution payload is narrowed.
+    """
+    enabled = str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"}
+    trigger_key = str(trigger or "").upper()
+    if not enabled or not trigger_key.startswith("MANUAL"):
+        return job
+    try:
+        from market_universe import infer_market_profile
+        name = str(getattr(job, "name", "") or "")
+        if str(getattr(job, "job_id", "") or "") == "MI-DRAFT-AUTOSAVE":
+            name = "Utkast – Norge"
+        return replace(job, name=name, markets=["Norge"], market_profile=infer_market_profile(["Norge"]))
+    except Exception:
+        return job
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -989,6 +1011,7 @@ def start_manual_job(
     scheduled_for: str = "",
 ) -> dict[str, Any]:
     """Accept one manual job and return immediately with its durable status."""
+    job = _apply_manual_norway_stabilization(job, trigger)
     with _LOCK:
         active = get_active_status()
         if active and active.get("state") not in _TERMINAL:

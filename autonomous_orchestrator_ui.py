@@ -13,7 +13,7 @@ from market_intelligence import _load_report_archive, load_draft_job, load_jobs,
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
 from services.storage_service import get_storage_service
 from local_time import local_display
-from market_universe import CORE_MARKET_SCOPE_LABEL, EXTENDED_NORDIC_SCOPE_LABEL, NORDIC_MARKET_SCOPE_LABEL, FULL_MARKET_SCOPE_LABEL
+from market_universe import CORE_MARKET_SCOPE_LABEL, EXTENDED_NORDIC_SCOPE_LABEL, NORDIC_MARKET_SCOPE_LABEL, FULL_MARKET_SCOPE_LABEL, infer_market_profile
 from navigation_state import capture_navigation_checkpoint_v19144, restore_navigation_checkpoint_v19144
 
 
@@ -42,7 +42,18 @@ def resolve_orchestrator_run_job(selected_job: Any, market_choice: str) -> Any:
     choice = str(market_choice or USE_JOB_MARKETS).strip()
     if choice == USE_JOB_MARKETS:
         return selected_job
-    return replace(selected_job, markets=[choice])
+    # A one-off market choice must update both the selection and the profile.
+    # Leaving the saved CORE profile attached caused market_profile_contract()
+    # to expand a visible Norway-only choice back to Norway+Sweden+USA.
+    effective_name = str(getattr(selected_job, "name", "") or "")
+    if str(getattr(selected_job, "job_id", "") or "") == "MI-DRAFT-AUTOSAVE":
+        effective_name = f"Utkast – {choice}"
+    return replace(
+        selected_job,
+        name=effective_name,
+        markets=[choice],
+        market_profile=infer_market_profile([choice]),
+    )
 
 
 def orchestrator_market_summary(job: Any) -> str:
@@ -198,9 +209,12 @@ def render_autonomous_orchestrator_control_center() -> None:
     labels.update({f"📅 {job.name} · {', '.join(job.markets)}": job for job in active_jobs})
     selected = st.selectbox("Velg oppsett", list(labels), key="orchestrator_ui_job_v18692a")
     selected_job = labels[selected]
+    import os
+    norway_stabilization = str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"}
+    market_choices = ["Norge"] if norway_stabilization else ORCHESTRATOR_MARKET_CHOICES
     market_choice = st.selectbox(
         "Marked for denne kjøringen",
-        ORCHESTRATOR_MARKET_CHOICES,
+        market_choices,
         index=0,
         key="orchestrator_ui_market_override_v19141",
         help=(
@@ -210,6 +224,8 @@ def render_autonomous_orchestrator_control_center() -> None:
     )
     run_job = resolve_orchestrator_run_job(selected_job, market_choice)
     st.info(f"Denne kjøringen bruker: {orchestrator_market_summary(run_job)}")
+    if norway_stabilization:
+        st.caption("Produksjonsstabilisering er aktiv: manuelle testkjøringer er midlertidig låst til Norge. PRODUCTION_NORWAY_ONLY=false åpner de øvrige markedene igjen.")
     is_draft = selected_job.job_id == "MI-DRAFT-AUTOSAVE"
     if is_draft:
         st.info("Dette er det automatisk lagrede utkastet. Du kan teste hele kjeden før du lagrer eller aktiverer en tidsplan.")
