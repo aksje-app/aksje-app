@@ -13,6 +13,11 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+# Must be set before durable_runtime imports StorageService.  This enables the
+# scheduler-only protection against deserializing historical multi-hundred-MB
+# repository monoliths into Python memory.
+os.environ.setdefault("AI_RUNTIME_ROLE", "scheduler")
+
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
 from runtime_dependencies import assert_runtime_dependencies
