@@ -23,7 +23,7 @@ from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path
 
 SCHEMA_VERSION = "1.1"
-ENGINE_VERSION = "v19.22.0-rc16.31bb"
+ENGINE_VERSION = "v19.22.0-rc16.31bj"
 CORE_MARKETS = ("NORGE", "SVERIGE", "USA")
 BENCHMARKS = {"NORGE": "OSEBX.OL", "SVERIGE": "^OMX", "USA": "^GSPC"}
 HORIZONS = (1, 5, 20, 60)
@@ -31,6 +31,23 @@ GROUP_TARGETS = {"STRICT": 30, "MODERATE": 30, "NEAR_THRESHOLD": 30, "MATCHED_CO
 MAX_ACTIVE_OBSERVATIONS = 120
 MAX_ARCHIVED_OBSERVATIONS = 5000
 OSLO = ZoneInfo("Europe/Oslo")
+
+
+def _breadcrumb(stage: str, detail: Mapping[str, Any] | None = None) -> None:
+    """Persist a tiny last-known-step marker; never make learning fail."""
+    try:
+        from runtime_breadcrumbs import mark_breadcrumb
+        mark_breadcrumb(str(stage), component="learning_observation_engine", detail=dict(detail or {}))
+    except Exception:
+        pass
+
+
+def _release_memory(reason: str) -> None:
+    try:
+        from runtime_memory import release_process_memory
+        release_process_memory(str(reason))
+    except Exception:
+        pass
 
 OBSERVATIONS_KEY = "controlled_learning/observation_cohorts.json"
 OBSERVATIONS_PATH = runtime_data_path("controlled_learning", "observation_cohorts.json")
@@ -578,6 +595,89 @@ def load_audit(limit: int = 500) -> list[dict[str, Any]]:
     return read_events(AUDIT_KEY, AUDIT_PATH, limit=max(1, int(limit)))
 
 
+def _compact_candidate_for_learning(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep only fields consumed by eligibility/group/snapshot logic.
+
+    Full report candidates can contain news, evidence, raw market payloads and
+    other large nested structures. Historical learning must never retain those
+    merely to calculate 1/5/20/60-day outcomes.
+    """
+    keep = (
+        "ticker", "market", "country", "sector", "strategy_match", "strategy",
+        "current_price", "price", "last_price", "regularMarketPrice", "close",
+        "investment_score", "final_score", "score", "risk_score",
+        "data_quality_score", "data_quality", "confidence_score", "technical_score",
+        "fundamental_score", "news_score", "research_score", "validation_score",
+        "portfolio_fit_score", "valid_for_decision", "evidence_valid_for_decision",
+        "autonomy_outcome_code", "portfolio_action", "technical_entry_wait",
+        "decision_readiness", "coverage_role",
+    )
+    compact = {key: row.get(key) for key in keep if key in row}
+    raw = row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    if raw:
+        compact["raw"] = {
+            key: raw.get(key) for key in
+            ("current_price", "price", "last_price", "regularMarketPrice", "close")
+            if key in raw
+        }
+    return compact
+
+
+def _compact_run_for_baseline(run: Mapping[str, Any], *, remaining_signals: int) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    for candidate in (run.get("candidates") or []):
+        if not isinstance(candidate, Mapping) or not _eligible(candidate):
+            continue
+        candidates.append(_compact_candidate_for_learning(candidate))
+        if len(candidates) >= max(0, int(remaining_signals)):
+            break
+    summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    return {
+        "run_id": run.get("run_id"), "report_id": run.get("report_id"),
+        "created_at": run.get("created_at"), "test_run": bool(run.get("test_run")),
+        "report_summary": {"production_buy_threshold": summary.get("production_buy_threshold")},
+        "candidates": candidates,
+    }
+
+
+def _load_compact_baseline_runs(*, max_reports: int = 100, max_signals: int = 1500) -> list[dict[str, Any]]:
+    """Load at most one full archived run at a time.
+
+    RC16.31bi exposed the OOM boundary inside learning maintenance. The old
+    list-comprehension retained up to 100 complete canonical reports at once.
+    This loader sorts only the compact archive metadata, materialises one run,
+    immediately projects it to the tiny learning contract, then releases it.
+    """
+    from market_intelligence import _load_report_archive, load_archived_run
+
+    _breadcrumb("learning:baseline:archive_index:before")
+    entries = [dict(entry) for entry in _load_report_archive()[:max(1, int(max_reports))] if isinstance(entry, Mapping)]
+    entries.sort(key=lambda entry: str(entry.get("created_at") or ""))
+    _breadcrumb("learning:baseline:archive_index:after", {"entries": len(entries)})
+
+    compact_runs: list[dict[str, Any]] = []
+    signal_count = 0
+    for index, entry in enumerate(entries, start=1):
+        if signal_count >= max(1, int(max_signals)):
+            break
+        run_id = str(entry.get("run_id") or "")
+        _breadcrumb("learning:baseline:archive_run:before", {"index": index, "run_id": run_id, "signals": signal_count})
+        run = load_archived_run(entry)
+        try:
+            if isinstance(run, Mapping) and run:
+                compact = _compact_run_for_baseline(run, remaining_signals=max_signals - signal_count)
+                if compact.get("candidates"):
+                    compact_runs.append(compact)
+                    signal_count += len(compact["candidates"])
+        finally:
+            run = None
+            _release_memory(f"learning_baseline_archive_run_{index}")
+        _breadcrumb("learning:baseline:archive_run:after", {"index": index, "run_id": run_id, "signals": signal_count})
+    entries = []
+    _release_memory("learning_baseline_archive_index")
+    return compact_runs
+
+
 def build_historical_baseline(
     runs: Sequence[Mapping[str, Any]], *, series_loader: SeriesLoader | None = None,
     now: datetime | None = None, max_signals: int = 1500,
@@ -627,8 +727,10 @@ def build_historical_baseline(
                 "generated_at": _now_iso(now), "production_parameters_changed": False}
     symbols = sorted({row["ticker"] for row in signals} | {row["benchmark_ticker"] for row in signals})
     start_date = (date.fromisoformat(min(row["entry_market_date"] for row in signals)) - timedelta(days=10)).isoformat()
+    _breadcrumb("learning:baseline:series_loader:before", {"symbols": len(symbols), "start_date": start_date})
     try:
         loaded = (series_loader or yfinance_series_loader)(symbols, start_date)
+        _breadcrumb("learning:baseline:series_loader:after", {"symbols": len(symbols)})
     except Exception as exc:
         return {"status": "FEIL", "signal_count": len(signals), "verified_count": 0,
                 "error": f"{type(exc).__name__}: {str(exc)[:500]}", "generated_at": _now_iso(now),
@@ -679,9 +781,13 @@ def generate_historical_baseline(*, runs: Sequence[Mapping[str, Any]] | None = N
     if isinstance(existing, Mapping) and existing.get("report_id"):
         return {"status": "ALREADY_COMPLETED", "report_id": existing.get("report_id")}
     if runs is None:
-        from market_intelligence import _load_report_archive, load_archived_run
-        runs = [load_archived_run(entry) for entry in _load_report_archive()[:100]]
+        _breadcrumb("learning:baseline:compact_archive:before")
+        runs = _load_compact_baseline_runs(max_reports=100, max_signals=1500)
+        _breadcrumb("learning:baseline:compact_archive:after", {"runs": len(runs), "candidates": sum(len(run.get("candidates") or []) for run in runs)})
+    _breadcrumb("learning:baseline:build:before", {"runs": len(runs) if hasattr(runs, "__len__") else None})
     result = build_historical_baseline(runs, series_loader=series_loader, now=now)
+    _breadcrumb("learning:baseline:build:after", {"status": result.get("status"), "signals": result.get("signal_count")})
+    _release_memory("learning_baseline_after_build")
     if int(result.get("signal_count") or 0) <= 0 or str(result.get("status") or "").upper() == "FEIL":
         _audit("HISTORICAL_BASELINE_DEFERRED", result, now=now)
         state=load_engine_state(); state["baseline_attempt"]={"status":result.get("status"),"completed_at":_now_iso(now)}
@@ -874,20 +980,51 @@ def _weekly_due(now: datetime) -> bool:
 def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader|None=None)->dict[str,Any]:
     current=now or datetime.now(timezone.utc)
     result={"status":"COMPLETED","daily":{"status":"NOT_DUE"},"weekly":{"status":"NOT_DUE"},"baseline":{"status":"NOT_DUE"},"production_changed":False}
-    if _daily_due(current): result["daily"]=evaluate_observations(series_loader,now=current)
+    _breadcrumb("learning:maintenance:start", {"local_weekday": current.astimezone(OSLO).weekday()})
+
+    daily_due = _daily_due(current)
+    _breadcrumb("learning:maintenance:daily_due", {"due": daily_due})
+    if daily_due:
+        _breadcrumb("learning:maintenance:daily:before")
+        result["daily"]=evaluate_observations(series_loader,now=current)
+        _breadcrumb("learning:maintenance:daily:after", {"status": result["daily"].get("status")})
+        _release_memory("learning_maintenance_after_daily")
+
     local=current.astimezone(OSLO)
+    _breadcrumb("learning:maintenance:baseline_state:before")
     baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
-    last_attempt=str((load_engine_state().get("baseline_attempt") or {}).get("completed_at") or "")
+    _breadcrumb("learning:maintenance:baseline_state:after", {"has_report": bool(isinstance(baseline,Mapping) and baseline.get("report_id"))})
+    state_for_attempt = load_engine_state()
+    last_attempt=str((state_for_attempt.get("baseline_attempt") or {}).get("completed_at") or "")
+    state_for_attempt = {}
     retry_due=True
     if last_attempt:
         try: retry_due=(current.astimezone(timezone.utc)-datetime.fromisoformat(last_attempt.replace("Z","+00:00")).astimezone(timezone.utc)).total_seconds()>=21600
         except Exception: retry_due=True
-    if not (isinstance(baseline,Mapping) and baseline.get("report_id")) and retry_due and (local.hour<6 or local.weekday()>=5):
+    baseline_due = not (isinstance(baseline,Mapping) and baseline.get("report_id")) and retry_due and (local.hour<6 or local.weekday()>=5)
+    _breadcrumb("learning:maintenance:baseline_due", {"due": baseline_due, "retry_due": retry_due})
+    baseline = {}
+    _release_memory("learning_maintenance_before_baseline")
+    if baseline_due:
+        _breadcrumb("learning:maintenance:baseline:before")
         result["baseline"]=generate_historical_baseline(series_loader=series_loader,now=current)
-    if _weekly_due(current):
+        _breadcrumb("learning:maintenance:baseline:after", {"status": result["baseline"].get("status"), "signals": result["baseline"].get("signal_count")})
+        _release_memory("learning_maintenance_after_baseline")
+
+    _breadcrumb("learning:maintenance:weekly_due:before")
+    weekly_due = _weekly_due(current)
+    _breadcrumb("learning:maintenance:weekly_due:after", {"due": weekly_due})
+    if weekly_due:
+        _breadcrumb("learning:maintenance:weekly_refresh:before")
         result["weekly_refresh"]=evaluate_observations(series_loader,now=current)
+        _breadcrumb("learning:maintenance:weekly_refresh:after", {"status": result["weekly_refresh"].get("status")})
+        _release_memory("learning_maintenance_after_weekly_refresh")
+        _breadcrumb("learning:maintenance:weekly_report:before")
         result["weekly"]=generate_weekly_report(now=current)
+        _breadcrumb("learning:maintenance:weekly_report:after", {"status": result["weekly"].get("status")})
+        _release_memory("learning_maintenance_after_weekly_report")
     if result["daily"].get("status")=="FAILED" or result["weekly"].get("status")=="FAILED": result["status"]="DEGRADED"
+    _breadcrumb("learning:maintenance:done", {"status": result["status"]})
     return result
 
 

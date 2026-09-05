@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bi"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bi OOM Breadcrumb + Status Compaction"
+APP_VERSION = "v19.22.0-rc16.31bj"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bj Learning Memory Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bh"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bi"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31bj: Learning Memory Closure. Historisk baseline laster ikke lenger opptil 100 komplette arkiverte rapporter samtidig. Rapportene behandles en om gangen, reduseres umiddelbart til et minimalt læringsgrunnlag og frigjøres mellom hver iterasjon. Learning maintenance har varige breadcrumbs rundt daily, baseline, arkivlasting, prisserier og weekly-steg. Ingen analyse-, handels-, risiko- eller porteføljeregler er endret.",
     "v19.22.0-rc16.31bi: OOM Root Cause Closure. Store legacy repository-samlinger leses ikke lenger som hele JSON-dokumenter i scheduler-kontekst. Market snapshots, strategy orders/fills/account snapshots bruker bounded indexed storage/fallback. StorageService logger store JSON-lesinger med payload-storrelse og RSS, og blokkerer kjente monolittiske repository-lesinger i scheduler før Python kan allokere flere GiB. Ingen analyse-, handels-, risiko- eller portefoljeregler er endret.",
     "v19.22.0-rc16.31bg: Norge-fokusert produksjonsstabilisering og Trend Discovery. Faste 08/14/22-rapporter og automatisk Paper-skanner dekker midlertidig bare Norge (reversibelt med PRODUCTION_NORWAY_ONLY=false), mens manuelle markeder beholdes. Markedsberikelsen lagrer faktiske 5/10/20/60-dagers avkastninger, SMA20/SMA50, volum/20d, avstand til 20/60-dagers topp og kompakt 60-dagers kursserie. Rapporter viser trendbevis for prioritet 1-3, klikkbare trenddetaljer for 4-10, første kjente observasjon, trendfase, drivere og rangendring. Trendlaget er beskrivende og endrer ingen produksjons-, risiko- eller handelsgrenser.",
     "v19.22.0-rc16.31be: Production Closure II. Retention bruker eksplisitt Render-konfigurasjon først og en release-APPLY-default når Render utelater bare apply-variabelen; eksplisitt false vinner alltid. PostgreSQL recovery klassifiseres gjennom innpakket exception-chain slik at ferdig 30/30 sluttbehandling blir DEGRADED_STORAGE og uferdig scan blir DEFERRED_DATABASE i stedet for falsk analysefeil.",
