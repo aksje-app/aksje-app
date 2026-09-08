@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bu"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bu Norway Universe Source Observability"
+APP_VERSION = "v19.22.0-rc16.31bv"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bv Official Euronext CSV Universe Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bs"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bu"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31bv: Official Euronext CSV Universe Closure. The complete Norway equity master now uses Euronext Live product-directory CSV export as the primary machine-readable source, filtering Oslo Børs, Euronext Growth Oslo and Euronext Expand Oslo while preserving durable diagnostics and fallbacks. No scoring, BUY, risk, Fresh Trend, Paper Trade or portfolio thresholds changed.",
     "v19.22.0-rc16.31bo: Fresh Trend Short Report Alert. The compact investor PDF now surfaces up to three of the strongest Fresh Trend / new-breakout alerts with ticker, signal, fresh score, trend age, 3d/5d movement and a concise Why now explanation. Full RSI, OBV, breakout, relative-strength, support/resistance and prioritized news/insider/short evidence remains in the technical appendix. No buy, risk, portfolio or trading thresholds are changed.",
     "v19.22.0-rc16.31bn: Fresh Trend Opportunity Engine separates NEW/TIDLIG trend starts from established 30–60d winners; adds 1/3/5d acceleration, trend age, breakout hold/confirmation, RSI 50/60 and RSI 10d breakout, SMA20 slope, widening 50/200 spread, compression→expansion, strong-close quality, support/resistance ladders and relative-strength ignition. Qualified fresh signals receive reserved evidence priority for news, insider and short checks inside the existing bounded evidence budget. Existing buy/risk/portfolio/trade thresholds are unchanged.",
     "v19.22.0-rc16.31bm: Early Trend and Breakout Intelligence. Norge-stabiliseringsløpet beholder eksisterende kjøps-, risiko- og porteføljeregler, men får et separat beskrivende tidligsignal-lag som forklarer akselerasjon i 5/10/20d momentum, kurs/SMA20/SMA50/SMA200-struktur, golden cross, 20/60d breakout, RSI 50/70-skift, volum og On Balance Volume-kjøpspress. Trend receipts får marked- og sektorpersentil for relativ styrke, støtte/motstandsnivåer og eksplisitte fortsettelsesargumenter/varsler. Programmet viser en egen Early Signal Watchlist på tvers av kandidatene slik at sterke tekniske oppsett kan oppdages før de nødvendigvis er Top 10 på totalscore. Trenddetaljer viser også breakout-nivåer, RSI 30/50/70 og volum. Ingen signal kan alene utløse kjøp eller endre produksjonsterskler.",

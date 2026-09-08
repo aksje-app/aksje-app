@@ -1,15 +1,17 @@
 """Authoritative Norway equity master from Euronext Oslo markets.
 
-RC16.31bu adds durable, end-to-end source observability for Render. RC16.31bt hardens the live Norway-universe source for Render. Euronext's
-current public product directory is the primary source. The legacy JSON data
-endpoint remains as a compatibility fallback. A durable last-known-good
-snapshot is retained so a temporary source/network failure cannot silently
-shrink the production universe.
+RC16.31bv closes the Norway-universe source gap by using Euronext's own
+current CSV export as the primary machine-readable source. RC16.31bu keeps
+end-to-end source observability for Render, and the HTML / JSON routes remain
+defensive fallbacks. A durable last-known-good snapshot is retained so a
+temporary source/network failure cannot silently shrink the production universe.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from html import unescape
+from io import StringIO
+import csv
 import re
 from typing import Any, Iterable, Mapping
 from urllib.parse import quote
@@ -20,6 +22,8 @@ from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
 
 EURONEXT_STOCKS_ENDPOINT = "https://live.euronext.com/en/pd/data/stocks"
+EURONEXT_STOCKS_ENDPOINT_CURRENT = "https://live.euronext.com/en/pd_es/data/stocks"
+EURONEXT_STOCKS_DOWNLOAD_ENDPOINT = "https://live.euronext.com/en/pd_es/data/stocks/download"
 EURONEXT_OSLO_LIST_URL = "https://live.euronext.com/en/markets/oslo/equities/list"
 EURONEXT_PRODUCT_DIRECTORY_URL = (
     "https://live.euronext.com/en/pd_es/stocks/"
@@ -34,7 +38,7 @@ MIC_TO_MARKET = {
 MARKET_TO_MIC = {value.casefold(): key for key, value in MIC_TO_MARKET.items()}
 MASTER_KEY = "market_universe/norway_euronext_master.json"
 MASTER_PATH = runtime_data_path("market_universe", "norway_euronext_master.json")
-MASTER_SCHEMA_VERSION = "1.2"
+MASTER_SCHEMA_VERSION = "1.3"
 DIAGNOSTIC_KEY = "market_universe/norway_euronext_fetch_diagnostics.json"
 DIAGNOSTIC_PATH = runtime_data_path("market_universe", "norway_euronext_fetch_diagnostics.json")
 REFRESH_SECONDS = 20 * 60 * 60
@@ -133,7 +137,9 @@ def _mic_from_market(value: str) -> str:
         return "MERK"
     if "expand" in text or "axess" in text or "xoas" in text or "xoax" in text:
         return "XOAS"
-    return "XOSL"
+    if "oslo" in text or text == "xosl":
+        return "XOSL"
+    return ""
 
 
 def _analysis_ticker(symbol: str) -> str:
@@ -189,6 +195,147 @@ def _dedupe_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     output.sort(key=lambda row: (NORWAY_EQUITY_MICS.index(row["exchange_mic"]), row["exchange_symbol"]))
     return output
 
+
+
+
+def _normalise_header(value: Any) -> str:
+    text = _text(value).casefold()
+    text = text.replace("ø", "o").replace("æ", "ae").replace("å", "a")
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _decode_response_bytes(response: Any) -> str:
+    content = getattr(response, "content", None)
+    if isinstance(content, (bytes, bytearray)) and content:
+        raw = bytes(content)
+        for encoding in ("utf-8-sig", "utf-16", "latin-1"):
+            try:
+                return raw.decode(encoding)
+            except Exception:
+                pass
+    return str(getattr(response, "text", "") or "")
+
+
+def _parse_euronext_csv(text: str) -> list[dict[str, Any]]:
+    """Parse Euronext product-directory CSV exports across locale/header changes."""
+    raw = str(text or "").replace("\x00", "")
+    lines = [line for line in raw.splitlines() if line.strip()]
+    if not lines:
+        return []
+
+    header_idx = None
+    delimiter = None
+    for idx, line in enumerate(lines[:40]):
+        for candidate in (";", "\t", ",", "|"):
+            parts = [part.strip().strip('"') for part in line.split(candidate)]
+            norms = {_normalise_header(part) for part in parts}
+            has_isin = any(x == "isin" or x.endswith("isin") for x in norms)
+            has_symbol = any(x in {"symbol", "ticker", "symbole"} or "ticker" in x for x in norms)
+            has_market = any(x in {"market", "marked", "marche"} or "market" in x or "marked" in x for x in norms)
+            if has_isin and has_symbol and has_market and len(parts) >= 4:
+                header_idx = idx
+                delimiter = candidate
+                break
+        if delimiter:
+            break
+    if header_idx is None or delimiter is None:
+        return []
+
+    reader = csv.reader(StringIO("\n".join(lines[header_idx:])), delimiter=delimiter)
+    try:
+        headers = next(reader)
+    except StopIteration:
+        return []
+    norms = [_normalise_header(h) for h in headers]
+
+    def col(*names: str) -> int | None:
+        wanted = {_normalise_header(n) for n in names}
+        for i, value in enumerate(norms):
+            if value in wanted:
+                return i
+        for i, value in enumerate(norms):
+            if any(w and (value.endswith(w) or w in value) for w in wanted):
+                return i
+        return None
+
+    name_i = col("Name", "Navn", "Nom", "Instrument name", "Issuer name")
+    isin_i = col("ISIN")
+    symbol_i = col("Symbol", "Ticker", "Symbole")
+    market_i = col("Market", "Marked", "Marche", "Market name", "Trading location")
+    mic_i = col("MIC", "Market MIC", "Mic code")
+    if isin_i is None or symbol_i is None or (market_i is None and mic_i is None):
+        return []
+
+    parsed: list[dict[str, Any]] = []
+    for values in reader:
+        if not values or max(isin_i, symbol_i, market_i or 0, mic_i or 0) >= len(values):
+            continue
+        isin = _text(values[isin_i]).upper()
+        symbol = _text(values[symbol_i]).upper()
+        mic = _text(values[mic_i]).upper() if mic_i is not None and mic_i < len(values) else ""
+        market = _text(values[market_i]) if market_i is not None and market_i < len(values) else ""
+        if mic:
+            if mic not in NORWAY_EQUITY_MICS:
+                continue
+            market = MIC_TO_MARKET[mic]
+        elif market:
+            mic = _mic_from_market(market)
+        if mic not in NORWAY_EQUITY_MICS:
+            continue
+        name = _text(values[name_i]) if name_i is not None and name_i < len(values) else symbol
+        row = _instrument_row(name, isin, symbol, MIC_TO_MARKET[mic])
+        if row:
+            parsed.append(row)
+    return _dedupe_rows(parsed)
+
+
+def _fetch_official_csv(session: Any, timeout: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Use the official CSV export exposed by Euronext's current product directory."""
+    attempts: list[dict[str, Any]] = []
+    variants = [
+        ("OSLO_MICS", ",".join(NORWAY_EQUITY_MICS)),
+        ("ALL_STOCKS", "dm_all_stock"),
+    ]
+    best_rows: list[dict[str, Any]] = []
+    for label, mics in variants:
+        started = time.monotonic()
+        response = None
+        try:
+            params = {
+                "mics": mics,
+                "initialLetter": "",
+                "fe_type": "csv",
+                "fe_decimal_separator": ".",
+                "fe_date_format": "d/m/Y",
+            }
+            headers = {**_headers(), "Accept": "text/csv,text/plain,application/octet-stream,*/*;q=0.5"}
+            response = session.get(EURONEXT_STOCKS_DOWNLOAD_ENDPOINT, params=params, headers=headers, timeout=timeout)
+            meta = _safe_response_meta(response)
+            response.raise_for_status()
+            body = _decode_response_bytes(response)
+            rows = _parse_euronext_csv(body)
+            _add_attempt(attempts, {
+                "strategy": "OFFICIAL_CSV_EXPORT", "variant": label, "method": "GET",
+                "requested_url": EURONEXT_STOCKS_DOWNLOAD_ENDPOINT, **meta,
+                "rows": len(rows), "parser": "euronext_csv_header_map",
+                "body_prefix": body[:160].replace("\n", " ").replace("\r", " "),
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            })
+            if len(rows) > len(best_rows):
+                best_rows = rows
+            if len(rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
+                break
+        except Exception as exc:
+            row = {
+                "strategy": "OFFICIAL_CSV_EXPORT", "variant": label, "method": "GET",
+                "requested_url": EURONEXT_STOCKS_DOWNLOAD_ENDPOINT,
+                "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            }
+            if response is not None:
+                row.update(_safe_response_meta(response))
+            _add_attempt(attempts, row)
+    return _dedupe_rows(best_rows), attempts
 
 def _parse_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw_rows = payload.get("aaData") or payload.get("data") or []
@@ -259,6 +406,49 @@ def _request_payload() -> tuple[dict[str, str], dict[str, str]]:
     return params, data
 
 
+def _request_payload_current() -> tuple[dict[str, str], dict[str, str]]:
+    params, data = _request_payload()
+    params = dict(params)
+    params["display_filters"] = "df_stocks2"
+    params["display_table"] = "dt_stocks_osl"
+    return params, data
+
+
+def _fetch_current_json(session: Any, timeout: float) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    params, data = _request_payload_current()
+    attempts: list[dict[str, Any]] = []
+    started = time.monotonic()
+    response = None
+    try:
+        headers = {**_headers(), "Accept": "application/json,text/javascript,*/*;q=0.8",
+                   "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+        response = session.post(EURONEXT_STOCKS_ENDPOINT_CURRENT, params=params, data=data, headers=headers, timeout=timeout)
+        meta = _safe_response_meta(response)
+        response.raise_for_status()
+        payload = response.json()
+        rows = _parse_rows(payload)
+        _add_attempt(attempts, {
+            "strategy": "CURRENT_JSON_POST", "method": "POST",
+            "requested_url": EURONEXT_STOCKS_ENDPOINT_CURRENT, **meta,
+            "rows": len(rows),
+            "records_filtered": int(payload.get("recordsFiltered") or payload.get("iTotalDisplayRecords") or 0),
+            "parser": "json_aaData",
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        })
+        return rows, payload, attempts
+    except Exception as exc:
+        row = {
+            "strategy": "CURRENT_JSON_POST", "method": "POST",
+            "requested_url": EURONEXT_STOCKS_ENDPOINT_CURRENT,
+            "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        }
+        if response is not None:
+            row.update(_safe_response_meta(response))
+        _add_attempt(attempts, row)
+        raise NorwayUniverseFetchError(row["error"], attempts=attempts) from exc
+
+
 def _headers() -> dict[str, str]:
     return {
         "User-Agent": "Mozilla/5.0 (compatible; AI-Aksje-Analyzer/19.22; +Norway-equity-master)",
@@ -266,6 +456,7 @@ def _headers() -> dict[str, str]:
         "Accept-Language": "en-US,en;q=0.9,nb;q=0.8",
         "Referer": EURONEXT_OSLO_LIST_URL,
         "Cache-Control": "no-cache",
+        "X-Requested-With": "XMLHttpRequest",
     }
 
 
@@ -365,16 +556,51 @@ def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
     expected = 0
     errors: list[str] = []
 
+    # Primary: Euronext's own machine-readable CSV export used by the current
+    # product directory download control. This avoids parsing the JS shell.
     try:
-        rows, html_attempts = _fetch_product_directory(session, timeout)
-        attempts.extend(html_attempts)
-        if len(rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
-            source = "Euronext product directory"
+        csv_rows, csv_attempts = _fetch_official_csv(session, timeout)
+        attempts.extend(csv_attempts)
+        if len(csv_rows) > len(rows):
+            rows = csv_rows
+        if len(csv_rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
+            source = "Euronext official CSV export"
     except Exception as exc:
-        if isinstance(exc, NorwayUniverseFetchError):
-            attempts.extend(row for row in exc.attempts if row not in attempts)
-        errors.append(f"PRODUCT_DIRECTORY_HTML: {type(exc).__name__}: {exc}")
+        errors.append(f"OFFICIAL_CSV_EXPORT: {type(exc).__name__}: {exc}")
 
+    # Defensive fallback: server-rendered directory, should Euronext restore it.
+    if len(rows) < MIN_REASONABLE_OFFICIAL_ROWS:
+        if rows:
+            errors.append(f"OFFICIAL_CSV_EXPORT: only {len(rows)} rows")
+        try:
+            html_rows, html_attempts = _fetch_product_directory(session, timeout)
+            attempts.extend(html_attempts)
+            if len(html_rows) > len(rows):
+                rows = html_rows
+            if len(html_rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
+                source = "Euronext product directory"
+        except Exception as exc:
+            if isinstance(exc, NorwayUniverseFetchError):
+                attempts.extend(row for row in exc.attempts if row not in attempts)
+            errors.append(f"PRODUCT_DIRECTORY_HTML: {type(exc).__name__}: {exc}")
+
+    # Secondary machine-readable source: current pd_es DataTables endpoint.
+    if len(rows) < MIN_REASONABLE_OFFICIAL_ROWS:
+        try:
+            current_rows, payload, current_attempts = _fetch_current_json(session, timeout)
+            attempts.extend(current_attempts)
+            current_expected = int(payload.get("recordsFiltered") or payload.get("iTotalDisplayRecords") or len(current_rows) or 0)
+            if len(current_rows) > len(rows):
+                rows = current_rows
+                expected = current_expected
+            if len(current_rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
+                source = "Euronext current stocks endpoint"
+        except Exception as exc:
+            if isinstance(exc, NorwayUniverseFetchError):
+                attempts.extend(row for row in exc.attempts if row not in attempts)
+            errors.append(f"CURRENT_JSON_POST: {type(exc).__name__}: {exc}")
+
+    # Compatibility fallback: legacy DataTables JSON endpoint.
     if len(rows) < MIN_REASONABLE_OFFICIAL_ROWS:
         if rows:
             errors.append(f"PRODUCT_DIRECTORY_HTML: only {len(rows)} rows")
@@ -413,7 +639,10 @@ def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
         "status": "OFFICIAL_LIVE",
         "source_authoritative_exchange_master": True,
         "source": source or "Euronext official Norway equity master",
-        "source_url": EURONEXT_PRODUCT_DIRECTORY_URL if source.startswith("Euronext product") else EURONEXT_STOCKS_ENDPOINT,
+        "source_url": (EURONEXT_STOCKS_DOWNLOAD_ENDPOINT if source == "Euronext official CSV export"
+                       else EURONEXT_STOCKS_ENDPOINT_CURRENT if source == "Euronext current stocks endpoint"
+                       else EURONEXT_PRODUCT_DIRECTORY_URL if source.startswith("Euronext product")
+                       else EURONEXT_STOCKS_ENDPOINT),
         "list_url": EURONEXT_OSLO_LIST_URL,
         "mics": list(NORWAY_EQUITY_MICS),
         "fetched_at": now,
