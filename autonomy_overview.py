@@ -23,12 +23,12 @@ from controlled_parameter_learning import APPROVALS_PATH
 from durable_runtime import read_json
 from local_time import local_display
 from manual_job_background import (
-    diagnostic_bundle, force_release, get_active_status, get_active_status_snapshot,
+    diagnostic_bundle, force_release, get_active_status, get_active_status_snapshot, get_status,
     is_running, publish_diagnostic_download, request_cancel, start_manual_job,
 )
 from market_intelligence import (
     _load_report_archive, load_draft_job, load_jobs, load_run,
-    load_archived_run, resolve_report_delivery, safe_report_filename,
+    load_archived_run, resolve_report_delivery, safe_report_filename, render_report_file_center,
 )
 from notifier import pushover_audit, pushover_enabled
 from scheduler_background import scheduler_status
@@ -302,10 +302,11 @@ def _render_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any], *,
 def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = True) -> None:
     status = dict(snapshot.get("status") or {})
     state = str(status.get("state") or "INGEN KJØRING")
+    state_display = "STARTING" if state == "QUEUED" else state
     pct = max(0, min(100, int(status.get("percent") or 0)))
-    st.progress(pct, text=f"{pct} % · {status.get('message') or state}")
+    st.progress(pct, text=f"{pct} % · {status.get('message') or state_display}")
     p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Status", state)
+    p1.metric("Status", state_display)
     p2.metric("Aktivt steg", status.get("active_stage") or "-")
     p3.metric("Oppdatert", local_display(status.get("updated_at"), str(status.get("timezone_name") or "Europe/Oslo")))
     p4.metric("Kjørings-ID", status.get("execution_id") or "-")
@@ -350,6 +351,14 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     event = dict(status.get("progress_event") or {})
     market_index = int(event.get("market_index") or 0)
     market_total = int(event.get("market_total") or 0)
+    phase_name = str(event.get("phase") or status.get("phase") or "").upper()
+    if phase_name in {"SHORT_BASELINE", "INSIDER_BASELINE"}:
+        phase_total = int(event.get("total") or status.get("work_total") or 0)
+        if phase_total:
+            st.info(
+                f"Grunnkontrollutvalg: {phase_total} dybdeanalyserte kandidater. "
+                "Dette er et mellomutvalg for lett innsider/short-kontroll, ikke antall endelige kjøpskandidater."
+            )
     # MARKET_DATA/INSIDER/NEWS/SCORING repeat for every market. They are not
     # globally complete until the pipeline reaches DEDUP or a later phase.
     if str(status.get("phase") or "") not in {"DEDUP", "PORTFOLIO_PROPOSAL", "AUTONOMOUS", "REPORT", "COMPLETE"}:
@@ -377,7 +386,7 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
                 "tidspunkt": status.get("updated_at"), "hendelse": event,
             })
     execution_id = str(status.get("execution_id") or "")
-    if execution_id and state in TERMINAL_STATES:
+    if execution_id and state in (TERMINAL_STATES - {"COMPLETED"}):
         bundle, filename = diagnostic_bundle(execution_id)
         delivery = publish_diagnostic_download(bundle, filename)
         from mobile_file_delivery import render_mobile_file_delivery
@@ -403,13 +412,47 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
                 st.rerun()
     elif allow_quick_start:
         if st.button("▶ Start utkastkjøring", type="primary", key="autonomy_overview_start_v1883"):
-            start_shared_manual_draft_job(trigger="MANUAL_DRAFT_TEST")
-            st.success("Utkastkjøringen er startet. Fremdriften oppdateres automatisk i panelet.")
+            started = start_shared_manual_draft_job(trigger="MANUAL_DRAFT_TEST")
+            execution_id = str(started.get("execution_id") or "")
+            if execution_id:
+                st.session_state["autonomy_pending_execution_v1931bx"] = execution_id
+                st.session_state["autonomy_pending_started_v1931bx"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            st.toast("Utkast er akseptert. Viser STARTING-status nå.", icon="⏳")
+            st.rerun()
+
+
+def _effective_live_status_v1931bx() -> dict[str, Any]:
+    """Rehydrate the exact just-started execution even if local UI state is stale."""
+    status = get_active_status_snapshot() or {}
+    pending_id = str(
+        st.session_state.get("autonomy_pending_execution_v1931bx")
+        or st.session_state.get("mi_pending_execution_v1931bx")
+        or ""
+    )
+    observed_id = str(status.get("execution_id") or "")
+    if pending_id and observed_id != pending_id:
+        pending_status = get_status(pending_id) or {}
+        if pending_status:
+            status = dict(pending_status)
+            observed_id = str(status.get("execution_id") or "")
+        else:
+            status = {
+                "execution_id": pending_id, "state": "QUEUED", "phase": "START",
+                "active_stage": "PREFLIGHT", "percent": 0,
+                "message": "Starter Utkast – venter på første worker-status",
+                "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "timezone_name": "Europe/Oslo",
+            }
+            observed_id = pending_id
+    if pending_id and observed_id == pending_id and str(status.get("state") or "").upper() in TERMINAL_STATES:
+        st.session_state.pop("autonomy_pending_execution_v1931bx", None)
+        st.session_state.pop("mi_pending_execution_v1931bx", None)
+    return dict(status)
 
 
 def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_terminal: bool = True) -> None:
     """Poll only durable job status; never rerender the full Autonomy page."""
-    status = get_active_status_snapshot() or {}
+    status = _effective_live_status_v1931bx()
     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
     if is_running(status):
         st.caption("Status og fremdrift oppdateres automatisk hvert 2. sekund mens kjøringen pågår. Hovedprosenten er samlet fremdrift; Fasefremdrift gjelder bare aktivt steg.")
@@ -429,11 +472,17 @@ def _render_live_progress(
     allow_quick_start: bool = True,
     refresh_app_on_terminal: bool = True,
 ) -> None:
-    # A periodic Streamlit fragment remains scheduled until the fragment is
-    # removed from the page.  Only create it for an actually active job;
-    # completed/failed/cancelled pages are rendered once and stay idle.
-    status = get_active_status() or {}
-    running = is_running(status)
+    # RC16.31bx: polling follows the durable execution id, not a stale local
+    # terminal state from the previous run. The start click stores pending id
+    # before the immediate rerun; this keeps polling alive until that exact id
+    # is observed in durable status.
+    status = _effective_live_status_v1931bx()
+    pending_id = str(
+        st.session_state.get("autonomy_pending_execution_v1931bx")
+        or st.session_state.get("mi_pending_execution_v1931bx")
+        or ""
+    )
+    running = is_running(status) or bool(pending_id and str(status.get("state") or "").upper() not in TERMINAL_STATES)
     fragment = getattr(st, "fragment", None)
     if running and callable(fragment):
         fragment(run_every="2s")(_live_progress_panel)(
@@ -554,10 +603,11 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                      if str(row.get("run_id") or "") == current_result_id),
                     {},
                 )
-                _render_report_delivery(
-                    latest,
-                    current_entry,
+                render_report_file_center(
+                    st, latest, current_entry,
                     key=f"autonomy_completed_{current_result_id}",
+                    execution_id=str(status.get("execution_id") or latest.get("background_execution_id") or ""),
+                    include_complete_zip=True,
                 )
         parallel = dict(snapshot.get("parallel_validation") or {})
         if parallel:

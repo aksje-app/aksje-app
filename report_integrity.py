@@ -50,6 +50,106 @@ def _float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+
+
+def _canonical_ticker_key(candidate: Mapping[str, Any]) -> str:
+    return str(candidate.get("ticker") or "").strip().upper()
+
+
+def _candidate_completeness_rank(candidate: Mapping[str, Any]) -> tuple:
+    """Deterministic precedence used only when duplicate canonical tickers exist."""
+    raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+    readiness = candidate.get("decision_readiness") if isinstance(candidate.get("decision_readiness"), Mapping) else {}
+    evidence_ready = bool(candidate.get("evidence_data_ready") or readiness.get("evidence_data_ready"))
+    final_ready = bool(candidate.get("final_decision_ready") or readiness.get("final_decision_ready"))
+    market_valid = bool(candidate.get("valid_for_decision"))
+    evidence_valid = bool(candidate.get("evidence_valid_for_decision"))
+    # Count non-empty leaf-like fields as the last tie breaker.  This never
+    # recalculates a score; it only selects the richer duplicate record.
+    richness = sum(1 for value in candidate.values() if value not in (None, "", [], {}, ()))
+    raw_richness = sum(1 for value in raw.values() if value not in (None, "", [], {}, ()))
+    return (
+        int(final_ready), int(evidence_ready), int(market_valid), int(evidence_valid),
+        _float(candidate.get("investment_score")), _float(candidate.get("confidence_score")),
+        richness + raw_richness,
+    )
+
+
+def _merge_missing_fields(preferred: MutableMapping[str, Any], secondary: Mapping[str, Any]) -> None:
+    """Merge only absent/non-conflicting metadata from a duplicate record."""
+    for key, value in secondary.items():
+        if key not in preferred or preferred.get(key) in (None, "", [], {}, ()):
+            preferred[key] = deepcopy(value)
+            continue
+        if isinstance(preferred.get(key), MutableMapping) and isinstance(value, Mapping):
+            _merge_missing_fields(preferred[key], value)
+        elif isinstance(preferred.get(key), list) and isinstance(value, list):
+            seen = {repr(item) for item in preferred[key]}
+            for item in value:
+                marker = repr(item)
+                if marker not in seen:
+                    preferred[key].append(deepcopy(item))
+                    seen.add(marker)
+
+
+def _deduplicate_canonical_candidates(
+    candidates: Sequence[Mapping[str, Any]], corrections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collapse duplicate ticker rows before decision reduction/report integrity.
+
+    The richer/more decision-ready row wins deterministically. Missing metadata
+    from the other row is merged, while conflicting authoritative values stay
+    with the selected winner. This prevents duplicate ingress from Fresh Trend,
+    ranking or autonomy lanes from crashing the report model.
+    """
+    result: list[dict[str, Any]] = []
+    index_by_key: dict[str, int] = {}
+    for position, raw_candidate in enumerate(candidates, 1):
+        candidate = deepcopy(dict(raw_candidate))
+        key = _canonical_ticker_key(candidate)
+        if not key:
+            result.append(candidate)
+            continue
+        if key not in index_by_key:
+            index_by_key[key] = len(result)
+            result.append(candidate)
+            continue
+        idx = index_by_key[key]
+        existing = result[idx]
+        existing_rank = _candidate_completeness_rank(existing)
+        candidate_rank = _candidate_completeness_rank(candidate)
+        if candidate_rank > existing_rank:
+            preferred, secondary = candidate, existing
+            kept_source = "later_richer_duplicate"
+        else:
+            preferred, secondary = existing, candidate
+            kept_source = "first_or_richer_duplicate"
+        _merge_missing_fields(preferred, secondary)
+        dedup_meta = preferred.get("canonical_dedup") if isinstance(preferred.get("canonical_dedup"), MutableMapping) else {}
+        dedup_meta = dict(dedup_meta)
+        dedup_meta.update({
+            "applied": True,
+            "canonical_ticker": key,
+            "duplicate_count": int(dedup_meta.get("duplicate_count") or 1) + 1,
+            "selection": kept_source,
+            "rule": "decision/evidence readiness > valid data > score/confidence > metadata completeness",
+        })
+        preferred["canonical_dedup"] = dedup_meta
+        result[idx] = preferred
+        corrections.append({
+            "ticker": key,
+            "field": "candidates",
+            "from": "duplicate canonical candidate",
+            "to": "single merged canonical candidate",
+            "reason": "Deterministisk deduplisering før beslutningsreduksjon",
+        })
+        print(
+            f"CANONICAL_DEDUP ticker={key} kept={kept_source} "
+            f"score={preferred.get('investment_score')} duplicate_position={position}",
+            flush=True,
+        )
+    return result
+
 def _company_key(candidate: Mapping[str, Any]) -> str:
     ticker = str(candidate.get("ticker") or "").upper().strip()
     if ticker in _COMPANY_ALIASES:
@@ -836,6 +936,8 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
 
         candidate["raw"] = raw
         canonical_candidates.append(candidate)
+
+    canonical_candidates = _deduplicate_canonical_candidates(canonical_candidates, corrections)
 
     from autonomous_decision_reduction import apply_decision_reduction
     portfolio_meta = _mapping(result.get("portfolio_decisions"))

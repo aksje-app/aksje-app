@@ -36,14 +36,48 @@ def publish_runtime_identity(role: str) -> dict:
     return identity
 
 
-def runtime_identity_snapshot() -> dict:
+def runtime_identity_snapshot(max_age_minutes: int | None = None) -> dict:
+    """Return cluster identity without letting retired/stale peers poison UI forever.
+
+    Fresh identities remain strict: any fresh version/commit disagreement is a
+    critical mismatch. Identities older than the freshness window are exposed
+    separately for diagnostics but do not keep the red banner alive after all
+    active services have converged on the new release.
+    """
     index = read_json(IDENTITY_INDEX_KEY, IDENTITY_INDEX_PATH, {})
     identities = dict(index) if isinstance(index, dict) else {}
-    versions = sorted({str(row.get("version")) for row in identities.values() if isinstance(row, dict) and row.get("version")})
-    commits = sorted({str(row.get("commit")) for row in identities.values() if isinstance(row, dict) and row.get("commit") not in {None, "", "ukjent"}})
-    return {"expected_version": APP_VERSION, "identities": identities,
-            "version_mismatch": len(versions) > 1 or any(v != APP_VERSION for v in versions),
-            "commit_mismatch": len(commits) > 1, "versions": versions, "commits": commits}
+    if max_age_minutes is None:
+        try:
+            max_age_minutes = max(5, int(os.getenv("RUNTIME_IDENTITY_FRESH_MINUTES", "90")))
+        except (TypeError, ValueError):
+            max_age_minutes = 90
+    now = datetime.now(timezone.utc)
+    fresh: dict[str, dict] = {}
+    stale: dict[str, dict] = {}
+    for role, row in identities.items():
+        if not isinstance(row, dict):
+            continue
+        try:
+            observed = datetime.fromisoformat(str(row.get("observed_at") or "").replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            age_minutes = max(0.0, (now - observed.astimezone(timezone.utc)).total_seconds() / 60.0)
+        except Exception:
+            age_minutes = float(max_age_minutes) + 1.0
+        enriched = dict(row)
+        enriched["age_minutes"] = round(age_minutes, 1)
+        if age_minutes <= float(max_age_minutes):
+            fresh[str(role)] = enriched
+        else:
+            stale[str(role)] = enriched
+    versions = sorted({str(row.get("version")) for row in fresh.values() if row.get("version")})
+    commits = sorted({str(row.get("commit")) for row in fresh.values() if row.get("commit") not in {None, "", "ukjent"}})
+    return {
+        "expected_version": APP_VERSION, "identities": identities, "fresh_identities": fresh,
+        "stale_identities": stale, "freshness_minutes": int(max_age_minutes),
+        "version_mismatch": len(versions) > 1 or any(v != APP_VERSION for v in versions),
+        "commit_mismatch": len(commits) > 1, "versions": versions, "commits": commits,
+    }
 
 
 def validate_expected_runtime() -> tuple[bool, str]:

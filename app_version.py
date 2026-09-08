@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bw"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bv Official Euronext CSV Universe Closure"
+APP_VERSION = "v19.22.0-rc16.31bx"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bx Stabilization and UI Workflow Closure"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bu"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bw"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31bx: Stabilization and UI Workflow Closure. Canonical report candidates are deterministically deduplicated before decision reduction, manual Utkast start re-renders immediately into durable STARTING/polling state, report PDF/technical PDF/JSON/diagnostic ZIP are grouped in one file center with an on-demand combined ZIP, blocker explanations wrap fully, baseline short/insider counts are explicitly labeled as intermediate deep-analysis controls, and stale runtime identities no longer keep a false distribution-mismatch banner alive. BW Norway-universe parsing, BQ memory controls, scoring, BUY, risk, Fresh Trend, Paper Trade and portfolio thresholds are unchanged.",
     "v19.22.0-rc16.31bw: Euronext Real Payload Parser Closure. Norway master CSV is fetched per MIC (XOSL, MERK, XOAS) and the DataTables JSON parser accepts real HTML-cell payloads. This closes the Render case where Euronext returned 294 records but the parser produced 0. No scoring, BUY, risk, Fresh Trend, Paper Trade or portfolio thresholds changed.",
     "v19.22.0-rc16.31bv: Official Euronext CSV Universe Closure. The complete Norway equity master now uses Euronext Live product-directory CSV export as the primary machine-readable source, filtering Oslo Børs, Euronext Growth Oslo and Euronext Expand Oslo while preserving durable diagnostics and fallbacks. No scoring, BUY, risk, Fresh Trend, Paper Trade or portfolio thresholds changed.",
     "v19.22.0-rc16.31bo: Fresh Trend Short Report Alert. The compact investor PDF now surfaces up to three of the strongest Fresh Trend / new-breakout alerts with ticker, signal, fresh score, trend age, 3d/5d movement and a concise Why now explanation. Full RSI, OBV, breakout, relative-strength, support/resistance and prioritized news/insider/short evidence remains in the technical appendix. No buy, risk, portfolio or trading thresholds are changed.",

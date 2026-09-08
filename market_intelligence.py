@@ -1849,6 +1849,108 @@ def render_durable_json_download(
     st.caption(f"Varig JSON-fil · {int(delivery['size']) / (1024 * 1024):.1f} MB")
 
 
+def render_report_file_center(
+    st, run: Mapping[str, Any], entry: Mapping[str, Any] | None = None, *,
+    key: str = "report_files", execution_id: str = "", include_complete_zip: bool = True,
+) -> dict[str, Any]:
+    """Render the four files used in daily operations in one stable place.
+
+    Standard PDF, technical PDF, canonical JSON and diagnostic ZIP are shown
+    side-by-side.  The combined ZIP is built only on demand to avoid retaining
+    another large report copy in normal Streamlit session memory.
+    """
+    import io
+    import zipfile
+    archived = dict(entry or {})
+    report = dict(run or {})
+    if not report:
+        st.warning("Rapportdata mangler; rapportfilene kan ikke klargjøres.")
+        return {"ok": False}
+    run_id = str(report.get("run_id") or archived.get("run_id") or "report")
+    execution_id = str(
+        execution_id
+        or report.get("background_execution_id")
+        or archived.get("background_execution_id")
+        or ""
+    )
+    standard = resolve_report_delivery(report, archived)
+    technical = resolve_technical_report_delivery(report, archived)
+    json_delivery = durable_json_download(report)
+    diagnostic_data = None
+    diagnostic_name = ""
+    if execution_id:
+        try:
+            from manual_job_background import diagnostic_bundle
+            diagnostic_data, diagnostic_name = diagnostic_bundle(execution_id)
+        except Exception:
+            diagnostic_data = None
+            diagnostic_name = ""
+
+    st.markdown("##### 📦 Rapportfiler")
+    c1, c2, c3, c4 = st.columns(4, gap="medium")
+    if standard.get("ok"):
+        c1.download_button(
+            "📄 Standardrapport PDF", data=standard["data"], file_name=standard["filename"],
+            mime="application/pdf", key=f"{key}_standard_{run_id}", width="stretch",
+        )
+    else:
+        c1.error("Standard PDF mangler")
+    if technical.get("ok"):
+        c2.download_button(
+            "📊 Teknisk rapport PDF", data=technical["data"], file_name=technical["filename"],
+            mime="application/pdf", key=f"{key}_technical_{run_id}", width="stretch",
+        )
+    else:
+        c2.error("Teknisk PDF mangler")
+    c3.download_button(
+        "🧾 Rapportdata JSON", data=json_delivery["data"], file_name=json_delivery["filename"],
+        mime="application/json", key=f"{key}_json_{run_id}", width="stretch",
+    )
+    if diagnostic_data:
+        c4.download_button(
+            "🩺 Diagnose ZIP", data=diagnostic_data,
+            file_name=diagnostic_name or f"Bakgrunnsjobb_diagnose_{execution_id}.zip",
+            mime="application/zip", key=f"{key}_diag_{run_id}", width="stretch",
+        )
+    else:
+        c4.caption("🩺 Diagnose ZIP\n\nIkke tilgjengelig for denne eldre/ikke-manuelle kjøringen.")
+
+    available = {
+        standard.get("filename") if standard.get("ok") else "": standard.get("data") if standard.get("ok") else None,
+        technical.get("filename") if technical.get("ok") else "": technical.get("data") if technical.get("ok") else None,
+        json_delivery.get("filename"): json_delivery.get("data"),
+        diagnostic_name if diagnostic_data else "": diagnostic_data,
+    }
+    available = {str(name): bytes(data) for name, data in available.items() if name and data}
+    package_state_key = f"{key}_complete_zip_bytes_{run_id}"
+    package_name_key = f"{key}_complete_zip_name_{run_id}"
+    if include_complete_zip:
+        left, right = st.columns([1, 1])
+        if left.button("⬇ Bygg komplett rapportpakke", key=f"{key}_build_zip_{run_id}", width="stretch"):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for filename, data in available.items():
+                    archive.writestr(filename, data)
+            package = buffer.getvalue()
+            if not package:
+                st.error("Komplett rapportpakke kunne ikke bygges.")
+            else:
+                st.session_state[package_state_key] = package
+                st.session_state[package_name_key] = f"RAPPORTPAKKE_{run_id}.zip"
+        if st.session_state.get(package_state_key):
+            right.download_button(
+                "⬇ Last ned komplett rapportpakke", data=st.session_state[package_state_key],
+                file_name=st.session_state.get(package_name_key) or f"RAPPORTPAKKE_{run_id}.zip",
+                mime="application/zip", key=f"{key}_download_zip_{run_id}", width="stretch", type="primary",
+            )
+    st.caption("Standard PDF · teknisk PDF · JSON · diagnose på samme sted. Komplett ZIP bygges bare når du ber om den.")
+    return {
+        "ok": bool(standard.get("ok") and technical.get("ok") and json_delivery.get("data")),
+        "diagnostic_available": bool(diagnostic_data),
+        "execution_id": execution_id,
+    }
+
+
 def _candidate_map(run: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return {str(x.get("ticker")): dict(x) for x in (run.get("candidates") or []) if x.get("ticker")}
 
@@ -1976,6 +2078,7 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "run_id": run.get("run_id"), "created_at": run.get("created_at"),
         "operations_trace_id": run.get("operations_trace_id") or "",
+        "background_execution_id": run.get("background_execution_id") or "",
         "result_id": (run.get("canonical_result") or {}).get("result_id"),
         "created_at_local": local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE)),
         "timezone_name": valid_timezone(run.get("timezone_name")), "job_name": run.get("job_name"),
@@ -5889,8 +5992,14 @@ def _run_job_impl(
     failed_markets = list(data_quality.get("failed_markets") or [])
     partial_market_failure = bool(failed_markets and all_candidates)
     run_created_at = _now_iso()
+    try:
+        from background_execution import background_execution_id as _background_execution_id
+        background_execution_id = _background_execution_id()
+    except Exception:
+        background_execution_id = ""
     run = {"version": VERSION, "run_id": run_id, "created_at": run_created_at,
            "execution_started_at": execution_started_at,
+           "background_execution_id": background_execution_id,
            "operations_trace_id": _trace_id,
            "created_at_local": local_display(run_created_at, job.timezone_name), "job_id": job.job_id, "job_name": job.name,
            "timezone_name": valid_timezone(job.timezone_name),
@@ -7503,7 +7612,10 @@ def render_market_intelligence() -> None:
             started = start_shared_manual_draft_job(trigger="MANUAL_DRAFT_TEST")
             execution_id = str(started.get("execution_id") or "")
             st.session_state["mi_active_execution_v1924"] = execution_id
-            st.success("Utkastkjøringen er startet i samme motor som Autonomi Oversikt. Fremdriften oppdateres automatisk under.")
+            st.session_state["mi_pending_execution_v1931bx"] = execution_id
+            st.session_state["mi_pending_execution_started_v1931bx"] = _now_iso()
+            st.toast("Utkast er akseptert. Viser STARTING-status nå.", icon="⏳")
+            _rerun_reports_v19220_rc11(st)
         if q2.button("🌅 Kjør morgenanalyse", key="mi_quick_morning_v1924", width="content", disabled=manual_job_running or morning_job is None):
             started = start_manual_job(
                 morning_job, trigger="MANUAL_REPORT_CENTER", force_refresh=False,
@@ -7961,12 +8073,36 @@ def render_market_intelligence() -> None:
                 gate_audit = [row for row in (latest.get("buy_gate_audit") or []) if isinstance(row, Mapping)]
                 if gate_audit:
                     with st.expander("Vis hvorfor kandidater ikke ble BUY", expanded=False):
-                        st.dataframe(pd.DataFrame([{
+                        blocker_rows = [{
                             "Ticker": row.get("ticker"), "Marked": row.get("market"),
                             "Sektor": row.get("sector"), "Score": row.get("score"),
                             "Terskel": row.get("threshold"), "Handling": row.get("portfolio_action"),
                             "Første blocker": row.get("first_blocker"),
-                        } for row in gate_audit]), width="stretch", hide_index=True)
+                        } for row in gate_audit]
+                        header = "".join(
+                            f"<th>{html_escape(str(name))}</th>"
+                            for name in ("Ticker", "Marked", "Sektor", "Score", "Terskel", "Handling", "Første blocker")
+                        )
+                        body = "".join(
+                            "<tr>" + "".join(
+                                f"<td>{html_escape(str(item.get(name) if item.get(name) is not None else '-'))}</td>"
+                                for name in ("Ticker", "Marked", "Sektor", "Score", "Terskel", "Handling", "Første blocker")
+                            ) + "</tr>"
+                            for item in blocker_rows
+                        )
+                        st.markdown(
+                            """<style>
+                            .buy-blocker-table-wrap{overflow-x:auto;width:100%;}
+                            table.buy-blocker-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:.88rem;}
+                            .buy-blocker-table th,.buy-blocker-table td{border:1px solid rgba(148,163,184,.22);padding:.48rem .55rem;vertical-align:top;text-align:left;}
+                            .buy-blocker-table th:nth-child(1){width:10%}.buy-blocker-table th:nth-child(2){width:9%}.buy-blocker-table th:nth-child(3){width:11%}
+                            .buy-blocker-table th:nth-child(4){width:7%}.buy-blocker-table th:nth-child(5){width:7%}.buy-blocker-table th:nth-child(6){width:10%}.buy-blocker-table th:nth-child(7){width:46%}
+                            .buy-blocker-table td:nth-child(7){white-space:normal;overflow-wrap:anywhere;word-break:normal;line-height:1.45;}
+                            @media(max-width:760px){table.buy-blocker-table{min-width:920px}.buy-blocker-table th:nth-child(7){width:48%}}
+                            </style>"""
+                            + f'<div class="buy-blocker-table-wrap"><table class="buy-blocker-table"><thead><tr>{header}</tr></thead><tbody>{body}</tbody></table></div>',
+                            unsafe_allow_html=True,
+                        )
             statuses = latest.get("market_status") or []
             if statuses:
                 st.markdown("#### 🌍 Markedsstatus")
@@ -8540,59 +8676,22 @@ def render_market_intelligence() -> None:
                             st.caption("Kjøringssporet har ingen registrerte delsteg.")
                     except Exception as trace_exc:
                         st.warning(f"Kjøringssporet kunne ikke leses: {trace_exc}")
-                json_path = Path(str(row.get("json_path") or ""))
-                a,b,c,d = st.columns(4)
-                delivery = resolve_report_delivery(saved_run, row)
-                json_data = json_path.read_bytes() if json_path.exists() else (json.dumps(saved_run, ensure_ascii=False, indent=2, default=str).encode("utf-8") if saved_run else None)
-                technical_delivery = resolve_technical_report_delivery(saved_run, row)
-                if technical_delivery.get("ok"):
-                    a.download_button(
-                        "📘 Full rapport med vedlegg",
-                        data=technical_delivery["data"], file_name=technical_delivery["filename"],
-                        mime="application/pdf", key=f"mi_dl_technical_pdf_{row.get('run_id')}", width="stretch", type="primary",
-                    )
-                if delivery.get("ok"):
-                    a.download_button("📄 Kort rapport (3 sider)", data=delivery["data"], file_name=delivery["filename"],
-                                      mime="application/pdf", key=f"mi_dl_pdf_{row.get('run_id')}", width="stretch")
-                else:
-                    a.error(str(delivery.get("error") or "PDF-en kan ikke gjenopprettes."))
-                if json_data:
-                    with b:
-                        render_durable_json_download(
-                            st, saved_run or row, label="{ } Last ned JSON",
-                            instance_key=f"archive_{row.get('run_id')}",
-                        )
-                if saved_run:
-                    c.download_button("Last ned tekst", data=build_text_report(saved_run), file_name=safe_ascii_report_filename(saved_run, "txt"), mime="text/plain", key=f"mi_dl_txt_{row.get('run_id')}", width="stretch")
-                fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
-                if d.button(fav_label, key=f"mi_fav_{row.get('run_id')}", width="stretch"):
-                    set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); _rerun_reports_v19220_rc11(st)
                 archive_run_id = str(row.get("run_id") or "unknown")
-                package_state_key = f"mi_archive_package_bytes_{archive_run_id}_v19220_rc16"
-                package_name_key = f"mi_archive_package_name_{archive_run_id}_v19220_rc16"
-                p1, p2 = st.columns(2)
-                if p1.button("Bygg ZIP med PDF, JSON, tekst og revisjon", key=f"mi_build_package_{archive_run_id}_v19220_rc16", width="stretch", disabled=not bool(saved_run)):
-                    try:
-                        package_bytes, package_name = _build_report_package_with_visible_progress_v19220_rc1611(
-                            st, saved_run, archive_entry=row,
-                        )
-                        import io as _io_rc165, zipfile as _zipfile_rc165
-                        with _zipfile_rc165.ZipFile(_io_rc165.BytesIO(package_bytes), "r") as _archive_rc165:
-                            if _archive_rc165.testzip() is not None or not _archive_rc165.namelist():
-                                raise RuntimeError("Rapportpakken feilet integritetskontrollen")
-                        st.session_state[package_state_key] = package_bytes
-                        st.session_state[package_name_key] = package_name
-                    except Exception as exc:
-                        st.error(f"Rapportpakken kunne ikke bygges: {exc}")
-                if st.session_state.get(package_state_key):
-                    p2.download_button(
-                        "Last ned komplett ZIP",
-                        data=st.session_state[package_state_key],
-                        file_name=st.session_state.get(package_name_key) or f"REPORT_PACKAGE_{archive_run_id}.zip",
-                        mime="application/zip",
-                        key=f"mi_download_package_{archive_run_id}_v19220_rc16",
-                        width="stretch",
+                render_report_file_center(
+                    st, saved_run, row, key=f"archive_files_{archive_run_id}",
+                    execution_id=str(saved_run.get("background_execution_id") or row.get("background_execution_id") or ""),
+                    include_complete_zip=True,
+                )
+                extra1, extra2 = st.columns(2)
+                if saved_run:
+                    extra1.download_button(
+                        "📝 Last ned tekst", data=build_text_report(saved_run),
+                        file_name=safe_ascii_report_filename(saved_run, "txt"), mime="text/plain",
+                        key=f"mi_dl_txt_{row.get('run_id')}", width="stretch",
                     )
+                fav_label = "Fjern favoritt" if row.get("favorite") else "⭐ Favoritt"
+                if extra2.button(fav_label, key=f"mi_fav_{row.get('run_id')}", width="stretch"):
+                    set_report_favorite(str(row.get("run_id")), not bool(row.get("favorite"))); _rerun_reports_v19220_rc11(st)
                 confirm = st.checkbox("Bekreft permanent sletting", key=f"mi_confirm_delete_{row.get('run_id')}")
                 if st.button("🗑 Slett rapport", key=f"mi_delete_report_{row.get('run_id')}", disabled=not confirm, width="stretch"):
                     delete_archived_report(str(row.get("run_id"))); _rerun_reports_v19220_rc11(st)
