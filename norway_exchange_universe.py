@@ -1,10 +1,12 @@
 """Authoritative Norway equity master from Euronext Oslo markets.
 
-RC16.31bv closes the Norway-universe source gap by using Euronext's own
-current CSV export as the primary machine-readable source. RC16.31bu keeps
-end-to-end source observability for Render, and the HTML / JSON routes remain
-defensive fallbacks. A durable last-known-good snapshot is retained so a
-temporary source/network failure cannot silently shrink the production universe.
+RC16.31bw closes the live Euronext parser gap observed on Render. The primary
+CSV source is fetched per Oslo MIC (XOSL, MERK, XOAS), so exchange identity does
+not depend on Euronext's display text. The current DataTables JSON parser also
+accepts the real HTML-cell payload contract used by Euronext. RC16.31bu
+observability is preserved end to end. A durable last-known-good snapshot is
+retained so a temporary source/network failure cannot silently shrink the
+production universe.
 """
 from __future__ import annotations
 
@@ -216,12 +218,21 @@ def _decode_response_bytes(response: Any) -> str:
     return str(getattr(response, "text", "") or "")
 
 
-def _parse_euronext_csv(text: str) -> list[dict[str, Any]]:
-    """Parse Euronext product-directory CSV exports across locale/header changes."""
+def _parse_euronext_csv(text: str, *, mic_hint: str = "") -> list[dict[str, Any]]:
+    """Parse Euronext CSV exports, optionally trusting the requested MIC.
+
+    Euronext's export is authoritative for the request filter. Fetching one MIC at
+    a time avoids depending on localized/abbreviated values in the ``Market``
+    display column while still keeping the all-stocks parser strict.
+    """
     raw = str(text or "").replace("\x00", "")
     lines = [line for line in raw.splitlines() if line.strip()]
     if not lines:
         return []
+
+    hint = str(mic_hint or "").strip().upper()
+    if hint and hint not in NORWAY_EQUITY_MICS:
+        hint = ""
 
     header_idx = None
     delimiter = None
@@ -232,7 +243,7 @@ def _parse_euronext_csv(text: str) -> list[dict[str, Any]]:
             has_isin = any(x == "isin" or x.endswith("isin") for x in norms)
             has_symbol = any(x in {"symbol", "ticker", "symbole"} or "ticker" in x for x in norms)
             has_market = any(x in {"market", "marked", "marche"} or "market" in x or "marked" in x for x in norms)
-            if has_isin and has_symbol and has_market and len(parts) >= 4:
+            if has_isin and has_symbol and (has_market or hint) and len(parts) >= 3:
                 header_idx = idx
                 delimiter = candidate
                 break
@@ -263,23 +274,32 @@ def _parse_euronext_csv(text: str) -> list[dict[str, Any]]:
     symbol_i = col("Symbol", "Ticker", "Symbole")
     market_i = col("Market", "Marked", "Marche", "Market name", "Trading location")
     mic_i = col("MIC", "Market MIC", "Mic code")
-    if isin_i is None or symbol_i is None or (market_i is None and mic_i is None):
+    if isin_i is None or symbol_i is None or (market_i is None and mic_i is None and not hint):
         return []
 
     parsed: list[dict[str, Any]] = []
     for values in reader:
-        if not values or max(isin_i, symbol_i, market_i or 0, mic_i or 0) >= len(values):
+        if not values or max(isin_i, symbol_i) >= len(values):
             continue
         isin = _text(values[isin_i]).upper()
         symbol = _text(values[symbol_i]).upper()
-        mic = _text(values[mic_i]).upper() if mic_i is not None and mic_i < len(values) else ""
-        market = _text(values[market_i]) if market_i is not None and market_i < len(values) else ""
-        if mic:
-            if mic not in NORWAY_EQUITY_MICS:
+        if not symbol:
+            continue
+        mic = hint
+        market = ""
+        if mic_i is not None and mic_i < len(values):
+            explicit_mic = _text(values[mic_i]).upper()
+            if explicit_mic in NORWAY_EQUITY_MICS:
+                mic = explicit_mic
+        if market_i is not None and market_i < len(values):
+            market = _text(values[market_i])
+            market_mic = _mic_from_market(market)
+            # A known explicit market must agree with the requested MIC. This
+            # protects against an upstream endpoint silently ignoring its filter.
+            if hint and market_mic and market_mic != hint:
                 continue
-            market = MIC_TO_MARKET[mic]
-        elif market:
-            mic = _mic_from_market(market)
+            if not mic and market_mic:
+                mic = market_mic
         if mic not in NORWAY_EQUITY_MICS:
             continue
         name = _text(values[name_i]) if name_i is not None and name_i < len(values) else symbol
@@ -288,21 +308,20 @@ def _parse_euronext_csv(text: str) -> list[dict[str, Any]]:
             parsed.append(row)
     return _dedupe_rows(parsed)
 
-
 def _fetch_official_csv(session: Any, timeout: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Use the official CSV export exposed by Euronext's current product directory."""
+    """Fetch Euronext CSV per MIC, then fall back to the all-stocks export."""
     attempts: list[dict[str, Any]] = []
-    variants = [
-        ("OSLO_MICS", ",".join(NORWAY_EQUITY_MICS)),
-        ("ALL_STOCKS", "dm_all_stock"),
-    ]
-    best_rows: list[dict[str, Any]] = []
-    for label, mics in variants:
+    all_rows: list[dict[str, Any]] = []
+
+    # Request each Oslo market separately. The server-side filter is the source
+    # of truth for market identity, so localized Market labels cannot zero the
+    # parser or collapse the segment split.
+    for mic in NORWAY_EQUITY_MICS:
         started = time.monotonic()
         response = None
         try:
             params = {
-                "mics": mics,
+                "mics": mic,
                 "initialLetter": "",
                 "fe_type": "csv",
                 "fe_decimal_separator": ".",
@@ -313,21 +332,18 @@ def _fetch_official_csv(session: Any, timeout: float) -> tuple[list[dict[str, An
             meta = _safe_response_meta(response)
             response.raise_for_status()
             body = _decode_response_bytes(response)
-            rows = _parse_euronext_csv(body)
+            rows = _parse_euronext_csv(body, mic_hint=mic)
             _add_attempt(attempts, {
-                "strategy": "OFFICIAL_CSV_EXPORT", "variant": label, "method": "GET",
+                "strategy": "OFFICIAL_CSV_EXPORT", "variant": f"MIC_{mic}", "method": "GET",
                 "requested_url": EURONEXT_STOCKS_DOWNLOAD_ENDPOINT, **meta,
-                "rows": len(rows), "parser": "euronext_csv_header_map",
+                "rows": len(rows), "parser": "euronext_csv_per_mic",
                 "body_prefix": body[:160].replace("\n", " ").replace("\r", " "),
                 "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
             })
-            if len(rows) > len(best_rows):
-                best_rows = rows
-            if len(rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
-                break
+            all_rows.extend(rows)
         except Exception as exc:
             row = {
-                "strategy": "OFFICIAL_CSV_EXPORT", "variant": label, "method": "GET",
+                "strategy": "OFFICIAL_CSV_EXPORT", "variant": f"MIC_{mic}", "method": "GET",
                 "requested_url": EURONEXT_STOCKS_DOWNLOAD_ENDPOINT,
                 "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
                 "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
@@ -335,19 +351,130 @@ def _fetch_official_csv(session: Any, timeout: float) -> tuple[list[dict[str, An
             if response is not None:
                 row.update(_safe_response_meta(response))
             _add_attempt(attempts, row)
-    return _dedupe_rows(best_rows), attempts
+
+    all_rows = _dedupe_rows(all_rows)
+    if len(all_rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
+        return all_rows, attempts
+
+    # Defensive fallback: all stocks export, where Market/MIC must identify Oslo.
+    started = time.monotonic()
+    response = None
+    try:
+        params = {
+            "mics": "dm_all_stock", "initialLetter": "", "fe_type": "csv",
+            "fe_decimal_separator": ".", "fe_date_format": "d/m/Y",
+        }
+        headers = {**_headers(), "Accept": "text/csv,text/plain,application/octet-stream,*/*;q=0.5"}
+        response = session.get(EURONEXT_STOCKS_DOWNLOAD_ENDPOINT, params=params, headers=headers, timeout=timeout)
+        meta = _safe_response_meta(response)
+        response.raise_for_status()
+        body = _decode_response_bytes(response)
+        rows = _parse_euronext_csv(body)
+        _add_attempt(attempts, {
+            "strategy": "OFFICIAL_CSV_EXPORT", "variant": "ALL_STOCKS", "method": "GET",
+            "requested_url": EURONEXT_STOCKS_DOWNLOAD_ENDPOINT, **meta,
+            "rows": len(rows), "parser": "euronext_csv_header_map",
+            "body_prefix": body[:160].replace("\n", " ").replace("\r", " "),
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        })
+        if len(rows) > len(all_rows):
+            all_rows = rows
+    except Exception as exc:
+        row = {
+            "strategy": "OFFICIAL_CSV_EXPORT", "variant": "ALL_STOCKS", "method": "GET",
+            "requested_url": EURONEXT_STOCKS_DOWNLOAD_ENDPOINT,
+            "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        }
+        if response is not None:
+            row.update(_safe_response_meta(response))
+        _add_attempt(attempts, row)
+    return _dedupe_rows(all_rows), attempts
+
+def _mic_from_raw_cells(raw_cells: Iterable[Any]) -> str:
+    joined = " ".join(str(x or "") for x in raw_cells)
+    upper = joined.upper()
+    # Explicit MIC attributes / URL path segments are stronger than display text.
+    for mic in NORWAY_EQUITY_MICS:
+        if re.search(rf"(?:^|[^A-Z0-9]){re.escape(mic)}(?:[^A-Z0-9]|$)", upper):
+            return mic
+    return _mic_from_market(_text(joined))
+
+
+def _parse_mapping_row(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+    lower = {_normalise_header(k): v for k, v in raw.items()}
+    def pick(*keys: str) -> Any:
+        for key in keys:
+            value = lower.get(_normalise_header(key))
+            if value not in (None, ""):
+                return value
+        return ""
+    name = pick("name", "instrumentname", "issuername")
+    isin = pick("isin")
+    symbol = pick("symbol", "ticker")
+    market = pick("market", "marketname", "tradinglocation", "mic", "marketmic")
+    mic = _mic_from_raw_cells(raw.values())
+    if mic:
+        market = MIC_TO_MARKET[mic]
+    return _instrument_row(name, isin, symbol, market)
+
+
+def _parse_sequence_row(raw: list[Any] | tuple[Any, ...]) -> dict[str, Any] | None:
+    if len(raw) < 3:
+        return None
+    texts = [_text(value) for value in raw]
+    mic = _mic_from_raw_cells(raw)
+
+    isin_idx = None
+    isin = ""
+    for idx, text in enumerate(texts):
+        match = _ISIN_RE.search(text.upper())
+        if match:
+            isin_idx, isin = idx, match.group(0)
+            break
+
+    # Euronext DataTables normally uses Name | ISIN | Symbol | Market, but the
+    # cells may themselves be HTML. Keep that fast path, then locate by content.
+    name = texts[0] if texts else ""
+    symbol = texts[2] if len(texts) > 2 else ""
+    market = texts[3] if len(texts) > 3 else ""
+    if isin_idx is not None:
+        if isin_idx > 0:
+            name = texts[isin_idx - 1] or name
+        if isin_idx + 1 < len(texts):
+            symbol = texts[isin_idx + 1] or symbol
+
+    if not mic:
+        mic = _mic_from_market(market)
+    if mic:
+        market = MIC_TO_MARKET[mic]
+
+    # If the symbol cell contains extra markup text, prefer a data-order/title
+    # attribute or a short exchange-like token near the ISIN.
+    raw_symbol = str(raw[isin_idx + 1] if isin_idx is not None and isin_idx + 1 < len(raw) else (raw[2] if len(raw) > 2 else ""))
+    attr = _ATTR_TEXT_RE.search(raw_symbol)
+    if attr:
+        symbol = _text(attr.group(1)) or symbol
+    symbol = symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol):
+        nearby = texts[max(0, (isin_idx or 0) - 1):min(len(texts), (isin_idx or 1) + 4)]
+        symbol = next((x.strip().upper() for x in nearby if re.fullmatch(r"[A-Za-z0-9.\-]{1,20}", x.strip()) and x.upper() not in NORWAY_EQUITY_MICS), symbol)
+
+    return _instrument_row(name, isin, symbol, market)
+
 
 def _parse_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw_rows = payload.get("aaData") or payload.get("data") or []
     parsed: list[dict[str, Any]] = []
     for raw in raw_rows:
-        if not isinstance(raw, (list, tuple)) or len(raw) < 4:
-            continue
-        row = _instrument_row(raw[0], raw[1], raw[2], raw[3])
+        row = None
+        if isinstance(raw, Mapping):
+            row = _parse_mapping_row(raw)
+        elif isinstance(raw, (list, tuple)):
+            row = _parse_sequence_row(raw)
         if row:
             parsed.append(row)
     return _dedupe_rows(parsed)
-
 
 def _parse_product_directory_html(html: str) -> list[dict[str, Any]]:
     """Parse Euronext's current server-rendered product-directory table.
@@ -432,7 +559,9 @@ def _fetch_current_json(session: Any, timeout: float) -> tuple[list[dict[str, An
             "requested_url": EURONEXT_STOCKS_ENDPOINT_CURRENT, **meta,
             "rows": len(rows),
             "records_filtered": int(payload.get("recordsFiltered") or payload.get("iTotalDisplayRecords") or 0),
-            "parser": "json_aaData",
+            "raw_row_count": len(payload.get("aaData") or payload.get("data") or []),
+            "raw_row_type": type((payload.get("aaData") or payload.get("data") or [None])[0]).__name__ if (payload.get("aaData") or payload.get("data")) else "",
+            "parser": "json_html_cells_flexible",
             "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
         })
         return rows, payload, attempts
