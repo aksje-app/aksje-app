@@ -303,8 +303,32 @@ def get_sp500_tickers(limit=150):
     """Henter S&P 500 automatisk fra Wikipedia. Fallback hvis nettet feiler."""
     return list(_get_sp500_tickers_cached(int(limit or 150)))
 
+def get_norwegian_instruments(limit=None, force_refresh=False):
+    """Authoritative Oslo equity master when Euronext is reachable.
+
+    Falls back to the packaged list only when no verified last-known-good
+    Euronext snapshot exists. The returned rows retain exchange/MIC/ISIN
+    metadata so every downstream subsystem can use the same identity.
+    """
+    try:
+        from norway_exchange_universe import get_norway_instruments
+        rows = get_norway_instruments(NORWEGIAN_STOCKS, force_refresh=force_refresh)
+    except Exception:
+        rows = [{
+            "ticker": ticker, "analysis_ticker": ticker,
+            "exchange_symbol": ticker[:-3] if ticker.endswith(".OL") else ticker,
+            "symbol": ticker[:-3] if ticker.endswith(".OL") else ticker,
+            "market": "Norge", "exchange_name": "Ukjent Oslo-markedsplass",
+            "market_segment": "Ukjent Oslo-markedsplass", "exchange_mic": "",
+            "isin": "", "listing_status": "FALLBACK_UNVERIFIED",
+            "universe_source": "PACKAGED_FALLBACK",
+        } for ticker in NORWEGIAN_STOCKS]
+    return rows[:limit] if limit else rows
+
+
 def get_norwegian_tickers(limit=None):
-    return NORWEGIAN_STOCKS[:limit] if limit else NORWEGIAN_STOCKS
+    rows = get_norwegian_instruments(limit=limit)
+    return [str(row.get("ticker") or "").upper() for row in rows if str(row.get("ticker") or "").strip()]
 
 def get_swedish_tickers(limit=None):
     return SWEDISH_STOCKS[:limit] if limit else SWEDISH_STOCKS

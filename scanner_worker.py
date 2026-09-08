@@ -59,6 +59,8 @@ from background_guard import print_market_guard_summary
 from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, US_FALLBACK, NORWEGIAN_STOCKS, SWEDISH_STOCKS
 from analysis import release_score_caches, score_stock
 from runtime_memory import memory_snapshot, release_process_memory
+from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
+from storage_architecture import runtime_data_path
 from technical import calculate_rsi, calculate_macd, detect_trend
 from patterns import breakout_scanner, detect_head_shoulders, detect_inverse_head_shoulders
 from signal_engine import build_trading_decision
@@ -81,6 +83,16 @@ def _paper_candidate_context(result):
     candidate["valid_for_decision"] = bool(result.get("price") is not None and result.get("candidate_snapshot"))
     candidate["evidence_valid_for_decision"] = bool(result.get("candidate_snapshot"))
     candidate["decision_source"] = "technical_production_strategy"
+    ticker = str(candidate.get("ticker") or result.get("ticker") or "").upper()
+    if ticker.endswith(".OL"):
+        try:
+            from norway_exchange_universe import lookup_norway_instrument
+            instrument = lookup_norway_instrument(ticker, NORWEGIAN_STOCKS)
+            for key in ("exchange_name", "market_segment", "exchange_mic", "exchange_symbol", "isin", "listing_status"):
+                if instrument.get(key) not in (None, ""):
+                    candidate[key] = instrument.get(key)
+        except Exception:
+            pass
     return candidate
 
 
@@ -88,6 +100,8 @@ force_schema_migration()
 
 SCANNER_MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
 SCAN_SLEEP_SECONDS = float(os.getenv("SCAN_SLEEP_SECONDS", "0.2"))
+NORWAY_ROTATION_KEY = "paper_trading/norway_universe_rotation.json"
+NORWAY_ROTATION_PATH = runtime_data_path("paper_trading", "norway_universe_rotation.json")
 from notifier import normalize_notification_result, send_pushover_alert  # canonical notifier
 
 
@@ -161,6 +175,62 @@ def latest_ui_buy_candidate_tickers(settings=None):
 
     return out
 
+def _load_norway_rotation_state():
+    value = durable_read_json(NORWAY_ROTATION_KEY, NORWAY_ROTATION_PATH, {})
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _save_norway_rotation_state(value):
+    durable_write_json(NORWAY_ROTATION_KEY, NORWAY_ROTATION_PATH, dict(value or {}))
+
+
+def _rotating_norway_batch(all_tickers, batch_size, prioritized_positions=()):
+    """Return one bounded batch from the complete Norway universe.
+
+    The cursor advances only after successful finalization, so a checkpointed
+    run cannot skip symbols. Open positions stay first but do not remove the
+    rotating universe from future coverage.
+    """
+    universe = _clean_scanner_tickers(all_tickers)
+    if not universe:
+        return [], {"cursor": 0, "universe_size": 0, "selected_from_rotation": 0}
+    state = _load_norway_rotation_state()
+    cursor = int(state.get("cursor") or 0) % len(universe)
+    prioritized = [t for t in _clean_scanner_tickers(prioritized_positions) if t in universe]
+    selected = []
+    for t in prioritized:
+        if t not in selected and len(selected) < batch_size:
+            selected.append(t)
+    rotation_selected = []
+    idx = cursor
+    visited = 0
+    while len(selected) < batch_size and visited < len(universe):
+        ticker = universe[idx]
+        if ticker not in selected:
+            selected.append(ticker); rotation_selected.append(ticker)
+        idx = (idx + 1) % len(universe)
+        visited += 1
+    meta = {
+        "cursor": cursor, "next_cursor": idx, "universe_size": len(universe),
+        "selected_from_rotation": len(rotation_selected), "batch_size": len(selected),
+        "universe_signature": hashlib.sha256("\n".join(universe).encode("utf-8")).hexdigest(),
+    }
+    return selected, meta
+
+
+def _commit_norway_rotation(meta):
+    if not isinstance(meta, dict) or not meta.get("universe_size"):
+        return
+    _save_norway_rotation_state({
+        "cursor": int(meta.get("next_cursor") or 0),
+        "universe_size": int(meta.get("universe_size") or 0),
+        "universe_signature": str(meta.get("universe_signature") or ""),
+        "last_completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "last_batch_size": int(meta.get("batch_size") or 0),
+        "selected_from_rotation": int(meta.get("selected_from_rotation") or 0),
+    })
+
+
 def get_watchlist():
     settings = load_settings()
     enabled = set(enabled_markets(settings)) & set(AUTOMATED_SCANNER_MARKETS)
@@ -190,9 +260,17 @@ def get_watchlist():
         else:
             tickers += _merge_unique(US_FALLBACK, sp)[:max(SCANNER_MAX_TICKERS, max_per_market)]
 
+    norway_rotation_meta = {}
     if "NORGE" in markets and "NORGE" in enabled:
-        no = _take(get_norwegian_tickers, max_per_market)
-        tickers += _merge_unique(NORWEGIAN_STOCKS, no)[:max_per_market]
+        # RC16.31br: Paper Trade shares the exact same complete Norway master.
+        # Keep each cron batch bounded, but rotate deterministically until every
+        # listed equity has been covered.
+        full_no = _take(get_norwegian_tickers, 500)
+        current_positions = list(load_portfolio().get("positions", {}).keys())
+        norway_batch, norway_rotation_meta = _rotating_norway_batch(
+            full_no, max(1, SCANNER_MAX_TICKERS), current_positions
+        )
+        tickers += norway_batch
 
     if "SVERIGE" in markets and "SVERIGE" in enabled:
         se = _take(get_swedish_tickers, max_per_market)
@@ -215,7 +293,11 @@ def get_watchlist():
         t = str(t).upper()
         if valid_scanner_ticker(t) and _ticker_market(t) in enabled and t not in prioritized_positions:
             prioritized_positions.append(t)
-    return _merge_unique(prioritized_positions, out)[:max(1, SCANNER_MAX_TICKERS)]
+    result = _merge_unique(prioritized_positions, out)[:max(1, SCANNER_MAX_TICKERS)]
+    get_watchlist.last_norway_rotation_meta = norway_rotation_meta if "norway_rotation_meta" in locals() else {}
+    return result
+
+get_watchlist.last_norway_rotation_meta = {}
 
 
 def scanner_memory_decision(memory, *, soft_limit_mb, minimum_headroom_mb=80.0):
@@ -431,6 +513,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
 
     checkpoint = load_scanner_checkpoint()
     current_tickers = get_watchlist()
+    norway_rotation_meta = dict(getattr(get_watchlist, "last_norway_rotation_meta", {}) or {})
     checkpoint_tickers = _clean_scanner_tickers(checkpoint.get("tickers") or [])
     hard_limit = max(1, int(effective_scanner_configuration["scanner_max_tickers"]))
     if checkpoint.get("scan_run_id") and checkpoint_tickers:
@@ -494,6 +577,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                 "tickers": tickers,
                 "next_index": ticker_index - 1, "candidate_snapshots": candidate_snapshots,
                 "latest_prices": latest_prices, "trades_executed": trades_executed,
+                "norway_rotation_meta": norway_rotation_meta if not resume else dict(checkpoint.get("norway_rotation_meta") or {}),
             })
             update_scanner_status(
                 state="PARTIAL_CHECKPOINT", scan_run_id=scan_run_id,
@@ -627,6 +711,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                 "tickers": tickers,
                 "next_index": ticker_index, "candidate_snapshots": candidate_snapshots,
                 "latest_prices": latest_prices, "trades_executed": trades_executed,
+                "norway_rotation_meta": norway_rotation_meta if not resume else dict(checkpoint.get("norway_rotation_meta") or {}),
             })
             update_scanner_status(memory=cleanup.get("after"), tickers_processed=ticker_index)
 
@@ -644,6 +729,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
         "tickers": tickers, "next_index": len(tickers),
         "candidate_snapshots": candidate_snapshots, "latest_prices": latest_prices,
         "trades_executed": trades_executed,
+        "norway_rotation_meta": norway_rotation_meta if not resume else dict(checkpoint.get("norway_rotation_meta") or {}),
     })
 
     if candidate_snapshots:
@@ -711,6 +797,13 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     print(f"Positions: {list(portfolio.get('positions', {}).keys())}")
     print(f"Trades executed this run: {trades_executed}")
 
+    final_rotation_meta = norway_rotation_meta if not resume else dict(checkpoint.get("norway_rotation_meta") or {})
+    _commit_norway_rotation(final_rotation_meta)
+    update_scanner_status(
+        norway_universe_size=int((final_rotation_meta or {}).get("universe_size") or 0),
+        norway_rotation_cursor=int((final_rotation_meta or {}).get("next_cursor") or 0),
+        norway_batch_size=len(tickers),
+    )
     clear_scanner_checkpoint()
     return trades_executed
 

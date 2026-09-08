@@ -379,7 +379,7 @@ def resolve_universe_tickers(
     Supports regular markets from stocks.py plus existing app scopes such as
     Watchlist and Top Picks when the UI passes them in.
     """
-    max_count = max(1, min(int(max_count or 30), 250))
+    max_count = max(1, min(int(max_count or 30), 500))
     selected = normalize_market_scopes(scopes)
     if not selected:
         return []
@@ -451,7 +451,7 @@ def resolve_strict_universe_tickers(
     silently fall back to market candidates or prepend old manual tickers.
     """
     mode = str(config.get("mode") or "Markedvalg").strip()
-    max_count = max(1, min(int(config.get("max_count", 30) or 30), 250))
+    max_count = max(1, min(int(config.get("max_count", 30) or 30), 500))
     scopes = [str(x) for x in (config.get("scopes") or []) if str(x or "").strip()]
     manual = normalize_ticker(config.get("manual_ticker"))
     manual_list = parse_ticker_list(config.get("manual_list") or config.get("manual_tickers") or config.get("tickers"))
@@ -555,7 +555,7 @@ def run_smart_ai_universe(
     files and it does not mutate Streamlit state.
     """
     score_provider = score_provider or _default_score_provider
-    max_count = max(1, min(int(config.get("max_count", 30) or 30), 250))
+    max_count = max(1, min(int(config.get("max_count", 30) or 30), 500))
     scopes = normalize_market_scopes(config.get("scopes") or [])
     use_news = bool(config.get("use_news", False))
     max_risk = str(config.get("max_risk") or "Middels")

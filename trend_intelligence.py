@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-VERSION = "v19.22.0-rc16.31bn"
+VERSION = "v19.22.0-rc16.31br"
 
 
 def _f(value: Any) -> float | None:
@@ -207,6 +207,7 @@ def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str,
     early=_early_signal(src); fresh=_fresh_signal(src); age,age_label=_trend_age(src)
     return {
         "version":VERSION,"ticker":str(candidate.get("ticker") or ""),"market":str(candidate.get("market") or src.get("market") or ""),"sector":str(candidate.get("sector") or src.get("sector") or ""),
+        "exchange_name":str(candidate.get("exchange_name") or src.get("exchange_name") or src.get("market_segment") or ""),"market_segment":str(candidate.get("market_segment") or src.get("market_segment") or src.get("exchange_name") or ""),"exchange_mic":str(candidate.get("exchange_mic") or src.get("exchange_mic") or ""),"exchange_symbol":str(candidate.get("exchange_symbol") or src.get("exchange_symbol") or ""),"isin":str(candidate.get("isin") or src.get("isin") or ""),
         "first_discovered_at":history_item.get("first_seen") or candidate.get("created_at") or "","last_seen_at":history_item.get("last_seen") or "","times_seen":int(history_item.get("times_in_list") or len(obs) or 0),"rank_change":rank_delta,
         "trend_phase":_phase(src),"trend_age_sessions":age,"trend_age":age_label,
         "return_1d_pct":_f(src.get("return_1d")),"return_3d_pct":_f(src.get("return_3d")),"return_5d_pct":_f(src.get("return_5d")),"return_10d_pct":_f(src.get("return_10d")),"return_15d_pct":_f(src.get("return_15d")),"return_20d_pct":_f(src.get("return_20d") or src.get("return_1m")),"return_60d_pct":_f(src.get("return_60d") or src.get("return_3m")),
@@ -223,7 +224,18 @@ def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str,
 
 
 def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    history=dict(history or {}); candidates=[row for row in (run.get("candidates") or []) if isinstance(row,Mapping)]; receipts=[]
+    history=dict(history or {})
+    # RC16.31br: Fresh Trend peer ranking is based on every stage-1 screened
+    # equity, not only the smaller deep-analysis set. Scored candidates replace
+    # their lightweight counterparts so richer evidence is retained.
+    pool = [row for row in (run.get("fresh_screening_candidates") or []) if isinstance(row, Mapping)]
+    scored = [row for row in (run.get("candidates") or []) if isinstance(row, Mapping)]
+    by_ticker = {str(row.get("ticker") or "").upper(): row for row in pool if str(row.get("ticker") or "").strip()}
+    for row in scored:
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker:
+            by_ticker[ticker] = row
+    candidates=list(by_ticker.values()); receipts=[]
     for row in candidates:
         ticker=str(row.get("ticker") or ""); receipt=build_trend_receipt(row,history.get(ticker) if isinstance(history.get(ticker),Mapping) else {}); row["trend_receipt"]=receipt; receipts.append(receipt)
     market5=[x for x in (_f(r.get("return_5d_pct")) for r in receipts) if x is not None]; market20=[x for x in (_f(r.get("return_20d_pct")) for r in receipts) if x is not None]; market60=[x for x in (_f(r.get("return_60d_pct")) for r in receipts) if x is not None]
@@ -244,5 +256,5 @@ def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) 
     fresh=sorted(receipts,key=lambda r:(float((r.get("fresh_signal") or {}).get("score") or 0),float(r.get("relative_strength_ignition") or -999),float(r.get("return_5d_pct") or -1e9)),reverse=True)
     fresh_only=[r for r in fresh if (r.get("fresh_signal") or {}).get("trend_age") in {"NY","TIDLIG"} and float((r.get("fresh_signal") or {}).get("score") or 0)>=35]
     established=[r for r in early if r.get("trend_age") in {"ETABLERT","MODEN"} and float((r.get("early_signal") or {}).get("score") or 0)>=30]
-    run["trend_discovery"]={"version":VERSION,"mode":"NORWAY_PRODUCTION_STABILIZATION" if run.get("markets")==["Norge"] else "MULTI_MARKET","top10":ranked[:10],"near_candidates":ranked[10:15],"early_signal_watchlist":early[:12],"fresh_trend_watchlist":fresh_only[:12],"established_trend_watchlist":established[:12],"coverage":{"candidates":len(candidates),"with_20d_return":len(ranked),"with_60d_chart":sum(1 for r in receipts if len(r.get("price_trend_60d") or [])>=20),"with_early_signal":sum(1 for r in early if float((r.get("early_signal") or {}).get("score") or 0)>=30),"with_fresh_signal":len(fresh_only)},"missed_winner_audit":{"state":"COLLECTING_BASELINE","note":"Fresh Trend måles separat fra etablerte vinnere slik at eldre 30–60d-trender ikke kan dominere nye trendstarter."},"production_scoring_changed":False,"evidence_priority_changed":True,"explanation":"Fresh Trend og etablert trend er separate køer. Fresh Trend favoriserer fersk akselerasjon, breakout, RSI/OBV-tenning og kompresjon→ekspansjon. Sterke ferske signaler kan få tidligere evidenskontroll, men kan aldri alene utløse kjøp."}
+    run["trend_discovery"]={"version":VERSION,"mode":"NORWAY_PRODUCTION_STABILIZATION" if run.get("markets")==["Norge"] else "MULTI_MARKET","top10":ranked[:10],"near_candidates":ranked[10:15],"early_signal_watchlist":early[:12],"fresh_trend_watchlist":fresh_only[:12],"established_trend_watchlist":established[:12],"coverage":{"candidates":len(candidates),"full_stage1_universe":len(pool),"deep_scored":len(scored),"with_20d_return":len(ranked),"with_60d_chart":sum(1 for r in receipts if len(r.get("price_trend_60d") or [])>=20),"with_early_signal":sum(1 for r in early if float((r.get("early_signal") or {}).get("score") or 0)>=30),"with_fresh_signal":len(fresh_only)},"missed_winner_audit":{"state":"COLLECTING_BASELINE","note":"Fresh Trend måles separat fra etablerte vinnere slik at eldre 30–60d-trender ikke kan dominere nye trendstarter."},"production_scoring_changed":False,"evidence_priority_changed":True,"explanation":"Fresh Trend og etablert trend er separate køer. Fresh Trend favoriserer fersk akselerasjon, breakout, RSI/OBV-tenning og kompresjon→ekspansjon. Sterke ferske signaler kan få tidligere evidenskontroll, men kan aldri alene utløse kjøp."}
     return run

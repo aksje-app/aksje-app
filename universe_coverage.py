@@ -44,8 +44,14 @@ def normalize_sector(value: Any) -> str:
 
 
 def configured_universe_tickers(market: str) -> list[str]:
-    from stocks import NORWEGIAN_STOCKS, SWEDISH_STOCKS, US_FALLBACK
-    values = {"Norge": NORWEGIAN_STOCKS, "Sverige": SWEDISH_STOCKS, "USA": US_FALLBACK}.get(str(market), [])
+    from stocks import NORWEGIAN_STOCKS, SWEDISH_STOCKS, US_FALLBACK, get_norwegian_tickers
+    if str(market) == "Norge":
+        try:
+            values = get_norwegian_tickers()
+        except Exception:
+            values = NORWEGIAN_STOCKS
+    else:
+        values = {"Sverige": SWEDISH_STOCKS, "USA": US_FALLBACK}.get(str(market), [])
     return list(dict.fromkeys(str(value or "").strip().upper() for value in values if str(value or "").strip()))
 
 
@@ -87,13 +93,48 @@ def build_universe_contract(
         for label, keys in metadata_fields.items()
     }
     configured_complete = bool(configured) and not missing_symbols
+    authoritative = False
+    source_name = source
+    source_disclaimer = "Kontrollert applikasjonsunivers; ikke dokumentert som komplett offisiell børsliste."
+    exchange_counts = {}
+    exchange_scanned_counts = {}
+    exchange_missing_counts = {}
+    master_status = ""
+    master_verified_at = ""
+    if str(market) == "Norge":
+        try:
+            from stocks import NORWEGIAN_STOCKS
+            from norway_exchange_universe import get_norway_exchange_master
+            master = get_norway_exchange_master(NORWEGIAN_STOCKS)
+            authoritative = bool(master.get("source_authoritative_exchange_master"))
+            source_name = str(master.get("source") or source)
+            master_status = str(master.get("status") or "")
+            master_verified_at = str(master.get("verified_at") or master.get("fetched_at") or "")
+            exchange_counts = dict(master.get("by_exchange") or {})
+            by_ticker = {str(item.get("ticker") or "").upper(): str(item.get("exchange_name") or "Ukjent") for item in master.get("instruments") or [] if isinstance(item, Mapping)}
+            for ticker in scanned:
+                ex = by_ticker.get(ticker, "Ukjent")
+                exchange_scanned_counts[ex] = exchange_scanned_counts.get(ex, 0) + 1
+            for ticker in missing_symbols:
+                ex = by_ticker.get(ticker, "Ukjent")
+                exchange_missing_counts[ex] = exchange_missing_counts.get(ex, 0) + 1
+            source_disclaimer = (
+                "Euronexts offisielle aksjemaster for Oslo Børs, Euronext Growth Oslo og Euronext Expand Oslo er autoritativ kilde."
+                if authoritative else
+                "Euronexts offisielle aksjemaster kunne ikke verifiseres; fallback-univers er aktivt og må ikke tolkes som komplett offisiell dekning."
+            )
+        except Exception:
+            pass
     return {
         "market": market,
-        "universe_source": source,
-        "source_authoritative_exchange_master": False,
-        "source_disclaimer": (
-            "Kontrollert applikasjonsunivers; ikke dokumentert som komplett offisiell børsliste."
-        ),
+        "universe_source": source_name,
+        "source_authoritative_exchange_master": authoritative,
+        "source_disclaimer": source_disclaimer,
+        "master_status": master_status,
+        "master_verified_at": master_verified_at,
+        "exchange_counts": exchange_counts,
+        "exchange_scanned_counts": exchange_scanned_counts,
+        "exchange_missing_counts": exchange_missing_counts,
         "configured_universe": len(configured),
         "rough_scanned": len(scanned),
         "extended_analyzed": len(advanced),
@@ -110,7 +151,7 @@ def build_universe_contract(
             "Et symbol kan bare utelates fra videre analyse på grunn av dokumentert datamangel, "
             "likviditet/handelsstatus eller rangering etter grovfilteret. Årsaken lagres per symbol."
         ),
-        "coverage_failure": bool(missing_symbols),
+        "coverage_failure": bool(missing_symbols) or (str(market) == "Norge" and not authoritative),
     }
 
 

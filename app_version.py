@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bq"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bq Manual Memory and Terminal Status Closure"
+APP_VERSION = "v19.22.0-rc16.31br"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31br Complete Norway Exchange Universe"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bp"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bq"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.

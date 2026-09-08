@@ -379,6 +379,12 @@ class CandidateAssessment:
     strategy_matches: list[str] = field(default_factory=list)
     scenario_analysis: dict[str, Any] = field(default_factory=dict)
     analysis_ranking: dict[str, Any] = field(default_factory=dict)
+    exchange_name: str = ""
+    market_segment: str = ""
+    exchange_mic: str = ""
+    exchange_symbol: str = ""
+    isin: str = ""
+    listing_status: str = ""
 
 
 def _extract_rows(value: Any) -> list[dict[str, Any]]:
@@ -453,7 +459,8 @@ def _source_row_for_reanalysis(row: Mapping[str, Any]) -> dict[str, Any]:
     source = dict(current)
     for key in (
         "ticker", "symbol", "name", "shortName", "longName", "market", "country",
-        "exchange", "sector", "industry", "source", "source_market",
+        "exchange", "exchange_name", "market_segment", "exchange_mic", "exchange_symbol", "isin",
+        "listing_status", "universe_source", "sector", "industry", "source", "source_market",
     ):
         if outer.get(key) not in (None, ""):
             source[key] = outer.get(key)
@@ -621,7 +628,49 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         strategy_matches=parallel_matches,
         scenario_analysis=dict(parallel_analysis.get("scenario_analysis") or {}),
         analysis_ranking=parallel_analysis,
+        exchange_name=str(row.get("exchange_name") or row.get("market_segment") or ""),
+        market_segment=str(row.get("market_segment") or row.get("exchange_name") or ""),
+        exchange_mic=str(row.get("exchange_mic") or ""),
+        exchange_symbol=str(row.get("exchange_symbol") or ""),
+        isin=str(row.get("isin") or ""),
+        listing_status=str(row.get("listing_status") or ""),
     )
+
+
+def _compact_fresh_screening_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Retain only fields required by Fresh Trend peer ranking/reporting.
+
+    RC16.31br screens the complete Norway universe before the deep-analysis
+    cut. Persisting every full stage-1 market row would unnecessarily inflate
+    the run JSON and manual-report cgroup footprint, so this projection keeps
+    the technical/event fields used by trend_intelligence plus instrument
+    identity. It is observational only.
+    """
+    keys = (
+        "ticker", "market", "sector", "exchange_name", "market_segment",
+        "exchange_mic", "exchange_symbol", "isin", "listing_status",
+        "universe_source", "created_at", "rank", "data_quality", "last_price",
+        "return_1d", "return_3d", "return_5d", "return_10d", "return_15d",
+        "return_20d", "return_60d", "return_1m", "return_3m",
+        "momentum_acceleration_1v20", "momentum_acceleration_3v20",
+        "momentum_acceleration_5v20", "momentum_acceleration_10v20",
+        "volume_ratio_20", "obv_pressure_5d", "obv_pressure_10d",
+        "obv_pressure_20d", "rsi", "rsi_cross_50_age_sessions",
+        "rsi_cross_60_age_sessions", "rsi_cross_70_age_sessions",
+        "rsi_10d_breakout", "sma20", "sma50", "sma200",
+        "sma20_slope_5d_pct", "golden_cross_spread_pct",
+        "golden_cross_spread_change_10d_pp", "price_vs_sma20_pct",
+        "sma20_vs_sma50_pct", "sma50_vs_sma200_pct", "golden_cross_active",
+        "golden_cross_age_sessions", "distance_from_20d_high_pct",
+        "distance_from_60d_high_pct", "breakout_20d", "breakout_60d",
+        "breakout_20d_age_sessions", "breakout_hold_sessions",
+        "breakout_holding", "breakout_20d_pct", "breakout_60d_pct",
+        "prior_20d_high", "prior_60d_high", "low_20d", "low_60d",
+        "support_levels", "resistance_levels", "compression_ratio_10v40",
+        "volatility_expansion_5v20", "close_location_in_day",
+        "price_trend_60d", "early_opportunity_preview",
+    )
+    return {key: row.get(key) for key in keys if key in row}
 
 
 def _prefilter_score(row: Mapping[str, Any]) -> float:
@@ -694,10 +743,47 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         clean["analysis_stage"] = "FAST_SCAN"
         sanitized_rows.append(clean)
 
-    # Stage 1 ends here. Only the strongest rows proceed to extended analysis.
+    # RC16.31br: every Norway-listed equity gets the cheap Fresh Trend receipt
+    # before any deeper-analysis cut. This closes the blind spot where a newly
+    # accelerating small/Growth/Expand share could be discarded before the
+    # trend engine saw it. The receipt is observational and cannot authorise a
+    # trade or alter the investment score.
+    try:
+        from trend_intelligence import build_opportunity_preview
+        for row in sanitized_rows:
+            row["early_opportunity_preview"] = build_opportunity_preview(row)
+    except Exception:
+        pass
+
+    # Stage 1 ends here. Select the ordinary score/sector leaders, then reserve
+    # bounded seats for the strongest fresh signals from the *complete* scanned
+    # universe. This retains broad discovery without multiplying deep evidence.
     sanitized_rows.sort(key=lambda row: (_f(row.get("stage1_prefilter_score")), _f(row.get("scanner_score"))), reverse=True)
     from universe_coverage import select_sector_balanced_rows
     extended_source_rows, sector_selection = select_sector_balanced_rows(sanitized_rows, cfg.deep_analysis_count)
+    try:
+        fresh_ranked = sorted(
+            sanitized_rows,
+            key=lambda row: float((((row.get("early_opportunity_preview") or {}).get("fresh_signal") or {}).get("score") or 0)),
+            reverse=True,
+        )
+        fresh_reserve = max(3, min(20, max(1, cfg.deep_analysis_count // 4)))
+        qualified = [row for row in fresh_ranked if float((((row.get("early_opportunity_preview") or {}).get("fresh_signal") or {}).get("score") or 0)) >= 35][:fresh_reserve]
+        merged = []
+        seen = set()
+        for row in [*qualified, *extended_source_rows, *sanitized_rows]:
+            ticker = str(row.get("ticker") or "").upper()
+            if not ticker or ticker in seen:
+                continue
+            seen.add(ticker); merged.append(row)
+            if len(merged) >= cfg.deep_analysis_count:
+                break
+        extended_source_rows = merged
+        sector_selection = dict(sector_selection or {})
+        sector_selection["fresh_trend_reserved"] = [str(row.get("ticker") or "") for row in qualified if row in extended_source_rows]
+        sector_selection["fresh_trend_rule"] = "Fresh Trend beregnes på hele universet før utvidet analyse; inntil 25% av analyseplassene kan reserveres for ferske signaler."
+    except Exception:
+        pass
     extended_tickers = {str(row.get("ticker") or "").upper() for row in extended_source_rows}
     screened_out_rows = [row for row in sanitized_rows if str(row.get("ticker") or "").upper() not in extended_tickers]
     for row in extended_source_rows:
@@ -722,17 +808,6 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
                 row["portfolio_fit_score"] = 50.0
                 row["portfolio_fit_trace"] = {"status": "FALLBACK", "error": str(exc)}
                 candidate_errors.append({"ticker": ticker, "stage": "PORTFOLIO_FIT", "error": str(exc)})
-
-    # RC16.31bn: compute a cheap, observational Fresh Trend preview before
-    # evidence allocation. This does not change the investment score; it only
-    # lets newly accelerating candidates receive earlier news/insider/short
-    # research within the existing bounded evidence budget.
-    try:
-        from trend_intelligence import build_opportunity_preview
-        for row in extended_source_rows:
-            row["early_opportunity_preview"] = build_opportunity_preview(row)
-    except Exception:
-        pass
 
     preliminary: list[CandidateAssessment] = []
     source_by_ticker: dict[str, dict[str, Any]] = {}
@@ -1048,6 +1123,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         "sector_selection": sector_selection,
         "selection_trace": selection_trace,
         "detection_audit": detection_audit,
+        "fresh_screening_candidates": [_compact_fresh_screening_row(row) for row in sanitized_rows],
         "candidates": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EXTENDED_ANALYSIS")} for x in assessments],
         "proposals": [asdict(x) | {"analysis_stage": str(x.raw.get("analysis_stage") or "EVIDENCE_CONTROLLED")} for x in proposals],
         "execution": "ANALYSE_ONLY_MANUAL_APPROVAL",
@@ -1103,6 +1179,25 @@ def _market_rows_from_tickers(tickers: Sequence[str], market: str, source: str) 
             "market": market,
             "source": source,
         })
+    return rows
+
+
+def _market_rows_from_instruments(instruments: Sequence[Mapping[str, Any]], market: str, source: str) -> list[dict[str, Any]]:
+    """Build candidate rows while retaining authoritative exchange identity."""
+    rows: list[dict[str, Any]] = []
+    for item in instruments or []:
+        if not isinstance(item, Mapping):
+            continue
+        row = dict(item)
+        ticker = str(row.get("ticker") or row.get("analysis_ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        row["ticker"] = ticker
+        row["symbol"] = ticker
+        row["market"] = market
+        row.setdefault("name", row.get("company_name") or row.get("exchange_symbol") or ticker)
+        row.setdefault("source", source)
+        rows.append(row)
     return rows
 
 
@@ -1181,11 +1276,18 @@ def _load_candidate_rows_from_app(config: PipelineConfig, *, return_discovery: b
 
     fallback_rows: list[dict[str, Any]] = []
     try:
-        from universe_engine import resolve_universe_tickers
-        tickers = resolve_universe_tickers([cfg.market_scope], max_count=min(500, max(cfg.scan_limit, cfg.scan_limit * 4)))
-        fallback_rows = _market_rows_from_tickers(tickers, cfg.market_scope, "Built-in liquid market universe")
-        if fallback_rows:
-            source_parts.append("Built-in market universe")
+        if cfg.market_scope == "Norge":
+            from stocks import get_norwegian_instruments
+            instruments = get_norwegian_instruments(limit=500)
+            fallback_rows = _market_rows_from_instruments(instruments, "Norge", "Euronext Norway equity master")
+            if fallback_rows:
+                source_parts.append("Euronext Norway equity master")
+        else:
+            from universe_engine import resolve_universe_tickers
+            tickers = resolve_universe_tickers([cfg.market_scope], max_count=min(500, max(cfg.scan_limit, cfg.scan_limit * 4)))
+            fallback_rows = _market_rows_from_tickers(tickers, cfg.market_scope, "Built-in liquid market universe")
+            if fallback_rows:
+                source_parts.append("Built-in market universe")
     except Exception:
         pass
 

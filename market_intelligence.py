@@ -3374,9 +3374,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         coverage_table,
         *([Paragraph("Univers- og sektordekning", styles["Subsection"]), universe_table,
            Paragraph(
-               "* Kontrollandel måler kontrolluniversets andel av den konfigurerte markedslisten. "
-               "Antall skannet kan være høyere fordi grovskannet også inkluderer dynamisk kildeoppdagede symboler. "
-               "Kontrolluniverset er ikke en komplett offisiell børsliste.",
+               "* Kontrollandel måler hvor stor del av det gjeldende universet som faktisk ble grovskannet. "
+               "For Norge er kilden Euronexts offisielle aksjemaster når verifisert live eller fra siste verifiserte snapshot; "
+               "fallback markeres eksplisitt og kan aldri presenteres som 100 % offisiell dekning.",
                styles["Tiny"],
            )] if universe_table is not None else []),
         Paragraph("Hovedkonklusjon", styles["Subsection"]),
@@ -3407,7 +3407,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         str(row.get("ticker") or "").upper(): row
         for row in (run.get("candidates") or []) if isinstance(row, Mapping)
     }
-    candidate_rows = [["#", "Ticker", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Short / innsider / kilder"]]
+    candidate_rows = [["#", "Ticker", "Børs", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Short / innsider / kilder"]]
     for index, compact_candidate in enumerate(review_candidates, 1):
         ticker = str(compact_candidate.get("ticker") or "").upper()
         candidate = {**dict(canonical_by_ticker.get(ticker, {})), **dict(compact_candidate)}
@@ -3446,17 +3446,18 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         candidate_rows.append([
             candidate.get("priority_rank") or index,
             _rawp(candidate.get("ticker") or "-", "Tiny"),
+            _p(candidate.get("exchange_name") or candidate.get("market_segment") or "-", "Tiny"),
             _p(f"{_fmt(candidate.get('investment_score', candidate.get('score')))} · {candidate.get('autonomy_outcome_label') or _decision_label(candidate.get('portfolio_action') or candidate.get('action'))}", "Tiny"),
             _p(_short(main_reason, 115), "Tiny"),
             _p(_short(main_risk, 135), "Tiny"),
             _p(_short(source_text, 150), "Tiny"),
         ])
     if len(candidate_rows) == 1:
-        candidate_rows.append(["-", "Ingen", "-", "Ingen kandidatdata", "-", "-"])
+        candidate_rows.append(["-", "Ingen", "-", "-", "Ingen kandidatdata", "-", "-"])
     candidate_table_decision = Table(
         candidate_rows,
         repeatRows=1,
-        colWidths=[7*mm, 18*mm, 27*mm, 44*mm, 51*mm, 37*mm],
+        colWidths=[7*mm, 17*mm, 25*mm, 25*mm, 39*mm, 45*mm, 26*mm],
     )
     candidate_table_decision.setStyle(_table_style(5.2, padding=1.25))
     decision_story += [
@@ -3476,13 +3477,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     fresh_watch_short = trend_discovery_short.get("fresh_trend_watchlist") if isinstance(trend_discovery_short.get("fresh_trend_watchlist"), list) else []
     fresh_watch_short = [row for row in fresh_watch_short if isinstance(row, Mapping)][:3]
     if fresh_watch_short:
-        fresh_rows = [["Ticker", "Signal", "Fresh score", "Alder", "3d / 5d", "Hvorfor nå"]]
+        fresh_rows = [["Ticker", "Børs", "Signal", "Fresh score", "Alder", "3d / 5d", "Hvorfor nå"]]
         for receipt in fresh_watch_short:
             fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
             reasons = [str(item.get("label") or item.get("code") or "") for item in (fs.get("signals") or [])[:3] if isinstance(item, Mapping)]
             why_now = "; ".join(value for value in reasons if value) or str(fs.get("why_now") or fs.get("continuation_summary") or "Fersk positiv trendakselerasjon")
             fresh_rows.append([
                 _rawp(receipt.get("ticker") or "-", "Tiny"),
+                _p(receipt.get("exchange_name") or "-", "Tiny"),
                 _p(fs.get("label") or "FRESH TREND", "Tiny"),
                 _p(_fmt(fs.get("score")), "Tiny"),
                 _p(f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')} økter", "Tiny"),
@@ -3491,7 +3493,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             ])
         fresh_table = Table(
             fresh_rows, repeatRows=1,
-            colWidths=[22*mm, 38*mm, 20*mm, 27*mm, 28*mm, 49*mm],
+            colWidths=[19*mm, 30*mm, 31*mm, 17*mm, 23*mm, 25*mm, 39*mm],
         )
         fresh_table.setStyle(_table_style(5.3, padding=1.2))
         decision_story += [
@@ -3529,11 +3531,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         ),
     ]
     if decision_candidates:
-        recommendation_rows = [["Ticker", "Marked", "Score", "Anbefaling", "Handel"]]
+        recommendation_rows = [["Ticker", "Børs", "Score", "Anbefaling", "Handel"]]
         for row in decision_candidates:
             recommendation_rows.append([
                 _rawp(row.get("ticker") or "-", "Tiny"),
-                _p(row.get("market") or "-", "Tiny"),
+                _p(row.get("exchange_name") or row.get("market_segment") or row.get("market") or "-", "Tiny"),
                 _p(_fmt(row.get("score")), "Tiny"),
                 _p(row.get("status") or row.get("action") or "-", "Tiny"),
                 _p("Ingen automatisk transaksjon", "Tiny"),
@@ -3698,7 +3700,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                 f"<b>{escape(label_for(alert.get('severity') or 'WARNING'))}</b> · {escape(str(alert.get('message') or '-'))} "
                 "Ingen handel tillates før evidenskravet er oppfylt.", styles["BodyCompact"]))
     if decision_watch_queue:
-        watch_rows = [["Ticker", "Marked", "Score", "Til 73", "Andre blokkeringer"]]
+        watch_rows = [["Ticker", "Børs", "Score", "Til 73", "Andre blokkeringer"]]
         for row in list(decision_watch_queue)[:15]:
             watch_rows.append([_rawp(row.get("ticker") or "-", "Tiny"), _p(row.get("market") or "-", "Tiny"),
                                _p(f"{float(row.get('score') or 0):.2f}", "Tiny"), _p(f"{float(row.get('distance_to_production_threshold') or 0):.2f}", "Tiny"),
@@ -3707,7 +3709,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         watch_table.setStyle(_table_style(5.4, padding=1.2))
         decision_story += [Paragraph("Observasjonskø 68-73", styles["Section"]), watch_table,
                            Paragraph("Observasjonskøen er ikke en kjøpsanbefaling. Kandidatene vurderes automatisk på nytt.", styles["Small"])]
-    rejected_rows = [["Ticker", "Marked", "Score", "Status / kort grunn"]]
+    rejected_rows = [["Ticker", "Børs", "Score", "Status / kort grunn"]]
     for row in rejected_control:
         rejected_rows.append([row.get("ticker") or "-", _market_scope_label(row.get("market") or "-"), _fmt(row.get("score")), _p(_short(row.get("reason") or row.get("status") or "Avvist", 120), "Tiny")])
     if len(rejected_rows) == 1:
@@ -4372,7 +4374,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     if fresh_watch:
         story += [Paragraph("Fresh Trend – nye aksjer som akkurat akselererer", styles["Section"]),
                   Paragraph("Denne køen er bevisst skilt fra etablerte 30–60d vinnere. Den favoriserer fersk 1/3/5d-akselerasjon, nytt breakout, RSI-tenning, volum/OBV, SMA20-helning og kompresjon→ekspansjon. Sterke signaler får ekstra nyhets-, insider- og shortkontroll, men ingen kjøpsfullmakt.", styles["Small"])]
-        fdata = [["Ticker", "Fresh signal", "Score", "Alder", "3d / 5d", "RS-tenning", "Hvorfor nå / hva må bekreftes"]]
+        fdata = [["Ticker", "Børs", "Fresh signal", "Score", "Alder", "3d / 5d", "RS-tenning", "Hvorfor nå / hva må bekreftes"]]
         for receipt in fresh_watch[:8]:
             if not isinstance(receipt, Mapping):
                 continue
@@ -4382,8 +4384,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             text = "; ".join(reasons) or "Ingen komplett forklaring"
             if caution:
                 text += ". Risiko: " + caution
-            fdata.append([receipt.get("ticker"), fs.get("label"), _fmt(fs.get("score")), f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')}d", f"{_fmt_signed(receipt.get('return_3d_pct'))}% / {_fmt_signed(receipt.get('return_5d_pct'))}%", f"{_fmt(receipt.get('relative_strength_ignition'))}p", _p(_short(text, 245))])
-        ftable = Table(fdata, repeatRows=1, colWidths=[20*mm, 31*mm, 13*mm, 19*mm, 23*mm, 19*mm, 55*mm])
+            fdata.append([receipt.get("ticker"), receipt.get("exchange_name") or "-", fs.get("label"), _fmt(fs.get("score")), f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')}d", f"{_fmt_signed(receipt.get('return_3d_pct'))}% / {_fmt_signed(receipt.get('return_5d_pct'))}%", f"{_fmt(receipt.get('relative_strength_ignition'))}p", _p(_short(text, 245))])
+        ftable = Table(fdata, repeatRows=1, colWidths=[18*mm, 27*mm, 27*mm, 12*mm, 18*mm, 21*mm, 17*mm, 44*mm])
         ftable.setStyle(_table_style(6.0, padding=2))
         story += [ftable]
 
@@ -5624,10 +5626,15 @@ def _run_job_impl(
             # these rows, so calculate the deterministic local score for every
             # fetched candidate.  Expensive evidence collection remains bounded
             # by evidence_analysis_count/proposal_count.
+            # RC16.31br: Norway now scans the complete Euronext equity master.
+            # Fresh Trend is computed for every stage-1 row inside run_pipeline,
+            # while deep scoring remains bounded to protect memory/runtime.
+            # Other markets keep the existing full-score recall behaviour.
+            norway_deep_budget = min(len(rows), max(100, int(job.deep_count or 0))) if market == "Norge" else _full_score_budget(len(rows))
             cfg = replace(
                 cfg,
-                deep_analysis_count=_full_score_budget(len(rows)),
-                evidence_analysis_count=_effective_global_evidence_size(job.evidence_analysis_count, len(rows)),
+                deep_analysis_count=norway_deep_budget,
+                evidence_analysis_count=_effective_global_evidence_size(job.evidence_analysis_count, norway_deep_budget),
             ).normalized()
             def _pipeline_progress(event: Mapping[str, Any]) -> None:
                 e = dict(event)
@@ -7906,6 +7913,7 @@ def render_market_intelligence() -> None:
                     "Manglende symboler": len(row.get("missing_symbols") or []),
                     "Manglende sektormetadata": len(row.get("missing_sector_metadata") or []),
                     "Kildetype": "Autoritativ børsliste" if row.get("source_authoritative_exchange_master") else "Kontrollert applikasjonsunivers",
+                    "Børser": " · ".join(f"{k}: {v}" for k, v in (row.get("exchange_counts") or {}).items()),
                 } for row in universe_coverage]
                 st.dataframe(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
                 failures = [str(row.get("market")) for row in universe_coverage if row.get("coverage_failure")]
@@ -7913,7 +7921,10 @@ def render_market_intelligence() -> None:
                     st.error("Reell dekningsfeil i: " + ", ".join(failures))
                 else:
                     st.success("Hele det konfigurerte universet ble grovskannet.")
-                st.caption("Dette dokumenterer applikasjonens kontrolliste, ikke en komplett offisiell børsliste uten separat autoritativ kilde.")
+                if any(row.get("source_authoritative_exchange_master") for row in universe_coverage):
+                    st.caption("Norge-universet er kontrollert mot Euronexts offisielle Oslo-aksjemaster (Oslo Børs, Euronext Growth Oslo og Euronext Expand Oslo).")
+                else:
+                    st.caption("Fallback-univers er aktivt; dette må ikke tolkes som komplett offisiell børsdekning.")
                 with st.expander("Vis sektorfordeling, mangler og oppdagelseskontroll", expanded=False):
                     for row in universe_coverage:
                         st.markdown(f"**{row.get('market')}**")
@@ -7922,6 +7933,8 @@ def render_market_intelligence() -> None:
                             "manglende_standardsektorer": row.get("missing_canonical_sectors") or [],
                             "manglende_symboler": row.get("missing_symbols") or [],
                             "manglende_sektormetadata": row.get("missing_sector_metadata") or [],
+                            "børsfordeling": row.get("exchange_counts") or {},
+                            "manglende_per_børs": row.get("exchange_missing_counts") or {},
                         })
                     audits = latest.get("detection_audit") or []
                     if audits:
@@ -8017,7 +8030,7 @@ def render_market_intelligence() -> None:
                 strongest = max(strengths, key=lambda key: float(strengths[key] or 0))
                 action = x.get("autonomy_outcome_code") or x.get("portfolio_action") or ("BUY" if x.get("status") == "ANBEFALT FOR VURDERING" else "SKIP")
                 table.append({
-                    "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Marked": x.get("market"),
+                    "Rang": x.get("rank"), "Ticker": x.get("ticker"), "Børs": x.get("exchange_name") or x.get("market_segment") or "-", "Marked": x.get("market"),
                     "Sektor": sector_label(x.get("sector")), "Score": x.get("investment_score"),
                     "Porteføljebeslutning": decision_label(action),
                     "Beslutningskonfidens": x.get("decision_confidence") or _mapping(x.get("confidence_profile")).get("decision_confidence"), "Trend": x.get("trend"),
@@ -8040,7 +8053,7 @@ def render_market_intelligence() -> None:
                     fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
                     sig_labels = [str(x.get("label") or "") for x in (fs.get("signals") or [])[:4] if isinstance(x, Mapping)]
                     fresh_rows.append({
-                        "Ticker": receipt.get("ticker"), "Fresh signal": fs.get("label"), "Fresh score": fs.get("score"),
+                        "Ticker": receipt.get("ticker"), "Børs": receipt.get("exchange_name") or "-", "Fresh signal": fs.get("label"), "Fresh score": fs.get("score"),
                         "Trendalder": f"{fs.get('trend_age','UKJENT')} · {fs.get('trend_age_sessions','-')} økter",
                         "1d %": receipt.get("return_1d_pct"), "3d %": receipt.get("return_3d_pct"), "5d %": receipt.get("return_5d_pct"),
                         "RS-tenning": receipt.get("relative_strength_ignition"), "Volum x": receipt.get("volume_ratio_20"),
@@ -8060,7 +8073,7 @@ def render_market_intelligence() -> None:
                     sig_labels = [str(x.get("label") or "") for x in (es.get("signals") or [])[:3] if isinstance(x, Mapping)]
                     caution = str((es.get("cautions") or [""])[0]) if es.get("cautions") else ""
                     early_rows.append({
-                        "Ticker": receipt.get("ticker"), "Signal": es.get("label"), "Tidligscore": es.get("score"),
+                        "Ticker": receipt.get("ticker"), "Børs": receipt.get("exchange_name") or "-", "Signal": es.get("label"), "Tidligscore": es.get("score"),
                         "5d %": receipt.get("return_5d_pct"), "20d %": receipt.get("return_20d_pct"),
                         "RS20 marked %il": receipt.get("market_rs_20d_percentile"), "RS20 sektor %il": receipt.get("sector_rs_20d_percentile"),
                         "RSI": receipt.get("rsi"), "Volum x": receipt.get("volume_ratio_20"), "OBV 20d": receipt.get("obv_pressure_20d"),
