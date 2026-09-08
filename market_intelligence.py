@@ -4318,16 +4318,41 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             drivers = "; ".join(str(x) for x in (receipt.get("top_trend_drivers") or [])) or "Ingen komplette trenddrivere"
             first_seen = _short_datetime(receipt.get("first_discovered_at")) if receipt.get("first_discovered_at") else "første observasjon ikke historisk registrert"
             raw_trend = trend_candidate.get("raw") if isinstance(trend_candidate.get("raw"), Mapping) else {}
+            early_signal = receipt.get("early_signal") if isinstance(receipt.get("early_signal"), Mapping) else {}
             metrics = (
                 f"#{trend_index} {trend_candidate.get('ticker','-')} · {receipt.get('trend_phase','UKJENT')} · "
+                f"{early_signal.get('label','INGEN TYDELIG TIDLIG SIGNAL')} {early_signal.get('score',0)}/100 · "
                 f"5d {_fmt_signed(receipt.get('return_5d_pct'))} % · 20d {_fmt_signed(receipt.get('return_20d_pct'))} % · "
-                f"60d {_fmt_signed(receipt.get('return_60d_pct'))} % · RSI {_fmt(raw_trend.get('rsi'))} · "
-                f"volum {_fmt(receipt.get('volume_ratio_20'))}x 20d-snitt · først sett {first_seen}. "
-                f"Drivere: {drivers}."
+                f"60d {_fmt_signed(receipt.get('return_60d_pct'))} % · RSI {_fmt(receipt.get('rsi') or raw_trend.get('rsi'))} · "
+                f"volum {_fmt(receipt.get('volume_ratio_20'))}x · RS20 marked {_fmt(receipt.get('market_rs_20d_percentile'))}p · "
+                f"RS20 sektor {_fmt(receipt.get('sector_rs_20d_percentile'))}p · først sett {first_seen}. Drivere: {drivers}."
             )
             story += [Paragraph(escape(_norwegian_decimal_text(metrics)), styles["Small"])]
             if chart is not None:
                 story += [chart, Spacer(1, 1.2*mm)]
+
+    early_watch = ((run.get("trend_discovery") or {}).get("early_signal_watchlist") or []) if isinstance(run.get("trend_discovery"), Mapping) else []
+    if early_watch:
+        story += [Paragraph("Tidlige trend- og breakoutsignaler", styles["Section"]),
+                  Paragraph("Separat observasjonslag som leter etter akselerasjon, brudd, positiv trendstruktur, RSI-skifte og volum/OBV-bekreftelse. Signalene er ikke kjøpsfullmakt; de forklarer hvorfor en aksje bør undersøkes tidlig.", styles["Small"])]
+        edata = [["Ticker", "Signal", "Score", "5d / 20d", "RS20 marked", "Teknisk forklaring / risiko"]]
+        for receipt in early_watch[:6]:
+            if not isinstance(receipt, Mapping):
+                continue
+            es = receipt.get("early_signal") if isinstance(receipt.get("early_signal"), Mapping) else {}
+            reasons = [str(x.get("label")) for x in (es.get("signals") or [])[:3] if isinstance(x, Mapping)]
+            cautions = [str(x) for x in (es.get("cautions") or [])[:1]]
+            text = "; ".join(reasons) or "Ingen tydelige signaler"
+            if cautions:
+                text += ". Risiko: " + cautions[0]
+            edata.append([
+                receipt.get("ticker"), es.get("label"), _fmt(es.get("score")),
+                f"{_fmt_signed(receipt.get('return_5d_pct'))}% / {_fmt_signed(receipt.get('return_20d_pct'))}%",
+                f"{_fmt(receipt.get('market_rs_20d_percentile'))}p", _p(_short(text, 220))
+            ])
+        etable = Table(edata, repeatRows=1, colWidths=[22*mm, 35*mm, 14*mm, 25*mm, 22*mm, 62*mm])
+        etable.setStyle(_table_style(6.2, padding=2))
+        story += [etable]
 
     if run.get("analysis_aborted"):
         story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Section"]),
@@ -7923,6 +7948,28 @@ def render_market_intelligence() -> None:
                     "Handling": decision_label(action), "Status": x.get("autonomy_outcome_label") or decision_label(action),
                 })
             if table: st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True)
+            trend_discovery = latest.get("trend_discovery") if isinstance(latest.get("trend_discovery"), Mapping) else {}
+            early_watch = trend_discovery.get("early_signal_watchlist") if isinstance(trend_discovery.get("early_signal_watchlist"), list) else []
+            if early_watch:
+                st.markdown("##### Tidlige trend- og breakoutsignaler")
+                st.caption("Dette er et separat observasjonslag for tidlig oppdagelse. Det endrer ikke kjøpsgrensen og kan ikke alene utløse handel.")
+                early_rows = []
+                for receipt in early_watch[:10]:
+                    if not isinstance(receipt, Mapping):
+                        continue
+                    es = receipt.get("early_signal") if isinstance(receipt.get("early_signal"), Mapping) else {}
+                    sig_labels = [str(x.get("label") or "") for x in (es.get("signals") or [])[:3] if isinstance(x, Mapping)]
+                    caution = str((es.get("cautions") or [""])[0]) if es.get("cautions") else ""
+                    early_rows.append({
+                        "Ticker": receipt.get("ticker"), "Signal": es.get("label"), "Tidligscore": es.get("score"),
+                        "5d %": receipt.get("return_5d_pct"), "20d %": receipt.get("return_20d_pct"),
+                        "RS20 marked %il": receipt.get("market_rs_20d_percentile"), "RS20 sektor %il": receipt.get("sector_rs_20d_percentile"),
+                        "RSI": receipt.get("rsi"), "Volum x": receipt.get("volume_ratio_20"), "OBV 20d": receipt.get("obv_pressure_20d"),
+                        "Brudd": "60d" if receipt.get("breakout_60d") else ("20d" if receipt.get("breakout_20d") else "-"),
+                        "Hvorfor": " · ".join(x for x in sig_labels if x), "Viktig risiko": caution,
+                    })
+                if early_rows:
+                    st.dataframe(pd.DataFrame(early_rows), width="stretch", hide_index=True)
             if candidates:
                 st.markdown("##### Trenddetaljer 1–10")
                 st.caption("20d er standard for tydelig trendretning. Bytt til 60d for lengre kontekst. RSI beregnes fra samme sluttkurser; volum vises relativt til 20-dagers snitt.")
@@ -7937,6 +7984,8 @@ def render_market_intelligence() -> None:
                             chart_df = pd.DataFrame(series).copy()
                             chart_df["date"] = pd.to_datetime(chart_df["date"], errors="coerce")
                             chart_df["close"] = pd.to_numeric(chart_df["close"], errors="coerce")
+                            if "volume" in chart_df.columns:
+                                chart_df["volume"] = pd.to_numeric(chart_df["volume"], errors="coerce")
                             chart_df = chart_df.dropna(subset=["date", "close"]).sort_values("date")
                             chart_df["SMA20"] = chart_df["close"].rolling(20).mean()
                             chart_df["SMA50"] = chart_df["close"].rolling(50).mean()
@@ -7971,6 +8020,14 @@ def render_market_intelligence() -> None:
                                     name="Siste", mode="markers", marker={"size": 8}, showlegend=False,
                                     hovertemplate=f"Siste kurs: {float(visible['close'].iloc[-1]):.2f}<extra></extra>",
                                 ))
+                                for level_key, level_name in (("prior_20d_high", "Forrige 20d-topp"), ("prior_60d_high", "Forrige 60d-topp")):
+                                    level = receipt.get(level_key)
+                                    try:
+                                        level_idx = float(level) / base * 100.0
+                                    except Exception:
+                                        level_idx = None
+                                    if level_idx is not None and (lo - 2*pad) <= level_idx <= (hi + 2*pad):
+                                        fig.add_hline(y=level_idx, line_width=1, line_dash="dot", annotation_text=level_name, annotation_position="right")
                                 first_seen = pd.to_datetime(receipt.get("first_discovered_at"), errors="coerce", utc=True)
                                 selected_at = pd.to_datetime((trend_row.get("raw") or {}).get("selected_at") or trend_row.get("selected_at"), errors="coerce", utc=True)
                                 start_date = pd.Timestamp(visible["date"].iloc[0])
@@ -7993,12 +8050,27 @@ def render_market_intelligence() -> None:
                                     rfig = go.Figure()
                                     rfig.add_trace(go.Scatter(x=rsi_visible["date"], y=rsi_visible["RSI14"], name="RSI(14)", mode="lines", line={"width": 2}))
                                     rfig.add_hline(y=70, line_dash="dot", annotation_text="70")
+                                    rfig.add_hline(y=50, line_dash="dot", annotation_text="50")
                                     rfig.add_hline(y=30, line_dash="dot", annotation_text="30")
                                     rfig.update_layout(
                                         height=155, margin={"l": 35, "r": 18, "t": 15, "b": 25},
                                         showlegend=False, yaxis={"title": "RSI", "range": [0, 100]}, xaxis={"title": None},
                                     )
                                     st.plotly_chart(rfig, width="stretch", config={"displayModeBar": False})
+                                if "volume" in visible.columns and visible["volume"].notna().sum() >= 5:
+                                    vfig = go.Figure()
+                                    vfig.add_trace(go.Bar(x=visible["date"], y=visible["volume"], name="Volum"))
+                                    try:
+                                        avg20v = float(chart_df["volume"].tail(20).mean())
+                                        if avg20v > 0:
+                                            vfig.add_hline(y=avg20v, line_dash="dot", annotation_text="20d snitt")
+                                    except Exception:
+                                        pass
+                                    vfig.update_layout(
+                                        height=125, margin={"l": 35, "r": 18, "t": 10, "b": 25},
+                                        showlegend=False, yaxis={"title": "Volum"}, xaxis={"title": None},
+                                    )
+                                    st.plotly_chart(vfig, width="stretch", config={"displayModeBar": False})
                         raw_trend = trend_row.get("raw") if isinstance(trend_row.get("raw"), Mapping) else {}
                         rsi_now = raw_trend.get("rsi")
                         volume_ratio = receipt.get("volume_ratio_20")
@@ -8011,6 +8083,36 @@ def render_market_intelligence() -> None:
                         )
                         if receipt.get("top_trend_drivers"):
                             st.write("Drivere: " + " · ".join(str(x) for x in receipt.get("top_trend_drivers") or []))
+                        early_signal = receipt.get("early_signal") if isinstance(receipt.get("early_signal"), Mapping) else {}
+                        if early_signal:
+                            st.markdown(f"**Tidligsignal: {early_signal.get('label','-')} · {early_signal.get('score',0)}/100**")
+                            if early_signal.get("continuation_summary"):
+                                st.info(str(early_signal.get("continuation_summary")))
+                            for signal in (early_signal.get("signals") or [])[:6]:
+                                if isinstance(signal, Mapping):
+                                    st.write(f"✓ {signal.get('label','Signal')} — {signal.get('meaning','')}")
+                            for caution in (early_signal.get("cautions") or [])[:3]:
+                                st.warning(str(caution))
+                            confirmations = [str(x) for x in (early_signal.get("confirmation_checks") or [])[:4]]
+                            failures = [str(x) for x in (early_signal.get("failure_checks") or [])[:4]]
+                            if confirmations:
+                                st.markdown("**Hva vil bekrefte videre styrke:** " + " · ".join(confirmations))
+                            if failures:
+                                st.markdown("**Hva vil svekke signalet:** " + " · ".join(failures))
+                            levels = []
+                            for key, label in (("prior_20d_high", "20d-motstand"), ("prior_60d_high", "60d-motstand"), ("sma20", "SMA20-støtte"), ("sma50", "SMA50-støtte"), ("low_20d", "20d-bunn")):
+                                value = receipt.get(key)
+                                try:
+                                    if value is not None:
+                                        levels.append(f"{label} {float(value):.2f}")
+                                except Exception:
+                                    pass
+                            if levels:
+                                st.caption("Tekniske referansenivåer: " + " · ".join(levels))
+                            rs_market = receipt.get("market_rs_20d_percentile")
+                            rs_sector = receipt.get("sector_rs_20d_percentile")
+                            if rs_market is not None or rs_sector is not None:
+                                st.caption(f"Relativ styrke 20d: marked {rs_market if rs_market is not None else '-'}-percentil · sektor {rs_sector if rs_sector is not None else '-'}-percentil. Høy percentil betyr at aksjen har steget mer enn de fleste sammenlignbare kandidater i samme kjøring.")
             handoff = latest.get("autonomy_candidate_handoff") if isinstance(latest.get("autonomy_candidate_handoff"), Mapping) else {}
             if handoff:
                 st.markdown("#### Autonomi-kandidatoverlevering")

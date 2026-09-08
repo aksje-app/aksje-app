@@ -176,6 +176,47 @@ def _rsi(close: Any, window: int = 14) -> float | None:
         return None
 
 
+
+def _rsi_series(close: Any, window: int = 14) -> Any:
+    try:
+        delta = close.diff()
+        gain = delta.clip(lower=0).rolling(window).mean()
+        loss = (-delta.clip(upper=0)).rolling(window).mean()
+        rs = gain / loss.replace(0, float("nan"))
+        return 100 - (100 / (1 + rs))
+    except Exception:
+        return None
+
+
+def _recent_cross_age(left: Any, right: Any, lookback: int = 80) -> int | None:
+    try:
+        aligned = left.to_frame("left").join(right.to_frame("right"), how="inner").dropna()
+        if len(aligned) < 2:
+            return None
+        crossed = (aligned["left"] > aligned["right"]) & (aligned["left"].shift(1) <= aligned["right"].shift(1))
+        hits = [i for i, flag in enumerate(crossed.tolist()) if bool(flag)]
+        if not hits:
+            return None
+        age = len(aligned) - 1 - hits[-1]
+        return int(age) if age <= lookback else None
+    except Exception:
+        return None
+
+
+def _recent_level_cross_age(series: Any, level: float, lookback: int = 20) -> int | None:
+    try:
+        values = series.dropna()
+        if len(values) < 2:
+            return None
+        crossed = (values > level) & (values.shift(1) <= level)
+        hits = [i for i, flag in enumerate(crossed.tolist()) if bool(flag)]
+        if not hits:
+            return None
+        age = len(values) - 1 - hits[-1]
+        return int(age) if age <= lookback else None
+    except Exception:
+        return None
+
 def _max_drawdown_pct(close: Any) -> float | None:
     try:
         running_max = close.cummax()
@@ -211,6 +252,34 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     fields["sma20"] = sma20
     fields["sma50"] = sma50
     fields["sma200"] = sma200
+    last = fields.get("last_price")
+    fields["price_vs_sma20_pct"] = ((float(last) / sma20) - 1.0) * 100.0 if last not in (None, 0) and sma20 not in (None, 0) else None
+    fields["sma20_vs_sma50_pct"] = ((float(sma20) / sma50) - 1.0) * 100.0 if sma20 not in (None, 0) and sma50 not in (None, 0) else None
+    fields["sma50_vs_sma200_pct"] = ((float(sma50) / sma200) - 1.0) * 100.0 if sma50 not in (None, 0) and sma200 not in (None, 0) else None
+    try:
+        sma50_series = close.rolling(50).mean()
+        sma200_series = close.rolling(200).mean()
+        fields["golden_cross_active"] = bool(sma50 is not None and sma200 is not None and sma50 > sma200)
+        fields["golden_cross_age_sessions"] = _recent_cross_age(sma50_series, sma200_series, 120)
+    except Exception:
+        fields["golden_cross_active"] = False
+        fields["golden_cross_age_sessions"] = None
+    try:
+        rsi_series = _rsi_series(close)
+        fields["rsi_cross_50_age_sessions"] = _recent_level_cross_age(rsi_series, 50.0, 20) if rsi_series is not None else None
+        fields["rsi_cross_70_age_sessions"] = _recent_level_cross_age(rsi_series, 70.0, 20) if rsi_series is not None else None
+    except Exception:
+        fields["rsi_cross_50_age_sessions"] = None
+        fields["rsi_cross_70_age_sessions"] = None
+    r5 = fields.get("return_5d")
+    r10 = fields.get("return_10d")
+    r20 = fields.get("return_20d")
+    try:
+        fields["momentum_acceleration_5v20"] = float(r5) - float(r20) / 4.0 if r5 is not None and r20 is not None else None
+        fields["momentum_acceleration_10v20"] = float(r10) - float(r20) / 2.0 if r10 is not None and r20 is not None else None
+    except Exception:
+        fields["momentum_acceleration_5v20"] = None
+        fields["momentum_acceleration_10v20"] = None
     if sma50 is not None and sma200 not in (None, 0):
         fields["trend_score"] = _clamp(50.0 + ((sma50 / sma200) - 1.0) * 500.0)
     elif sma50 is not None and fields["last_price"] not in (None, 0):
@@ -220,28 +289,63 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     # discovery auditing. Values come only from the fetched market history.
     try:
         tail = close.tail(60)
-        fields["price_trend_60d"] = [
-            {"date": (idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]),
-             "close": round(float(value), 6)}
-            for idx, value in tail.items() if _finite(value) is not None
-        ]
+        volume_aligned = volume.reindex(close.index) if volume is not None else None
+        trend_rows = []
+        for idx, value in tail.items():
+            if _finite(value) is None:
+                continue
+            row = {
+                "date": (idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]),
+                "close": round(float(value), 6),
+            }
+            if volume_aligned is not None:
+                try:
+                    vv = _finite(volume_aligned.loc[idx])
+                    if vv is not None:
+                        row["volume"] = round(float(vv), 2)
+                except Exception:
+                    pass
+            trend_rows.append(row)
+        fields["price_trend_60d"] = trend_rows
     except Exception:
         fields["price_trend_60d"] = []
     try:
         high20 = _finite(close.tail(20).max()) if len(close) >= 20 else None
         high60 = _finite(close.tail(60).max()) if len(close) >= 60 else None
+        prior20 = _finite(close.iloc[-21:-1].max()) if len(close) >= 21 else None
+        prior60 = _finite(close.iloc[-61:-1].max()) if len(close) >= 61 else None
+        low20 = _finite(close.tail(20).min()) if len(close) >= 20 else None
+        low60 = _finite(close.tail(60).min()) if len(close) >= 60 else None
         last = fields.get("last_price")
+        fields["high_20d"] = high20
+        fields["high_60d"] = high60
+        fields["prior_20d_high"] = prior20
+        fields["prior_60d_high"] = prior60
+        fields["low_20d"] = low20
+        fields["low_60d"] = low60
         fields["distance_from_20d_high_pct"] = ((float(last) / high20) - 1.0) * 100.0 if last not in (None, 0) and high20 not in (None, 0) else None
         fields["distance_from_60d_high_pct"] = ((float(last) / high60) - 1.0) * 100.0 if last not in (None, 0) and high60 not in (None, 0) else None
+        fields["breakout_20d_pct"] = ((float(last) / prior20) - 1.0) * 100.0 if last not in (None, 0) and prior20 not in (None, 0) else None
+        fields["breakout_60d_pct"] = ((float(last) / prior60) - 1.0) * 100.0 if last not in (None, 0) and prior60 not in (None, 0) else None
+        fields["breakout_20d"] = bool(fields.get("breakout_20d_pct") is not None and fields["breakout_20d_pct"] >= 0.0)
+        fields["breakout_60d"] = bool(fields.get("breakout_60d_pct") is not None and fields["breakout_60d_pct"] >= 0.0)
     except Exception:
         pass
     if volume is not None:
         try:
-            v = volume.dropna()
+            v = volume.reindex(close.index).fillna(0.0)
             avg20 = float(v.tail(20).mean()) if len(v) >= 20 else None
             latest_v = _finite(v.iloc[-1]) if len(v) else None
             if avg20 and latest_v is not None:
                 fields["volume_ratio_20"] = latest_v / avg20
+            direction = close.diff().fillna(0.0).map(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0))
+            obv = (direction * v).cumsum()
+            fields["obv"] = _finite(obv.iloc[-1]) if len(obv) else None
+            if avg20 and avg20 > 0:
+                for n in (5, 10, 20):
+                    if len(obv) > n:
+                        pressure = (float(obv.iloc[-1]) - float(obv.iloc[-1-n])) / (avg20 * n)
+                        fields[f"obv_pressure_{n}d"] = max(-2.0, min(2.0, pressure))
         except Exception:
             pass
 
