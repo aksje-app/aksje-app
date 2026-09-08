@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 import streamlit as st
 
 from market_regime_engine import detect_market_regime, regime_to_forecast_inputs
+from topbar_status_store import load_status, save_status
 
 REGIME_PRESETS = {
     "USA": ("SPY", "QQQ", "^VIX"),
@@ -76,8 +77,9 @@ def render_market_regime_widget() -> None:
 
         run = st.button("Oppdater markedsregime", key="regime_run_v1840", width="stretch")
         if not run:
-            existing = st.session_state.get("market_regime_result_v1840")
+            existing = st.session_state.get("market_regime_result_v1840") or load_status("market_regime")
             if existing:
+                st.session_state["market_regime_result_v1840"] = dict(existing)
                 st.info(f"Siste regime: {existing.get('label')} · score {existing.get('score')}/100")
             return
 
@@ -107,6 +109,7 @@ def render_market_regime_widget() -> None:
         payload["market_proxy"] = spy_ticker
         payload["momentum_proxy"] = qqq_ticker
         payload["volatility_proxy"] = vix_ticker
+        payload = save_status("market_regime", payload)
         st.session_state["market_regime_result_v1840"] = payload
         st.session_state["auto_market_regime_v1840"] = payload.get("market_regime", "neutral")
         st.session_state["auto_event_risk_v1840"] = payload.get("event_risk", False)

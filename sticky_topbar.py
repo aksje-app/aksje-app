@@ -15,6 +15,7 @@ import streamlit as st
 
 from alert_center import collect_common_alerts
 from forecast_store import summarize_alerts, load_learning_stats
+from topbar_status_store import load_status, compact_time
 from app_version import get_app_version
 from market_hours import market_statuses
 import html
@@ -44,23 +45,53 @@ def _alert_summary() -> Dict[str, int]:
 
 def _regime_label() -> str:
     payload = _safe_get_session("market_regime_result_v1840", {})
+    if not isinstance(payload, dict) or not payload:
+        payload = load_status("market_regime")
     if isinstance(payload, dict) and payload:
-        return str(payload.get("label", "Ikke oppdatert"))
+        label = str(payload.get("label") or payload.get("market_regime") or "Regime")
+        stamp = compact_time(payload.get("updated_at"))
+        return f"{label} · {stamp}" if stamp else label
     return "Regime ikke oppdatert"
 
 
 def _macro_label() -> str:
     payload = _safe_get_session("macro_rates_breadth_result_v1844", {})
+    if not isinstance(payload, dict) or not payload:
+        payload = load_status("macro_rates_breadth")
     if isinstance(payload, dict) and payload:
-        return f"{payload.get('label', 'Makro')} {payload.get('combined_score', '')}/100"
+        score = payload.get("combined_score")
+        label = str(payload.get("label") or "Makro")
+        score_text = f" {score}/100" if score not in (None, "") else ""
+        stamp = compact_time(payload.get("updated_at"))
+        suffix = f" · {stamp}" if stamp else ""
+        return f"{label}{score_text}{suffix}"
     return "Makro ikke oppdatert"
 
 
-def _learning_samples() -> int:
+def _learning_label() -> str:
+    """Return canonical controlled-learning status, not only forecast samples."""
     try:
-        return int(load_learning_stats().get("global", {}).get("count", 0))
+        from learning_observation_engine import load_engine_state
+        state = load_engine_state()
+        daily = state.get("daily") if isinstance(state, dict) else {}
+        if isinstance(daily, dict) and daily:
+            active = int(daily.get("active") or 0)
+            updated = int(daily.get("updated") or 0)
+            stamp = compact_time(daily.get("completed_at"))
+            status = str(daily.get("status") or "AKTIV").upper()
+            core = f"{status} · {active} aktive"
+            if updated:
+                core += f" · {updated} oppdatert"
+            if stamp:
+                core += f" · {stamp}"
+            return core
     except Exception:
-        return 0
+        pass
+    try:
+        samples = int(load_learning_stats().get("global", {}).get("count", 0))
+        return f"{samples} samples" if samples else "Ikke oppdatert"
+    except Exception:
+        return "Ikke oppdatert"
 
 
 
@@ -93,7 +124,7 @@ def render_sticky_topbar() -> None:
     alerts = _alert_summary()
     regime = _regime_label()
     macro = _macro_label()
-    samples = _learning_samples()
+    learning = _learning_label()
 
     # status color
     status_dot = "🟢"
@@ -113,7 +144,7 @@ def render_sticky_topbar() -> None:
             <span class="ptw-pill">🚨 {alerts['total']} varsler · 🔴 {alerts['red']} · 🟡 {alerts['yellow']} · 🟢 {alerts['green']}</span>
             <span class="ptw-pill">🌍 {regime}</span>
             <span class="ptw-pill">🌐 {macro}</span>
-            <span class="ptw-pill">🧠 Learning: {samples}</span>
+            <span class="ptw-pill">🧠 Learning: {learning}</span>
             {_market_status_chips_html()}
           </div>
           <div class="ptw-topbar-right ptw-v18570-status-zone" aria-live="polite">

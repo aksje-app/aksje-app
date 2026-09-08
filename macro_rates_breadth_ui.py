@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 import streamlit as st
 
 from macro_rates_breadth_engine import analyze_macro_rates_breadth, macro_adjustment_for_forecast
+from topbar_status_store import load_status, save_status
 
 
 def _fetch_prices(ticker: str, period: str = "1y") -> Tuple[List[float], Optional[str]]:
@@ -68,8 +69,9 @@ def render_macro_rates_breadth_panel() -> None:
 
         run = st.button("Oppdater makro/rente/breadth", key="macro_run_v1844", width="stretch")
         if not run:
-            existing = st.session_state.get("macro_rates_breadth_result_v1844")
+            existing = st.session_state.get("macro_rates_breadth_result_v1844") or load_status("macro_rates_breadth")
             if existing:
+                st.session_state["macro_rates_breadth_result_v1844"] = dict(existing)
                 st.info(f"Siste makrostatus: {existing.get('label')} · score {existing.get('combined_score')}/100")
             return
 
@@ -98,6 +100,7 @@ def render_macro_rates_breadth_panel() -> None:
         )
         payload = result.to_dict()
         payload["forecast_adjustment"] = macro_adjustment_for_forecast(result)
+        payload = save_status("macro_rates_breadth", payload)
         st.session_state["macro_rates_breadth_result_v1844"] = payload
 
         m1, m2, m3, m4, m5 = st.columns(5)
