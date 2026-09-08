@@ -1,6 +1,6 @@
 """Authoritative Norway equity master from Euronext Oslo markets.
 
-RC16.31bt hardens the live Norway-universe source for Render. Euronext's
+RC16.31bu adds durable, end-to-end source observability for Render. RC16.31bt hardens the live Norway-universe source for Render. Euronext's
 current public product directory is the primary source. The legacy JSON data
 endpoint remains as a compatibility fallback. A durable last-known-good
 snapshot is retained so a temporary source/network failure cannot silently
@@ -13,6 +13,8 @@ from html import unescape
 import re
 from typing import Any, Iterable, Mapping
 from urllib.parse import quote
+import json
+import time
 
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
@@ -32,7 +34,9 @@ MIC_TO_MARKET = {
 MARKET_TO_MIC = {value.casefold(): key for key, value in MIC_TO_MARKET.items()}
 MASTER_KEY = "market_universe/norway_euronext_master.json"
 MASTER_PATH = runtime_data_path("market_universe", "norway_euronext_master.json")
-MASTER_SCHEMA_VERSION = "1.1"
+MASTER_SCHEMA_VERSION = "1.2"
+DIAGNOSTIC_KEY = "market_universe/norway_euronext_fetch_diagnostics.json"
+DIAGNOSTIC_PATH = runtime_data_path("market_universe", "norway_euronext_fetch_diagnostics.json")
 REFRESH_SECONDS = 20 * 60 * 60
 MIN_REASONABLE_OFFICIAL_ROWS = 150
 MAX_DIRECTORY_PAGES = 80
@@ -44,6 +48,63 @@ _ISIN_RE = re.compile(r"\b[A-Z]{2}[A-Z0-9]{10}\b")
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class NorwayUniverseFetchError(RuntimeError):
+    def __init__(self, message: str, *, attempts: Iterable[Mapping[str, Any]] = ()) -> None:
+        super().__init__(message)
+        self.attempts = [dict(row) for row in attempts if isinstance(row, Mapping)]
+
+
+def _safe_response_meta(response: Any) -> dict[str, Any]:
+    headers = getattr(response, "headers", {}) or {}
+    text = str(getattr(response, "text", "") or "")
+    content_type = str(headers.get("content-type") or headers.get("Content-Type") or "")[:160]
+    return {
+        "http_status": int(getattr(response, "status_code", 0) or 0),
+        "final_url": str(getattr(response, "url", "") or "")[:500],
+        "content_type": content_type,
+        "response_chars": len(text),
+        "content_length": str(headers.get("content-length") or headers.get("Content-Length") or "")[:40],
+    }
+
+
+def _emit_attempt(row: Mapping[str, Any]) -> None:
+    try:
+        print("NORWAY_UNIVERSE_ATTEMPT " + json.dumps(dict(row), ensure_ascii=False, sort_keys=True, default=str))
+    except Exception:
+        print(f"NORWAY_UNIVERSE_ATTEMPT strategy={row.get('strategy')} status={row.get('http_status')} rows={row.get('rows')} error={row.get('error')}")
+
+
+def _add_attempt(attempts: list[dict[str, Any]], row: Mapping[str, Any]) -> dict[str, Any]:
+    value = {**dict(row), "observed_at": _now_iso()}
+    attempts.append(value)
+    _emit_attempt(value)
+    return value
+
+
+def _persist_fetch_diagnostics(*, status: str, attempts: Iterable[Mapping[str, Any]], errors: Iterable[str] = (), parsed_count: int = 0, source: str = "", expected_count: int = 0) -> dict[str, Any]:
+    value = {
+        "schema_version": "1.0",
+        "status": str(status),
+        "updated_at": _now_iso(),
+        "source": str(source or ""),
+        "parsed_count": int(parsed_count or 0),
+        "expected_count": int(expected_count or 0),
+        "minimum_reasonable_rows": MIN_REASONABLE_OFFICIAL_ROWS,
+        "attempts": [dict(row) for row in list(attempts)[-100:] if isinstance(row, Mapping)],
+        "errors": [str(x)[:1000] for x in list(errors)[-20:]],
+    }
+    try:
+        write_json(DIAGNOSTIC_KEY, DIAGNOSTIC_PATH, value)
+    except Exception as exc:
+        value["persistence_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+    return value
+
+
+def load_norway_universe_fetch_diagnostics() -> dict[str, Any]:
+    value = read_json(DIAGNOSTIC_KEY, DIAGNOSTIC_PATH, {})
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _text(value: Any) -> str:
@@ -214,13 +275,20 @@ def _fetch_product_directory(session: Any, timeout: float) -> tuple[list[dict[st
     previous_signature: tuple[tuple[str, str], ...] | None = None
     empty_after_data = 0
     for page in range(MAX_DIRECTORY_PAGES):
+        started = time.monotonic()
         try:
-            response = session.get(EURONEXT_PRODUCT_DIRECTORY_URL, params={"page": page}, headers=_headers(), timeout=timeout)
-            status_code = int(getattr(response, "status_code", 0) or 0)
+            requested_url = EURONEXT_PRODUCT_DIRECTORY_URL
+            response = session.get(requested_url, params={"page": page}, headers=_headers(), timeout=timeout)
+            meta = _safe_response_meta(response)
             response.raise_for_status()
             page_rows = _parse_product_directory_html(response.text)
             signature = tuple((str(r.get("isin") or ""), str(r.get("exchange_mic") or "")) for r in page_rows)
-            attempts.append({"strategy": "PRODUCT_DIRECTORY_HTML", "page": page, "http_status": status_code, "rows": len(page_rows), "url": str(getattr(response, "url", EURONEXT_PRODUCT_DIRECTORY_URL))})
+            _add_attempt(attempts, {
+                "strategy": "PRODUCT_DIRECTORY_HTML", "method": "GET", "page": page,
+                "requested_url": requested_url, **meta, "rows": len(page_rows),
+                "parser": "beautifulsoup_table_isin_market",
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            })
             if page_rows and signature == previous_signature:
                 break
             previous_signature = signature if page_rows else previous_signature
@@ -234,24 +302,50 @@ def _fetch_product_directory(session: Any, timeout: float) -> tuple[list[dict[st
             elif page >= 2:
                 break
         except Exception as exc:
-            attempts.append({"strategy": "PRODUCT_DIRECTORY_HTML", "page": page, "error": f"{type(exc).__name__}: {exc}"})
+            row = {
+                "strategy": "PRODUCT_DIRECTORY_HTML", "method": "GET", "page": page,
+                "requested_url": EURONEXT_PRODUCT_DIRECTORY_URL,
+                "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            }
+            try:
+                if 'response' in locals():
+                    row.update(_safe_response_meta(response))
+            except Exception:
+                pass
+            _add_attempt(attempts, row)
             if page == 0:
-                raise RuntimeError(attempts[-1]["error"]) from exc
+                raise NorwayUniverseFetchError(row["error"], attempts=attempts) from exc
             break
     return _dedupe_rows(all_rows), attempts
-
 
 def _fetch_legacy_json(session: Any, timeout: float) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     params, data = _request_payload()
     attempts: list[dict[str, Any]] = []
-    response = session.post(EURONEXT_STOCKS_ENDPOINT, params=params, data=data, headers=_headers(), timeout=timeout)
-    status_code = int(getattr(response, "status_code", 0) or 0)
-    response.raise_for_status()
-    payload = response.json()
-    rows = _parse_rows(payload)
-    attempts.append({"strategy": "LEGACY_JSON_POST", "http_status": status_code, "rows": len(rows), "url": str(getattr(response, "url", EURONEXT_STOCKS_ENDPOINT))})
-    return rows, payload, attempts
-
+    started = time.monotonic()
+    response = None
+    try:
+        response = session.post(EURONEXT_STOCKS_ENDPOINT, params=params, data=data, headers=_headers(), timeout=timeout)
+        meta = _safe_response_meta(response)
+        response.raise_for_status()
+        payload = response.json()
+        rows = _parse_rows(payload)
+        _add_attempt(attempts, {
+            "strategy": "LEGACY_JSON_POST", "method": "POST", "requested_url": EURONEXT_STOCKS_ENDPOINT,
+            **meta, "rows": len(rows), "records_filtered": int(payload.get("recordsFiltered") or payload.get("iTotalDisplayRecords") or 0),
+            "parser": "json_aaData", "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        })
+        return rows, payload, attempts
+    except Exception as exc:
+        row = {
+            "strategy": "LEGACY_JSON_POST", "method": "POST", "requested_url": EURONEXT_STOCKS_ENDPOINT,
+            "error": f"{type(exc).__name__}: {str(exc)[:1000]}",
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        }
+        if response is not None:
+            row.update(_safe_response_meta(response))
+        _add_attempt(attempts, row)
+        raise NorwayUniverseFetchError(row["error"], attempts=attempts) from exc
 
 def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
     import requests
@@ -260,10 +354,11 @@ def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
     attempts: list[dict[str, Any]] = []
     # Prime cookies / anti-bot edge state using the public Oslo list page.
     try:
+        prime_started = time.monotonic()
         primed = session.get(EURONEXT_OSLO_LIST_URL, headers=_headers(), timeout=min(timeout, 8.0))
-        attempts.append({"strategy": "PRIME_OSLO_LIST", "http_status": int(getattr(primed, "status_code", 0) or 0), "url": str(getattr(primed, "url", EURONEXT_OSLO_LIST_URL))})
+        _add_attempt(attempts, {"strategy": "PRIME_OSLO_LIST", "method": "GET", "requested_url": EURONEXT_OSLO_LIST_URL, **_safe_response_meta(primed), "elapsed_ms": round((time.monotonic() - prime_started) * 1000, 1)})
     except Exception as exc:
-        attempts.append({"strategy": "PRIME_OSLO_LIST", "error": f"{type(exc).__name__}: {exc}"})
+        _add_attempt(attempts, {"strategy": "PRIME_OSLO_LIST", "method": "GET", "requested_url": EURONEXT_OSLO_LIST_URL, "error": f"{type(exc).__name__}: {str(exc)[:1000]}"})
 
     rows: list[dict[str, Any]] = []
     source = ""
@@ -276,6 +371,8 @@ def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
         if len(rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
             source = "Euronext product directory"
     except Exception as exc:
+        if isinstance(exc, NorwayUniverseFetchError):
+            attempts.extend(row for row in exc.attempts if row not in attempts)
         errors.append(f"PRODUCT_DIRECTORY_HTML: {type(exc).__name__}: {exc}")
 
     if len(rows) < MIN_REASONABLE_OFFICIAL_ROWS:
@@ -291,16 +388,20 @@ def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
             if len(legacy_rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
                 source = "Euronext legacy stocks endpoint"
         except Exception as exc:
+            if isinstance(exc, NorwayUniverseFetchError):
+                attempts.extend(row for row in exc.attempts if row not in attempts)
             errors.append(f"LEGACY_JSON_POST: {type(exc).__name__}: {exc}")
 
     rows = _dedupe_rows(rows)
     if len(rows) < MIN_REASONABLE_OFFICIAL_ROWS:
-        raise RuntimeError(
-            f"Euronext official Norway master unavailable: parsed {len(rows)} rows; "
-            + " | ".join(errors[-4:])
+        _persist_fetch_diagnostics(status="FAILED", attempts=attempts, errors=errors, parsed_count=len(rows), source=source, expected_count=expected)
+        raise NorwayUniverseFetchError(
+            f"Euronext official Norway master unavailable: parsed {len(rows)} rows; " + " | ".join(errors[-4:]), attempts=attempts
         )
     if expected and len(rows) < min(expected, 2000):
-        raise RuntimeError(f"Euronext universe incomplete: parsed {len(rows)} of {expected}")
+        errors.append(f"INCOMPLETE: parsed {len(rows)} of {expected}")
+        _persist_fetch_diagnostics(status="FAILED_INCOMPLETE", attempts=attempts, errors=errors, parsed_count=len(rows), source=source, expected_count=expected)
+        raise NorwayUniverseFetchError(f"Euronext universe incomplete: parsed {len(rows)} of {expected}", attempts=attempts)
 
     now = _now_iso()
     by_exchange: dict[str, int] = {}
@@ -323,6 +424,7 @@ def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
         "fetch_attempts": attempts[-20:],
         "error": "",
     }
+    _persist_fetch_diagnostics(status="OFFICIAL_LIVE", attempts=attempts, errors=errors, parsed_count=len(rows), source=result["source"], expected_count=expected)
     print(f"NORWAY_UNIVERSE status=OFFICIAL_LIVE source={result['source']} count={len(rows)} by_exchange={by_exchange}")
     return result
 
@@ -336,7 +438,7 @@ def _save_durable(value: Mapping[str, Any]) -> None:
     write_json(MASTER_KEY, MASTER_PATH, dict(value))
 
 
-def _fallback_master(fallback_tickers: Iterable[str], error: str = "") -> dict[str, Any]:
+def _fallback_master(fallback_tickers: Iterable[str], error: str = "", fetch_diagnostics: Mapping[str, Any] | None = None) -> dict[str, Any]:
     now = _now_iso()
     instruments = []
     for ticker in dict.fromkeys(str(x or "").strip().upper() for x in fallback_tickers if str(x or "").strip()):
@@ -375,6 +477,7 @@ def _fallback_master(fallback_tickers: Iterable[str], error: str = "") -> dict[s
         "by_exchange": {"Ukjent Oslo-markedsplass": len(instruments)},
         "instruments": instruments,
         "error": str(error or "Official Euronext master unavailable"),
+        "fetch_diagnostics": dict(fetch_diagnostics or {}),
     }
     print(f"NORWAY_UNIVERSE status=FALLBACK_UNVERIFIED count={len(instruments)} error={result['error']}")
     return result
@@ -405,7 +508,8 @@ def get_norway_exchange_master_cached(fallback_tuple: tuple[str, ...], force_ref
             value["age_seconds"] = _age_seconds(value.get("verified_at") or value.get("fetched_at"))
             print(f"NORWAY_UNIVERSE status=OFFICIAL_LAST_KNOWN_GOOD_STALE count={len(value.get('instruments') or [])} refresh_error={error}")
             return value
-        return _fallback_master(fallback_tuple, error)
+        diagnostics = load_norway_universe_fetch_diagnostics()
+        return _fallback_master(fallback_tuple, error, diagnostics)
 
 
 def get_norway_exchange_master(fallback_tickers: Iterable[str] = (), *, force_refresh: bool = False) -> dict[str, Any]:

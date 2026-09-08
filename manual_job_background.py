@@ -716,6 +716,19 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         oom_breadcrumb = get_storage_service().read_json("runtime/oom_breadcrumb_latest.json", default={}) or {}
     except Exception as exc:
         oom_breadcrumb = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+    try:
+        from norway_exchange_universe import load_norway_universe_fetch_diagnostics, get_norway_exchange_master
+        norway_universe_diagnostics = load_norway_universe_fetch_diagnostics()
+        norway_universe_master = get_norway_exchange_master((), force_refresh=False)
+        norway_universe_master_compact = {key: norway_universe_master.get(key) for key in (
+            "schema_version", "status", "source_authoritative_exchange_master", "source", "source_url",
+            "list_url", "mics", "fetched_at", "verified_at", "count", "by_exchange", "error", "refresh_error", "age_seconds"
+        ) if key in norway_universe_master}
+        if isinstance(norway_universe_master.get("fetch_diagnostics"), Mapping):
+            norway_universe_master_compact["fetch_diagnostics"] = norway_universe_master.get("fetch_diagnostics")
+    except Exception as exc:
+        norway_universe_diagnostics = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+        norway_universe_master_compact = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
 
     collected_at = _now()
     selected_updated_at = str(sanitized.get("updated_at") or sanitized.get("completed_at") or "")
@@ -740,6 +753,8 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "status.json": json.dumps(sanitized, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_CONTEXT.json": json.dumps(diagnostic_context, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/OOM_BREADCRUMB_LATEST.json": json.dumps(oom_breadcrumb, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "market/NORWAY_UNIVERSE_FETCH_DIAGNOSTICS.json": json.dumps(norway_universe_diagnostics, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "market/NORWAY_UNIVERSE_MASTER_STATUS.json": json.dumps(norway_universe_master_compact, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_DIAGNOSTICS.json": json.dumps(learning, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
