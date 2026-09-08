@@ -52,8 +52,11 @@ def build_channel_projection(document: Mapping[str, Any]) -> dict[str, Any]:
         "quality": {
             "market_data_label": "Beslutningsjustert markedsdata",
             "market_data_score": int(quality.get("market_data_quality") or 0),
-            "evidence_label": "Kandidatenes evidens",
+            "evidence_label": "Evidensklar etter kontroll",
             "evidence_ready": int(quality.get("candidate_evidence_ready_count") or 0),
+            "evidence_controlled": int(quality.get("candidate_evidence_controlled_count") or 0),
+            "evidence_success_rate": float(quality.get("candidate_evidence_success_rate") or 0.0),
+            "evidence_not_prioritized": int(quality.get("candidate_evidence_not_prioritized_count") or 0),
             "candidate_total": int(
                 quality.get("candidate_count") or overview.get("candidate_count") or 0
             ),

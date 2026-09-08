@@ -1431,7 +1431,8 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         "BESLUTNINGSSTATUS",
         f"- Beslutningsjustert markedsdatakvalitet: {quality_dimensions.get('market_data_quality', confidence.get('market_data_coverage', 0))}/100",
         f"- Rapportens tekniske dokumentasjonsgrad: {quality_dimensions.get('technical_documentation_coverage', confidence.get('documentation_coverage', confidence.get('data_coverage', 0)))}/100",
-        f"- Kandidatenes evidensdekning: {quality_dimensions.get('candidate_evidence_ready_count', 0)} av {quality_dimensions.get('candidate_count', overview.get('candidate_count', len(candidates)))} ({quality_dimensions.get('candidate_evidence_coverage', 0)} %)",
+        f"- Evidensklar etter kontroll: {quality_dimensions.get('candidate_evidence_ready_count', 0)} av {quality_dimensions.get('candidate_evidence_controlled_count', 0)} ({quality_dimensions.get('candidate_evidence_success_rate', 0)} %)",
+        f"- Evidenskontrollert: {quality_dimensions.get('candidate_evidence_controlled_count', 0)} av {quality_dimensions.get('candidate_count', overview.get('candidate_count', len(candidates)))}; ikke prioritert: {quality_dimensions.get('candidate_evidence_not_prioritized_count', 0)}",
         f"- Uavhengig kildedekning: {quality_dimensions.get('independent_source_coverage', confidence.get('source_confidence', 0))}/100",
         f"- Beslutningsstyrke på rapportnivå: {quality_dimensions.get('report_decision_strength', confidence.get('decision_confidence', 0))}/100",
         f"- Evidens- og dataklare kandidater: {overview.get('evidence_data_ready_count', 0)} av {overview.get('candidate_count', len(candidates))}",
@@ -2014,6 +2015,9 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
         "report_reliability_label": report_reliability.get("label") or "",
         "report_decision_strength": int(quality_dimensions.get("report_decision_strength") or 0),
         "candidate_evidence_coverage": float(quality_dimensions.get("candidate_evidence_coverage") or 0),
+        "candidate_evidence_controlled_count": int(quality_dimensions.get("candidate_evidence_controlled_count") or 0),
+        "candidate_evidence_success_rate": float(quality_dimensions.get("candidate_evidence_success_rate") or 0),
+        "candidate_evidence_not_prioritized_count": int(quality_dimensions.get("candidate_evidence_not_prioritized_count") or 0),
         "decision_ready_count": int(decision_overview.get("decision_ready_count") or 0),
         "candidate_count": int(decision_overview.get("candidate_count") or len(candidates)),
         "top3_changed": bool(report_changes.get("top3_changed")),
@@ -3282,13 +3286,24 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     source_score = int(decision_quality.get("independent_source_coverage") or decision_confidence.get("source_confidence") or 0)
     decision_strength = int(decision_quality.get("report_decision_strength") or decision_confidence.get("decision_confidence") or 0)
     market_quality = int(decision_quality.get("market_data_quality") or decision_confidence.get("market_data_coverage") or 0)
-    evidence_coverage = float(decision_quality.get("candidate_evidence_coverage") or 0)
+    evidence_population_coverage = float(decision_quality.get("candidate_evidence_coverage") or 0)
     evidence_ready = int(decision_quality.get("candidate_evidence_ready_count") or 0)
     evidence_total = int(decision_quality.get("candidate_count") or decision_overview.get("candidate_count") or len(decision_candidates))
+    evidence_controlled = int(decision_quality.get("candidate_evidence_controlled_count") or 0)
+    evidence_controlled = max(evidence_ready, min(evidence_total, evidence_controlled)) if evidence_total else max(evidence_ready, evidence_controlled)
+    evidence_success_rate = float(
+        decision_quality.get("candidate_evidence_success_rate")
+        or ((100.0 * evidence_ready / evidence_controlled) if evidence_controlled else 0.0)
+    )
+    evidence_not_prioritized = int(
+        decision_quality.get("candidate_evidence_not_prioritized_count")
+        if decision_quality.get("candidate_evidence_not_prioritized_count") is not None
+        else max(0, evidence_total - evidence_controlled)
+    )
     decision_status = Table([[
         Paragraph(f"<b>Beslutningsjustert markedsdata</b><br/><font size='10'>{market_quality}/100</font>", styles["MetricCard"]),
         Paragraph(f"<b>Teknisk dokumentasjon</b><br/><font size='10'>{documentation_score}/100</font>", styles["MetricCard"]),
-        Paragraph(f"<b>Kandidatenes evidens</b><br/><font size='10'>{evidence_ready}/{evidence_total} · {evidence_coverage:.0f}%</font>", styles["MetricCard"]),
+        Paragraph(f"<b>Evidensklar etter kontroll</b><br/><font size='10'>{evidence_ready}/{evidence_controlled} · {evidence_success_rate:.0f}%</font>", styles["MetricCard"]),
         Paragraph(f"<b>Uavhengige kilder</b><br/><font size='10'>{source_score}/100</font>", styles["MetricCard"]),
         Paragraph(f"<b>Beslutningsstyrke rapport</b><br/><font size='10'>{decision_strength}/100</font>", styles["MetricCard"]),
     ]], colWidths=[36.8*mm]*5)
@@ -3296,7 +3311,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         ("GRID", (0,0), (-1,-1), .35, grid),
         ("BACKGROUND", (0,0), (0,0), colors.HexColor(decision_color(quality_status(market_quality)))),
         ("BACKGROUND", (1,0), (1,0), colors.HexColor(decision_color(quality_status(documentation_score)))),
-        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color(quality_status(evidence_coverage)))),
+        ("BACKGROUND", (2,0), (2,0), colors.HexColor(decision_color(quality_status(evidence_success_rate)))),
         ("BACKGROUND", (3,0), (3,0), colors.HexColor(decision_color(quality_status(source_score)))),
         ("BACKGROUND", (4,0), (4,0), colors.HexColor(decision_color(decision_state))),
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
@@ -3385,6 +3400,9 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         Paragraph("Rapportgrunnlag - separate mål", styles["Subsection"]),
         decision_status,
         Paragraph(
+            f"Evidens: {evidence_controlled}/{evidence_total} kandidater ble prioritert til full evidenskontroll; "
+            f"{evidence_ready}/{evidence_controlled} av de kontrollerte er evidensklare ({evidence_success_rate:.0f}%). "
+            f"{evidence_not_prioritized} kandidater ble ikke prioritert til full evidenskontroll i denne kjøringen. "
             "Målene beskriver ulike deler av beslutningsgrunnlaget og er ikke sannsynlighet for gevinst. "
             "Fravær av hendelser etter fullført kontroll regnes som et gyldig kontrollresultat, ikke som kildefeil.",
             styles["Small"],

@@ -921,18 +921,38 @@ def build_decision_report(
     evidence_ready_count = _safe_int(combined_quality.get("overall_valid"), sum(
         1 for row in candidate_contracts if _mapping(row.get("confidence")).get("evidence_data_ready")
     ))
+    analysis_stages = _mapping(run.get("analysis_stages"))
+    evidence_controlled_count = _safe_int(analysis_stages.get("stage3_evidence_controlled"), 0)
+    if evidence_controlled_count <= 0:
+        evidence_controlled_count = sum(
+            _safe_int(_mapping(row).get("evidence_controlled"), 0)
+            for row in (run.get("universe_coverage") or [])
+            if isinstance(row, Mapping)
+        )
+    # A candidate that is evidence-ready has necessarily completed evidence
+    # control, even if an older payload omitted the stage-3 counter.
+    evidence_controlled_count = max(evidence_ready_count, evidence_controlled_count)
+    evidence_controlled_count = min(evaluated_count, evidence_controlled_count) if evaluated_count else evidence_controlled_count
+    evidence_not_prioritized_count = max(0, evaluated_count - evidence_controlled_count)
+    evidence_success_rate = round((100.0 * evidence_ready_count / evidence_controlled_count), 1) if evidence_controlled_count else 0.0
     quality_dimensions = {
         "market_data_quality": _safe_int(confidence.get("market_data_coverage"), 0),
         "technical_documentation_coverage": _safe_int(confidence.get("documentation_coverage") or confidence.get("data_coverage"), 0),
+        # Legacy population coverage is kept for backward-compatible JSON consumers.
+        # The report-facing quality metric now uses success within the candidates
+        # that were actually selected for evidence control.
         "candidate_evidence_coverage": round((100.0 * evidence_ready_count / evaluated_count), 1) if evaluated_count else 0.0,
         "candidate_evidence_ready_count": evidence_ready_count,
+        "candidate_evidence_controlled_count": evidence_controlled_count,
+        "candidate_evidence_success_rate": evidence_success_rate,
+        "candidate_evidence_not_prioritized_count": evidence_not_prioritized_count,
         "candidate_count": evaluated_count,
         "independent_source_coverage": _safe_int(confidence.get("source_confidence"), 0),
         "report_decision_strength": _safe_int(confidence.get("decision_confidence"), 0),
         "labels": {
             "market_data_quality": "Markedsdatakvalitet",
             "technical_documentation_coverage": "Rapportens tekniske dokumentasjonsgrad",
-            "candidate_evidence_coverage": "Kandidatenes evidensdekning",
+            "candidate_evidence_coverage": "Evidensklar etter kontroll",
             "independent_source_coverage": "Uavhengig kildedekning",
             "report_decision_strength": "Beslutningsstyrke på rapportnivå",
         },
