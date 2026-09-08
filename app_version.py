@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31bn"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bn Fresh Trend Opportunity Engine"
+APP_VERSION = "v19.22.0-rc16.31bo"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31bo Fresh Trend Short Report Alert"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bm"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bn"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31bo: Fresh Trend Short Report Alert. The compact investor PDF now surfaces up to three of the strongest Fresh Trend / new-breakout alerts with ticker, signal, fresh score, trend age, 3d/5d movement and a concise Why now explanation. Full RSI, OBV, breakout, relative-strength, support/resistance and prioritized news/insider/short evidence remains in the technical appendix. No buy, risk, portfolio or trading thresholds are changed.",
     "v19.22.0-rc16.31bn: Fresh Trend Opportunity Engine separates NEW/TIDLIG trend starts from established 30–60d winners; adds 1/3/5d acceleration, trend age, breakout hold/confirmation, RSI 50/60 and RSI 10d breakout, SMA20 slope, widening 50/200 spread, compression→expansion, strong-close quality, support/resistance ladders and relative-strength ignition. Qualified fresh signals receive reserved evidence priority for news, insider and short checks inside the existing bounded evidence budget. Existing buy/risk/portfolio/trade thresholds are unchanged.",
     "v19.22.0-rc16.31bm: Early Trend and Breakout Intelligence. Norge-stabiliseringsløpet beholder eksisterende kjøps-, risiko- og porteføljeregler, men får et separat beskrivende tidligsignal-lag som forklarer akselerasjon i 5/10/20d momentum, kurs/SMA20/SMA50/SMA200-struktur, golden cross, 20/60d breakout, RSI 50/70-skift, volum og On Balance Volume-kjøpspress. Trend receipts får marked- og sektorpersentil for relativ styrke, støtte/motstandsnivåer og eksplisitte fortsettelsesargumenter/varsler. Programmet viser en egen Early Signal Watchlist på tvers av kandidatene slik at sterke tekniske oppsett kan oppdages før de nødvendigvis er Top 10 på totalscore. Trenddetaljer viser også breakout-nivåer, RSI 30/50/70 og volum. Ingen signal kan alene utløse kjøp eller endre produksjonsterskler.",
     "v19.22.0-rc16.31bl: UI Stability and Manual Report Memory Closure. Autonomi-fremdrift velger nå ferskeste status mellom prosessminne og atomisk lokal statusfil og oppdateres hvert 2. sekund. Fasefremdrift skilles fra samlet prosent. Rapportsenteret beholder valgt rapport gjennom sideoppdatering via query-param, viser lett sammendrag umiddelbart og laster store PDF/JSON/tekstdata først etter eksplisitt klargjøring. Trendgrafene bruker stram, normalisert indeksvisning med Plotly, 20d/60d, SMA20/SMA50, tydelig RSI 30/70 og markører for første oppdagelse/valg når dato finnes. Sluttkontrollen frigjør store PDF/JSON/tekst- og Shadow-buffere før COMPLETE, med nytt memory-cleanup breadcrumb. Ingen analyse-, kjøps-, risiko-, portefølje- eller handelsgrenser er endret.",

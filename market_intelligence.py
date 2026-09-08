@@ -3468,6 +3468,42 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             styles["Small"],
         ),
     ]
+
+    # RC16.31bo: surface only the most important fresh trend alerts in the
+    # compact investor report. The full signal diagnostics remain in the
+    # technical appendix so the short report stays decision-oriented.
+    trend_discovery_short = run.get("trend_discovery") if isinstance(run.get("trend_discovery"), Mapping) else {}
+    fresh_watch_short = trend_discovery_short.get("fresh_trend_watchlist") if isinstance(trend_discovery_short.get("fresh_trend_watchlist"), list) else []
+    fresh_watch_short = [row for row in fresh_watch_short if isinstance(row, Mapping)][:3]
+    if fresh_watch_short:
+        fresh_rows = [["Ticker", "Signal", "Fresh score", "Alder", "3d / 5d", "Hvorfor nå"]]
+        for receipt in fresh_watch_short:
+            fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
+            reasons = [str(item.get("label") or item.get("code") or "") for item in (fs.get("signals") or [])[:3] if isinstance(item, Mapping)]
+            why_now = "; ".join(value for value in reasons if value) or str(fs.get("why_now") or fs.get("continuation_summary") or "Fersk positiv trendakselerasjon")
+            fresh_rows.append([
+                _rawp(receipt.get("ticker") or "-", "Tiny"),
+                _p(fs.get("label") or "FRESH TREND", "Tiny"),
+                _p(_fmt(fs.get("score")), "Tiny"),
+                _p(f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')} økter", "Tiny"),
+                _p(f"{_fmt_signed(receipt.get('return_3d_pct'))}% / {_fmt_signed(receipt.get('return_5d_pct'))}%", "Tiny"),
+                _p(_short(why_now, 150), "Tiny"),
+            ])
+        fresh_table = Table(
+            fresh_rows, repeatRows=1,
+            colWidths=[22*mm, 38*mm, 20*mm, 27*mm, 28*mm, 49*mm],
+        )
+        fresh_table.setStyle(_table_style(5.3, padding=1.2))
+        decision_story += [
+            Paragraph("⚡ Nye tidlige styrkesignaler", styles["Section"]),
+            Paragraph(
+                "Fresh Trend viser de viktigste nye aksjene som nettopp har begynt å akselerere. "
+                "Dette er observasjonssignaler, ikke kjøpsfullmakt. Full forklaring med RSI, OBV, breakout, "
+                "relativ styrke, støtte/motstand og ekstra nyhets-/insider-/shortkontroll ligger i teknisk vedlegg.",
+                styles["Small"],
+            ),
+            fresh_table,
+        ]
     actionability_rows = [["Liste", "Ticker", "Score", "Status", "Konkret sperre"]]
     for row in decision_actionability.get("analysis_top3") or []:
         actionability_rows.append([
