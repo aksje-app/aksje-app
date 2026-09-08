@@ -407,8 +407,12 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
 
     markets = _open_automated_markets()
     if not markets:
-        print("⏸ Alle markeder stengt - ingen scanning")
-        update_scanner_status(state="MARKET_CLOSED", markets_open=[], message="Alle markeder er stengt")
+        configured = list(AUTOMATED_SCANNER_MARKETS)
+        configured_text = ", ".join(str(m) for m in configured) or "ingen"
+        message = f"Ingen aktiverte produksjonsmarkeder er åpne ({configured_text})"
+        print(f"⏸ {message} - ingen scanning")
+        print("ℹ️ Andre markeder kan være åpne, men er deaktivert av gjeldende scanner-policy.")
+        update_scanner_status(state="MARKET_CLOSED", markets_open=[], message=message)
         return 0
 
     print(f"Åpne markeder: {markets}")

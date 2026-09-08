@@ -68,6 +68,11 @@ def memory_snapshot() -> dict[str, Any]:
         if current is not None:
             result["cgroup_memory_headroom_mb"] = round(max(0, limit - current) / mb, 1)
             result["cgroup_memory_used_pct"] = round(100.0 * current / max(1, limit), 1)
+    stat = _cgroup_memory_stat()
+    for key in ("anon", "file", "shmem", "kernel", "slab", "sock"):
+        value = stat.get(key)
+        if value is not None:
+            result[f"cgroup_{key}_mb"] = round(value / mb, 1)
     return result
 
 
@@ -88,6 +93,76 @@ def release_process_memory(reason: str = "") -> dict[str, Any]:
     return {
         "reason": str(reason or ""), "objects_collected": int(collected),
         "allocator_trimmed": trimmed, "before": before, "after": after,
+    }
+
+
+def _cgroup_memory_stat() -> dict[str, int]:
+    """Return selected cgroup v2 memory.stat counters in bytes.
+
+    memory.current includes both anonymous process memory and charged file cache.
+    Keeping these separate is important on Render because a report can finish
+    with modest Python RSS while the cgroup remains close to its hard limit.
+    """
+    paths = ("/sys/fs/cgroup/memory.stat", "/sys/fs/cgroup/memory/memory.stat")
+    for path in paths:
+        try:
+            rows: dict[str, int] = {}
+            for line in open(path, "r", encoding="utf-8"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        rows[parts[0]] = int(parts[1])
+                    except ValueError:
+                        pass
+            if rows:
+                return rows
+        except OSError:
+            continue
+    return {}
+
+
+def reclaim_cgroup_memory(reason: str = "", *, target_mb: float = 256.0) -> dict[str, Any]:
+    """Best-effort cgroup v2 reclaim after a heavy report phase.
+
+    Linux exposes memory.reclaim specifically for proactively reclaiming charged
+    memory (notably file cache) from a cgroup. Managed hosts may make the file
+    read-only; that is treated as a normal unsupported outcome. No durable app
+    data or application cache file is deleted.
+    """
+    before = memory_snapshot()
+    requested = max(0.0, float(target_mb or 0.0))
+    result: dict[str, Any] = {
+        "reason": str(reason or ""),
+        "requested_mb": round(requested, 1),
+        "supported": False,
+        "reclaimed_requested": False,
+        "error": "",
+        "before": before,
+    }
+    path = "/sys/fs/cgroup/memory.reclaim"
+    if requested > 0:
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(f"{int(requested * 1024 * 1024)}\n")
+            result["supported"] = True
+            result["reclaimed_requested"] = True
+        except OSError as exc:
+            result["error"] = f"{type(exc).__name__}: {exc}"
+    result["after"] = memory_snapshot()
+    return result
+
+
+def terminal_memory_cleanup(reason: str = "", *, reclaim_mb: float = 384.0) -> dict[str, Any]:
+    """Two-pass allocator cleanup plus safe cgroup reclaim attempt."""
+    first = release_process_memory(f"{reason}:pass1")
+    reclaim = reclaim_cgroup_memory(reason, target_mb=reclaim_mb)
+    second = release_process_memory(f"{reason}:pass2")
+    return {
+        "reason": str(reason or ""),
+        "first": first,
+        "cgroup_reclaim": reclaim,
+        "second": second,
+        "final": memory_snapshot(),
     }
 
 

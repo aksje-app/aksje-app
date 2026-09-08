@@ -15,7 +15,7 @@ import threading
 import traceback
 import uuid
 import zipfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -93,6 +93,28 @@ def _explicit_job_name(job: Any) -> str:
     market_label = " + ".join(markets) if markets else "valgte markeder"
     return f"Utkast – {market_label}"
 
+
+
+
+def _apply_manual_norway_stabilization(job: Any, trigger: str) -> Any:
+    """Apply the same reversible Norway-only contract to every manual run path.
+
+    This is defense in depth for Report Center/Overview entry points that do not
+    pass through the orchestrator market selector.  The saved profile is never
+    mutated; only the accepted execution payload is narrowed.
+    """
+    enabled = str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"}
+    trigger_key = str(trigger or "").upper()
+    if not enabled or not trigger_key.startswith("MANUAL"):
+        return job
+    try:
+        from market_universe import infer_market_profile
+        name = str(getattr(job, "name", "") or "")
+        if str(getattr(job, "job_id", "") or "") == "MI-DRAFT-AUTOSAVE":
+            name = "Utkast – Norge"
+        return replace(job, name=name, markets=["Norge"], market_profile=infer_market_profile(["Norge"]))
+    except Exception:
+        return job
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -354,34 +376,36 @@ def get_active_status() -> dict[str, Any]:
 
 
 def get_active_status_snapshot() -> dict[str, Any]:
-    """Return a read-only, low-latency status snapshot for periodic UI polls.
+    """Return the freshest low-latency status snapshot for UI polling.
 
-    Poll order is deliberately memory -> atomic local mirror -> durable store.
-    The common path performs no database connection, no mirror write, no orphan
-    reconciliation and no Session State mutation. This keeps a two-second
-    Streamlit fragment rerun small and prevents the full page from appearing
-    busy while the report worker continues.
+    RC16.31bl compares the in-process copy with the atomic local mirror on every
+    poll.  A Streamlit fragment can otherwise keep rendering an older module
+    snapshot while the worker has already persisted newer phase progress.  The
+    local mirror is tiny, requires no database connection and is authoritative
+    whenever its progress/heartbeat timestamp is newer.
     """
-    snapshot = _runtime_snapshot()
-    if snapshot.get("execution_id"):
-        if snapshot.get("last_progress_at") or snapshot.get("worker_process_identity"):
-            snapshot = reconcile_orphaned_status(snapshot)
-        snapshot["ui_poll_source"] = "PROCESS_MEMORY"
-        return snapshot
-
+    runtime = _runtime_snapshot()
     active = _read_local_status_file(ACTIVE_PATH)
-    execution_id = str(active.get("execution_id") or "")
-    if execution_id:
-        local_status = _read_local_status_file(_status_path(execution_id))
-        if local_status.get("execution_id"):
-            if local_status.get("last_progress_at") or local_status.get("worker_process_identity"):
-                local_status = reconcile_orphaned_status(local_status)
-            _publish_runtime_snapshot(local_status)
-            local_status["ui_poll_source"] = "LOCAL_ATOMIC_MIRROR"
-            return local_status
+    execution_id = str(active.get("execution_id") or runtime.get("execution_id") or "")
+    local_status = _read_local_status_file(_status_path(execution_id)) if execution_id else {}
 
-    # Cold process or missing mirror: one authoritative recovery read. Normal
-    # fragment ticks return from memory after this point.
+    def freshness(value: Mapping[str, Any]) -> datetime:
+        stamps = [
+            _parse_timestamp(value.get("last_progress_at")),
+            _parse_timestamp(value.get("worker_heartbeat_at") or value.get("heartbeat_at")),
+            _parse_timestamp(value.get("updated_at")),
+        ]
+        return max((stamp for stamp in stamps if stamp is not None), default=datetime.min.replace(tzinfo=timezone.utc))
+
+    candidates = [row for row in (runtime, local_status) if isinstance(row, Mapping) and row.get("execution_id")]
+    if candidates:
+        chosen = dict(max(candidates, key=freshness))
+        if chosen.get("last_progress_at") or chosen.get("worker_process_identity"):
+            chosen = reconcile_orphaned_status(chosen)
+        _publish_runtime_snapshot(chosen)
+        chosen["ui_poll_source"] = "LOCAL_ATOMIC_MIRROR" if local_status and freshness(local_status) >= freshness(runtime) else "PROCESS_MEMORY"
+        return chosen
+
     durable = get_active_status()
     if durable:
         durable = dict(durable)
@@ -469,6 +493,54 @@ def force_release(execution_id: str, requested_by: str = "UI") -> dict[str, Any]
         return _write_status(status)
 
 
+def _compact_chain_for_status(chain: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Keep operational status small without altering canonical report storage."""
+    raw = dict(chain or {})
+    compact: dict[str, Any] = {
+        key: raw.get(key) for key in (
+            "version", "chain_id", "created_at", "created_at_local", "timezone_name",
+            "trigger", "source_run_id", "status", "execution", "completed_at",
+        ) if key in raw
+    }
+    compact["errors"] = [str(x)[:500] for x in list(raw.get("errors") or [])[:20]]
+    stages = []
+    for row in list(raw.get("stages") or [])[:40]:
+        if not isinstance(row, Mapping):
+            continue
+        stages.append({
+            key: row.get(key) for key in ("name", "status", "started_at", "completed_at", "duration_seconds") if key in row
+        })
+    compact["stages"] = stages
+    learning_decisions = list(raw.get("learning_decisions") or [])
+    learning_trades = list(raw.get("learning_trades") or [])
+    lp = raw.get("learning_portfolio") if isinstance(raw.get("learning_portfolio"), Mapping) else {}
+    compact["learning_summary"] = {
+        "decision_count": len(learning_decisions),
+        "trade_count": len(learning_trades),
+        "open_positions": len((lp or {}).get("positions") or {}),
+        "closed_positions": len((lp or {}).get("closed_positions") or []),
+        "last_run_id": (lp or {}).get("last_run_id"),
+        "status": (lp or {}).get("status"),
+    }
+    cycle = raw.get("autonomy_cycle") if isinstance(raw.get("autonomy_cycle"), Mapping) else {}
+    account = raw.get("autonomy_learning_account") if isinstance(raw.get("autonomy_learning_account"), Mapping) else {}
+    compact["autonomy_summary"] = {
+        "cycle_run_id": cycle.get("run_id"),
+        "cycle_decisions": len(cycle.get("decisions") or []),
+        "cycle_trades": len(cycle.get("trades") or []),
+        "learning_account_status": account.get("status"),
+        "learning_account_decisions": len(account.get("decisions") or []),
+    }
+    compact["status_compaction"] = {
+        "enabled": True, "canonical_report_unchanged": True,
+        "removed_heavy_fields": [
+            "learning_portfolio", "learning_decisions", "learning_trades",
+            "autonomy_cycle", "autonomy_learning_account", "autonomy_core",
+        ],
+    }
+    return compact
+
+
 def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     """Create a bounded, secret-free job and learning support bundle."""
     # Diagnostics are requested from the long-lived Streamlit process.  Drop
@@ -498,6 +570,8 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "orphan_reason_code",
     }
     sanitized = {key: status.get(key) for key in sorted(allowed) if key in status}
+    if isinstance(sanitized.get("chain"), Mapping):
+        sanitized["chain"] = _compact_chain_for_status(sanitized.get("chain"))
     try:
         from learning_acceptance import build_learning_diagnostics
         learning = build_learning_diagnostics()
@@ -637,6 +711,12 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         ),
         "secret_values_included": False,
     }
+    try:
+        from services.storage_service import get_storage_service
+        oom_breadcrumb = get_storage_service().read_json("runtime/oom_breadcrumb_latest.json", default={}) or {}
+    except Exception as exc:
+        oom_breadcrumb = {"status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+
     collected_at = _now()
     selected_updated_at = str(sanitized.get("updated_at") or sanitized.get("completed_at") or "")
     diagnostic_context = {
@@ -659,6 +739,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         "README.txt": readme.encode("utf-8"),
         "status.json": json.dumps(sanitized, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "runtime/DIAGNOSTIC_CONTEXT.json": json.dumps(diagnostic_context, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+        "runtime/OOM_BREADCRUMB_LATEST.json": json.dumps(oom_breadcrumb, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_DIAGNOSTICS.json": json.dumps(learning, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "learning/LEARNING_ACCEPTANCE.json": json.dumps(learning.get("acceptance") or {}, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
         "scheduler/SCHEDULER_STATUS.json": json.dumps(scheduler, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
@@ -846,7 +927,7 @@ def _worker(
             "message": "Hele kjeden er ferdig", "updated_at": _now(),
             "completed_at": _now(), "run_id": result.get("run_id"),
             "chain_id": chain.get("chain_id"), "chain_status": chain.get("status"),
-            "chain": chain, "top_candidates": list(result.get("candidates") or [])[:3],
+            "chain": _compact_chain_for_status(chain), "top_candidates": list(result.get("candidates") or [])[:3],
             "data_refresh": dict(result.get("data_refresh") or {}), "error": "",
             "archive_saved": bool(persistence.get("archive_saved")) if isinstance(persistence, Mapping) else True,
             "run_json_saved": bool(persistence.get("run_json_saved")) if isinstance(persistence, Mapping) else True,
@@ -861,8 +942,46 @@ def _worker(
             "failed_markets": list((result.get("data_quality") or {}).get("failed_markets") or []),
             "timezone_name": result.get("timezone_name"),
             "completed_local": local_display(result.get("created_at"), str(result.get("timezone_name") or "Europe/Oslo")),
+            # RC16.31bq: terminal state is authoritative. A non-fatal report
+            # warning may have emitted COMPLETE/status=FAILED before run_job
+            # returned even though the canonical chain and release gate passed.
+            # Never leave that stale event in a COMPLETED/OK job.
+            "progress_event": {
+                "phase": "COMPLETE", "completed": 1, "total": 1,
+                "message": "Hele kjeden er ferdig",
+                "run_id": result.get("run_id"), "status": "COMPLETED",
+            },
+            "work_completed": 1, "work_total": 1,
+            "active_ticker": "", "active_market": "",
         })
         _write_status(final)
+        # The canonical report is already durable and the terminal status keeps
+        # only compact fields. Drop the returned full report tree immediately.
+        result = {}
+        chain = {}
+        full_execution = {}
+        try:
+            from runtime_memory import release_process_memory, terminal_memory_cleanup
+            # Preserve the established BL allocator-trim checkpoint, then add
+            # the stronger BQ cgroup-aware two-pass terminal cleanup.
+            release_process_memory("manual_worker_after_terminal_status")
+            terminal_cleanup = terminal_memory_cleanup(
+                "manual_worker_after_terminal_status_bq", reclaim_mb=512.0,
+            )
+            # Publish a fresh post-cleanup snapshot. Previously resource_telemetry
+            # described the last COMPLETE callback *before* terminal cleanup and
+            # could therefore report a stale 90%+ cgroup value.
+            final = get_status(execution_id) or final
+            final["resource_telemetry"] = dict(terminal_cleanup.get("final") or {})
+            final["terminal_memory_cleanup"] = terminal_cleanup
+            final["progress_event"] = {
+                "phase": "COMPLETE", "completed": 1, "total": 1,
+                "message": "Hele kjeden er ferdig",
+                "run_id": final.get("run_id"), "status": "COMPLETED",
+            }
+            _write_status(final)
+        except Exception:
+            pass
     except ExecutionCancelled as exc:
         # Revoke the in-process worker/heartbeat before durable terminal I/O.
         # A slow database write must not leave the UI or watchdog believing
@@ -913,7 +1032,7 @@ def _worker(
             "app_runtime_root": report_context.get("app_runtime_root") or "",
             "storage_mode": report_context.get("storage_mode") or "",
             "run_id": str(failed_result.get("run_id") or failed.get("run_id") or ""),
-            "chain": failed_chain,
+            "chain": _compact_chain_for_status(failed_chain),
             "chain_status": failed_chain.get("status"),
             "full_autonomy_execution": failed_execution,
         })
@@ -932,6 +1051,7 @@ def start_manual_job(
     scheduled_for: str = "",
 ) -> dict[str, Any]:
     """Accept one manual job and return immediately with its durable status."""
+    job = _apply_manual_norway_stabilization(job, trigger)
     with _LOCK:
         active = get_active_status()
         if active and active.get("state") not in _TERMINAL:

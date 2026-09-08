@@ -6544,10 +6544,34 @@ def _run_job_impl(
         "duration_seconds": round(time_module.perf_counter() - full_run_started, 2),
     })
     _audit("JOB_RUN", {"job_id": job.job_id, "run_id": run_id, "trigger": trigger, "errors": errors})
+    # RC16.31bq: release temporary/allocator/file-cache pressure before the final
+    # progress event. The report is already durable at this point. This both
+    # increases Render cgroup headroom and makes the status telemetry reflect
+    # post-report memory instead of peak serialization pressure.
+    try:
+        from runtime_memory import terminal_memory_cleanup
+        terminal_cleanup_bq = terminal_memory_cleanup(
+            "manual_report_before_complete_emit", reclaim_mb=512.0,
+        )
+        mark_breadcrumb(
+            "report:memory_cleanup:before_complete", component="market_intelligence",
+            detail={"run_id": run_id, "cleanup": terminal_cleanup_bq},
+        )
+    except Exception as cleanup_exc:
+        terminal_cleanup_bq = {"error": str(cleanup_exc)}
+
+    # A report can contain documented non-fatal domain warnings/errors while its
+    # canonical chain, artifact release gate and report status are still valid.
+    # COMPLETE must represent the authoritative terminal outcome, not the mere
+    # presence of a diagnostic entry in the errors list.
+    release_ok_bq = bool((run.get("final_release_gate") or {}).get("ok"))
+    chain_ok_bq = str((run.get("autonomous_chain") or {}).get("status") or "").upper() in {"OK", "COMPLETED"}
+    report_state_bq = str((run.get("report_status") or {}).get("state") or "").upper()
+    terminal_ok_bq = release_ok_bq and chain_ok_bq and report_state_bq not in {"FAILED", "FAILED_VALIDATION", "CANCELLED"}
     emit(
         "COMPLETE", 1, 1,
-        "Hele kjeden er fullført" if not errors else "Kjeden ble avsluttet med dokumenterte feil",
-        run_id=run_id, status="COMPLETED" if not errors else "FAILED",
+        "Hele kjeden er fullført" if terminal_ok_bq else "Kjeden ble avsluttet med dokumenterte feil",
+        run_id=run_id, status="COMPLETED" if terminal_ok_bq else "FAILED",
     )
     return run
 
