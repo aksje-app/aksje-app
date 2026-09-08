@@ -4331,10 +4331,30 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             if chart is not None:
                 story += [chart, Spacer(1, 1.2*mm)]
 
-    early_watch = ((run.get("trend_discovery") or {}).get("early_signal_watchlist") or []) if isinstance(run.get("trend_discovery"), Mapping) else []
+    trend_discovery = run.get("trend_discovery") if isinstance(run.get("trend_discovery"), Mapping) else {}
+    fresh_watch = trend_discovery.get("fresh_trend_watchlist") if isinstance(trend_discovery.get("fresh_trend_watchlist"), list) else []
+    if fresh_watch:
+        story += [Paragraph("Fresh Trend – nye aksjer som akkurat akselererer", styles["Section"]),
+                  Paragraph("Denne køen er bevisst skilt fra etablerte 30–60d vinnere. Den favoriserer fersk 1/3/5d-akselerasjon, nytt breakout, RSI-tenning, volum/OBV, SMA20-helning og kompresjon→ekspansjon. Sterke signaler får ekstra nyhets-, insider- og shortkontroll, men ingen kjøpsfullmakt.", styles["Small"])]
+        fdata = [["Ticker", "Fresh signal", "Score", "Alder", "3d / 5d", "RS-tenning", "Hvorfor nå / hva må bekreftes"]]
+        for receipt in fresh_watch[:8]:
+            if not isinstance(receipt, Mapping):
+                continue
+            fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
+            reasons = [str(x.get("label")) for x in (fs.get("signals") or [])[:3] if isinstance(x, Mapping)]
+            caution = str((fs.get("cautions") or [""])[0]) if fs.get("cautions") else ""
+            text = "; ".join(reasons) or "Ingen komplett forklaring"
+            if caution:
+                text += ". Risiko: " + caution
+            fdata.append([receipt.get("ticker"), fs.get("label"), _fmt(fs.get("score")), f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')}d", f"{_fmt_signed(receipt.get('return_3d_pct'))}% / {_fmt_signed(receipt.get('return_5d_pct'))}%", f"{_fmt(receipt.get('relative_strength_ignition'))}p", _p(_short(text, 245))])
+        ftable = Table(fdata, repeatRows=1, colWidths=[20*mm, 31*mm, 13*mm, 19*mm, 23*mm, 19*mm, 55*mm])
+        ftable.setStyle(_table_style(6.0, padding=2))
+        story += [ftable]
+
+    early_watch = trend_discovery.get("early_signal_watchlist") if isinstance(trend_discovery.get("early_signal_watchlist"), list) else []
     if early_watch:
-        story += [Paragraph("Tidlige trend- og breakoutsignaler", styles["Section"]),
-                  Paragraph("Separat observasjonslag som leter etter akselerasjon, brudd, positiv trendstruktur, RSI-skifte og volum/OBV-bekreftelse. Signalene er ikke kjøpsfullmakt; de forklarer hvorfor en aksje bør undersøkes tidlig.", styles["Small"])]
+        story += [Paragraph("Etablerte trend- og breakoutsignaler", styles["Section"]),
+                  Paragraph("Denne køen beskriver allerede etablerte sterke trender separat, slik at de ikke kan fortrenge ferske trendstarter i Fresh Trend-køen.", styles["Small"])]
         edata = [["Ticker", "Signal", "Score", "5d / 20d", "RS20 marked", "Teknisk forklaring / risiko"]]
         for receipt in early_watch[:6]:
             if not isinstance(receipt, Mapping):
@@ -7949,10 +7969,29 @@ def render_market_intelligence() -> None:
                 })
             if table: st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True)
             trend_discovery = latest.get("trend_discovery") if isinstance(latest.get("trend_discovery"), Mapping) else {}
+            fresh_watch = trend_discovery.get("fresh_trend_watchlist") if isinstance(trend_discovery.get("fresh_trend_watchlist"), list) else []
+            if fresh_watch:
+                st.markdown("##### ⚡ Fresh Trend – nye aksjer som akkurat akselererer")
+                st.caption("Separat kø for NY/TIDLIG trend. Eldre 30–60d vinnere kan ikke fortrenge disse. Sterke ferske signaler prioriteres til ekstra nyhets-, insider- og shortkontroll, men kan ikke alene utløse kjøp.")
+                fresh_rows = []
+                for receipt in fresh_watch[:12]:
+                    if not isinstance(receipt, Mapping):
+                        continue
+                    fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
+                    sig_labels = [str(x.get("label") or "") for x in (fs.get("signals") or [])[:4] if isinstance(x, Mapping)]
+                    fresh_rows.append({
+                        "Ticker": receipt.get("ticker"), "Fresh signal": fs.get("label"), "Fresh score": fs.get("score"),
+                        "Trendalder": f"{fs.get('trend_age','UKJENT')} · {fs.get('trend_age_sessions','-')} økter",
+                        "1d %": receipt.get("return_1d_pct"), "3d %": receipt.get("return_3d_pct"), "5d %": receipt.get("return_5d_pct"),
+                        "RS-tenning": receipt.get("relative_strength_ignition"), "Volum x": receipt.get("volume_ratio_20"),
+                        "Breakout hold": receipt.get("breakout_hold_sessions"), "Hvorfor nå": " · ".join(x for x in sig_labels if x),
+                    })
+                if fresh_rows:
+                    st.dataframe(pd.DataFrame(fresh_rows), width="stretch", hide_index=True)
             early_watch = trend_discovery.get("early_signal_watchlist") if isinstance(trend_discovery.get("early_signal_watchlist"), list) else []
             if early_watch:
-                st.markdown("##### Tidlige trend- og breakoutsignaler")
-                st.caption("Dette er et separat observasjonslag for tidlig oppdagelse. Det endrer ikke kjøpsgrensen og kan ikke alene utløse handel.")
+                st.markdown("##### Etablerte trend- og breakoutsignaler")
+                st.caption("Denne køen følger sterke etablerte trender separat fra Fresh Trend, slik at eldre vinnere ikke skjuler nye trendstarter.")
                 early_rows = []
                 for receipt in early_watch[:10]:
                     if not isinstance(receipt, Mapping):
@@ -8083,6 +8122,16 @@ def render_market_intelligence() -> None:
                         )
                         if receipt.get("top_trend_drivers"):
                             st.write("Drivere: " + " · ".join(str(x) for x in receipt.get("top_trend_drivers") or []))
+                        fresh_signal = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
+                        if fresh_signal and float(fresh_signal.get("score") or 0) >= 35:
+                            st.markdown(f"**Fresh Trend: {fresh_signal.get('label','-')} · {fresh_signal.get('score',0)}/100 · alder {fresh_signal.get('trend_age','UKJENT')} / {fresh_signal.get('trend_age_sessions','-')} økter**")
+                            for signal in (fresh_signal.get("signals") or [])[:7]:
+                                if isinstance(signal, Mapping):
+                                    st.write(f"⚡ {signal.get('label','Signal')} — {signal.get('meaning','')}")
+                            for caution in (fresh_signal.get("cautions") or [])[:3]:
+                                st.warning(str(caution))
+                            rsi_break = "JA" if receipt.get("rsi_10d_breakout") else "NEI"
+                            st.caption(f"RS-tenning 5d vs 20d: {receipt.get('relative_strength_ignition','-')}p · RSI 10d-brudd: {rsi_break} · breakout hold: {receipt.get('breakout_hold_sessions','-')} økter · SMA20-helning 5d: {receipt.get('sma20_slope_5d_pct','-')}%")
                         early_signal = receipt.get("early_signal") if isinstance(receipt.get("early_signal"), Mapping) else {}
                         if early_signal:
                             st.markdown(f"**Tidligsignal: {early_signal.get('label','-')} · {early_signal.get('score',0)}/100**")
@@ -8107,6 +8156,12 @@ def render_market_intelligence() -> None:
                                         levels.append(f"{label} {float(value):.2f}")
                                 except Exception:
                                     pass
+                            supports = [f"{float(x):.2f}" for x in (receipt.get("support_levels") or [])[:4] if x is not None]
+                            resistances = [f"{float(x):.2f}" for x in (receipt.get("resistance_levels") or [])[:4] if x is not None]
+                            if supports:
+                                levels.append("støttestige " + " / ".join(supports))
+                            if resistances:
+                                levels.append("motstandsstige " + " / ".join(resistances))
                             if levels:
                                 st.caption("Tekniske referansenivåer: " + " · ".join(levels))
                             rs_market = receipt.get("market_rs_20d_percentile")

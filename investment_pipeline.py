@@ -723,6 +723,17 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
                 row["portfolio_fit_trace"] = {"status": "FALLBACK", "error": str(exc)}
                 candidate_errors.append({"ticker": ticker, "stage": "PORTFOLIO_FIT", "error": str(exc)})
 
+    # RC16.31bn: compute a cheap, observational Fresh Trend preview before
+    # evidence allocation. This does not change the investment score; it only
+    # lets newly accelerating candidates receive earlier news/insider/short
+    # research within the existing bounded evidence budget.
+    try:
+        from trend_intelligence import build_opportunity_preview
+        for row in extended_source_rows:
+            row["early_opportunity_preview"] = build_opportunity_preview(row)
+    except Exception:
+        pass
+
     preliminary: list[CandidateAssessment] = []
     source_by_ticker: dict[str, dict[str, Any]] = {}
     for idx, row in enumerate(extended_source_rows, start=1):
@@ -750,7 +761,23 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
                          if ticker in source_by_ticker]
     except Exception:
         carry_forward = []
-    evidence_order = list(dict.fromkeys(carry_forward + ranked_evidence_order))[: cfg.evidence_analysis_count]
+    # Fresh opportunities compete in a separate evidence-priority lane, so a
+    # 30–60 day established winner cannot crowd out a new breakout merely by
+    # having stronger long-horizon returns. Keep the total evidence budget
+    # unchanged and reserve at most 25% for qualified fresh signals.
+    fresh_priority: list[str] = []
+    try:
+        from trend_intelligence import should_escalate_evidence
+        fresh_rows = [row for row in extended_source_rows if should_escalate_evidence(row)]
+        fresh_rows.sort(
+            key=lambda row: float((((row.get("early_opportunity_preview") or {}).get("fresh_signal") or {}).get("score") or 0)),
+            reverse=True,
+        )
+        fresh_cap = max(1, min(12, int(max(1, cfg.evidence_analysis_count) * 0.25)))
+        fresh_priority = [str(row.get("ticker") or "").upper() for row in fresh_rows[:fresh_cap]]
+    except Exception:
+        fresh_priority = []
+    evidence_order = list(dict.fromkeys(carry_forward + fresh_priority + ranked_evidence_order))[: cfg.evidence_analysis_count]
     evidence_tickers = set(evidence_order)
     # A data quarantine may block a trading decision, but must not silently
     # suppress the very evidence collection that can explain or clear it.
@@ -759,17 +786,32 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     evidence_rows = [source_by_ticker[ticker] for ticker in evidence_order if ticker in source_by_ticker]
     for row in evidence_rows:
         row["analysis_stage"] = "EVIDENCE_CONTROLLED"
-        if str(row.get("ticker") or "").upper() in carry_forward:
+        ticker_upper = str(row.get("ticker") or "").upper()
+        if ticker_upper in carry_forward:
             row["evidence_retry_escalation"] = "STALLED_EVIDENCE"
             row["evidence_refresh_reason"] = "REPEATED_TOP3_BLOCK"
+        elif ticker_upper in fresh_priority:
+            row["evidence_retry_escalation"] = "EARLY_SIGNAL_CRITICAL"
+            row["evidence_refresh_reason"] = "FRESH_TREND_ACCELERATION"
+            row["early_signal_research"] = {
+                "priority": "CRITICAL",
+                "areas": ["news", "insider", "short"],
+                "reason": "Fersk akselerasjon/breakout skal granskes ekstra tidlig for mulig katalysator, innsideaktivitet og shortendring.",
+                "does_not_authorise_trade": True,
+            }
         if bool(row.get("analysis_quarantine")):
             row["evidence_quarantine_override"] = True
             row["evidence_refresh_reason"] = "TOP_RANKED_MINIMUM"
         # Only this bounded top-ranked set may spend the per-report NewsAPI
         # budget. Other consumers retain the conservative fallback policy.
         row["newsapi_priority"] = True
-        row["evidence_priority"] = "CRITICAL" if str(row.get("ticker") or "").upper() in carry_forward else True
-        row["evidence_budget"] = {"max_source_areas": 2, "candidate_rank_budget": cfg.evidence_analysis_count, "strict_refresh": intelligence_force_refresh}
+        row["evidence_priority"] = "CRITICAL" if ticker_upper in carry_forward else ("EARLY_SIGNAL_CRITICAL" if ticker_upper in fresh_priority else True)
+        row["evidence_budget"] = {
+            "max_source_areas": 3 if ticker_upper in fresh_priority else 2,
+            "candidate_rank_budget": cfg.evidence_analysis_count,
+            "strict_refresh": intelligence_force_refresh,
+            "fresh_signal_reserved_slot": ticker_upper in fresh_priority,
+        }
         if not cfg.use_insider_intelligence:
             _mark_intelligence_not_searched(
                 row, "insider",

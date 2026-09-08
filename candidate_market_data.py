@@ -237,8 +237,11 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     close = close.dropna()
     volume = hist.get("Volume")
     fields["last_price"] = _series_value(close, -1)
+    fields["return_1d"] = _return_pct(close, 1)
+    fields["return_3d"] = _return_pct(close, 3)
     fields["return_5d"] = _return_pct(close, 5)
     fields["return_10d"] = _return_pct(close, 10)
+    fields["return_15d"] = _return_pct(close, 15)
     fields["return_20d"] = _return_pct(close, 20)
     fields["return_60d"] = _return_pct(close, 60)
     fields["return_1m"] = _return_pct(close, 21)
@@ -257,24 +260,51 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     fields["sma20_vs_sma50_pct"] = ((float(sma20) / sma50) - 1.0) * 100.0 if sma20 not in (None, 0) and sma50 not in (None, 0) else None
     fields["sma50_vs_sma200_pct"] = ((float(sma50) / sma200) - 1.0) * 100.0 if sma50 not in (None, 0) and sma200 not in (None, 0) else None
     try:
+        sma20_series = close.rolling(20).mean()
         sma50_series = close.rolling(50).mean()
         sma200_series = close.rolling(200).mean()
         fields["golden_cross_active"] = bool(sma50 is not None and sma200 is not None and sma50 > sma200)
         fields["golden_cross_age_sessions"] = _recent_cross_age(sma50_series, sma200_series, 120)
+        if len(sma20_series.dropna()) >= 6 and sma20 not in (None, 0):
+            prev = _finite(sma20_series.dropna().iloc[-6])
+            fields["sma20_slope_5d_pct"] = ((sma20 / prev) - 1.0) * 100.0 if prev not in (None, 0) else None
+        if len(sma50_series.dropna()) >= 11 and sma50 not in (None, 0):
+            prev = _finite(sma50_series.dropna().iloc[-11])
+            fields["sma50_slope_10d_pct"] = ((sma50 / prev) - 1.0) * 100.0 if prev not in (None, 0) else None
+        if sma50 not in (None, 0) and sma200 not in (None, 0):
+            spread_now = (sma50 / sma200 - 1.0) * 100.0
+            fields["golden_cross_spread_pct"] = spread_now
+            if len(sma50_series.dropna()) >= 11 and len(sma200_series.dropna()) >= 11:
+                old50 = _finite(sma50_series.iloc[-11]); old200 = _finite(sma200_series.iloc[-11])
+                if old50 not in (None, 0) and old200 not in (None, 0):
+                    old_spread = (old50 / old200 - 1.0) * 100.0
+                    fields["golden_cross_spread_change_10d_pp"] = spread_now - old_spread
     except Exception:
         fields["golden_cross_active"] = False
         fields["golden_cross_age_sessions"] = None
     try:
         rsi_series = _rsi_series(close)
         fields["rsi_cross_50_age_sessions"] = _recent_level_cross_age(rsi_series, 50.0, 20) if rsi_series is not None else None
+        fields["rsi_cross_60_age_sessions"] = _recent_level_cross_age(rsi_series, 60.0, 20) if rsi_series is not None else None
         fields["rsi_cross_70_age_sessions"] = _recent_level_cross_age(rsi_series, 70.0, 20) if rsi_series is not None else None
+        if rsi_series is not None:
+            rv = rsi_series.dropna()
+            if len(rv) >= 12:
+                prior_peak = _finite(rv.iloc[-11:-1].max())
+                now_rsi = _finite(rv.iloc[-1])
+                fields["rsi_10d_breakout"] = bool(now_rsi is not None and prior_peak is not None and now_rsi > prior_peak)
+                fields["rsi_10d_breakout_margin"] = (now_rsi - prior_peak) if now_rsi is not None and prior_peak is not None else None
     except Exception:
         fields["rsi_cross_50_age_sessions"] = None
         fields["rsi_cross_70_age_sessions"] = None
+    r1 = fields.get("return_1d")
+    r3 = fields.get("return_3d")
     r5 = fields.get("return_5d")
     r10 = fields.get("return_10d")
     r20 = fields.get("return_20d")
     try:
+        fields["momentum_acceleration_1v20"] = float(r1) - float(r20) / 20.0 if r1 is not None and r20 is not None else None
+        fields["momentum_acceleration_3v20"] = float(r3) - float(r20) * 3.0 / 20.0 if r3 is not None and r20 is not None else None
         fields["momentum_acceleration_5v20"] = float(r5) - float(r20) / 4.0 if r5 is not None and r20 is not None else None
         fields["momentum_acceleration_10v20"] = float(r10) - float(r20) / 2.0 if r10 is not None and r20 is not None else None
     except Exception:
@@ -348,6 +378,75 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                         fields[f"obv_pressure_{n}d"] = max(-2.0, min(2.0, pressure))
         except Exception:
             pass
+
+    # RC16.31bn: fresh-trend timing, compression/expansion and breakout quality.
+    try:
+        ret = close.pct_change()
+        vol5 = float(ret.tail(5).std()) if len(ret.dropna()) >= 5 else None
+        vol20 = float(ret.tail(20).std()) if len(ret.dropna()) >= 20 else None
+        fields["volatility_expansion_5v20"] = (vol5 / vol20) if vol5 is not None and vol20 not in (None, 0) else None
+        range10 = (float(close.tail(10).max()) / float(close.tail(10).min()) - 1.0) * 100.0 if len(close) >= 10 and float(close.tail(10).min()) > 0 else None
+        prior40 = close.iloc[-50:-10] if len(close) >= 50 else close.iloc[:-10]
+        range40 = (float(prior40.max()) / float(prior40.min()) - 1.0) * 100.0 if len(prior40) >= 10 and float(prior40.min()) > 0 else None
+        fields["range_10d_pct"] = range10
+        fields["prior_range_40d_pct"] = range40
+        fields["compression_ratio_10v40"] = (range10 / range40) if range10 is not None and range40 not in (None, 0) else None
+    except Exception:
+        pass
+    try:
+        rolling20_prev = close.shift(1).rolling(20).max()
+        breakout_mask = close >= rolling20_prev
+        recent_hits = [i for i, flag in enumerate(breakout_mask.tail(15).tolist()) if bool(flag)]
+        if recent_hits:
+            age = len(breakout_mask.tail(15)) - 1 - recent_hits[-1]
+            fields["breakout_20d_age_sessions"] = int(age)
+            idx = breakout_mask.tail(15).index[recent_hits[-1]]
+            level = _finite(rolling20_prev.loc[idx])
+            fields["breakout_20d_event_level"] = level
+            if level not in (None, 0):
+                after = close.loc[idx:]
+                fields["breakout_hold_sessions"] = int(sum(float(x) >= float(level) for x in after.tail(5)))
+                fields["breakout_holding"] = bool(float(close.iloc[-1]) >= float(level))
+        else:
+            fields["breakout_20d_age_sessions"] = None
+            fields["breakout_hold_sessions"] = 0
+            fields["breakout_holding"] = False
+    except Exception:
+        pass
+    try:
+        high = hist.get("High"); low = hist.get("Low")
+        if high is not None and low is not None:
+            h = high.reindex(close.index).dropna(); l = low.reindex(close.index).dropna()
+            if len(h) and len(l):
+                hh = _finite(h.iloc[-1]); ll = _finite(l.iloc[-1]); cc = _finite(close.iloc[-1])
+                if hh is not None and ll is not None and cc is not None and hh > ll:
+                    fields["close_location_in_day"] = (cc - ll) / (hh - ll)
+                    fields["daily_range_pct"] = (hh / ll - 1.0) * 100.0 if ll > 0 else None
+    except Exception:
+        pass
+    try:
+        # Compact support/resistance ladder from recent closing-price pivots.
+        vals = [float(x) for x in close.tail(60).tolist() if _finite(x) is not None]
+        lastv = float(close.iloc[-1])
+        pivots = []
+        for i in range(2, len(vals)-2):
+            v = vals[i]
+            if v >= max(vals[i-2:i] + vals[i+1:i+3]) or v <= min(vals[i-2:i] + vals[i+1:i+3]):
+                pivots.append(v)
+        def cluster(levels):
+            out=[]
+            for v in sorted(levels):
+                if not out or abs(v/out[-1]-1.0) > 0.012:
+                    out.append(v)
+                else:
+                    out[-1]=(out[-1]+v)/2.0
+            return out
+        cl=cluster(pivots)
+        fields["support_levels"] = [round(v,4) for v in sorted([v for v in cl if v < lastv], reverse=True)[:4]]
+        fields["resistance_levels"] = [round(v,4) for v in sorted([v for v in cl if v > lastv])[:4]]
+    except Exception:
+        fields["support_levels"] = []
+        fields["resistance_levels"] = []
 
     returns = close.pct_change().dropna()
     if len(returns) >= 20:
