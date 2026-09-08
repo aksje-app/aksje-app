@@ -1,10 +1,10 @@
 """Authoritative Norway equity master from Euronext Oslo markets.
 
-RC16.31br centralises the Norway instrument universe for reports, Fresh Trend,
-learning and Paper Trade.  The live source is Euronext's stock data endpoint
-for XOSL (Oslo Bors), MERK (Euronext Growth Oslo) and XOAS (Euronext Expand
-Oslo).  A durable last-known-good snapshot is retained so a temporary network
-failure cannot silently shrink the production universe.
+RC16.31bt hardens the live Norway-universe source for Render. Euronext's
+current public product directory is the primary source. The legacy JSON data
+endpoint remains as a compatibility fallback. A durable last-known-good
+snapshot is retained so a temporary source/network failure cannot silently
+shrink the production universe.
 """
 from __future__ import annotations
 
@@ -12,12 +12,17 @@ from datetime import datetime, timezone
 from html import unescape
 import re
 from typing import Any, Iterable, Mapping
+from urllib.parse import quote
 
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
 
 EURONEXT_STOCKS_ENDPOINT = "https://live.euronext.com/en/pd/data/stocks"
 EURONEXT_OSLO_LIST_URL = "https://live.euronext.com/en/markets/oslo/equities/list"
+EURONEXT_PRODUCT_DIRECTORY_URL = (
+    "https://live.euronext.com/en/pd_es/stocks/"
+    "XOSL%2CMERK%2CXOAS/dp_stocks/df_stocks2/dt_stocks_osl"
+)
 NORWAY_EQUITY_MICS = ("XOSL", "MERK", "XOAS")
 MIC_TO_MARKET = {
     "XOSL": "Oslo Børs",
@@ -27,12 +32,14 @@ MIC_TO_MARKET = {
 MARKET_TO_MIC = {value.casefold(): key for key, value in MIC_TO_MARKET.items()}
 MASTER_KEY = "market_universe/norway_euronext_master.json"
 MASTER_PATH = runtime_data_path("market_universe", "norway_euronext_master.json")
-MASTER_SCHEMA_VERSION = "1.0"
+MASTER_SCHEMA_VERSION = "1.1"
 REFRESH_SECONDS = 20 * 60 * 60
 MIN_REASONABLE_OFFICIAL_ROWS = 150
+MAX_DIRECTORY_PAGES = 80
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _ATTR_TEXT_RE = re.compile(r"data-(?:title-hover|order)=['\"]([^'\"]+)['\"]", re.I)
+_ISIN_RE = re.compile(r"\b[A-Z]{2}[A-Z0-9]{10}\b")
 
 
 def _now_iso() -> str:
@@ -63,7 +70,7 @@ def _mic_from_market(value: str) -> str:
         return MARKET_TO_MIC[text]
     if "growth" in text or "merk" in text:
         return "MERK"
-    if "expand" in text or "axess" in text or "xoas" in text:
+    if "expand" in text or "axess" in text or "xoas" in text or "xoax" in text:
         return "XOAS"
     return "XOSL"
 
@@ -74,53 +81,103 @@ def _analysis_ticker(symbol: str) -> str:
         return ""
     if symbol.endswith(".OL"):
         return symbol
-    # Euronext symbols can contain spaces in display text. Yahoo Oslo symbols
-    # use the exchange symbol plus .OL; stripping display whitespace is safer
-    # than inventing another alias. Missing Yahoo coverage remains auditable.
     return re.sub(r"\s+", "", symbol) + ".OL"
+
+
+def _instrument_row(name: str, isin: str, symbol: str, market_name: str) -> dict[str, Any] | None:
+    name = _text(name)
+    isin = _text(isin).upper()
+    symbol = _text(symbol).upper()
+    market_name = _text(market_name)
+    if not symbol:
+        return None
+    mic = _mic_from_market(market_name)
+    if mic not in NORWAY_EQUITY_MICS:
+        return None
+    return {
+        "ticker": _analysis_ticker(symbol),
+        "analysis_ticker": _analysis_ticker(symbol),
+        "exchange_symbol": symbol,
+        "symbol": symbol,
+        "isin": isin,
+        "name": name or symbol,
+        "company_name": name or symbol,
+        "market": "Norge",
+        "country": "Norge",
+        "currency": "NOK",
+        "exchange_name": MIC_TO_MARKET[mic],
+        "market_segment": MIC_TO_MARKET[mic],
+        "exchange_mic": mic,
+        "listing_status": "ACTIVE",
+        "universe_source": "EURONEXT_OFFICIAL",
+        "source": "Euronext official Norway equity master",
+        "source_url": EURONEXT_OSLO_LIST_URL,
+    }
+
+
+def _dedupe_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in rows:
+        row = dict(raw)
+        key = (str(row.get("isin") or row.get("exchange_symbol") or ""), str(row.get("exchange_mic") or ""))
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        output.append(row)
+    output.sort(key=lambda row: (NORWAY_EQUITY_MICS.index(row["exchange_mic"]), row["exchange_symbol"]))
+    return output
 
 
 def _parse_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw_rows = payload.get("aaData") or payload.get("data") or []
-    rows: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    parsed: list[dict[str, Any]] = []
     for raw in raw_rows:
         if not isinstance(raw, (list, tuple)) or len(raw) < 4:
             continue
-        name = _text(raw[0])
-        isin = _text(raw[1]).upper()
-        symbol = _text(raw[2]).upper()
-        market_name = _text(raw[3])
-        if not symbol:
+        row = _instrument_row(raw[0], raw[1], raw[2], raw[3])
+        if row:
+            parsed.append(row)
+    return _dedupe_rows(parsed)
+
+
+def _parse_product_directory_html(html: str) -> list[dict[str, Any]]:
+    """Parse Euronext's current server-rendered product-directory table.
+
+    The parser intentionally keys on ISIN + Oslo market text rather than CSS
+    classes so routine Euronext markup changes do not break the master.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(str(html or ""), "lxml")
+    parsed: list[dict[str, Any]] = []
+    for tr in soup.find_all("tr"):
+        cells = tr.find_all(["td", "th"])
+        if len(cells) < 4:
             continue
-        mic = _mic_from_market(market_name)
-        if mic not in NORWAY_EQUITY_MICS:
+        texts = [_text(cell.get_text(" ", strip=True)) for cell in cells]
+        joined = " | ".join(texts)
+        isin_idx = next((i for i, text in enumerate(texts) if _ISIN_RE.search(text.upper())), None)
+        market_idx = next((i for i, text in enumerate(texts) if any(label.casefold() in text.casefold() for label in MIC_TO_MARKET.values())), None)
+        if isin_idx is None or market_idx is None:
             continue
-        key = (isin or symbol, mic)
-        if key in seen:
+        isin_match = _ISIN_RE.search(texts[isin_idx].upper())
+        if not isin_match:
             continue
-        seen.add(key)
-        rows.append({
-            "ticker": _analysis_ticker(symbol),
-            "analysis_ticker": _analysis_ticker(symbol),
-            "exchange_symbol": symbol,
-            "symbol": symbol,
-            "isin": isin,
-            "name": name or symbol,
-            "company_name": name or symbol,
-            "market": "Norge",
-            "country": "Norge",
-            "currency": "NOK",
-            "exchange_name": MIC_TO_MARKET[mic],
-            "market_segment": MIC_TO_MARKET[mic],
-            "exchange_mic": mic,
-            "listing_status": "ACTIVE",
-            "universe_source": "EURONEXT_OFFICIAL",
-            "source": "Euronext official Norway equity master",
-            "source_url": EURONEXT_OSLO_LIST_URL,
-        })
-    rows.sort(key=lambda row: (NORWAY_EQUITY_MICS.index(row["exchange_mic"]), row["exchange_symbol"]))
-    return rows
+        isin = isin_match.group(0)
+        # Euronext table contract is Name | ISIN | Symbol | Market | ... .
+        # Prefer that exact relation, but retain a defensive fallback.
+        symbol_idx = isin_idx + 1 if isin_idx + 1 < len(texts) else None
+        name_idx = isin_idx - 1 if isin_idx > 0 else 0
+        symbol = texts[symbol_idx] if symbol_idx is not None else ""
+        if not symbol or " " in symbol and len(symbol) > 15:
+            # Search nearby short non-numeric text if markup injected a column.
+            candidates = [t for t in texts[max(0, isin_idx - 2):min(len(texts), market_idx + 1)] if t and not _ISIN_RE.search(t.upper())]
+            symbol = next((t for t in candidates if re.fullmatch(r"[A-Za-z0-9.\- ]{1,12}", t) and "Oslo" not in t), symbol)
+        row = _instrument_row(texts[name_idx], isin, symbol, texts[market_idx])
+        if row:
+            parsed.append(row)
+    return _dedupe_rows(parsed)
 
 
 def _request_payload() -> tuple[dict[str, str], dict[str, str]]:
@@ -141,42 +198,121 @@ def _request_payload() -> tuple[dict[str, str], dict[str, str]]:
     return params, data
 
 
-def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
-    import requests
-    params, data = _request_payload()
-    session = requests.Session()
-    headers = {
-        "User-Agent": "AI-Aksje-Analyzer/19.22 Norway-universe (+Euronext official equity master)",
-        "Accept": "application/json,text/plain,*/*",
+def _headers() -> dict[str, str]:
+    return {
+        "User-Agent": "Mozilla/5.0 (compatible; AI-Aksje-Analyzer/19.22; +Norway-equity-master)",
+        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,nb;q=0.8",
         "Referer": EURONEXT_OSLO_LIST_URL,
+        "Cache-Control": "no-cache",
     }
-    # Euronext may bind the data endpoint to cookies established by the public
-    # list page. Prime the session first; failure here is non-fatal because the
-    # endpoint can also answer directly in some deployments.
-    try:
-        session.get(EURONEXT_OSLO_LIST_URL, headers=headers, timeout=min(timeout, 8.0))
-    except Exception:
-        pass
-    response = session.post(EURONEXT_STOCKS_ENDPOINT, params=params, data=data, headers=headers, timeout=timeout)
+
+
+def _fetch_product_directory(session: Any, timeout: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    attempts: list[dict[str, Any]] = []
+    all_rows: list[dict[str, Any]] = []
+    previous_signature: tuple[tuple[str, str], ...] | None = None
+    empty_after_data = 0
+    for page in range(MAX_DIRECTORY_PAGES):
+        try:
+            response = session.get(EURONEXT_PRODUCT_DIRECTORY_URL, params={"page": page}, headers=_headers(), timeout=timeout)
+            status_code = int(getattr(response, "status_code", 0) or 0)
+            response.raise_for_status()
+            page_rows = _parse_product_directory_html(response.text)
+            signature = tuple((str(r.get("isin") or ""), str(r.get("exchange_mic") or "")) for r in page_rows)
+            attempts.append({"strategy": "PRODUCT_DIRECTORY_HTML", "page": page, "http_status": status_code, "rows": len(page_rows), "url": str(getattr(response, "url", EURONEXT_PRODUCT_DIRECTORY_URL))})
+            if page_rows and signature == previous_signature:
+                break
+            previous_signature = signature if page_rows else previous_signature
+            if page_rows:
+                all_rows.extend(page_rows)
+                empty_after_data = 0
+            elif all_rows:
+                empty_after_data += 1
+                if empty_after_data >= 2:
+                    break
+            elif page >= 2:
+                break
+        except Exception as exc:
+            attempts.append({"strategy": "PRODUCT_DIRECTORY_HTML", "page": page, "error": f"{type(exc).__name__}: {exc}"})
+            if page == 0:
+                raise RuntimeError(attempts[-1]["error"]) from exc
+            break
+    return _dedupe_rows(all_rows), attempts
+
+
+def _fetch_legacy_json(session: Any, timeout: float) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    params, data = _request_payload()
+    attempts: list[dict[str, Any]] = []
+    response = session.post(EURONEXT_STOCKS_ENDPOINT, params=params, data=data, headers=_headers(), timeout=timeout)
+    status_code = int(getattr(response, "status_code", 0) or 0)
     response.raise_for_status()
     payload = response.json()
     rows = _parse_rows(payload)
-    expected = int(payload.get("recordsFiltered") or payload.get("iTotalDisplayRecords") or len(rows) or 0)
+    attempts.append({"strategy": "LEGACY_JSON_POST", "http_status": status_code, "rows": len(rows), "url": str(getattr(response, "url", EURONEXT_STOCKS_ENDPOINT))})
+    return rows, payload, attempts
+
+
+def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
+    import requests
+
+    session = requests.Session()
+    attempts: list[dict[str, Any]] = []
+    # Prime cookies / anti-bot edge state using the public Oslo list page.
+    try:
+        primed = session.get(EURONEXT_OSLO_LIST_URL, headers=_headers(), timeout=min(timeout, 8.0))
+        attempts.append({"strategy": "PRIME_OSLO_LIST", "http_status": int(getattr(primed, "status_code", 0) or 0), "url": str(getattr(primed, "url", EURONEXT_OSLO_LIST_URL))})
+    except Exception as exc:
+        attempts.append({"strategy": "PRIME_OSLO_LIST", "error": f"{type(exc).__name__}: {exc}"})
+
+    rows: list[dict[str, Any]] = []
+    source = ""
+    expected = 0
+    errors: list[str] = []
+
+    try:
+        rows, html_attempts = _fetch_product_directory(session, timeout)
+        attempts.extend(html_attempts)
+        if len(rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
+            source = "Euronext product directory"
+    except Exception as exc:
+        errors.append(f"PRODUCT_DIRECTORY_HTML: {type(exc).__name__}: {exc}")
+
     if len(rows) < MIN_REASONABLE_OFFICIAL_ROWS:
-        raise RuntimeError(f"Euronext returned only {len(rows)} Norway equity rows; refusing to replace last-known-good master")
+        if rows:
+            errors.append(f"PRODUCT_DIRECTORY_HTML: only {len(rows)} rows")
+        try:
+            legacy_rows, payload, legacy_attempts = _fetch_legacy_json(session, timeout)
+            attempts.extend(legacy_attempts)
+            legacy_expected = int(payload.get("recordsFiltered") or payload.get("iTotalDisplayRecords") or len(legacy_rows) or 0)
+            if len(legacy_rows) > len(rows):
+                rows = legacy_rows
+                expected = legacy_expected
+            if len(legacy_rows) >= MIN_REASONABLE_OFFICIAL_ROWS:
+                source = "Euronext legacy stocks endpoint"
+        except Exception as exc:
+            errors.append(f"LEGACY_JSON_POST: {type(exc).__name__}: {exc}")
+
+    rows = _dedupe_rows(rows)
+    if len(rows) < MIN_REASONABLE_OFFICIAL_ROWS:
+        raise RuntimeError(
+            f"Euronext official Norway master unavailable: parsed {len(rows)} rows; "
+            + " | ".join(errors[-4:])
+        )
     if expected and len(rows) < min(expected, 2000):
         raise RuntimeError(f"Euronext universe incomplete: parsed {len(rows)} of {expected}")
+
     now = _now_iso()
     by_exchange: dict[str, int] = {}
     for row in rows:
         by_exchange[row["exchange_name"]] = by_exchange.get(row["exchange_name"], 0) + 1
         row["last_verified_at"] = now
-    return {
+    result = {
         "schema_version": MASTER_SCHEMA_VERSION,
         "status": "OFFICIAL_LIVE",
         "source_authoritative_exchange_master": True,
-        "source": "Euronext official stocks endpoint",
-        "source_url": EURONEXT_STOCKS_ENDPOINT,
+        "source": source or "Euronext official Norway equity master",
+        "source_url": EURONEXT_PRODUCT_DIRECTORY_URL if source.startswith("Euronext product") else EURONEXT_STOCKS_ENDPOINT,
         "list_url": EURONEXT_OSLO_LIST_URL,
         "mics": list(NORWAY_EQUITY_MICS),
         "fetched_at": now,
@@ -184,8 +320,11 @@ def fetch_official_norway_master(timeout: float = 12.0) -> dict[str, Any]:
         "count": len(rows),
         "by_exchange": by_exchange,
         "instruments": rows,
+        "fetch_attempts": attempts[-20:],
         "error": "",
     }
+    print(f"NORWAY_UNIVERSE status=OFFICIAL_LIVE source={result['source']} count={len(rows)} by_exchange={by_exchange}")
+    return result
 
 
 def _load_durable() -> dict[str, Any]:
@@ -222,7 +361,7 @@ def _fallback_master(fallback_tickers: Iterable[str], error: str = "") -> dict[s
             "source_url": "",
             "last_verified_at": "",
         })
-    return {
+    result = {
         "schema_version": MASTER_SCHEMA_VERSION,
         "status": "FALLBACK_UNVERIFIED",
         "source_authoritative_exchange_master": False,
@@ -237,6 +376,8 @@ def _fallback_master(fallback_tickers: Iterable[str], error: str = "") -> dict[s
         "instruments": instruments,
         "error": str(error or "Official Euronext master unavailable"),
     }
+    print(f"NORWAY_UNIVERSE status=FALLBACK_UNVERIFIED count={len(instruments)} error={result['error']}")
+    return result
 
 
 def get_norway_exchange_master_cached(fallback_tuple: tuple[str, ...], force_refresh: bool = False) -> dict[str, Any]:
@@ -256,13 +397,15 @@ def get_norway_exchange_master_cached(fallback_tuple: tuple[str, ...], force_ref
         _save_durable(fresh)
         return fresh
     except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
         if durable.get("source_authoritative_exchange_master") and durable.get("instruments"):
             value = dict(durable)
             value["status"] = "OFFICIAL_LAST_KNOWN_GOOD_STALE"
-            value["refresh_error"] = f"{type(exc).__name__}: {exc}"
+            value["refresh_error"] = error
             value["age_seconds"] = _age_seconds(value.get("verified_at") or value.get("fetched_at"))
+            print(f"NORWAY_UNIVERSE status=OFFICIAL_LAST_KNOWN_GOOD_STALE count={len(value.get('instruments') or [])} refresh_error={error}")
             return value
-        return _fallback_master(fallback_tuple, f"{type(exc).__name__}: {exc}")
+        return _fallback_master(fallback_tuple, error)
 
 
 def get_norway_exchange_master(fallback_tickers: Iterable[str] = (), *, force_refresh: bool = False) -> dict[str, Any]:
@@ -276,11 +419,3 @@ def get_norway_instruments(fallback_tickers: Iterable[str] = (), *, force_refres
 
 def get_norway_tickers(fallback_tickers: Iterable[str] = (), *, force_refresh: bool = False) -> list[str]:
     return list(dict.fromkeys(str(row.get("ticker") or "").upper() for row in get_norway_instruments(fallback_tickers, force_refresh=force_refresh) if str(row.get("ticker") or "").strip()))
-
-
-def lookup_norway_instrument(ticker: str, fallback_tickers: Iterable[str] = ()) -> dict[str, Any]:
-    wanted = str(ticker or "").strip().upper()
-    for row in get_norway_instruments(fallback_tickers):
-        if str(row.get("ticker") or "").upper() == wanted:
-            return dict(row)
-    return {}
