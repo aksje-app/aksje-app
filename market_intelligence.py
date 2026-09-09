@@ -3629,42 +3629,52 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         ),
     ]
 
-    # RC16.31bo: surface only the most important fresh trend alerts in the
-    # compact investor report. The full signal diagnostics remain in the
-    # technical appendix so the short report stays decision-oriented.
+    # RC16.31cb: the main investor report reserves a bounded 8-12 row block for
+    # the independent Fresh Trend engine. Ordinary candidates retain less page
+    # budget, while the full 294/294 stage-1 scan remains unchanged.
     trend_discovery_short = run.get("trend_discovery") if isinstance(run.get("trend_discovery"), Mapping) else {}
     fresh_watch_short = trend_discovery_short.get("fresh_trend_watchlist") if isinstance(trend_discovery_short.get("fresh_trend_watchlist"), list) else []
-    fresh_watch_short = [row for row in fresh_watch_short if isinstance(row, Mapping)][:3]
+    fresh_watch_short = [row for row in fresh_watch_short if isinstance(row, Mapping)][:12]
     if fresh_watch_short:
-        fresh_rows = [["Ticker", "Børs", "Signal", "Fresh score", "Alder", "3d / 5d", "Hvorfor nå"]]
+        fresh_rows = [["Ticker", "Status / scorebane", "Freshness", "Confirmation", "Velocity", "Risk", "RS marked / sektor", "Retest"]]
         for receipt in fresh_watch_short:
             fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
-            reasons = [str(item.get("label") or item.get("code") or "") for item in (fs.get("signals") or [])[:3] if isinstance(item, Mapping)]
-            why_now = "; ".join(value for value in reasons if value) or str(fs.get("why_now") or fs.get("continuation_summary") or "Fersk positiv trendakselerasjon")
+            comp = receipt.get("fresh_monitor_components") if isinstance(receipt.get("fresh_monitor_components"), Mapping) else {}
+            retest = receipt.get("pullback_retest") if isinstance(receipt.get("pullback_retest"), Mapping) else {}
+            score = float(fs.get("score") or 0)
+            status = "STERKT BEKREFTET" if score >= 85 and float(comp.get("Confirmation") or 0) >= 65 else "AKSELERERER" if score >= 65 else "NYTT"
+            emoji = "🟢" if status == "STERKT BEKREFTET" else "⚡" if status == "AKSELERERER" else "🆕"
             fresh_rows.append([
-                _rawp(receipt.get("ticker") or "-", "Tiny"),
-                _p(_exchange_for_ticker(receipt.get("ticker"), receipt.get("exchange_name")), "Tiny"),
-                _p(fs.get("label") or "FRESH TREND", "Tiny"),
-                _p(_fmt(fs.get("score")), "Tiny"),
-                _p(f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')} økter", "Tiny"),
-                _p(f"{_fmt_signed(receipt.get('return_3d_pct'))}% / {_fmt_signed(receipt.get('return_5d_pct'))}%", "Tiny"),
-                _p(_short(why_now, 150), "Tiny"),
+                _rawp(receipt.get("ticker") or "-", "Tiny"), _p(f"{emoji} {status} · {_fmt(score)}", "Tiny"),
+                _p(_fmt(comp.get("Freshness")), "Tiny"), _p(_fmt(comp.get("Confirmation")), "Tiny"),
+                _p(_fmt(comp.get("Velocity")), "Tiny"), _p(_fmt(comp.get("Risk")), "Tiny"),
+                _p(f"{_fmt(receipt.get('market_rs_5d_percentile'))} / {_fmt(receipt.get('sector_rs_5d_percentile'))}", "Tiny"),
+                _p(retest.get("label") or "INGEN RETEST", "Tiny"),
             ])
         fresh_table = Table(
             fresh_rows, repeatRows=1,
-            colWidths=[19*mm, 30*mm, 31*mm, 17*mm, 23*mm, 25*mm, 39*mm],
+            colWidths=[18*mm, 38*mm, 20*mm, 24*mm, 18*mm, 15*mm, 27*mm, 24*mm],
         )
         fresh_table.setStyle(_table_style(5.3, padding=1.2))
         decision_story += [
             Paragraph("⚡ Nye tidlige styrkesignaler", styles["Section"]),
             Paragraph(
-                "Fresh Trend viser de viktigste nye aksjene som nettopp har begynt å akselerere. "
-                "Dette er observasjonssignaler, ikke kjøpsfullmakt. Full forklaring med RSI, OBV, breakout, "
-                "relativ styrke, støtte/motstand og ekstra nyhets-/insider-/shortkontroll ligger i teknisk vedlegg.",
+                "Fresh Trend viser inntil 12 nye aksjer og følger dem hvert 15. minutt de første fem børsdagene. "
+                "Scorebanen bygges som f.eks. 68 → 79 → 91, og status går fra NYTT via AKSELERERER til "
+                "STERKT BEKREFTET. MISTER MOMENT og FALSKT BREAKOUT varsles separat. Dette er observasjonssignaler, ikke kjøpsfullmakt.",
                 styles["Small"],
             ),
             fresh_table,
         ]
+        # Compact visual evidence in the main report: price/timeline with
+        # volume and momentum stated directly beneath each of the top signals.
+        for receipt in fresh_watch_short[:3]:
+            chart = _trend_chart({"trend_receipt": receipt}, width=164*mm, height=28*mm)
+            if chart is not None:
+                decision_story += [Paragraph(
+                    f"{escape(str(receipt.get('ticker') or '-'))} · volum {_fmt(receipt.get('volume_ratio_20'))}x · "
+                    f"momentum 3d {_fmt_signed(receipt.get('return_3d_pct'))}% / 5d {_fmt_signed(receipt.get('return_5d_pct'))}%",
+                    styles["Tiny"]), chart, Spacer(1, 1*mm)]
     actionability_rows = [["Liste", "Ticker", "Score", "Status", "Konkret sperre"]]
     for row in decision_actionability.get("analysis_top3") or []:
         actionability_rows.append([

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-VERSION = "v19.22.0-rc16.31br"
+VERSION = "v19.22.0-rc16.31cb"
 
 
 def _f(value: Any) -> float | None:
@@ -209,7 +209,7 @@ def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str,
         "version":VERSION,"ticker":str(candidate.get("ticker") or ""),"market":str(candidate.get("market") or src.get("market") or ""),"sector":str(candidate.get("sector") or src.get("sector") or ""),
         "exchange_name":str(candidate.get("exchange_name") or src.get("exchange_name") or src.get("market_segment") or ""),"market_segment":str(candidate.get("market_segment") or src.get("market_segment") or src.get("exchange_name") or ""),"exchange_mic":str(candidate.get("exchange_mic") or src.get("exchange_mic") or ""),"exchange_symbol":str(candidate.get("exchange_symbol") or src.get("exchange_symbol") or ""),"isin":str(candidate.get("isin") or src.get("isin") or ""),
         "first_discovered_at":history_item.get("first_seen") or candidate.get("created_at") or "","last_seen_at":history_item.get("last_seen") or "","times_seen":int(history_item.get("times_in_list") or len(obs) or 0),"rank_change":rank_delta,
-        "trend_phase":_phase(src),"trend_age_sessions":age,"trend_age":age_label,
+        "trend_phase":_phase(src),"trend_age_sessions":age,"trend_age":age_label,"last_price":_f(src.get("last_price")),
         "return_1d_pct":_f(src.get("return_1d")),"return_3d_pct":_f(src.get("return_3d")),"return_5d_pct":_f(src.get("return_5d")),"return_10d_pct":_f(src.get("return_10d")),"return_15d_pct":_f(src.get("return_15d")),"return_20d_pct":_f(src.get("return_20d") or src.get("return_1m")),"return_60d_pct":_f(src.get("return_60d") or src.get("return_3m")),
         "momentum_acceleration_3v20":_f(src.get("momentum_acceleration_3v20")),"momentum_acceleration_5v20":_f(src.get("momentum_acceleration_5v20")),"volume_ratio_20":_f(src.get("volume_ratio_20")),
         "obv_pressure_5d":_f(src.get("obv_pressure_5d")),"obv_pressure_10d":_f(src.get("obv_pressure_10d")),"obv_pressure_20d":_f(src.get("obv_pressure_20d")),
@@ -255,6 +255,12 @@ def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) 
     early=sorted(receipts,key=lambda r:(float((r.get("early_signal") or {}).get("score") or 0),float(r.get("return_20d_pct") or -1e9)),reverse=True)
     fresh=sorted(receipts,key=lambda r:(float((r.get("fresh_signal") or {}).get("score") or 0),float(r.get("relative_strength_ignition") or -999),float(r.get("return_5d_pct") or -1e9)),reverse=True)
     fresh_only=[r for r in fresh if (r.get("fresh_signal") or {}).get("trend_age") in {"NY","TIDLIG"} and float((r.get("fresh_signal") or {}).get("score") or 0)>=35]
+    # RC16.31cb: expose the four explainable monitoring axes in every report
+    # receipt. The durable 15-minute engine adds history/status transitions.
+    from fresh_trend_monitor import _components, _pullback_retest
+    for r in fresh_only:
+        r["fresh_monitor_components"] = _components(r)
+        r["pullback_retest"] = _pullback_retest(r)
     established=[r for r in early if r.get("trend_age") in {"ETABLERT","MODEN"} and float((r.get("early_signal") or {}).get("score") or 0)>=30]
     run["trend_discovery"]={"version":VERSION,"mode":"NORWAY_PRODUCTION_STABILIZATION" if run.get("markets")==["Norge"] else "MULTI_MARKET","top10":ranked[:10],"near_candidates":ranked[10:15],"early_signal_watchlist":early[:12],"fresh_trend_watchlist":fresh_only[:12],"established_trend_watchlist":established[:12],"coverage":{"candidates":len(candidates),"full_stage1_universe":len(pool),"deep_scored":len(scored),"with_20d_return":len(ranked),"with_60d_chart":sum(1 for r in receipts if len(r.get("price_trend_60d") or [])>=20),"with_early_signal":sum(1 for r in early if float((r.get("early_signal") or {}).get("score") or 0)>=30),"with_fresh_signal":len(fresh_only)},"missed_winner_audit":{"state":"COLLECTING_BASELINE","note":"Fresh Trend måles separat fra etablerte vinnere slik at eldre 30–60d-trender ikke kan dominere nye trendstarter."},"production_scoring_changed":False,"evidence_priority_changed":True,"explanation":"Fresh Trend og etablert trend er separate køer. Fresh Trend favoriserer fersk akselerasjon, breakout, RSI/OBV-tenning og kompresjon→ekspansjon. Sterke ferske signaler kan få tidligere evidenskontroll, men kan aldri alene utløse kjøp."}
     return run

@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ca"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ca Report Package and Learning Health Closure"
+APP_VERSION = "v19.22.0-rc16.31cb"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31cb Fresh Trend Monitor"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bz"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ca"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31cb: Fresh Trend Monitor. Adds a durable 15-minute, five-session follow-up loop for up to 12 fresh candidates; explainable Freshness/Confirmation/Velocity/Risk axes; score paths and positive/negative status transitions; direct deduplicated Pushover; pullback/retest detection; bounded missed-opportunity learning; and expanded main-report Fresh Trend tables/charts. The full Norway stage-1 scan, production Investment Score, BUY/risk/evidence/portfolio gates and trade authority are unchanged.",
     "v19.22.0-rc16.31ca: Report Semantics and Market Clock Closure. Closed-market UI and technical reports now show the next ordinary opening instead of only the current clock time; Nattrapport missions are Norway-safe and no longer hard-code USA; authoritative Norway exchange metadata is rehydrated into canonical candidates and Fresh Trend display; full-universe reports show an explicit stage funnel instead of misleading 70/20/10 discovery composition; and quality-deviation text uses evidence-controlled semantics instead of the obsolete 8/60-style denominator. BX workflow/download/dedup fixes and BW Norway-universe parsing are preserved. Scoring, BUY, risk, Fresh Trend calculations, Paper Trade and portfolio thresholds are unchanged.",
     "v19.22.0-rc16.31bx: Stabilization and UI Workflow Closure. Canonical report candidates are deterministically deduplicated before decision reduction, manual Utkast start re-renders immediately into durable STARTING/polling state, report PDF/technical PDF/JSON/diagnostic ZIP are grouped in one file center with an on-demand combined ZIP, blocker explanations wrap fully, baseline short/insider counts are explicitly labeled as intermediate deep-analysis controls, and stale runtime identities no longer keep a false distribution-mismatch banner alive. BW Norway-universe parsing, BQ memory controls, scoring, BUY, risk, Fresh Trend, Paper Trade and portfolio thresholds are unchanged.",
     "v19.22.0-rc16.31bw: Euronext Real Payload Parser Closure. Norway master CSV is fetched per MIC (XOSL, MERK, XOAS) and the DataTables JSON parser accepts real HTML-cell payloads. This closes the Render case where Euronext returned 294 records but the parser produced 0. No scoring, BUY, risk, Fresh Trend, Paper Trade or portfolio thresholds changed.",
