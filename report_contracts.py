@@ -52,8 +52,8 @@ REPORT_SPECS: dict[str, ReportSpec] = {
     ),
     "NATTRAPPORT": ReportSpec(
         "NATTRAPPORT", "Nattrapport", "Nattrapport",
-        "MONITOR_OVERNIGHT_RISK", "Oppsummer USA og overvåk overnight-risiko",
-        "Oppsummer USA-avslutningen, etterbørshendelser og forhold som kan påvirke neste morgenrapport.",
+        "MONITOR_OVERNIGHT_RISK", "Overvåk overnight-risiko og forbered neste handelsdag",
+        "Oppsummer relevante hendelser etter markedsslutt, globale signaler og forhold som kan påvirke neste norske handelsdag.",
     ),
     "MANUELL_RAPPORT": ReportSpec(
         "MANUELL_RAPPORT", "Manuell rapport", "Manuell_rapport",

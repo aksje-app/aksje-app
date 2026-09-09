@@ -851,10 +851,35 @@ def canonical_report_view(run: Mapping[str, Any]) -> dict[str, Any]:
         })
     canonical_candidates: list[dict[str, Any]] = []
 
+    norway_exchange_by_ticker: dict[str, dict[str, Any]] = {}
+    try:
+        from norway_exchange_universe import get_norway_exchange_master_snapshot
+        master = get_norway_exchange_master_snapshot()
+        if bool(master.get("source_authoritative_exchange_master")):
+            norway_exchange_by_ticker = {
+                str(row.get("ticker") or "").upper(): dict(row)
+                for row in (master.get("instruments") or [])
+                if isinstance(row, Mapping) and str(row.get("ticker") or "").strip()
+            }
+    except Exception:
+        norway_exchange_by_ticker = {}
+
     for position, source_candidate in enumerate(_rows(result.get("candidates")), 1):
         candidate = source_candidate
         ticker = str(candidate.get("ticker") or f"#{position}")
         raw, snapshots = _collapse_nested_raw(_mapping(candidate.get("raw")))
+        ticker_key = str(candidate.get("ticker") or "").upper()
+        if ticker_key.endswith(".OL") and ticker_key in norway_exchange_by_ticker:
+            instrument = norway_exchange_by_ticker[ticker_key]
+            for field in ("exchange_name", "market_segment", "exchange_mic", "exchange_symbol", "isin", "listing_status"):
+                if not candidate.get(field) and instrument.get(field) not in (None, ""):
+                    candidate[field] = deepcopy(instrument.get(field))
+                    raw[field] = deepcopy(instrument.get(field))
+            if str(candidate.get("name") or "").strip().upper() in {"", ticker_key}:
+                company_name = str(instrument.get("company_name") or instrument.get("name") or "").strip()
+                if company_name:
+                    candidate["name"] = company_name
+                    raw["name"] = company_name
         if snapshots:
             corrections.append({
                 "ticker": ticker,

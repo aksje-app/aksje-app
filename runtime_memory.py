@@ -178,13 +178,62 @@ def scheduler_memory_soft_limit_mb() -> float:
         return 1450.0
 
 
-def memory_guard(reason: str = "", *, soft_limit_mb: float | None = None, raise_on_pressure: bool = True) -> dict[str, Any]:
+def memory_guard(
+    reason: str = "", *, soft_limit_mb: float | None = None,
+    raise_on_pressure: bool = True, ignore_reclaimable_file_cache: bool = False,
+    hard_limit_fraction: float = 0.97,
+) -> dict[str, Any]:
+    """Evaluate memory pressure with an optional reclaimable-file-cache-aware mode.
+
+    ``memory.current`` includes Linux page cache. For the final report export on
+    Render that cache can exceed 1 GiB even when Python RSS/anonymous memory is
+    healthy. Treating all file cache as non-reclaimable produced false controlled
+    stops. The optional mode still fails closed if anonymous/non-reclaimable
+    memory exceeds the soft limit or the cgroup is extremely close to its hard
+    limit. Scheduler callers retain the historical total-cgroup behavior unless
+    they explicitly opt in.
+    """
     snap = memory_snapshot()
     limit = float(soft_limit_mb if soft_limit_mb is not None else scheduler_memory_soft_limit_mb())
     rss = float(snap.get("process_rss_mb") or 0.0)
     cgroup = float(snap.get("cgroup_memory_current_mb") or 0.0)
-    observed = max(rss, cgroup)
-    result = {"reason": str(reason or ""), "soft_limit_mb": limit, "observed_mb": observed, "pressure": observed >= limit, **snap}
+    cgroup_limit = float(snap.get("cgroup_memory_limit_mb") or 0.0)
+    anon = float(snap.get("cgroup_anon_mb") or 0.0)
+    shmem = float(snap.get("cgroup_shmem_mb") or 0.0)
+    kernel = float(snap.get("cgroup_kernel_mb") or 0.0)
+    file_cache = float(snap.get("cgroup_file_mb") or 0.0)
+
+    total_observed = max(rss, cgroup)
+    non_reclaimable = max(rss, anon + shmem + kernel)
+    hard_limit_pressure = bool(
+        cgroup_limit > 0 and cgroup >= max(0.0, cgroup_limit * float(hard_limit_fraction))
+    )
+    if ignore_reclaimable_file_cache:
+        observed = non_reclaimable
+        pressure = bool(observed >= limit or hard_limit_pressure)
+        basis = "NON_RECLAIMABLE_PLUS_HARD_LIMIT"
+    else:
+        observed = total_observed
+        pressure = bool(observed >= limit)
+        basis = "TOTAL_CGROUP_OR_RSS"
+
+    result = {
+        "reason": str(reason or ""),
+        "soft_limit_mb": limit,
+        "observed_mb": round(observed, 1),
+        "total_observed_mb": round(total_observed, 1),
+        "effective_non_reclaimable_mb": round(non_reclaimable, 1),
+        "reclaimable_file_cache_mb": round(file_cache, 1),
+        "ignore_reclaimable_file_cache": bool(ignore_reclaimable_file_cache),
+        "pressure_basis": basis,
+        "hard_limit_fraction": float(hard_limit_fraction),
+        "hard_limit_pressure": hard_limit_pressure,
+        "pressure": pressure,
+        **snap,
+    }
     if result["pressure"] and raise_on_pressure:
-        raise MemoryPressureError(f"Memory guard {reason}: {observed:.1f} MB >= {limit:.1f} MB")
+        raise MemoryPressureError(
+            f"Memory guard {reason}: {observed:.1f} MB >= {limit:.1f} MB "
+            f"(basis={basis}, total={total_observed:.1f} MB)"
+        )
     return result

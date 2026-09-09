@@ -674,14 +674,28 @@ def build_report_reliability(run: Mapping[str, Any], candidate_contracts: Sequen
     combined = _mapping(run.get("combined_data_quality") or run.get("combined_quality"))
     evaluated = _safe_int(combined.get("evaluated"), 0)
     valid = _safe_int(combined.get("overall_valid"), 0)
-    if combined and evaluated and valid < evaluated:
-        deduct(min(20, round(20 * (evaluated - valid) / evaluated)), "EVIDENCE_COVERAGE", f"Bare {valid} av {evaluated} kandidater har samlet gyldig evidens")
+    stages = _mapping(run.get("analysis_stages"))
+    evidence_controlled = _safe_int(stages.get("stage3_evidence_controlled"), 0)
+    if evidence_controlled <= 0:
+        evidence_controlled = evaluated
+    evidence_controlled = max(valid, evidence_controlled)
+    if combined and evidence_controlled and valid < evidence_controlled:
+        deduct(
+            min(20, round(20 * (evidence_controlled - valid) / evidence_controlled)),
+            "EVIDENCE_COVERAGE",
+            f"Bare {valid} av {evidence_controlled} evidenskontrollerte kandidater har samlet gyldig evidens",
+        )
     conflicts = sum(_safe_int(_mapping(row.get("source_consensus")).get("conflicts"), 0) for row in candidate_contracts)
     if conflicts:
         deduct(min(12, conflicts * 4), "SOURCE_CONFLICTS", f"{conflicts} kildekonflikt(er) er ikke avklart")
     weak_sources = sum(1 for row in candidate_contracts if str(_mapping(row.get("source_consensus")).get("level")) in {"SVAK", "IKKE_VERIFISERT"})
     if weak_sources:
-        deduct(min(12, weak_sources * 2), "WEAK_CONSENSUS", f"{weak_sources} kandidat(er) har svakt eller uverifisert kildegrunnlag")
+        deduct(
+            min(12, weak_sources * 2),
+            "WEAK_CONSENSUS",
+            f"{weak_sources} av {len(candidate_contracts)} rapportkandidater har svakt eller uverifisert kildegrunnlag; "
+            "tallet inkluderer kandidater som ikke ble prioritert til full evidenskontroll",
+        )
     missing_insider = 0
     for candidate in _rows(run.get("candidates")):
         readiness = _mapping(candidate.get("decision_readiness"))
@@ -952,7 +966,10 @@ def build_decision_report(
         "labels": {
             "market_data_quality": "Markedsdatakvalitet",
             "technical_documentation_coverage": "Rapportens tekniske dokumentasjonsgrad",
-            "candidate_evidence_coverage": "Evidensklar etter kontroll",
+            "candidate_evidence_coverage": "Legacy evidensdekning av alle rapportkandidater",
+            "candidate_evidence_success_rate": "Evidensklar etter kontroll",
+            "candidate_evidence_controlled_count": "Evidenskontrollert",
+            "candidate_evidence_not_prioritized_count": "Ikke prioritert til full evidenskontroll",
             "independent_source_coverage": "Uavhengig kildedekning",
             "report_decision_strength": "Beslutningsstyrke på rapportnivå",
         },

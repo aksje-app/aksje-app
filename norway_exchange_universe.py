@@ -874,6 +874,19 @@ def get_norway_exchange_master(fallback_tickers: Iterable[str] = (), *, force_re
     return get_norway_exchange_master_cached(tuple(fallback_tickers), bool(force_refresh))
 
 
+def get_norway_exchange_master_snapshot() -> dict[str, Any]:
+    """Return the durable authoritative master without making any network call.
+
+    Report finalization uses this read-only snapshot so metadata rehydration can
+    never delay or destabilize a completed analysis. The scanner/universe layer
+    remains solely responsible for refreshing Euronext data.
+    """
+    durable = _load_durable()
+    if durable.get("source_authoritative_exchange_master") and durable.get("instruments"):
+        return dict(durable)
+    return {}
+
+
 def get_norway_instruments(fallback_tickers: Iterable[str] = (), *, force_refresh: bool = False) -> list[dict[str, Any]]:
     master = get_norway_exchange_master(fallback_tickers, force_refresh=force_refresh)
     return [dict(row) for row in master.get("instruments") or [] if isinstance(row, Mapping)]

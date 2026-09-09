@@ -366,21 +366,51 @@ MARKET_CLOCKS = {
 
 
 def build_market_status(markets: Sequence[str], refresh: Mapping[str, Any] | None = None, now: datetime | None = None) -> list[dict[str, Any]]:
-    """Return transparent exchange-clock status without pretending to know every holiday."""
+    """Return exchange-clock status and the next *ordinary* opening time.
+
+    This intentionally does not claim holiday-calendar precision. Outside hours the
+    user-facing value is the next ordinary weekday opening, which is more useful
+    than repeating the current local clock time.
+    """
     refresh = refresh or {}
     now = now or datetime.now(timezone.utc)
     dates = list(refresh.get("latest_trade_dates") or [])
     latest_date = max(dates) if dates else None
     rows = []
+    weekday_names = ["man", "tir", "ons", "tor", "fre", "lør", "søn"]
     for market in markets:
         tz_name, open_at, close_at = MARKET_CLOCKS.get(market, ("UTC", time(0, 0), time(0, 0)))
         local = now.astimezone(ZoneInfo(tz_name))
-        reference_weekend = now.astimezone(timezone.utc).weekday() >= 5
-        weekday_open = local.weekday() < 5 and not reference_weekend
-        within_hours = open_at <= local.time().replace(tzinfo=None) <= close_at
+        weekday_open = local.weekday() < 5
+        local_clock = local.time().replace(tzinfo=None)
+        within_hours = open_at <= local_clock <= close_at
         status = "ÅPEN" if weekday_open and within_hours else "STENGT"
-        reason = "Innenfor ordinær åpningstid" if status == "ÅPEN" else ("Helg" if reference_weekend or not weekday_open else "Utenfor ordinær åpningstid")
-        rows.append({"market": market, "status": status, "reason": reason, "local_time": local.strftime("%H:%M"), "timezone": tz_name, "latest_trade_date": latest_date})
+        reason = "Innenfor ordinær åpningstid" if status == "ÅPEN" else ("Helg" if not weekday_open else "Utenfor ordinær åpningstid")
+
+        next_open = local.replace(hour=open_at.hour, minute=open_at.minute, second=0, microsecond=0)
+        if status == "ÅPEN":
+            next_open = local
+        elif weekday_open and local_clock < open_at:
+            pass
+        else:
+            next_open = next_open + timedelta(days=1)
+            while next_open.weekday() >= 5:
+                next_open += timedelta(days=1)
+        if status == "ÅPEN":
+            next_open_display = "Åpent nå"
+        elif next_open.date() == local.date():
+            next_open_display = f"Åpner {next_open:%H:%M}"
+        else:
+            next_open_display = f"Åpner {weekday_names[next_open.weekday()]} {next_open:%H:%M}"
+
+        rows.append({
+            "market": market, "status": status, "reason": reason,
+            "local_time": local.strftime("%H:%M"), "timezone": tz_name,
+            "latest_trade_date": latest_date,
+            "next_open_local": next_open.isoformat(timespec="minutes"),
+            "next_open_display": next_open_display,
+            "ordinary_hours_only": True,
+        })
     return rows
 
 
@@ -3528,6 +3558,14 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         str(row.get("ticker") or "").upper(): row
         for row in (run.get("candidates") or []) if isinstance(row, Mapping)
     }
+
+    def _exchange_for_ticker(ticker: Any, explicit: Any = "") -> str:
+        if str(explicit or "").strip():
+            return str(explicit)
+        candidate = canonical_by_ticker.get(str(ticker or "").upper(), {})
+        if isinstance(candidate, Mapping):
+            return str(candidate.get("exchange_name") or candidate.get("market_segment") or "-")
+        return "-"
     candidate_rows = [["#", "Ticker", "Børs", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Short / innsider / kilder"]]
     for index, compact_candidate in enumerate(review_candidates, 1):
         ticker = str(compact_candidate.get("ticker") or "").upper()
@@ -3605,7 +3643,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             why_now = "; ".join(value for value in reasons if value) or str(fs.get("why_now") or fs.get("continuation_summary") or "Fersk positiv trendakselerasjon")
             fresh_rows.append([
                 _rawp(receipt.get("ticker") or "-", "Tiny"),
-                _p(receipt.get("exchange_name") or "-", "Tiny"),
+                _p(_exchange_for_ticker(receipt.get("ticker"), receipt.get("exchange_name")), "Tiny"),
                 _p(fs.get("label") or "FRESH TREND", "Tiny"),
                 _p(_fmt(fs.get("score")), "Tiny"),
                 _p(f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')} økter", "Tiny"),
@@ -4000,11 +4038,19 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     guard_text = "Produksjonsregler kan ikke endres automatisk; eksplisitt godkjenning kreves."
     if decision_learning_guard.get("production_rules_auto_change_allowed"):
         guard_text = "ADVARSEL: automatisk produksjonsendring er rapportert som tillatt."
-    deductions = list(decision_reliability.get("deductions") or [])[:2]
-    deduction_text = "; ".join(
+    semantic_quality = (
+        f"Evidenskontroll: {evidence_ready}/{evidence_controlled} evidensklare ({evidence_success_rate:.0f} %); "
+        f"{evidence_not_prioritized} av {evidence_total} rapportkandidater ble ikke prioritert til full evidenskontroll."
+    )
+    legacy_deductions = [
+        row for row in (decision_reliability.get("deductions") or [])
+        if str(row.get("code") or "") not in {"EVIDENCE_COVERAGE", "WEAK_CONSENSUS"}
+    ][:2]
+    legacy_text = "; ".join(
         f"−{abs(float(row.get('points') or 0)):g} poeng: {row.get('reason') or '-'}"
-        for row in deductions
-    ) or "Ingen eksplisitte trekk."
+        for row in legacy_deductions
+    )
+    deduction_text = semantic_quality + ((" " + legacy_text) if legacy_text else "")
     decision_audit_story = [
         Paragraph("Historisk evaluering / læringsvern", styles["Subsection"]),
         Paragraph(escape(historical_text + " | " + guard_text), styles["Small"]),
@@ -4022,8 +4068,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     manual_review_count = int(report_summary.get("manual_review") or reduction.get("manual_candidates") or 0)
     proposal_summary = run.get("proposal_summary") if isinstance(run.get("proposal_summary"), Mapping) else {}
     learning_summary = run.get("learning_portfolio_summary") if isinstance(run.get("learning_portfolio_summary"), Mapping) else {}
-    summary_items = [("Skannet", report_summary.get("scanned", summary.get("scanned", 0))),
-                     ("Grundig analysert", report_summary.get("deep_analyzed", len(run.get("candidates") or []))),
+    analysis_stages_summary = run.get("analysis_stages") if isinstance(run.get("analysis_stages"), Mapping) else {}
+    summary_items = [("Grovskannet univers", analysis_stages_summary.get("stage1_scanned", report_summary.get("scanned", summary.get("scanned", 0)))),
+                     ("Dypanalysert aktivt", analysis_stages_summary.get("stage2_extended", (run.get("combined_data_quality") or {}).get("evaluated", 0))),
+                     ("Rapportkandidater totalt", report_summary.get("deep_analyzed", len(run.get("candidates") or []))),
                      ("Foreløpige modellkandidater", proposal_summary.get("preliminary_model_candidates", summary.get("proposals", 0))),
                      ("Undersøk manuelt", manual_review_count),
                      ("Overvåkes automatisk", report_summary.get("automatic_watch", reduction.get("automatic_watch", 0))),
@@ -4281,9 +4329,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         story += [Paragraph("Analysefordeling per marked", styles["Subsection"]), diag_table]
     market_status = run.get("market_status") or []
     if market_status:
-        ms_data = [["Marked", "Status", "Lokal tid", "Forklaring", "Siste handelsdato"]]
+        ms_data = [["Marked", "Status", "Neste ordinære åpning", "Forklaring", "Siste handelsdato"]]
         for item in market_status:
-            ms_data.append([item.get("market"), item.get("status"), item.get("local_time"), item.get("reason"), item.get("latest_trade_date") or "Ukjent"])
+            next_open = item.get("next_open_display") if item.get("status") != "ÅPEN" else f"Åpent nå · {item.get('local_time') or '-'}"
+            ms_data.append([item.get("market"), item.get("status"), next_open, item.get("reason"), item.get("latest_trade_date") or "Ukjent"])
         ms_table = Table(ms_data, repeatRows=1, colWidths=[24*mm, 20*mm, 20*mm, 55*mm, 38*mm])
         ms_table.setStyle(_table_style())
         story += [Paragraph("Markedsstatus", styles["Subsection"]), ms_table]
@@ -4355,29 +4404,51 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                   source_table, Paragraph(escape(budget_text), styles["Small"])]
     discovery = run.get("discovery_data") or {}
     if discovery:
-        discovery_rows = [["Marked", "Valgt", "Dokumentert", "Nye", "Eksperimentelle", "Karantene", "Rotert"]]
-        for item in discovery.get("markets") or []:
-            actual = item.get("composition_actual") or {}
-            discovery_rows.append([
-                item.get("market"), item.get("selected", 0), actual.get("DOCUMENTED", 0),
-                actual.get("NEW", 0), actual.get("EXPERIMENTAL", 0), item.get("quarantined", 0),
-                "JA" if item.get("rotated_from_previous") else "BEGRENSET",
-            ])
-        if len(discovery_rows) > 1:
-            discovery_table = Table(discovery_rows, repeatRows=1, colWidths=[25*mm, 18*mm, 25*mm, 18*mm, 27*mm, 22*mm, 24*mm])
-            discovery_table.setStyle(_table_style(6.5, padding=2))
-            full_universe_mode = any(
-                str((item or {}).get("selection_rule") or "").startswith("Alle gyldige symboler")
-                for item in (run.get("universe_coverage") or []) if isinstance(item, Mapping)
-            )
-            discovery_note = (
-                "Hele det konfigurerte universet grovskannes før shortlist. 70/20/10-rotasjon brukes derfor ikke i dette steget; rotasjon måles først når en eksplisitt discovery-pool er aktiv."
-                if full_universe_mode else
-                "Målfordeling: 70 % dokumenterte, 20 % nye og 10 % eksperimentelle kandidater. Uendrede kildebevis merkes med analysekarantene."
-            )
-            story += [Paragraph("Kandidatfunn og datagrunnlag", styles["Subsection"]),
-                      Paragraph(discovery_note, styles["Small"]),
-                      discovery_table]
+        universe_rows_for_mode = [item for item in (run.get("universe_coverage") or []) if isinstance(item, Mapping)]
+        full_universe_mode = any(
+            bool(item.get("source_authoritative_exchange_master"))
+            and int(item.get("rough_scanned") or 0) >= int(item.get("configured_universe") or 0) > 0
+            for item in universe_rows_for_mode
+        )
+        if full_universe_mode:
+            stages = run.get("analysis_stages") if isinstance(run.get("analysis_stages"), Mapping) else {}
+            extended_technical = max((int(item.get("extended_analyzed") or 0) for item in universe_rows_for_mode), default=0)
+            report_total = int((run.get("report_summary") or {}).get("coverage_candidate_total") or len(run.get("candidates") or []))
+            funnel_rows = [
+                ["Steg", "Antall", "Betydning"],
+                ["Offisielt univers grovskannet", int(stages.get("stage1_scanned") or 0), "Alle verifiserte norske børsaksjer"],
+                ["Teknisk utvidet / Fresh-screen", extended_technical, "Lett teknisk berikelse før dypseleksjon"],
+                ["Dypanalysert aktivt utvalg", int(stages.get("stage2_extended") or 0), "Aktive kandidater med full markeds-/modellkontroll"],
+                ["Evidenskontrollert", int(stages.get("stage3_evidence_controlled") or 0), "Prioritert til full kilde- og evidenskontroll"],
+                ["Rapportkandidater totalt", report_total, "Inkluderer aktive kandidater og eksisterende porteføljeposisjoner"],
+            ]
+            funnel_table = Table(funnel_rows, repeatRows=1, colWidths=[52*mm, 22*mm, 95*mm])
+            funnel_table.setStyle(_table_style(6.5, padding=2))
+            story += [
+                Paragraph("Analyseflyt for komplett Norge-univers", styles["Subsection"]),
+                Paragraph(
+                    "Hele den autoritative Norge-masteren grovskannes. Tallene under er ulike trinn i samme kjede og skal ikke tolkes som konkurrerende universstørrelser.",
+                    styles["Small"],
+                ),
+                funnel_table,
+            ]
+        else:
+            discovery_rows = [["Marked", "Valgt", "Dokumentert", "Nye", "Eksperimentelle", "Karantene", "Rotert"]]
+            for item in discovery.get("markets") or []:
+                actual = item.get("composition_actual") or {}
+                discovery_rows.append([
+                    item.get("market"), item.get("selected", 0), actual.get("DOCUMENTED", 0),
+                    actual.get("NEW", 0), actual.get("EXPERIMENTAL", 0), item.get("quarantined", 0),
+                    "JA" if item.get("rotated_from_previous") else "BEGRENSET",
+                ])
+            if len(discovery_rows) > 1:
+                discovery_table = Table(discovery_rows, repeatRows=1, colWidths=[25*mm, 18*mm, 25*mm, 18*mm, 27*mm, 22*mm, 24*mm])
+                discovery_table.setStyle(_table_style(6.5, padding=2))
+                story += [
+                    Paragraph("Kandidatfunn og datagrunnlag", styles["Subsection"]),
+                    Paragraph("Målfordeling: 70 % dokumenterte, 20 % nye og 10 % eksperimentelle kandidater. Uendrede kildebevis merkes med analysekarantene.", styles["Small"]),
+                    discovery_table,
+                ]
     refresh = run.get("data_refresh") or {}
     refresh_table = Table([
                   ["Full ny analyse", "JA" if refresh.get("force_refresh_requested") else "NEI", "Cache-bypass", "JA" if refresh.get("cache_bypass_verified") else ("IKKE RELEVANT" if not refresh.get("force_refresh_requested") else "NEI"), "Live-forsøk", refresh.get("live_attempt_count", 0)],
@@ -4505,7 +4576,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             text = "; ".join(reasons) or "Ingen komplett forklaring"
             if caution:
                 text += ". Risiko: " + caution
-            fdata.append([receipt.get("ticker"), receipt.get("exchange_name") or "-", fs.get("label"), _fmt(fs.get("score")), f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')}d", f"{_fmt_signed(receipt.get('return_3d_pct'))}% / {_fmt_signed(receipt.get('return_5d_pct'))}%", f"{_fmt(receipt.get('relative_strength_ignition'))}p", _p(_short(text, 245))])
+            fdata.append([receipt.get("ticker"), _exchange_for_ticker(receipt.get("ticker"), receipt.get("exchange_name")), fs.get("label"), _fmt(fs.get("score")), f"{fs.get('trend_age','UKJENT')} / {fs.get('trend_age_sessions','-')}d", f"{_fmt_signed(receipt.get('return_3d_pct'))}% / {_fmt_signed(receipt.get('return_5d_pct'))}%", f"{_fmt(receipt.get('relative_strength_ignition'))}p", _p(_short(text, 245))])
         ftable = Table(fdata, repeatRows=1, colWidths=[18*mm, 27*mm, 27*mm, 12*mm, 18*mm, 21*mm, 17*mm, 44*mm])
         ftable.setStyle(_table_style(6.0, padding=2))
         story += [ftable]
@@ -6533,19 +6604,25 @@ def _run_job_impl(
     final_text = b""
     export_gate = {}
     try:
-        from runtime_memory import memory_guard, release_process_memory
-        pre_final_cleanup_v19220_rc1631bl = release_process_memory("before_final_export_validation")
-        pre_final_guard_v19220_rc1631bl = memory_guard(
-            "manual_report_before_final_export", soft_limit_mb=1450.0, raise_on_pressure=False,
+        from runtime_memory import memory_guard, terminal_memory_cleanup
+        pre_final_cleanup_v19220_rc1631by = terminal_memory_cleanup(
+            "before_final_export_validation", reclaim_mb=512.0,
+        )
+        pre_final_guard_v19220_rc1631by = memory_guard(
+            "manual_report_before_final_export", soft_limit_mb=1450.0,
+            raise_on_pressure=False, ignore_reclaimable_file_cache=True,
         )
         mark_breadcrumb(
             "report:memory_guard:before_final_export", component="market_intelligence",
-            detail={"cleanup": pre_final_cleanup_v19220_rc1631bl, "guard": pre_final_guard_v19220_rc1631bl},
+            detail={"cleanup": pre_final_cleanup_v19220_rc1631by, "guard": pre_final_guard_v19220_rc1631by},
         )
-        if pre_final_guard_v19220_rc1631bl.get("pressure"):
+        if pre_final_guard_v19220_rc1631by.get("pressure"):
             raise RuntimeError(
-                f"Kontrollert minnestopp før sluttartefakter: {float(pre_final_guard_v19220_rc1631bl.get('observed_mb') or 0.0):.1f} MB "
-                f">= {float(pre_final_guard_v19220_rc1631bl.get('soft_limit_mb') or 1450.0):.1f} MB"
+                f"Kontrollert minnestopp før sluttartefakter: effektiv ikke-reclaimbar memory "
+                f"{float(pre_final_guard_v19220_rc1631by.get('observed_mb') or 0.0):.1f} MB "
+                f">= {float(pre_final_guard_v19220_rc1631by.get('soft_limit_mb') or 1450.0):.1f} MB "
+                f"(cgroup totalt {float(pre_final_guard_v19220_rc1631by.get('cgroup_memory_current_mb') or 0.0):.1f} MB, "
+                f"file cache {float(pre_final_guard_v19220_rc1631by.get('reclaimable_file_cache_mb') or 0.0):.1f} MB)"
             )
         run["final_artifact_sync"] = {
             **dict(run.get("final_artifact_sync") or {}),
@@ -8109,7 +8186,11 @@ def render_market_intelligence() -> None:
                 status_cols = st.columns(min(3, len(statuses)))
                 for idx, item in enumerate(statuses):
                     icon = "🟢" if item.get("status") == "ÅPEN" else "🔴"
-                    status_cols[idx % len(status_cols)].metric(f"{icon} {item.get('market')}", item.get("status"), f"{item.get('local_time')} · {item.get('reason')}")
+                    status_cols[idx % len(status_cols)].metric(
+                        f"{icon} {item.get('market')}",
+                        item.get("status"),
+                        f"{item.get('next_open_display') if item.get('status') != 'ÅPEN' else item.get('local_time')} · {item.get('reason')}",
+                    )
                 refresh = latest.get("data_refresh") or {}
                 dates = ", ".join(refresh.get("latest_trade_dates") or []) or "ukjent"
                 if refresh.get("live_count", 0):
