@@ -148,6 +148,37 @@ def _build_canonical_pdf(run: Mapping[str, Any]) -> bytes:
     return payload
 
 
+
+
+def _build_canonical_technical_pdf(run: Mapping[str, Any]) -> bytes:
+    """Render the technical PDF from the same canonical run used by the package."""
+    from market_intelligence import build_technical_pdf
+    payload = bytes(build_technical_pdf(copy.deepcopy(dict(run))))
+    if not payload.startswith(b"%PDF-"):
+        raise RuntimeError("Canonical technical PDF-rendering returnerte ikke en gyldig PDF")
+    return payload
+
+
+def _read_diagnostic_bundle(run: Mapping[str, Any], archive_entry: Mapping[str, Any] | None = None) -> tuple[bytes | None, str]:
+    """Return the durable manual-run diagnostic bundle when one exists."""
+    archive = dict(archive_entry or {})
+    execution_id = str(
+        run.get("background_execution_id")
+        or archive.get("background_execution_id")
+        or ""
+    ).strip()
+    if not execution_id:
+        return None, ""
+    try:
+        from manual_job_background import diagnostic_bundle
+        payload, filename = diagnostic_bundle(execution_id)
+        payload = bytes(payload or b"")
+        if not payload.startswith(b"PK"):
+            return None, ""
+        return payload, str(filename or f"Bakgrunnsjobb_diagnose_{execution_id}.zip")
+    except Exception:
+        return None, ""
+
 def _build_text(run: Mapping[str, Any]) -> str:
     try:
         from market_intelligence import build_text_report
@@ -476,13 +507,22 @@ def build_single_report_package(
     # Always rebuild from clean_run. Reusing an archived/UI PDF can silently
     # mix an older identity or ranking with the current TXT/JSON contract.
     if progress_callback:
-        progress_callback(4, 12, "Bygger PDF med Noto Sans og bokmerker")
+        progress_callback(4, 12, "Bygger standard PDF")
     pdf = _build_canonical_pdf(clean_run)
     files[f"{report_dir}/report.pdf"] = pdf
+    if progress_callback:
+        progress_callback(5, 12, "Bygger teknisk PDF")
+    technical_pdf = _build_canonical_technical_pdf(clean_run)
+    files[f"{report_dir}/report_technical.pdf"] = technical_pdf
+    if progress_callback:
+        progress_callback(6, 12, "Henter diagnosepakke når tilgjengelig")
+    diagnostic_payload, diagnostic_name = _read_diagnostic_bundle(clean_run, archive_entry)
+    if diagnostic_payload:
+        files[f"diagnostics/{_safe_component(diagnostic_name, 'diagnostic.zip')}"] = diagnostic_payload
     if missing and any(item in {"report.pdf", "report.txt", "report.json"} for item in missing):
         raise RuntimeError("Rapportpakken mangler obligatoriske artefakter: " + ", ".join(sorted(set(missing))))
     if progress_callback:
-        progress_callback(6, 12, "Kjører Report Consistency Audit")
+        progress_callback(7, 12, "Kjører Report Consistency Audit")
     audit = validate_artifacts(run=clean_run, pdf=bytes(pdf or b""), txt=report_txt, json_bytes=report_json)
     if not audit.get("ok"):
         raise RuntimeError("Report Consistency Audit feilet: " + "; ".join(audit.get("errors") or []))
@@ -495,6 +535,13 @@ def build_single_report_package(
         "identity": identity,
         "replay_level": replay_level,
         "missing": sorted(set(missing)),
+        "artifact_roles": {
+            "standard_pdf": f"{report_dir}/report.pdf",
+            "technical_pdf": f"{report_dir}/report_technical.pdf",
+            "canonical_json": f"{report_dir}/report.json",
+            "diagnostic_zip": f"diagnostics/{_safe_component(diagnostic_name, 'diagnostic.zip')}" if diagnostic_payload else None,
+        },
+        "diagnostic_available": bool(diagnostic_payload),
         "read_only": True,
         "network_calls": False,
         "notifications_sent": False,
@@ -502,7 +549,7 @@ def build_single_report_package(
     }
     files["MANIFEST.json"] = _json_bytes(manifest)
     if progress_callback:
-        progress_callback(7, 12, "Komprimerer rapportpakken")
+        progress_callback(8, 12, "Komprimerer rapportpakken")
     payload = _finalize_zip(files)
     if progress_callback:
         progress_callback(10, 12, "Kontrollerer ferdig ZIP")

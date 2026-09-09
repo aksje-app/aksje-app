@@ -334,10 +334,20 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
         stock = series_map.get(ticker, []); bench = series_map.get(benchmark, [])
         entry_day = str(observation.get("entry_market_date") or "")[:10]
         forward = [row for row in stock if str(row.get("date") or "") > entry_day]
-        if not forward or not bench:
+        if not stock or not bench:
             observation["source_health"] = {"status": "MISSING_SERIES", "checked_at": _now_iso(now),
                                              "stock_points": len(stock), "benchmark_points": len(bench)}
             missing += 1; continue
+        if not forward:
+            # A newly registered observation can legitimately have no trading day
+            # after its entry date yet (for example a night run before Oslo opens).
+            # This is waiting for market time, not degraded source health.
+            observation["source_health"] = {
+                "status": "AWAITING_NEXT_TRADING_DAY", "checked_at": _now_iso(now),
+                "stock_points": len(stock), "benchmark_points": len(bench),
+                "entry_market_date": entry_day,
+            }
+            continue
         benchmark_entry = _price_on_or_before(bench, entry_day, strict=True)
         if not benchmark_entry:
             observation["source_health"] = {"status": "MISSING_BENCHMARK_BASELINE", "checked_at": _now_iso(now)}
@@ -454,7 +464,11 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
             value = _number(((row.get("horizon_measurements") or {}).get("20") or {}).get("excess_return_pct"))
             if value is not None: by_name[str(row.get(dimension) or "Ukjent")].append(value)
         for name, values in by_name.items(): dimension_rows.append({"dimension": dimension, "name": name, **_stats(values)})
-    missing = [row for row in active if str((row.get("source_health") or {}).get("status") or "PENDING") != "OK"]
+    healthy_waiting_states = {"OK", "AWAITING_NEXT_TRADING_DAY", "PENDING"}
+    missing = [
+        row for row in active
+        if str((row.get("source_health") or {}).get("status") or "PENDING").upper() not in healthy_waiting_states
+    ]
     proposals = []
     moderate = next((row for row in group_rows if row["group"] == "MODERATE" and row["horizon_days"] == 20), {})
     near = next((row for row in group_rows if row["group"] == "NEAR_THRESHOLD" and row["horizon_days"] == 20), {})

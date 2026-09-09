@@ -3694,7 +3694,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         for row in decision_candidates:
             recommendation_rows.append([
                 _rawp(row.get("ticker") or "-", "Tiny"),
-                _p(row.get("exchange_name") or row.get("market_segment") or row.get("market") or "-", "Tiny"),
+                _p(_exchange_for_ticker(row.get("ticker"), row.get("exchange_name") or row.get("market_segment")), "Tiny"),
                 _p(_fmt(row.get("score")), "Tiny"),
                 _p(row.get("status") or row.get("action") or "-", "Tiny"),
                 _p("Ingen automatisk transaksjon", "Tiny"),
@@ -3861,7 +3861,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     if decision_watch_queue:
         watch_rows = [["Ticker", "Børs", "Score", "Til 73", "Andre blokkeringer"]]
         for row in list(decision_watch_queue)[:15]:
-            watch_rows.append([_rawp(row.get("ticker") or "-", "Tiny"), _p(row.get("market") or "-", "Tiny"),
+            watch_rows.append([_rawp(row.get("ticker") or "-", "Tiny"), _p(_exchange_for_ticker(row.get("ticker"), row.get("exchange_name") or row.get("market_segment")), "Tiny"),
                                _p(f"{float(row.get('score') or 0):.2f}", "Tiny"), _p(f"{float(row.get('distance_to_production_threshold') or 0):.2f}", "Tiny"),
                                _p(", ".join(label_for(value) for value in (row.get("blocker_codes") or [])) or "Ingen", "Tiny")])
         watch_table = Table(watch_rows, repeatRows=1, colWidths=[28*mm, 28*mm, 22*mm, 22*mm, 84*mm])
@@ -3870,7 +3870,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                            Paragraph("Observasjonskøen er ikke en kjøpsanbefaling. Kandidatene vurderes automatisk på nytt.", styles["Small"])]
     rejected_rows = [["Ticker", "Børs", "Score", "Status / kort grunn"]]
     for row in rejected_control:
-        rejected_rows.append([row.get("ticker") or "-", _market_scope_label(row.get("market") or "-"), _fmt(row.get("score")), _p(_short(row.get("reason") or row.get("status") or "Avvist", 120), "Tiny")])
+        rejected_exchange = _exchange_for_ticker(row.get("ticker"), row.get("exchange_name") or row.get("market_segment"))
+        if rejected_exchange == "-":
+            rejected_exchange = _market_scope_label(row.get("market") or "-")
+        rejected_rows.append([row.get("ticker") or "-", rejected_exchange, _fmt(row.get("score")), _p(_short(row.get("reason") or row.get("status") or "Avvist", 120), "Tiny")])
     if len(rejected_rows) == 1:
         rejected_rows.append(["-", "-", "-", "Ingen automatisk avviste aksjer"] )
     rejected_table = Table(rejected_rows, repeatRows=1, colWidths=[25*mm, 25*mm, 18*mm, 116*mm])
@@ -8494,58 +8497,17 @@ def render_market_intelligence() -> None:
                 if ranking_explanation.get("note"):
                     st.info(ranking_explanation.get("note"))
                 st.dataframe(pd.DataFrame(ranking_explanation.get("ranking_types") or []), width="stretch", hide_index=True)
-            delivery = resolve_report_delivery(latest)
-            e1,e2 = st.columns(2)
-            technical_delivery = resolve_technical_report_delivery(latest)
-            if technical_delivery.get("ok"):
-                e1.download_button(
-                    "📘 Last ned full rapport med vedlegg",
-                    technical_delivery["data"], file_name=technical_delivery["filename"],
-                    mime="application/pdf", width="stretch", type="primary",
-                    key="mi_download_technical_pdf_v19220_rc1631u",
-                )
-                e1.caption("Anbefalt: hovedrapport og alle tekniske vedleggssider i én PDF.")
-            else:
-                e1.error(str(technical_delivery.get("error") or "Full rapport med vedlegg er ikke tilgjengelig."))
-            if delivery.get("ok"):
-                e2.download_button(
-                    "📄 Last ned kort rapport (3 sider)", delivery["data"],
-                    file_name=delivery["filename"], mime="application/pdf",
-                    width="stretch", key="mi_download_pdf_v19132",
-                )
-                if delivery.get("url"):
-                    safe_url = html_escape(str(delivery["url"]), quote=True)
-                    with e2.expander("Ekstern offentlig PDF", expanded=False):
-                        st.warning("På iPhone/PWA kan denne lenken forlate appen. Bruk nedlastingsknappen over når rapporten skal deles.")
-                        st.markdown(
-                            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">Åpne ekstern PDF</a>',
-                            unsafe_allow_html=True,
-                        )
-            else:
-                e2.error(str(delivery.get("error") or "Kort PDF-rapport er ikke tilgjengelig."))
-            ensure_report_document(latest)
-            render_durable_json_download(st, latest, label="{ } Last ned JSON", instance_key="latest")
-            st.download_button("Last ned rapport som tekst", build_text_report(latest), file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain", width="stretch", key="mi_download_txt_v1914")
-            latest_package_key = "mi_latest_report_package_bytes_v19220_rc16"
-            latest_package_name_key = "mi_latest_report_package_name_v19220_rc16"
-            if st.button("Bygg ZIP med PDF, JSON, tekst og revisjon", key="mi_build_latest_package_v19220_rc16", width="stretch"):
-                try:
-                    package_bytes, package_name = _build_report_package_with_visible_progress_v19220_rc1611(
-                        st, latest,
-                    )
-                    st.session_state[latest_package_key] = package_bytes
-                    st.session_state[latest_package_name_key] = package_name
-                except Exception as exc:
-                    st.error(f"Rapportpakken kunne ikke bygges: {exc}")
-            if st.session_state.get(latest_package_key):
-                st.download_button(
-                    "Last ned komplett ZIP: PDF, TXT, JSON, snapshots, manifest og SHA-256",
-                    data=st.session_state[latest_package_key],
-                    file_name=st.session_state.get(latest_package_name_key) or "REPORT_PACKAGE.zip",
-                    mime="application/zip",
-                    key="mi_download_latest_package_v19220_rc16",
-                    width="stretch",
-                )
+            render_report_file_center(
+                st, latest, key="latest_report_files",
+                execution_id=str(latest.get("background_execution_id") or ""),
+                include_complete_zip=True,
+            )
+            st.download_button(
+                "📝 Last ned rapport som tekst", build_text_report(latest),
+                file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain",
+                width="stretch", key="mi_download_txt_v19220_rc1631ca",
+            )
+
     with tab_reports:
         st.markdown("### 📚 Rapportarkiv")
         st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
