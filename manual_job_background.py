@@ -414,27 +414,74 @@ def get_active_status_snapshot() -> dict[str, Any]:
 
 
 def progress_percent(event: Mapping[str, Any]) -> int:
-    phase = str(event.get("phase") or "START")
-    done = int(event.get("completed") or 0)
+    """Translate durable work units into one monotonic whole-run percentage.
+
+    RC16.31bz closes the long flat spots that previously occurred because
+    EXTENDED_ANALYSIS/EVIDENCE/SHORT/*_BASELINE were not represented here.
+    During those phases the worker was doing real work, but the visible
+    percentage stayed at the last MARKET_DATA value and then appeared to jump
+    tens of points at the next recognised phase.  Every long-running pipeline
+    phase now owns an explicit interval.
+
+    The worker still applies ``max(previous, calculated)`` before persisting,
+    so reordered/late callbacks can never make a run move backwards.
+    """
+    phase = str(event.get("phase") or "START").upper()
+    done = max(0, int(event.get("completed") or 0))
     total = max(1, int(event.get("total") or 1))
+    fraction = min(1.0, done / total)
     market_index = max(1, int(event.get("market_index") or 1))
     market_total = max(1, int(event.get("market_total") or 1))
-    local = {"MARKET": 0.0, "PREPARE": 0.03, "MARKET_DATA": 0.08,
-             "INSIDER": 0.46, "NEWS": 0.58, "SCORING": 0.68,
-             "PORTFOLIO_PROPOSAL": 0.98}
+
+    # Preserve the established multi-market contract through the original
+    # scanning phases. This keeps older acceptance tests and percentages
+    # comparable while adding the previously invisible work between them.
+    local = {
+        "MARKET": 0.0, "PREPARE": 0.03, "MARKET_DATA": 0.08,
+        "EXTENDED_ANALYSIS": 0.43, "EVIDENCE": 0.455,
+        "INSIDER": 0.46, "NEWS": 0.58, "SHORT": 0.66,
+        "INSIDER_BASELINE": 0.665, "SHORT_BASELINE": 0.67,
+        "SCORING": 0.68, "PORTFOLIO_PROPOSAL": 0.98,
+    }
     if phase == "MARKET_DATA":
-        local_value = 0.08 + 0.35 * done / total
+        local_value = 0.08 + 0.35 * fraction
+    elif phase == "EXTENDED_ANALYSIS":
+        # Long CPU/network phase that used to be visually invisible.
+        local_value = 0.43 + 0.025 * fraction
+    elif phase == "EVIDENCE":
+        local_value = 0.455
     elif phase == "INSIDER":
-        local_value = 0.46 + 0.10 * done / total
+        local_value = 0.46 + 0.10 * fraction
     elif phase == "NEWS":
-        local_value = 0.58 + 0.08 * done / total
+        local_value = 0.58 + 0.07 * fraction
+    elif phase == "SHORT":
+        local_value = 0.65 + 0.015 * fraction
+    elif phase == "INSIDER_BASELINE":
+        local_value = 0.665 + 0.007 * fraction
+    elif phase == "SHORT_BASELINE":
+        local_value = 0.672 + 0.008 * fraction
     elif phase == "SCORING":
-        local_value = 0.68 + 0.27 * done / total
+        local_value = 0.68 + 0.27 * fraction
     elif phase in local:
         local_value = local[phase]
     else:
-        return {"START": 1, "DEDUP": 72, "AUTONOMOUS": 84,
-                "REPORT": 93, "COMPLETE": 100}.get(phase, 2)
+        # Whole-run stages after market processing. AUTONOMOUS itself reports
+        # substage work units, so expose that instead of pinning the UI at 84%.
+        if phase == "START":
+            return 1
+        if phase == "WAITING_FOR_REPORT_LOCK":
+            return 2
+        if phase == "DEDUP":
+            return 72
+        if phase == "AUTONOMOUS":
+            return min(91, 84 + int(7 * fraction))
+        if phase == "REPORT":
+            return min(98, 93 + int(5 * fraction))
+        if phase == "COMPLETE":
+            return 100
+        # Unknown telemetry must never fabricate a large jump.
+        return 2
+
     overall_market = ((market_index - 1) + local_value) / market_total
     return min(70, 5 + int(65 * overall_market))
 

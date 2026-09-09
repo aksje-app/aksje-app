@@ -304,6 +304,18 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     state = str(status.get("state") or "INGEN KJØRING")
     state_display = "STARTING" if state == "QUEUED" else state
     pct = max(0, min(100, int(status.get("percent") or 0)))
+    execution_id = str(status.get("execution_id") or "")
+    # RC16.31bz: never render an older percentage for the same execution if a
+    # stale browser/session snapshot arrives after a newer durable event.
+    # This is display-only protection; the worker already persists monotonic
+    # progress and remains the authority.
+    monotonic_key = f"manual_progress_floor_v1931bz_{execution_id}" if execution_id else ""
+    if monotonic_key:
+        floor = max(0, min(100, int(st.session_state.get(monotonic_key, 0) or 0)))
+        pct = max(pct, floor)
+        st.session_state[monotonic_key] = pct
+        if state in TERMINAL_STATES:
+            st.session_state.pop(monotonic_key, None)
     st.progress(pct, text=f"{pct} % · {status.get('message') or state_display}")
     p1, p2, p3, p4 = st.columns(4)
     p1.metric("Status", state_display)
@@ -385,7 +397,6 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
                 "kjørings_id": status.get("execution_id"), "steg": status.get("error_stage") or active,
                 "tidspunkt": status.get("updated_at"), "hendelse": event,
             })
-    execution_id = str(status.get("execution_id") or "")
     if execution_id and state in (TERMINAL_STATES - {"COMPLETED"}):
         bundle, filename = diagnostic_bundle(execution_id)
         delivery = publish_diagnostic_download(bundle, filename)
@@ -455,7 +466,7 @@ def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_termi
     status = _effective_live_status_v1931bx()
     _render_progress({"status": status, "running": is_running(status)}, allow_quick_start=allow_quick_start)
     if is_running(status):
-        st.caption("Status og fremdrift oppdateres automatisk hvert 2. sekund mens kjøringen pågår. Hovedprosenten er samlet fremdrift; Fasefremdrift gjelder bare aktivt steg.")
+        st.caption("Status og fremdrift oppdateres automatisk hvert 2. sekund mens kjøringen pågår. Hovedprosenten er samlet fremdrift og inkluderer nå også utvidet analyse, evidens, short og grunnkontroller; Fasefremdrift gjelder bare aktivt steg.")
     execution_id = str(status.get("execution_id") or "")
     if refresh_app_on_terminal and str(status.get("state") or "") in TERMINAL_STATES and execution_id:
         refresh_key = "autonomy_overview_terminal_refresh_v1902"
