@@ -6,18 +6,31 @@ it cannot change investment scores, BUY/risk gates, portfolios or orders.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import hashlib
+import json
 import os
 from typing import Any, Mapping, Sequence
 
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
 
-VERSION = "v19.22.0-rc16.31cd"
+VERSION = "v19.22.0-rc16.31ce"
 STATE_KEY = "fresh_trend/monitor_state.json"
 STATE_PATH = runtime_data_path("fresh_trend", "monitor_state.json")
 INTERVAL_MINUTES = 15
 MAX_CANDIDATES = 12
 FOLLOW_UP_SESSIONS = 5
+
+# Only these market fields may change a Fresh Trend decision.  Runtime fields
+# (scan time, report URL, formatting) are deliberately excluded so that the
+# same market snapshot cannot oscillate between statuses or be notified twice.
+_DECISION_FIELDS = (
+    "last_price", "return_1d_pct", "return_3d_pct", "return_5d_pct",
+    "volume_ratio_20", "breakout_hold_sessions", "breakout_20d",
+    "breakout_holding", "prior_20d_high", "distance_from_20d_high_pct",
+    "market_rs_5d_percentile", "sector_rs_5d_percentile",
+    "momentum_acceleration_3v20", "rsi", "sma20",
+)
 
 
 def _f(value: Any) -> float | None:
@@ -80,9 +93,58 @@ def _components(receipt: Mapping[str, Any], previous: Mapping[str, Any] | None =
     previous_score = _f(prior_components.get("Fresh Score"))
     if previous_score is None:
         previous_score = _f((previous or {}).get("score"))
+    # Migration from <= RC16.31cd: old state has no snapshot fingerprint and
+    # may already contain a contradictory status (for example 95 -> 81 shown
+    # as AKSELERERER). Recover the last distinct score once so the first CE
+    # evaluation repairs that state. New CE snapshots use direct scan-to-scan
+    # delta and therefore cannot replay the historical drop.
+    if previous and not previous.get("snapshot_fingerprint") and previous_score == score:
+        for value in reversed(list(previous.get("score_path") or [])[:-1]):
+            candidate = _f(value)
+            if candidate is not None and candidate != score:
+                previous_score = candidate
+                break
     return {"Freshness": round(freshness, 1), "Confirmation": round(confirmation, 1),
             "Velocity": round(velocity, 1), "Risk": round(min(100.0, risk), 1),
             "Fresh Score": round(score, 1), "Score delta": round(score - previous_score, 1) if previous_score is not None else 0.0}
+
+
+def _data_timestamp(receipt: Mapping[str, Any]) -> str:
+    freshness = receipt.get("data_freshness") if isinstance(receipt.get("data_freshness"), Mapping) else {}
+    for value in (
+        receipt.get("data_timestamp"), receipt.get("market_data_timestamp"),
+        receipt.get("price_timestamp"), freshness.get("timestamp"),
+    ):
+        if value:
+            return str(value)
+    return ""
+
+
+def _snapshot_fingerprint(receipt: Mapping[str, Any]) -> str:
+    fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
+    freshness = receipt.get("data_freshness") if isinstance(receipt.get("data_freshness"), Mapping) else {}
+    payload = {key: receipt.get(key) for key in _DECISION_FIELDS}
+    payload["ticker"] = str(receipt.get("ticker") or "").upper()
+    payload["fresh_score"] = _f(fs.get("score"))
+    payload["trend_age_sessions"] = fs.get("trend_age_sessions")
+    payload["data_timestamp"] = _data_timestamp(receipt)
+    payload["data_status"] = str(freshness.get("status") or receipt.get("data_status") or "").upper()
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _data_is_decision_valid(receipt: Mapping[str, Any]) -> tuple[bool, str]:
+    freshness = receipt.get("data_freshness") if isinstance(receipt.get("data_freshness"), Mapping) else {}
+    status = str(freshness.get("status") or receipt.get("data_status") or "").strip().upper()
+    invalid = {"STALE", "UGYLDIG", "INVALID", "ERROR", "FEIL", "MISSING", "MANGLER", "UNAVAILABLE"}
+    if status in invalid:
+        return False, f"Datastatus {status} kan ikke utløse en statusovergang"
+    if _f(receipt.get("last_price")) is None:
+        return False, "Mangler gyldig kurs"
+    fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
+    if _f(fs.get("score")) is None:
+        return False, "Mangler gyldig Fresh Score"
+    return True, "Gyldig beslutningssnapshot"
 
 
 def _status(receipt: Mapping[str, Any], comp: Mapping[str, float], previous: Mapping[str, Any] | None) -> tuple[str, str]:
@@ -99,6 +161,20 @@ def _status(receipt: Mapping[str, Any], comp: Mapping[str, float], previous: Map
     if score >= 65 and (delta >= 4 or comp["Velocity"] >= 65):
         return "AKSELERERER", "⚡"
     return "NYTT", "🆕"
+
+
+def _status_reason(status: str, receipt: Mapping[str, Any], comp: Mapping[str, float]) -> str:
+    delta = float(comp.get("Score delta") or 0.0)
+    velocity = float(comp.get("Velocity") or 0.0)
+    if status == "FALSKT BREAKOUT":
+        return "Bruddet holder ikke, eller score har falt under sikkerhetsgrensen"
+    if status == "MISTER MOMENT":
+        return f"Kortsiktig svekkelse: scoreendring {delta:+.1f} og velocity {velocity:.0f}"
+    if status == "STERKT BEKREFTET":
+        return "Høy score med tilstrekkelig bekreftelse"
+    if status == "AKSELERERER":
+        return f"Kortsiktig fremdrift: scoreendring {delta:+.1f} og velocity {velocity:.0f}"
+    return "Nytt observasjonssignal som avventer bekreftelse"
 
 
 def _pullback_retest(receipt: Mapping[str, Any]) -> dict[str, Any]:
@@ -145,7 +221,8 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
             f"RS marked/sektor {row.get('market_rs_5d_percentile','-')}/{row.get('sector_rs_5d_percentile','-')} · {retest.get('label')}\n"
             f"Brudd {levels.get('breakout_level', breakout if breakout is not None else '-')} · avstand {levels.get('distance_to_breakout_pct', distance if distance is not None else '-')}%\n"
             f"Inngang/retest {levels.get('preferred_entry','-')}/{levels.get('pullback_retest','-')} · ugyldig under {levels.get('invalidation_level','-')} · mål {levels.get('first_target','-')}\n"
-            f"Hvorfor nå: {'; '.join(signals[:2]) or fs.get('label') or '-'}\n"
+            f"Hovedstatus: {row.get('status_reason') or '-'}\n"
+            f"Bakgrunnssignal: {'; '.join(signals[:2]) or fs.get('label') or '-'}\n"
             f"Handling: {action}\nRisiko: {'; '.join(cautions[:1]) or 'Ingen nytt signalspesifikt varsel'}\n"
             f"Data: {freshness.get('status','UKJENT')} · {freshness.get('timestamp') or '-'}\n{VERSION}")
     return title, body
@@ -155,12 +232,17 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
                      state: Mapping[str, Any] | None = None, notify: bool = True) -> dict[str, Any]:
     """Evaluate refreshed receipts and persist/notify meaningful transitions."""
     now = _now(now); current = dict(state or read_json(STATE_KEY, STATE_PATH, {}) or {})
-    tracked = dict(current.get("tracked") or {}); alerts = []; rows = []
+    tracked = dict(current.get("tracked") or {}); alerts = []; rows = []; seen_tickers = set()
     for receipt in list(receipts)[:MAX_CANDIDATES]:
         ticker = str(receipt.get("ticker") or "").upper()
-        if not ticker:
+        if not ticker or ticker in seen_tickers:
             continue
+        seen_tickers.add(ticker)
         previous = tracked.get(ticker) if isinstance(tracked.get(ticker), Mapping) else {}
+        snapshot_fingerprint = _snapshot_fingerprint(receipt)
+        previous_fingerprint = str(previous.get("snapshot_fingerprint") or "")
+        unchanged_snapshot = bool(previous_fingerprint and snapshot_fingerprint == previous_fingerprint)
+        data_valid, data_validation_reason = _data_is_decision_valid(receipt)
         first = str(previous.get("first_seen_at") or now.isoformat(timespec="seconds"))
         try: first_date = datetime.fromisoformat(first.replace("Z", "+00:00")).date()
         except Exception: first_date = now.date()
@@ -168,10 +250,24 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
         if session > FOLLOW_UP_SESSIONS:
             continue
         comp = _components(receipt, previous); status, emoji = _status(receipt, comp, previous)
-        scores = list(previous.get("score_path") or [])[-7:] + [comp["Fresh Score"]]
+        # An identical market snapshot is immutable: preserve the previous
+        # decision and do not manufacture another score-path observation.
+        if (unchanged_snapshot or not data_valid) and previous.get("status"):
+            status = str(previous.get("status"))
+            emoji = str(previous.get("emoji") or {"MISTER MOMENT": "🟠", "FALSKT BREAKOUT": "🔴", "STERKT BEKREFTET": "🟢", "AKSELERERER": "⚡"}.get(status, "🆕"))
+            scores = list(previous.get("score_path") or [comp["Fresh Score"]])[-8:]
+        else:
+            scores = list(previous.get("score_path") or [])[-7:] + [comp["Fresh Score"]]
+        status_reason = (str(previous.get("status_reason") or "") if unchanged_snapshot else "") or _status_reason(status, receipt, comp)
         row = {**dict(receipt), "monitor_version": VERSION, "first_seen_at": first,
                "last_scan_at": now.isoformat(timespec="seconds"), "follow_up_session": session,
                "components": comp, "score_path": scores[-8:], "status": status, "emoji": emoji,
+               "status_reason": status_reason,
+               "data_timestamp": _data_timestamp(receipt),
+               "snapshot_fingerprint": snapshot_fingerprint,
+               "snapshot_unchanged": unchanged_snapshot,
+               "decision_data_valid": data_valid,
+               "decision_validation_reason": data_validation_reason,
                "pullback_retest": _pullback_retest(receipt)}
         initial_price = _f(previous.get("initial_price")) or _f(receipt.get("last_price"))
         row["initial_price"] = initial_price
@@ -188,7 +284,7 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
                 })
         row["signal_outcomes"] = outcomes
         previous_status = str(previous.get("status") or "")
-        meaningful = not previous_status or status != previous_status or abs(comp["Score delta"]) >= 10
+        meaningful = data_valid and (not unchanged_snapshot) and (not previous_status or status != previous_status or abs(comp["Score delta"]) >= 10)
         if meaningful:
             title, body = _message(row); event = {"ticker": ticker, "status": status, "title": title, "message": body, "sent": False}
             if notify:

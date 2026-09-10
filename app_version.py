@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31cd"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31cd Actionable Signal and Capital Rotation"
+APP_VERSION = "v19.22.0-rc16.31ce"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ce Deterministic Fresh Trend Alerts"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31cc"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31cd"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31ce: Deterministic Fresh Trend Alerts. Binds every decision to a market-snapshot fingerprint, suppresses identical snapshots before message formatting, prevents duplicate score-path samples, prioritizes short-term momentum loss over historical acceleration, and makes the main status reason explicit and separate from background signals. Production scoring and trade authority are unchanged.",
     "v19.22.0-rc16.31cd: Actionable Signal and Capital Rotation. Adds actual-price charts with taller geometry and labelled price scale, exchange/country identity, Top 1–3 price changes, four-decimal FX display, first-week position monitoring, named-challenger capital rotation, concrete sell receipts, 1/3/5/20-day learning checkpoints, market-specific relative strength and explicit buy/sell funnel diagnosis. Production gates remain fail-closed and real trading remains disabled.",
     "v19.22.0-rc16.31cc: Verified Fresh Trend delivery. Consolidates latest report downloads in Autonomi, timestamps fixed downloads, includes text and available diagnostics in the on-demand package, prioritizes Fresh Trend details with price/RSI/volume charts, expands actionable Pushover content, preserves full-stage scan coverage during report compaction, and exposes Fresh Trend monitor state in diagnostics. Production Investment Score, BUY/risk/evidence/portfolio gates and trade authority are unchanged.",
     "v19.22.0-rc16.31cb: Fresh Trend Monitor. Adds a durable 15-minute, five-session follow-up loop for up to 12 fresh candidates; explainable Freshness/Confirmation/Velocity/Risk axes; score paths and positive/negative status transitions; direct deduplicated Pushover; pullback/retest detection; bounded missed-opportunity learning; and expanded main-report Fresh Trend tables/charts. The full Norway stage-1 scan, production Investment Score, BUY/risk/evidence/portfolio gates and trade authority are unchanged.",
