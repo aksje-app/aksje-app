@@ -43,6 +43,21 @@ def _dt(value: Any) -> datetime | None:
         return None
 
 
+def _business_days_between(start: datetime | None, end: datetime) -> int:
+    if start is None:
+        return 0
+    start_date, end_date = start.date(), end.date()
+    if end_date < start_date:
+        return 0
+    from datetime import timedelta
+    count, cursor = 0, start_date
+    while cursor <= end_date:
+        if cursor.weekday() < 5:
+            count += 1
+        cursor += timedelta(days=1)
+    return max(0, count - 1)
+
+
 def _nested_evidence(candidate: Mapping[str, Any], key: str) -> dict[str, Any]:
     """Find one evidence payload through legacy candidate wrappers.
 
@@ -164,11 +179,11 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         position = dict(raw) if isinstance(raw, Mapping) else {}
         position.setdefault("ticker", ticker)
         candidate = candidate_by_issuer.get(issuer_identity(position), {})
-        entry = _f(position.get("average_price"))
+        entry = _f(position.get("average_price"), _f(position.get("entry_price"), _f(position.get("avg_price"))))
         last = _f(candidate.get("raw", {}).get("last_price") if isinstance(candidate.get("raw"), Mapping) else 0.0) or _f(position.get("last_price"), entry)
-        quantity = _f(position.get("quantity"))
-        opened = _dt(position.get("opened_at"))
-        holding_days = max(0, (now - opened).days) if opened else 0
+        quantity = _f(position.get("quantity"), _f(position.get("shares"), _f(position.get("units"))))
+        opened = _dt(position.get("opened_at") or position.get("entry_time"))
+        holding_days = _business_days_between(opened, now)
         pnl_pct = ((last / entry) - 1.0) * 100.0 if entry > 0 and last > 0 else 0.0
         pnl_amount = (last - entry) * quantity if entry > 0 and last > 0 else 0.0
         entry_score = _f(position.get("entry_score"), _f(position.get("autonomy_adjusted_investment_score")))
@@ -179,7 +194,16 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
                                       entry_score=entry_score, current_score=current_score,
                                       holding_days=holding_days,
                                       take_profit_taken=bool(position.get("partial_take_profit_taken")),
-                                      best_replacement_score=best_replacement_score, policy=active_policy)
+                                      best_replacement_score=best_replacement_score,
+                                      replacement_ticker=str(best_replacement.get("ticker") or ""),
+                                      replacement_risk=_f(best_replacement.get("risk_score")) if best_replacement else None,
+                                      replacement_momentum_pct=_f((best_replacement.get("raw") or {}).get("return_5d")) if isinstance(best_replacement.get("raw"), Mapping) else None,
+                                      breakout_expected=bool(position.get("breakout_expected") or position.get("breakout_20d")),
+                                      breakout_holding=candidate.get("breakout_holding") if candidate and "breakout_holding" in candidate else None,
+                                      momentum_pct=_f((candidate.get("raw") or {}).get("return_3d")) if isinstance(candidate.get("raw"), Mapping) else None,
+                                      relative_strength_delta=_f(candidate.get("relative_strength_delta")) if candidate.get("relative_strength_delta") is not None else None,
+                                      transaction_cost_pct=_f(portfolio.get("transaction_cost_pct"), 0.2),
+                                      policy=active_policy)
         sideways = exit_decision["reason_code"] in {"CAPITAL_STAGNATION", "CAPITAL_REPLACEMENT", "OPPORTUNITY_COST"}
         weakened = bool(entry_score and score_change <= -active_policy.score_drop_review_points)
         label = {
@@ -192,8 +216,15 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         evidence_row = _with_canonical_evidence(position, candidate)
         short_snapshot = normalize_short_snapshot(evidence_row)
         insider_snapshot = dict(evidence_row.get("insider_intelligence") or {})
+        try:
+            from security_metadata import infer_security_listing
+            listing = infer_security_listing(ticker, {**position, **candidate})
+        except Exception:
+            listing = {}
         rows.append({
             "ticker": str(ticker), "already_in_portfolio": True, "portfolio_label": "ALLEREDE I PORTEFØLJEN",
+            "exchange": str(listing.get("exchange") or position.get("exchange") or "Ukjent"),
+            "country": str(listing.get("country") or position.get("country") or "Ukjent"),
             "opened_at": str(position.get("opened_at") or ""), "holding_days": holding_days,
             "quantity": round(quantity, 4), "entry_price": round(entry, 4), "last_price": round(last, 4),
             "market_value": round(last * quantity, 2), "unrealized_pnl": round(pnl_amount, 2),
@@ -202,8 +233,12 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "sideways_20d_proxy": sideways, "weakened_score": weakened, "capital_efficiency_status": label,
             "exit_action": exit_decision["action"], "exit_reason_code": exit_decision["reason_code"],
             "exit_reason": exit_decision["reason"], "suggested_sell_pct": exit_decision["sell_pct"],
-            "replacement_ticker": str(best_replacement.get("ticker") or "") if exit_decision["action"] == "REPLACE_REVIEW" else "",
-            "replacement_score": round(best_replacement_score, 2) if best_replacement_score is not None and exit_decision["action"] == "REPLACE_REVIEW" else None,
+            "monitoring_status": exit_decision.get("monitoring_status"),
+            "next_formal_review_day": exit_decision.get("next_formal_review_day"),
+            "review_interval_minutes": exit_decision.get("review_interval_minutes"),
+            "hypothesis_breaks": list(exit_decision.get("hypothesis_breaks") or []),
+            "replacement_ticker": str(best_replacement.get("ticker") or ""),
+            "replacement_score": round(best_replacement_score, 2) if best_replacement_score is not None else None,
             "opportunity_cost_score_gap": round(best_replacement_score - current_score, 2) if best_replacement_score is not None else None,
             "replacement_is_buy_ready": bool(best_replacement),
             "source_run_id": str(position.get("source_run_id") or ""),
@@ -269,6 +304,23 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         })
     unified.sort(key=lambda row: row["score"], reverse=True)
     short_exposure = portfolio_short_exposure(rows)
+    exit_counts: dict[str, int] = {}
+    for row in rows:
+        code = str(row.get("exit_action") or "HOLD")
+        exit_counts[code] = exit_counts.get(code, 0) + 1
+    opened_dates = [date for date in (_dt((row or {}).get("opened_at") or (row or {}).get("entry_time")) for row in positions.values()) if date]
+    latest_buy_at = max(opened_dates) if opened_dates else None
+    days_since_last_buy = _business_days_between(latest_buy_at, now) if latest_buy_at else None
+    buy_ready_count = sum(
+        bool(row.get("final_decision_ready")) and issuer_identity(row) not in owned_issuers
+        for row in candidates if isinstance(row, Mapping)
+    )
+    if buy_ready_count:
+        buy_inactivity_reason = f"{buy_ready_count} kjøpsklar(e) kandidat(er); utførelse avgjøres av kontant-, reserve-, risiko- og diversifiseringsportene."
+    elif candidates:
+        buy_inactivity_reason = "Ingen ny kandidat har passert alle data-, evidens-, beslutnings-, risiko- og porteføljeporter."
+    else:
+        buy_inactivity_reason = "Ingen kandidater var tilgjengelige for kjøpsvurdering i kjøringen."
     return {
         "snapshot_timing": "ETTER_AUTONOMI",
         "snapshot_run_id": str(portfolio.get("last_run_id") or ""),
@@ -288,6 +340,20 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         "weakened_positions": sum(row["weakened_score"] for row in rows),
         "replacement_review_count": sum(row["capital_efficiency_status"] == "VURDER UTSKIFTING" for row in rows),
         "positions": rows, "unified_owned_and_candidate_ranking": unified,
+        "exit_funnel": {
+            "evaluated": len(rows), "hold": exit_counts.get("HOLD", 0),
+            "review": exit_counts.get("REVIEW", 0), "replace": exit_counts.get("REPLACE_REVIEW", 0),
+            "cash_review": exit_counts.get("CASH_REVIEW", 0), "sell": exit_counts.get("SELL", 0),
+            "sell_partial": exit_counts.get("SELL_PARTIAL", 0),
+            "named_replacement_available": sum(bool(row.get("replacement_ticker")) for row in rows),
+        },
+        "buy_activity": {
+            "last_buy_at": latest_buy_at.isoformat(timespec="seconds") if latest_buy_at else "",
+            "business_days_since_last_buy": days_since_last_buy,
+            "candidates_evaluated": len(candidates),
+            "buy_ready": buy_ready_count,
+            "diagnosis": buy_inactivity_reason,
+        },
         "short_exposure": short_exposure,
         "sector_exposure": [
             {"sector": key, "market_value": round(value, 2), "weight_pct": round(value / equity * 100.0, 2) if equity else 0.0}

@@ -11183,6 +11183,12 @@ def render_currency_alerts_control_center_v1863af():
             "disabled": "Deaktivert",
         }.get(str(value or "").lower(), "Ikke kontrollert")
 
+    def _fx4(value):
+        try:
+            return f"{float(value):.4f}".replace(".", ",")
+        except Exception:
+            return "-"
+
     def _selected_result(rows, symbol):
         rows = list(rows or [])
         return next(
@@ -11244,8 +11250,8 @@ def render_currency_alerts_control_center_v1863af():
     st.markdown("#### Status nå")
     freshness_text, freshness_state = data_freshness_label(quote_time, fresh_minutes=max(20, check_minutes * 2), stale_minutes=max(120, check_minutes * 4))
     cards = [
-        ("Aktivt varsel", pair_label, f"{format_decimal(lower_v)} - {format_decimal(upper_v)}"),
-        ("Kurs", format_decimal(rate_number) if rate_number is not None else "-", f"Kurssitat: {_fx_local_time(quote_time)}"),
+        ("Aktivt varsel", pair_label, f"{_fx4(lower_v)} - {_fx4(upper_v)}"),
+        ("Kurs", _fx4(rate_number), f"Kurssitat: {_fx_local_time(quote_time)}"),
         ("Status", _status_label(status_code), f"Sist kontrollert: {_fx_local_time(checked_time)}"),
         ("Dataalder", freshness_text, "Ferskhet beregnes fra faktisk kurssitat"),
         ("Sjekkintervall", f"{check_minutes} min", "Automatisk via Render Cron"),
@@ -11289,7 +11295,7 @@ def render_currency_alerts_control_center_v1863af():
             else:
                 _flash(
                     "success",
-                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.3f} · "
+                    f"Fersk kurs hentet: {pair_label} {float(selected.get('rate')):.4f} · "
                     f"{_status_label(selected.get('status'))} · kurssitat {_fx_local_time(selected.get('quote_time'))}.",
                 )
         except Exception as exc:
@@ -11311,18 +11317,18 @@ def render_currency_alerts_control_center_v1863af():
                 elif selected.get("sent"):
                     _flash(
                         "success",
-                        f"Kurs {float(selected.get('rate')):.3f} ble kontrollert og Pushover-varsel ble sendt.",
+                        f"Kurs {float(selected.get('rate')):.4f} ble kontrollert og Pushover-varsel ble sendt.",
                     )
                 elif selected.get("send_error"):
                     _flash("warning", f"Kursen ble kontrollert, men Pushover feilet: {selected.get('send_error')}")
                 elif selected.get("status") in {"breach_lower", "breach_upper"}:
                     _flash(
                         "warning",
-                        f"Kurs {float(selected.get('rate')):.3f}: {_status_label(selected.get('status'))}. "
+                        f"Kurs {float(selected.get('rate')):.4f}: {_status_label(selected.get('status'))}. "
                         "Nytt varsel er ikke sendt fordi varselpause eller varslingsinnstilling gjelder.",
                     )
                 else:
-                    _flash("success", f"Kurs {float(selected.get('rate')):.3f} er innenfor grensene.")
+                    _flash("success", f"Kurs {float(selected.get('rate')):.4f} er innenfor grensene.")
             except Exception as exc:
                 _flash("error", f"Valutakontrollen feilet: {exc}")
             _rerun_currency_alerts_v19220_rc6()
@@ -11344,14 +11350,14 @@ def render_currency_alerts_control_center_v1863af():
                 rate = float(selected.get("rate"))
                 message = (
                     f"Test fra Valutavarsler: {pair_label} ({symbol_value})\n"
-                    f"Kurs: {rate:.3f}\n"
+                    f"Kurs: {rate:.4f}\n"
                     f"Status: {_status_label(selected.get('status'))}\n"
-                    f"Grenser: {lower_v:.3f} - {upper_v:.3f}\n"
+                    f"Grenser: {lower_v:.4f} - {upper_v:.4f}\n"
                     f"Kurssitat: {_fx_local_time(selected.get('quote_time'))}"
                 )
                 ok, send_err = _send_pushover_safe_v1863af(message, "Pushover-test Valutavarsler")
                 if ok:
-                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.3f} og samme status som i appen.")
+                    _flash("success", f"Pushover-test sendt med fersk kurs {rate:.4f} og samme status som i appen.")
                 else:
                     _flash("warning", f"Pushover-test feilet: {send_err or 'ukjent feil'}")
         except Exception as exc:
@@ -11405,7 +11411,7 @@ def render_currency_alerts_control_center_v1863af():
             runtime_rows.append({
                 "Valuta": runtime_value.get("pair") or runtime_key,
                 "Symbol": runtime_value.get("symbol") or "-",
-                "Kurs": format_decimal(runtime_value.get("rate")) if runtime_value.get("rate") is not None else "-",
+                "Kurs": _fx4(runtime_value.get("rate")),
                 "Status": _status_label(runtime_value.get("status")),
                 "Kurssitat": _fx_local_time(runtime_value.get("quote_time")),
                 "Sist sjekket": _fx_local_time(runtime_value.get("last_checked_at")),
@@ -11459,9 +11465,9 @@ def render_currency_alerts_control_center_v1863af():
             symbol = st.text_input("Yahoo-symbol", value=str(default_symbol or "BRLNOK=X"))
         c3, c4 = st.columns(2)
         with c3:
-            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.001, format="%.3f")
+            lower = st.number_input("Nedre grense", min_value=0.0, value=float(current.get("lower", 1.70) or 0.0), step=0.0001, format="%.4f")
         with c4:
-            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.001, format="%.3f")
+            upper = st.number_input("Øvre grense", min_value=0.0, value=float(current.get("upper", 2.20) or 0.0), step=0.0001, format="%.4f")
         i1, i2 = st.columns(2)
         with i1:
             check_label = st.radio(

@@ -75,6 +75,11 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
                   holding_days: int = 0, rsi: float | None = None,
                   previous_rsi: float | None = None, take_profit_taken: bool = False,
                   best_replacement_score: float | None = None,
+                  replacement_ticker: str = "", replacement_risk: float | None = None,
+                  replacement_momentum_pct: float | None = None,
+                  breakout_expected: bool = False, breakout_holding: bool | None = None,
+                  momentum_pct: float | None = None, relative_strength_delta: float | None = None,
+                  transaction_cost_pct: float = 0.0,
                   policy: ExitPolicy | Mapping[str, Any] | Any | None = None) -> dict[str, Any]:
     p = policy if isinstance(policy, ExitPolicy) else policy_from(policy)
     entry, price = _f(entry_price), _f(current_price)
@@ -83,9 +88,25 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
     drawdown_from_high = ((price / high) - 1) * 100 if high > 0 and price > 0 else 0.0
     score = _f(current_score, entry_score) if current_score is not None else _f(entry_score)
     score_drop = _f(entry_score) - score if entry_score else 0.0
+    review_days = (1, 2, 3, 4, 5, 7, 10, 15, 20)
+    next_review = next((day for day in review_days if day > int(holding_days)), int(holding_days) + 5)
+    early_phase = int(holding_days) <= 5
+    hypothesis_breaks: list[str] = []
+    if breakout_expected and breakout_holding is False:
+        hypothesis_breaks.append("forventet breakout/retest holder ikke")
+    if momentum_pct is not None and _f(momentum_pct) <= -2.0:
+        hypothesis_breaks.append(f"kort momentum er {_f(momentum_pct):+.2f}%")
+    if relative_strength_delta is not None and _f(relative_strength_delta) <= -15.0:
+        hypothesis_breaks.append(f"relativ styrke svekket {_f(relative_strength_delta):+.1f} poeng")
+    monitoring_status = "NYKJØPT" if int(holding_days) <= 1 else "BEKREFTES" if early_phase else "BEHOLD"
     result = {"action": "HOLD", "reason_code": "NO_EXIT", "reason": "Ingen exitregel utløst",
               "sell_pct": 0.0, "pnl_pct": round(pnl_pct, 4),
-              "drawdown_from_high_pct": round(drawdown_from_high, 4), "policy": p.to_dict()}
+              "drawdown_from_high_pct": round(drawdown_from_high, 4), "policy": p.to_dict(),
+              "monitoring_status": monitoring_status, "early_monitoring": early_phase,
+              "review_interval_minutes": 15 if int(holding_days) <= 1 else None,
+              "next_formal_review_day": next_review, "hypothesis_breaks": hypothesis_breaks,
+              "replacement_ticker": str(replacement_ticker or ""),
+              "transaction_cost_pct": round(max(0.0, _f(transaction_cost_pct)), 4)}
     if entry <= 0 or price <= 0:
         return {**result, "reason_code": "PRICE_INVALID", "reason": "Mangler gyldig inngangs- eller markedskurs"}
     if pnl_pct <= -p.stop_loss_pct:
@@ -98,16 +119,28 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
         return {**result, "action": "SELL_PARTIAL", "reason_code": "TAKE_PROFIT_PARTIAL", "reason": f"Delvis gevinst ved {pnl_pct:.2f}%", "sell_pct": p.partial_take_profit_pct}
     if rsi is not None and _f(rsi) >= p.rsi_exit_level and (not p.rsi_must_fall or (previous_rsi is not None and _f(rsi) < _f(previous_rsi))):
         return {**result, "action": "SELL", "reason_code": "RSI_EXIT", "reason": f"RSI {_f(rsi):.1f} over grensen og faller", "sell_pct": 100.0}
+    if hypothesis_breaks:
+        return {**result, "action": "REVIEW", "reason_code": "PURCHASE_HYPOTHESIS_WEAKENED",
+                "reason": "Kjøpsgrunnlaget er svekket: " + "; ".join(hypothesis_breaks),
+                "monitoring_status": "OVERVÅK FOR SALG"}
     stagnating = int(holding_days) >= p.stagnation_days and abs(pnl_pct) < p.stagnation_band_pct
     replacement_advantage = (_f(best_replacement_score) - score) if best_replacement_score is not None else 0.0
-    if stagnating and score_drop >= p.score_drop_review_points and replacement_advantage >= p.replacement_score_advantage:
+    replacement_quality_ok = (
+        bool(replacement_ticker)
+        and replacement_advantage >= p.replacement_score_advantage
+        and (replacement_risk is None or _f(replacement_risk) <= 60.0)
+        and (replacement_momentum_pct is None or _f(replacement_momentum_pct) > 0.0)
+        and replacement_advantage > max(0.0, _f(transaction_cost_pct))
+    )
+    if stagnating and score_drop >= p.score_drop_review_points and replacement_quality_ok:
         return {**result, "action": "REPLACE_REVIEW", "reason_code": "CAPITAL_REPLACEMENT",
-                "reason": f"Sidelengs {holding_days} dager; erstatning er {replacement_advantage:.1f} scorepoeng bedre"}
+                "reason": f"Sidelengs {holding_days} børsdager; {replacement_ticker} er {replacement_advantage:.1f} scorepoeng bedre etter risiko- og kostnadskontroll",
+                "monitoring_status": "BYTT UT", "replacement_score_advantage": round(replacement_advantage, 2)}
     if int(holding_days) >= p.cash_review_days and pnl_pct <= p.cash_review_max_return_pct and (score_drop >= p.score_drop_review_points or score < _f(entry_score)):
         return {**result, "action": "CASH_REVIEW", "reason_code": "OPPORTUNITY_COST",
                 "reason": f"Kapital bundet i {holding_days} dager med {pnl_pct:.2f}% avkastning og svekket score; kontanter vurderes"}
     if stagnating:
-        return {**result, "action": "REVIEW", "reason_code": "CAPITAL_STAGNATION", "reason": f"Kapitalstagnasjon i {holding_days} dager"}
+        return {**result, "action": "REVIEW", "reason_code": "CAPITAL_STAGNATION", "reason": f"Kapitalstagnasjon i {holding_days} børsdager", "monitoring_status": "OVERVÅK FOR SALG"}
     if score_drop >= p.score_drop_review_points:
         return {**result, "action": "REVIEW", "reason_code": "SCORE_WEAKENED", "reason": f"Score falt {score_drop:.1f} poeng"}
     return result

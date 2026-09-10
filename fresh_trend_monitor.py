@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
 
-VERSION = "v19.22.0-rc16.31cb"
+VERSION = "v19.22.0-rc16.31cd"
 STATE_KEY = "fresh_trend/monitor_state.json"
 STATE_PATH = runtime_data_path("fresh_trend", "monitor_state.json")
 INTERVAL_MINUTES = 15
@@ -113,13 +113,41 @@ def _pullback_retest(receipt: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _message(row: Mapping[str, Any]) -> tuple[str, str]:
-    path = " → ".join(str(int(round(float(x)))) for x in row.get("score_path", []))
+    raw_path = [int(round(float(x))) for x in row.get("score_path", [])]
+    compact_path = [value for index, value in enumerate(raw_path) if index == 0 or value != raw_path[index - 1]]
+    path = " → ".join(str(value) for value in compact_path)
+    if len(raw_path) > 1 and len(compact_path) == 1:
+        path = f"{compact_path[0]} (stabil, {len(raw_path)} målinger)"
     c = row.get("components") or {}; retest = row.get("pullback_retest") or {}
+    fs = row.get("fresh_signal") if isinstance(row.get("fresh_signal"), Mapping) else {}
+    signals = [str(x.get("label") or "") for x in (fs.get("signals") or []) if isinstance(x, Mapping) and x.get("label")]
+    cautions = [str(x) for x in (fs.get("cautions") or []) if x]
+    price = _f(row.get("last_price")); change = _f(row.get("return_1d_pct"))
+    breakout = _f(row.get("prior_20d_high")); distance = _f(row.get("distance_from_20d_high_pct"))
+    levels = row.get("action_levels") if isinstance(row.get("action_levels"), Mapping) else {}
+    action = "Følg bekreftelse; ingen automatisk handel"
+    if row.get("status") == "STERKT BEKREFTET": action = "Vurder manuelt mot risiko- og kjøpsportene"
+    elif row.get("status") == "AKSELERERER": action = "Følg volum og brudd/retest i neste 15-min scan"
+    elif row.get("status") in {"MISTER MOMENT", "FALSKT BREAKOUT"}: action = "Ikke jag kursen; revurder eller avvent nytt hold"
     title = f"{row.get('emoji','⚡')} Fresh Trend: {row.get('status')}"
-    body = (f"{row.get('ticker')} · score {path}\n"
+    name = str(row.get("company_name") or row.get("name") or "").strip()
+    identity = f"{row.get('ticker')} · {name}" if name else str(row.get("ticker") or "-")
+    exchange = str(row.get("exchange_name") or row.get("exchange") or "Ukjent børs")
+    country = str(row.get("country") or "Ukjent land")
+    freshness = row.get("data_freshness") if isinstance(row.get("data_freshness"), Mapping) else {}
+    price_line = f"Kurs {price if price is not None else '-'}"
+    if change is not None:
+        price_line += f" · 1d {change:+.2f}%"
+    body = (f"{identity} · {exchange} · {country} · dag {row.get('follow_up_session','-')}/{FOLLOW_UP_SESSIONS}\n"
+            f"{price_line}\nScore {path}\n"
             f"Freshness {c.get('Freshness',0):.0f} · Confirmation {c.get('Confirmation',0):.0f} · "
             f"Velocity {c.get('Velocity',0):.0f} · Risk {c.get('Risk',0):.0f}\n"
-            f"RS marked/sektor {row.get('market_rs_5d_percentile','-')}/{row.get('sector_rs_5d_percentile','-')} · {retest.get('label')}")
+            f"RS marked/sektor {row.get('market_rs_5d_percentile','-')}/{row.get('sector_rs_5d_percentile','-')} · {retest.get('label')}\n"
+            f"Brudd {levels.get('breakout_level', breakout if breakout is not None else '-')} · avstand {levels.get('distance_to_breakout_pct', distance if distance is not None else '-')}%\n"
+            f"Inngang/retest {levels.get('preferred_entry','-')}/{levels.get('pullback_retest','-')} · ugyldig under {levels.get('invalidation_level','-')} · mål {levels.get('first_target','-')}\n"
+            f"Hvorfor nå: {'; '.join(signals[:2]) or fs.get('label') or '-'}\n"
+            f"Handling: {action}\nRisiko: {'; '.join(cautions[:1]) or 'Ingen nytt signalspesifikt varsel'}\n"
+            f"Data: {freshness.get('status','UKJENT')} · {freshness.get('timestamp') or '-'}\n{VERSION}")
     return title, body
 
 
@@ -145,13 +173,31 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
                "last_scan_at": now.isoformat(timespec="seconds"), "follow_up_session": session,
                "components": comp, "score_path": scores[-8:], "status": status, "emoji": emoji,
                "pullback_retest": _pullback_retest(receipt)}
+        initial_price = _f(previous.get("initial_price")) or _f(receipt.get("last_price"))
+        row["initial_price"] = initial_price
+        outcomes = list(previous.get("signal_outcomes") or [])
+        measured_days = {int(item.get("horizon_days") or 0) for item in outcomes if isinstance(item, Mapping)}
+        current_price = _f(receipt.get("last_price"))
+        for horizon in (1, 3, 5):
+            if session >= horizon and horizon not in measured_days and initial_price and current_price:
+                outcomes.append({
+                    "horizon_days": horizon, "measured_at": now.isoformat(timespec="seconds"),
+                    "entry_price": round(initial_price, 4), "price": round(current_price, 4),
+                    "return_pct": round((current_price / initial_price - 1.0) * 100.0, 4),
+                    "status": status, "score": comp["Fresh Score"],
+                })
+        row["signal_outcomes"] = outcomes
         previous_status = str(previous.get("status") or "")
         meaningful = not previous_status or status != previous_status or abs(comp["Score delta"]) >= 10
         if meaningful:
             title, body = _message(row); event = {"ticker": ticker, "status": status, "title": title, "message": body, "sent": False}
             if notify:
                 from notifier import normalize_notification_result, send_pushover_alert
-                ok, detail = normalize_notification_result(send_pushover_alert(body, title=title))
+                report_url = str(row.get("report_url") or row.get("public_report_url") or "")
+                ok, detail = normalize_notification_result(send_pushover_alert(
+                    body, title=title, url=report_url or None,
+                    url_title="Åpne siste rapportdetaljer" if report_url else None,
+                ))
                 event.update({"sent": ok, "detail": detail})
             alerts.append(event)
         tracked[ticker] = row; rows.append(row)
@@ -169,6 +215,8 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
     result = {"version": VERSION, "state": "COMPLETED", "last_scan_at": now.isoformat(timespec="seconds"),
               "interval_minutes": INTERVAL_MINUTES, "follow_up_sessions": FOLLOW_UP_SESSIONS,
               "tracked": tracked, "watchlist": rows, "alerts": alerts,
+              "unchanged_count": max(0, len(rows) - len(alerts)),
+              "notification_policy": "Kun ny status eller vesentlig scoreendring varsles; uendrede kandidater logges samlet.",
               "missed_opportunities": list(current.get("missed_opportunities") or [])[-250:] + missed,
               "production_scoring_changed": False, "trade_authority": False}
     write_json(STATE_KEY, STATE_PATH, result)
@@ -182,6 +230,10 @@ def run_due_monitor(*, now: datetime | None = None, notify: bool = True) -> dict
     latest = read_json("market_intelligence/latest_run.json", runtime_data_path("market_intelligence", "latest_run.json"), {}) or {}
     discovery = latest.get("trend_discovery") if isinstance(latest.get("trend_discovery"), Mapping) else {}
     receipts = [dict(x) for x in discovery.get("fresh_trend_watchlist") or [] if isinstance(x, Mapping)][:MAX_CANDIDATES]
+    report_url = str(latest.get("report_url") or (latest.get("notification") or {}).get("report_url") or "")
+    if report_url:
+        for receipt in receipts:
+            receipt["report_url"] = report_url
     if not receipts:
         result = {**dict(state), "state": "NO_CANDIDATES", "last_scan_at": now.isoformat(timespec="seconds")}
         write_json(STATE_KEY, STATE_PATH, result); return result
@@ -195,6 +247,9 @@ def run_due_monitor(*, now: datetime | None = None, notify: bool = True) -> dict
         temp = {"markets": latest.get("markets") or ["Norge"], "candidates": refreshed, "fresh_screening_candidates": refreshed}
         annotate_run(temp, {})
         receipts = list((temp.get("trend_discovery") or {}).get("fresh_trend_watchlist") or receipts)
+        if report_url:
+            for receipt in receipts:
+                receipt["report_url"] = report_url
     except Exception as exc:
         state["refresh_warning"] = f"{type(exc).__name__}: {str(exc)[:400]}"
     return monitor_receipts(receipts, now=now, state=state, notify=notify)

@@ -697,7 +697,7 @@ def _production_blockers_for_learning(candidate: Mapping[str, Any], params: "Aut
     return list(dict.fromkeys(blockers))
 
 
-LEARNING_OUTCOME_HORIZONS = (1, 5, 20, 60)
+LEARNING_OUTCOME_HORIZONS = (1, 3, 5, 20, 60)
 LEARNING_OBSERVATION_LIMIT = 2000
 LEARNING_VALIDATION_MINIMUM_SCORE = 67.0
 LEARNING_VALIDATION_MAXIMUM_RISK = 65.0
@@ -1223,7 +1223,16 @@ def _days_opened(value: Any) -> int:
         opened = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if opened.tzinfo is None:
             opened = opened.replace(tzinfo=timezone.utc)
-        return max(0, (datetime.now(timezone.utc) - opened.astimezone(timezone.utc)).days)
+        start, end = opened.astimezone(timezone.utc).date(), datetime.now(timezone.utc).date()
+        if end < start:
+            return 0
+        from datetime import timedelta
+        count, cursor = 0, start
+        while cursor <= end:
+            if cursor.weekday() < 5:
+                count += 1
+            cursor += timedelta(days=1)
+        return max(0, count - 1)
     except Exception:
         return 0
 
@@ -1250,6 +1259,10 @@ def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: floa
     }
     portfolio.setdefault("closed_positions", []).insert(0, closed)
     del portfolio["positions"][ticker]
+    exit_score = _f(pos.get("last_score"), _f(pos.get("entry_score")))
+    score_path = list(pos.get("score_path") or [])[-8:]
+    if not score_path or abs(_f(score_path[-1]) - exit_score) >= 0.01:
+        score_path.append(exit_score)
     trade = {
         "trade_id": f"LT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
         "action": "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
@@ -1497,10 +1510,24 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
         pos["last_partial_sell_at"] = _now()
     else:
         del portfolio["positions"][ticker]
+    entry_price = _f(pos.get("average_price"), price)
+    holding_days = _days_opened(pos.get("opened_at"))
+    try:
+        from security_metadata import infer_security_listing
+        listing = infer_security_listing(ticker, pos)
+    except Exception:
+        listing = {}
     trade = {
         "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
         "action": "SELL_PARTIAL" if partial else "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
         "value": round(proceeds, 2), "pnl": round(pnl, 2), "pnl_pct": round((price / _f(pos.get('average_price'), price) - 1) * 100, 2),
+        "reason": reason, "primary_sell_reason": reason.split(":", 1)[-1].strip(),
+        "entry_price": round(entry_price, 4), "exit_price": round(price, 4),
+        "gross_return_pct": round((price / entry_price - 1) * 100, 2) if entry_price else 0.0,
+        "holding_days": holding_days, "entry_score": round(_f(pos.get("entry_score")), 2),
+        "exit_score": round(exit_score, 2), "score_path": score_path[-8:],
+        "exchange": str(pos.get("exchange") or listing.get("exchange") or "Ukjent"),
+        "country": str(pos.get("country") or listing.get("country") or "Ukjent"),
         "reason": reason, "sell_pct": round(sell_pct, 2), "remaining_quantity": round(total_quantity - quantity, 8),
         "strategy": pos.get("strategy"), "mode": "THEORETICAL_ONLY",
         **_candidate_snapshot_metadata(pos),
@@ -1633,6 +1660,15 @@ def run_autonomous_cycle(
         _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
         candidates = original_candidates
     candidate_map = {str(c.get("ticker") or "").upper(): c for c in candidates if str(c.get("ticker") or "").strip()}
+    owned_tickers = {str(ticker).upper() for ticker in (portfolio.get("positions") or {})}
+    replacement_pool = [
+        candidate for candidate in candidates
+        if str(candidate.get("ticker") or "").upper() not in owned_tickers
+        and candidate.get("final_decision_ready") is True
+        and not bool((candidate.get("reentry_control") or {}).get("blocked") if isinstance(candidate.get("reentry_control"), Mapping) else False)
+    ]
+    replacement_pool.sort(key=_candidate_entry_score, reverse=True)
+    best_replacement = replacement_pool[0] if replacement_pool else {}
 
     # Learning observations have their own ledger and never affect ordinary
     # portfolio cash, position limits, sector exposure or performance.
@@ -1652,20 +1688,40 @@ def run_autonomous_cycle(
         pos["highest_price"] = max(_f(pos.get("highest_price"), price), price)
         avg = _f(pos.get("average_price"), price)
         score = _candidate_score(candidate, 100.0)
+        pos["last_score"] = score
+        score_path = list(pos.get("score_path") or [])
+        if not score_path or abs(_f(score_path[-1]) - score) >= 0.01:
+            score_path.append(round(score, 2))
+        pos["score_path"] = score_path[-8:]
+        replacement_raw = best_replacement.get("raw") if isinstance(best_replacement.get("raw"), Mapping) else {}
+        candidate_raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
         exit_result = evaluate_exit(
             entry_price=avg, current_price=price, highest_price=_f(pos.get("highest_price"), price),
             entry_score=_f(pos.get("entry_score"), score), current_score=score if candidate else None,
             holding_days=_days_opened(pos.get("opened_at")),
             rsi=candidate.get("rsi") if candidate else None,
             previous_rsi=pos.get("last_rsi"), take_profit_taken=bool(pos.get("partial_take_profit_taken")),
+            best_replacement_score=_candidate_entry_score(best_replacement) if best_replacement else None,
+            replacement_ticker=str(best_replacement.get("ticker") or ""),
+            replacement_risk=_candidate_risk(best_replacement) if best_replacement else None,
+            replacement_momentum_pct=_f(replacement_raw.get("return_5d")) if best_replacement else None,
+            breakout_expected=bool(pos.get("breakout_expected") or pos.get("breakout_20d")),
+            breakout_holding=candidate.get("breakout_holding") if candidate and "breakout_holding" in candidate else None,
+            momentum_pct=_f(candidate_raw.get("return_3d")) if candidate_raw else None,
+            relative_strength_delta=_f(candidate.get("relative_strength_delta")) if candidate.get("relative_strength_delta") is not None else None,
+            transaction_cost_pct=_f(portfolio.get("transaction_cost_pct"), 0.2),
             policy=policy_from(params),
         )
         if candidate.get("rsi") is not None:
             pos["last_rsi"] = candidate.get("rsi")
-        if exit_result["action"] in {"SELL", "SELL_PARTIAL"}:
+        if exit_result["action"] in {"SELL", "SELL_PARTIAL", "REPLACE_REVIEW"}:
             reason = exit_result["reason_code"] + ": " + exit_result["reason"]
-            trade = _sell(portfolio, ticker, price, reason, run_id, params, commit=False, sell_pct=exit_result["sell_pct"])
+            sell_pct = 100.0 if exit_result["action"] == "REPLACE_REVIEW" else exit_result["sell_pct"]
+            trade = _sell(portfolio, ticker, price, reason, run_id, params, commit=False, sell_pct=sell_pct)
             if trade:
+                if exit_result["action"] == "REPLACE_REVIEW":
+                    trade["replacement_ticker"] = str(best_replacement.get("ticker") or "")
+                    trade["replacement_score"] = round(_candidate_entry_score(best_replacement), 2)
                 trades.append(trade)
                 if trade["action"] == "SELL":
                     exited_this_cycle.add(ticker)
@@ -2011,7 +2067,28 @@ def run_autonomous_cycle(
                     _notification("TRADE", f"AUTONOMOUS BUY {ticker}", f"Teoretisk kjøp {trade.get('quantity', 0):g} @ {trade.get('price', 0):.2f}. {trade.get('reason', '')}", trade)
                 else:
                     label = "PARTIAL SELL" if str(trade.get("action") or "").upper() == "SELL_PARTIAL" else "SELL"
-                    _notification("TRADE", f"AUTONOMOUS {label} {ticker}", f"{trade.get('reason', '')}. Teoretisk resultat {float(trade.get('pnl_pct') or 0):+.2f}% ({float(trade.get('pnl') or 0):+.2f}).", trade)
+                    listing = " · ".join(value for value in (
+                        ticker, str(trade.get("exchange") or ""), str(trade.get("country") or trade.get("market") or "")
+                    ) if value)
+                    replacement = (
+                        f"\nErstatter: {trade.get('replacement_ticker')} · score {float(trade.get('replacement_score') or 0):.1f}"
+                        if trade.get("replacement_ticker") else ""
+                    )
+                    score_path = [float(value) for value in (trade.get("score_path") or []) if value is not None]
+                    score_path_line = (
+                        "\nScorebane: " + " → ".join(f"{value:.0f}" for value in score_path[-8:])
+                        if score_path else ""
+                    )
+                    message = (
+                        f"📉 {listing}\nKjøpskurs: {float(trade.get('entry_price') or 0):.2f}\n"
+                        f"Salgskurs: {float(trade.get('exit_price') or trade.get('price') or 0):.2f}\n"
+                        f"Kursendring: {float(trade.get('gross_return_pct') or trade.get('pnl_pct') or 0):+.2f}%\n"
+                        f"Resultat: {float(trade.get('pnl') or 0):+,.2f} / {float(trade.get('pnl_pct') or 0):+.2f}%\n"
+                        f"Eiertid: {int(trade.get('holding_days') or 0)} børsdager\n"
+                        f"Score: {float(trade.get('entry_score') or 0):.1f} → {float(trade.get('exit_score') or 0):.1f}{score_path_line}\n"
+                        f"Hovedårsak: {trade.get('primary_sell_reason') or trade.get('reason') or '-'}{replacement}"
+                    )
+                    _notification("TRADE", f"AUTONOMOUS {label} {ticker}", message, trade)
 
     equity = portfolio_equity(portfolio)
     portfolio["updated_at"] = _now()

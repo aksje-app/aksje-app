@@ -141,7 +141,7 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
         return False, str(e)
 
 
-def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence=None, reason=None, pnl_pct=None):
+def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence=None, reason=None, pnl_pct=None, **details):
     """
     Sendes kun når faktisk trade er utført.
     Ikke ved vanlig signal/HOLD.
@@ -165,10 +165,16 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
         icon = "🔔"
         title = "Paper trade utført"
 
-    lines = [
-        f"{icon} {trade_type} {ticker}",
-        f"Pris: {float(price):.2f}",
-    ]
+    exchange = str(details.get("exchange") or "").strip()
+    country = str(details.get("country") or details.get("market") or "").strip()
+    identity = " · ".join(value for value in (str(ticker), exchange, country) if value)
+    lines = [f"{icon} {trade_type} {identity}"]
+    entry_price = details.get("entry_price")
+    exit_price = details.get("exit_price", price if trade_type == "SELL" else None)
+    if trade_type == "SELL" and entry_price is not None:
+        lines.extend([f"Kjøpskurs: {float(entry_price):.2f}", f"Salgskurs: {float(exit_price):.2f}"])
+    else:
+        lines.append(f"Pris: {float(price):.2f}")
 
     if amount is not None:
         lines.append(f"Beløp: {float(amount):,.0f} kr")
@@ -180,9 +186,25 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
         lines.append(f"Confidence: {confidence}%")
 
     if pnl_pct is not None:
-        lines.append(f"PnL: {float(pnl_pct):.2f}%")
+        lines.append(f"Kursendring: {float(pnl_pct):+.2f}%")
+
+    pnl_amount = details.get("pnl_amount", details.get("pnl"))
+    if pnl_amount is not None and trade_type == "SELL":
+        lines.append(f"Resultat: {float(pnl_amount):+,.2f} kr / {float(pnl_pct or 0):+.2f}%")
+    if details.get("holding_days") is not None:
+        lines.append(f"Eiertid: {int(details.get('holding_days') or 0)} børsdager")
+    entry_score, exit_score = details.get("entry_score"), details.get("exit_score")
+    if entry_score is not None or exit_score is not None:
+        lines.append(f"Score: {float(entry_score or 0):.1f} → {float(exit_score or 0):.1f}")
+    score_path = [float(value) for value in (details.get("score_path") or []) if value is not None]
+    if score_path:
+        lines.append("Scorebane: " + " → ".join(f"{value:.0f}" for value in score_path[-8:]))
 
     if reason:
-        lines.append(f"Årsak: {reason}")
+        lines.append(f"Hovedårsak: {details.get('primary_sell_reason') or reason}")
+    if details.get("contributing_reasons"):
+        lines.append("Medvirkende: " + "; ".join(str(x) for x in details.get("contributing_reasons")[:2]))
+    if details.get("replacement_ticker"):
+        lines.append(f"Erstatter: {details.get('replacement_ticker')} · score {float(details.get('replacement_score') or 0):.1f}")
 
     return send_pushover_alert("\n".join(lines), title=title)

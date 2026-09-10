@@ -1879,6 +1879,32 @@ def render_durable_json_download(
     st.caption(f"Varig JSON-fil · {int(delivery['size']) / (1024 * 1024):.1f} MB")
 
 
+def build_complete_report_package(files: Mapping[str, bytes], run_id: str) -> tuple[bytes, dict[str, Any]]:
+    """Build a self-describing package and state exactly what it contains."""
+    import zipfile
+    clean = {str(name): bytes(data) for name, data in files.items() if name and data}
+    names = sorted(clean)
+    core = {
+        "standard_pdf": any(name.lower().endswith(".pdf") and "technical" not in name.lower() for name in names),
+        "technical_pdf": any("technical" in name.lower() and name.lower().endswith(".pdf") for name in names),
+        "json": any(name.lower().endswith(".json") for name in names),
+        "text": any(name.lower().endswith(".txt") for name in names),
+        "diagnostic_zip": any("diagnos" in name.lower() and name.lower().endswith(".zip") for name in names),
+    }
+    manifest = {
+        "schema_version": "1.0", "run_id": str(run_id or ""),
+        "included_files": names, "components": core,
+        "core_report_complete": all(core[key] for key in ("standard_pdf", "technical_pdf", "json", "text")),
+        "diagnostic_included": core["diagnostic_zip"],
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for filename, data in clean.items():
+            archive.writestr(filename, data)
+        archive.writestr("package_manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8"))
+    return buffer.getvalue(), manifest
+
+
 def render_report_file_center(
     st, run: Mapping[str, Any], entry: Mapping[str, Any] | None = None, *,
     key: str = "report_files", execution_id: str = "", include_complete_zip: bool = True,
@@ -1903,37 +1929,49 @@ def render_report_file_center(
         or archived.get("background_execution_id")
         or ""
     )
+    if not execution_id:
+        try:
+            from manual_job_background import get_active_status_snapshot
+            recent_status = dict(get_active_status_snapshot() or {})
+            if str(recent_status.get("state") or "").upper() in {"COMPLETED", "FAILED", "CANCELLED", "STALLED"}:
+                execution_id = str(recent_status.get("execution_id") or "")
+        except Exception:
+            pass
     standard = resolve_report_delivery(report, archived)
     technical = resolve_technical_report_delivery(report, archived)
     json_delivery = durable_json_download(report)
     diagnostic_data = None
     diagnostic_name = ""
-    if execution_id:
-        try:
-            from manual_job_background import diagnostic_bundle
-            diagnostic_data, diagnostic_name = diagnostic_bundle(execution_id)
-        except Exception:
-            diagnostic_data = None
-            diagnostic_name = ""
+    try:
+        from manual_job_background import diagnostic_bundle
+        diagnostic_data, diagnostic_name = diagnostic_bundle(execution_id)
+    except Exception:
+        diagnostic_data = None
+        diagnostic_name = ""
 
-    st.markdown("##### 📦 Rapportfiler")
+    created_label = local_display(
+        report.get("created_at") or archived.get("created_at"),
+        str((report.get("report_metadata") or {}).get("timezone_name") or "Europe/Oslo"),
+    )
+    stamp = str(created_label or "ukjent tidspunkt")
+    st.markdown(f"##### 📦 Siste rapportfiler · {stamp}")
     c1, c2, c3, c4 = st.columns(4, gap="medium")
     if standard.get("ok"):
         c1.download_button(
-            "📄 Standardrapport PDF", data=standard["data"], file_name=standard["filename"],
+            f"📄 Standard PDF · {stamp}", data=standard["data"], file_name=standard["filename"],
             mime="application/pdf", key=f"{key}_standard_{run_id}", width="stretch",
         )
     else:
         c1.error("Standard PDF mangler")
     if technical.get("ok"):
         c2.download_button(
-            "📊 Teknisk rapport PDF", data=technical["data"], file_name=technical["filename"],
+            f"📊 Teknisk PDF · {stamp}", data=technical["data"], file_name=technical["filename"],
             mime="application/pdf", key=f"{key}_technical_{run_id}", width="stretch",
         )
     else:
         c2.error("Teknisk PDF mangler")
     c3.download_button(
-        "🧾 Rapportdata JSON", data=json_delivery["data"], file_name=json_delivery["filename"],
+        f"🧾 Rapportdata JSON · {stamp}", data=json_delivery["data"], file_name=json_delivery["filename"],
         mime="application/json", key=f"{key}_json_{run_id}", width="stretch",
     )
     if diagnostic_data:
@@ -1943,13 +1981,14 @@ def render_report_file_center(
             mime="application/zip", key=f"{key}_diag_{run_id}", width="stretch",
         )
     else:
-        c4.caption("🩺 Diagnose ZIP\n\nIkke tilgjengelig for denne eldre/ikke-manuelle kjøringen.")
+        c4.caption("🩺 Diagnose ZIP kunne ikke bygges akkurat nå.")
 
     available = {
         standard.get("filename") if standard.get("ok") else "": standard.get("data") if standard.get("ok") else None,
         technical.get("filename") if technical.get("ok") else "": technical.get("data") if technical.get("ok") else None,
         json_delivery.get("filename"): json_delivery.get("data"),
         diagnostic_name if diagnostic_data else "": diagnostic_data,
+        safe_ascii_report_filename(report, "txt"): build_text_report(report).encode("utf-8"),
     }
     available = {str(name): bytes(data) for name, data in available.items() if name and data}
     package_state_key = f"{key}_complete_zip_bytes_{run_id}"
@@ -1957,23 +1996,20 @@ def render_report_file_center(
     if include_complete_zip:
         left, right = st.columns([1, 1])
         if left.button("⬇ Bygg komplett rapportpakke", key=f"{key}_build_zip_{run_id}", width="stretch"):
-            buffer = io.BytesIO()
-            with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-                for filename, data in available.items():
-                    archive.writestr(filename, data)
-            package = buffer.getvalue()
+            package, package_manifest = build_complete_report_package(available, run_id)
             if not package:
                 st.error("Komplett rapportpakke kunne ikke bygges.")
             else:
                 st.session_state[package_state_key] = package
                 st.session_state[package_name_key] = f"RAPPORTPAKKE_{run_id}.zip"
+                st.session_state[f"{package_state_key}_manifest"] = package_manifest
         if st.session_state.get(package_state_key):
             right.download_button(
                 "⬇ Last ned komplett rapportpakke", data=st.session_state[package_state_key],
                 file_name=st.session_state.get(package_name_key) or f"RAPPORTPAKKE_{run_id}.zip",
                 mime="application/zip", key=f"{key}_download_zip_{run_id}", width="stretch", type="primary",
             )
-    st.caption("Standard PDF · teknisk PDF · JSON · diagnose på samme sted. Komplett ZIP bygges bare når du ber om den.")
+    st.caption("De tre faste knappene peker alltid på siste rapportutgave og viser rapportens dato/tid. Komplett ZIP inneholder PDF, teknisk PDF, JSON, tekst og diagnose når en diagnose finnes for siste kjøring.")
     return {
         "ok": bool(standard.get("ok") and technical.get("ok") and json_delivery.get("data")),
         "diagnostic_available": bool(diagnostic_data),
@@ -2958,7 +2994,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import CondPageBreak, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-    from reportlab.graphics.shapes import Drawing, Line, String
+    from reportlab.graphics.shapes import Circle, Drawing, Line, Rect, String
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
@@ -3070,7 +3106,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         value = candidate.get("trend_receipt")
         return value if isinstance(value, Mapping) else {}
 
-    def _trend_chart(candidate: Mapping[str, Any], width: float = 164*mm, height: float = 34*mm) -> Drawing | None:
+    def _trend_chart(candidate: Mapping[str, Any], width: float = 135*mm, height: float = 52*mm) -> Drawing | None:
         receipt = _trend_receipt(candidate)
         points = [row for row in (receipt.get("price_trend_60d") or []) if isinstance(row, Mapping)]
         full_values: list[float | None] = []
@@ -3106,8 +3142,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         lo, hi = min(clean), max(clean)
         span = max(hi-lo, max(abs(hi), 1.0)*0.01)
         d = Drawing(width, height)
-        left, right, bottom, top = 7*mm, width-3*mm, 7*mm, height-4*mm
+        left, right = 18*mm, width-4*mm
+        bottom, top = 16*mm, height-5*mm
         d.add(Line(left, bottom, right, bottom, strokeColor=colors.HexColor("#B8C4CE"), strokeWidth=.5))
+        for tick in range(5):
+            value = lo + span * tick / 4.0
+            y = bottom + (top-bottom) * tick / 4.0
+            d.add(Line(left, y, right, y, strokeColor=colors.HexColor("#E3E9EE"), strokeWidth=.35))
+            d.add(String(1.2*mm, y-1.5*mm, _fmt(value, 2), fontName=regular_font, fontSize=5.2, fillColor=colors.HexColor("#425466")))
+        d.add(String(1.2*mm, top+1.2*mm, "Kurs", fontName=bold_font, fontSize=5.2, fillColor=colors.HexColor("#245B78")))
         palette = {"Kurs":"#245B78", "SMA20":"#C77D1A", "SMA50":"#2E7D5A"}
         for label, values in series_map.items():
             coords=[]
@@ -3120,9 +3163,71 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                 coords.append((x,y))
             for a,b in zip(coords,coords[1:]):
                 d.add(Line(a[0],a[1],b[0],b[1],strokeColor=colors.HexColor(palette[label]),strokeWidth=1.25 if label=="Kurs" else .8))
+        for level_key, level_label, level_color in (
+            ("prior_20d_high", "20d brudd", "#B45309"),
+            ("prior_60d_high", "60d motstand", "#9A3412"),
+            ("low_20d", "20d støtte", "#166534"),
+        ):
+            try:
+                level = float(receipt.get(level_key))
+            except (TypeError, ValueError):
+                level = None
+            if level is not None and lo <= level <= hi:
+                y = bottom + (top-bottom) * ((level-lo)/span)
+                d.add(Line(left, y, right, y, strokeColor=colors.HexColor(level_color), strokeWidth=.55, strokeDashArray=[2, 2]))
+                d.add(String(right-20*mm, y+0.7*mm, level_label, fontName=regular_font, fontSize=4.5, fillColor=colors.HexColor(level_color)))
+        valid_price_coords = []
+        for i, value in enumerate(series_map["Kurs"]):
+            if value is not None:
+                valid_price_coords.append((i, value))
+        if valid_price_coords:
+            first_i, first_value = valid_price_coords[0]
+            last_i, last_value = valid_price_coords[-1]
+            min_i, min_value = min(valid_price_coords, key=lambda item: item[1])
+            max_i, max_value = max(valid_price_coords, key=lambda item: item[1])
+            n=max(1,len(series_map["Kurs"])-1)
+            markers = [(first_i, first_value, "Start"), (last_i, last_value, "Nå")]
+            if min_i not in {first_i, last_i}:
+                markers.append((min_i, min_value, "Min"))
+            if max_i not in {first_i, last_i, min_i}:
+                markers.append((max_i, max_value, "Maks"))
+            for idx, value, prefix in markers:
+                x=left+(right-left)*(idx/n); y=bottom+(top-bottom)*((value-lo)/span)
+                d.add(Circle(x, y, 1.2, fillColor=colors.HexColor("#245B78"), strokeColor=None))
+                d.add(String(max(left, min(x-8*mm, right-17*mm)), min(top+1*mm, y+2*mm), f"{prefix} {_fmt(value,2)}", fontName=bold_font, fontSize=4.8, fillColor=colors.HexColor("#245B78")))
+        volumes = []
+        for row in display_points:
+            try: volumes.append(max(0.0, float(row.get("volume") or 0)))
+            except Exception: volumes.append(0.0)
+        vmax = max(volumes or [0.0])
+        if vmax > 0:
+            n = max(1, len(volumes)-1)
+            bar_w = max(.5, (right-left) / max(1, len(volumes)) * .65)
+            for i, value in enumerate(volumes):
+                x = left + (right-left) * (i/n)
+                h = 4.0*mm * value/vmax
+                d.add(Rect(x-bar_w/2, 2.5*mm, bar_w, h, fillColor=colors.HexColor("#91A4B7"), strokeColor=None))
+            d.add(String(left, 7.0*mm, "Volum", fontName=regular_font, fontSize=5, fillColor=colors.HexColor("#627D98")))
+        momentum = []
+        shown = full_values[start_index:]
+        for i, value in enumerate(shown):
+            base = shown[i-3] if i >= 3 else None
+            momentum.append(((value/base)-1.0)*100.0 if value is not None and base not in (None, 0) else None)
+        mclean = [v for v in momentum if v is not None]
+        if mclean:
+            mspan = max(max(abs(min(mclean)), abs(max(mclean))), .1)
+            mid = 11.0*mm
+            d.add(Line(left, mid, right, mid, strokeColor=colors.HexColor("#D7DEE5"), strokeWidth=.4))
+            coords=[]; n=max(1,len(momentum)-1)
+            for i,value in enumerate(momentum):
+                if value is not None:
+                    coords.append((left+(right-left)*(i/n), mid+(value/mspan)*2.2*mm))
+            for a,b in zip(coords,coords[1:]):
+                d.add(Line(a[0],a[1],b[0],b[1],strokeColor=colors.HexColor("#7B3FA1"),strokeWidth=.8))
+            d.add(String(left, 13.2*mm, "Momentum 3d", fontName=regular_font, fontSize=5, fillColor=colors.HexColor("#627D98")))
         d.add(String(left, 1.5*mm, str(display_points[0].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
         d.add(String(right-15*mm, 1.5*mm, str(display_points[-1].get("date") or "")[-5:], fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
-        d.add(String(left, top+1*mm, f"20d  Kurs  SMA20  SMA50", fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
+        d.add(String(left+22*mm, top+1*mm, f"20d · Kurs · SMA20 · SMA50", fontName=regular_font, fontSize=5.5, fillColor=colors.HexColor("#627D98")))
         return d
 
     def _norwegian_decimal_text(value: Any) -> str:
@@ -3566,7 +3671,11 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         if isinstance(candidate, Mapping):
             return str(candidate.get("exchange_name") or candidate.get("market_segment") or "-")
         return "-"
-    candidate_rows = [["#", "Ticker", "Børs", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Short / innsider / kilder"]]
+    top3_change_by_ticker = {
+        str(row.get("ticker") or "").upper(): row
+        for row in (decision_changes.get("top3_price_changes") or []) if isinstance(row, Mapping)
+    }
+    candidate_rows = [["#", "Ticker", "Børs / land", "Kursendring", "Score / faktisk utfall", "Hovedgrunn", "Viktigste risiko", "Short / innsider / kilder"]]
     for index, compact_candidate in enumerate(review_candidates, 1):
         ticker = str(compact_candidate.get("ticker") or "").upper()
         candidate = {**dict(canonical_by_ticker.get(ticker, {})), **dict(compact_candidate)}
@@ -3602,21 +3711,34 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             f"{short_text} · innsider {insider_text} · {consensus.get('independent_sources', 0)} uavh. · "
             f"dok. {profile.get('documentation_coverage', profile.get('data_coverage', 0))}/100"
         )
+        try:
+            from security_metadata import infer_security_listing
+            listing = infer_security_listing(ticker, candidate)
+        except Exception:
+            listing = {}
+        price_change = top3_change_by_ticker.get(ticker, {})
+        since_report = price_change.get("price_change_since_previous_pct")
+        day_change = price_change.get("price_change_1d_pct")
+        price_change_text = (
+            f"Rapport {float(since_report):+.2f}% · 1d {float(day_change or 0):+.2f}%"
+            if since_report is not None else f"1d {float(day_change or 0):+.2f}%"
+        )
         candidate_rows.append([
             candidate.get("priority_rank") or index,
             _rawp(candidate.get("ticker") or "-", "Tiny"),
-            _p(candidate.get("exchange_name") or candidate.get("market_segment") or "-", "Tiny"),
+            _p(f"{candidate.get('exchange_name') or candidate.get('market_segment') or listing.get('exchange') or '-'} · {candidate.get('country') or listing.get('country') or candidate.get('market') or '-'}", "Tiny"),
+            _p(price_change_text, "Tiny"),
             _p(f"{_fmt(candidate.get('investment_score', candidate.get('score')))} · {candidate.get('autonomy_outcome_label') or _decision_label(candidate.get('portfolio_action') or candidate.get('action'))}", "Tiny"),
             _p(_short(main_reason, 115), "Tiny"),
             _p(_short(main_risk, 135), "Tiny"),
             _p(_short(source_text, 150), "Tiny"),
         ])
     if len(candidate_rows) == 1:
-        candidate_rows.append(["-", "Ingen", "-", "-", "Ingen kandidatdata", "-", "-"])
+        candidate_rows.append(["-", "Ingen", "-", "-", "-", "Ingen kandidatdata", "-", "-"])
     candidate_table_decision = Table(
         candidate_rows,
         repeatRows=1,
-        colWidths=[7*mm, 17*mm, 25*mm, 25*mm, 39*mm, 45*mm, 26*mm],
+        colWidths=[7*mm, 16*mm, 27*mm, 24*mm, 25*mm, 35*mm, 34*mm, 16*mm],
     )
     candidate_table_decision.setStyle(_table_style(5.2, padding=1.25))
     decision_story += [
@@ -3636,7 +3758,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     fresh_watch_short = trend_discovery_short.get("fresh_trend_watchlist") if isinstance(trend_discovery_short.get("fresh_trend_watchlist"), list) else []
     fresh_watch_short = [row for row in fresh_watch_short if isinstance(row, Mapping)][:12]
     if fresh_watch_short:
-        fresh_rows = [["Ticker", "Status / scorebane", "Freshness", "Confirmation", "Velocity", "Risk", "RS marked / sektor", "Retest"]]
+        fresh_rows = [["Ticker · børs · land", "Status / scorebane", "Freshness", "Confirmation", "Velocity", "Risk", "RS marked / sektor", "Retest"]]
         for receipt in fresh_watch_short:
             fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
             comp = receipt.get("fresh_monitor_components") if isinstance(receipt.get("fresh_monitor_components"), Mapping) else {}
@@ -3645,7 +3767,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             status = "STERKT BEKREFTET" if score >= 85 and float(comp.get("Confirmation") or 0) >= 65 else "AKSELERERER" if score >= 65 else "NYTT"
             emoji = "🟢" if status == "STERKT BEKREFTET" else "⚡" if status == "AKSELERERER" else "🆕"
             fresh_rows.append([
-                _rawp(receipt.get("ticker") or "-", "Tiny"), _p(f"{emoji} {status} · {_fmt(score)}", "Tiny"),
+                _rawp(f"{receipt.get('ticker') or '-'} · {receipt.get('exchange_name') or receipt.get('exchange') or '-'} · {receipt.get('country') or receipt.get('market') or '-'}", "Tiny"), _p(f"{emoji} {status} · {_fmt(score)}", "Tiny"),
                 _p(_fmt(comp.get("Freshness")), "Tiny"), _p(_fmt(comp.get("Confirmation")), "Tiny"),
                 _p(_fmt(comp.get("Velocity")), "Tiny"), _p(_fmt(comp.get("Risk")), "Tiny"),
                 _p(f"{_fmt(receipt.get('market_rs_5d_percentile'))} / {_fmt(receipt.get('sector_rs_5d_percentile'))}", "Tiny"),
@@ -3653,7 +3775,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             ])
         fresh_table = Table(
             fresh_rows, repeatRows=1,
-            colWidths=[18*mm, 38*mm, 20*mm, 24*mm, 18*mm, 15*mm, 27*mm, 24*mm],
+            colWidths=[35*mm, 33*mm, 18*mm, 21*mm, 16*mm, 13*mm, 24*mm, 24*mm],
         )
         fresh_table.setStyle(_table_style(5.3, padding=1.2))
         decision_story += [
@@ -3669,12 +3791,28 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         # Compact visual evidence in the main report: price/timeline with
         # volume and momentum stated directly beneath each of the top signals.
         for receipt in fresh_watch_short[:3]:
-            chart = _trend_chart({"trend_receipt": receipt}, width=164*mm, height=28*mm)
+            chart = _trend_chart({"trend_receipt": receipt}, width=118*mm, height=52*mm)
             if chart is not None:
+                listing_label = f"{receipt.get('exchange_name') or receipt.get('exchange') or '-'} · {receipt.get('country') or receipt.get('market') or '-'}"
                 decision_story += [Paragraph(
-                    f"{escape(str(receipt.get('ticker') or '-'))} · volum {_fmt(receipt.get('volume_ratio_20'))}x · "
+                    f"{escape(str(receipt.get('ticker') or '-'))} · {escape(listing_label)} · volum {_fmt(receipt.get('volume_ratio_20'))}x · "
                     f"momentum 3d {_fmt_signed(receipt.get('return_3d_pct'))}% / 5d {_fmt_signed(receipt.get('return_5d_pct'))}%",
                     styles["Tiny"]), chart, Spacer(1, 1*mm)]
+        early_watch_short = [
+            row for row in (trend_discovery_short.get("early_signal_watchlist") or [])
+            if isinstance(row, Mapping)
+        ][:12]
+        if early_watch_short:
+            decision_story += [Paragraph("Tidlige styrkesignaler – grafisk bekreftelse", styles["Subsection"])]
+            for receipt in early_watch_short[:3]:
+                chart = _trend_chart({"trend_receipt": receipt}, width=118*mm, height=52*mm)
+                if chart is not None:
+                    listing_label = f"{receipt.get('exchange_name') or receipt.get('exchange') or '-'} · {receipt.get('country') or receipt.get('market') or '-'}"
+                    decision_story += [Paragraph(
+                        f"{escape(str(receipt.get('ticker') or '-'))} · {escape(listing_label)} · "
+                        f"1d {_fmt_signed(receipt.get('return_1d_pct'))}% · 5d {_fmt_signed(receipt.get('return_5d_pct'))}% · "
+                        f"RS marked/sektor {_fmt(receipt.get('market_rs_20d_percentile'))}/{_fmt(receipt.get('sector_rs_20d_percentile'))}",
+                        styles["Tiny"]), chart, Spacer(1, 1*mm)]
     actionability_rows = [["Liste", "Ticker", "Score", "Status", "Konkret sperre"]]
     for row in decision_actionability.get("analysis_top3") or []:
         actionability_rows.append([
@@ -3755,10 +3893,10 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                 "Markeder merket «eksisterende» inngår ikke i den aktive kandidatskanningen.", styles["Small"],
             ),
         ]
-    portfolio_rows = [["Ticker", "Antall", "Inngang", "Nå", "Kostpris", "Markedsverdi", "Vekt %"]]
+    portfolio_rows = [["Ticker · børs · land", "Antall", "Inngang", "Nå", "Kostpris", "Markedsverdi", "Vekt %"]]
     for row in list(decision_portfolio.get("positions") or []):
         portfolio_rows.append([
-            _rawp(row.get("ticker") or "-", "Tiny"),
+            _rawp(f"{row.get('ticker') or '-'} · {row.get('exchange') or '-'} · {row.get('country') or row.get('market') or '-'}", "Tiny"),
             _p(_fmt(row.get("quantity", 0)), "Tiny"),
             _p(_fmt(row.get("entry_price", 0)), "Tiny"),
             _p(_fmt(row.get("last_price", 0)), "Tiny"),
@@ -3768,7 +3906,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         ])
     if len(portfolio_rows) == 1:
         portfolio_rows.append(["-", "Ingen åpne posisjoner", "-", "-", "-", "-", "-"])
-    portfolio_table = Table(portfolio_rows, repeatRows=1, colWidths=[23*mm, 22*mm, 25*mm, 25*mm, 30*mm, 32*mm, 22*mm])
+    portfolio_table = Table(portfolio_rows, repeatRows=1, colWidths=[43*mm, 18*mm, 22*mm, 22*mm, 26*mm, 28*mm, 20*mm])
     portfolio_table.setStyle(_table_style(5.2, padding=1.2))
     portfolio_result_rows = [["Ticker", "Resultat", "Resultat %", "Eiertid", "Score inn/nå", "Short", "Innsider", "Kapitalstatus"]]
     for row in list(decision_portfolio.get("positions") or []):
@@ -3809,6 +3947,23 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         portfolio_result_rows.append(["-", "-", "-", "-", "-", "-", "-", "Ingen åpne posisjoner"])
     portfolio_result_table = Table(portfolio_result_rows, repeatRows=1, colWidths=[18*mm, 21*mm, 18*mm, 19*mm, 24*mm, 25*mm, 27*mm, 28*mm])
     portfolio_result_table.setStyle(_table_style(5.2, padding=1.2))
+    exit_detail_rows = [["Ticker", "Status", "Konkret salgs-/beholdgrunn", "Neste kontroll", "Utfordrer"]]
+    for row in list(decision_portfolio.get("positions") or []):
+        challenger = str(row.get("replacement_ticker") or "-")
+        if row.get("replacement_score") is not None:
+            challenger += f" ({float(row.get('replacement_score') or 0):.1f})"
+        next_review = (
+            "15 min" if row.get("review_interval_minutes") else
+            f"dag {int(row.get('next_formal_review_day') or 0)}" if row.get("next_formal_review_day") is not None else "neste rapport"
+        )
+        exit_detail_rows.append([
+            _rawp(row.get("ticker") or "-", "Tiny"),
+            _p(row.get("monitoring_status") or row.get("capital_efficiency_status") or "BEHOLD", "Tiny"),
+            _p(_short(row.get("exit_reason") or "Ingen exitregel utløst", 180), "Tiny"),
+            _p(next_review, "Tiny"), _p(challenger, "Tiny"),
+        ])
+    exit_detail_table = Table(exit_detail_rows, repeatRows=1, colWidths=[20*mm, 31*mm, 78*mm, 24*mm, 31*mm])
+    exit_detail_table.setStyle(_table_style(5.2, padding=1.2))
     accounting_rows = [
         [_p("Startkapital", "Tiny"), _p(_fmt(decision_portfolio.get("initial_capital", 0)), "Tiny"),
          _p("Porteføljeverdi", "Tiny"), _p(_fmt(decision_portfolio.get("portfolio_equity", 0)), "Tiny")],
@@ -3837,8 +3992,31 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         portfolio_table,
         Paragraph("Resultat, eiertid og kapitalstatus", styles["Subsection"]),
         portfolio_result_table,
+        Paragraph("Salgstrakt og konkret oppfølging", styles["Subsection"]),
+        exit_detail_table,
         Paragraph("Alle eksisterende posisjoner er merket som allerede eid; tilleggskjøp er deaktivert. Kapitalstagnasjon utløser vurdering, mens salg og utskifting krever en eksplisitt exitbeslutning.", styles["Small"]),
     ]
+    exit_funnel = decision_portfolio.get("exit_funnel") if isinstance(decision_portfolio.get("exit_funnel"), Mapping) else {}
+    if exit_funnel:
+        decision_story.append(Paragraph(
+            f"Salgstrakt: {int(exit_funnel.get('evaluated') or 0)} vurdert → "
+            f"{int(exit_funnel.get('review') or 0)} overvåk → {int(exit_funnel.get('replace') or 0)} bytt ut → "
+            f"{int(exit_funnel.get('sell') or 0)} selg · {int(exit_funnel.get('sell_partial') or 0)} delvis salg. "
+            f"Navngitt utfordrer finnes for {int(exit_funnel.get('named_replacement_available') or 0)} posisjoner.",
+            styles["BodyCompact"],
+        ))
+    buy_activity = decision_portfolio.get("buy_activity") if isinstance(decision_portfolio.get("buy_activity"), Mapping) else {}
+    if buy_activity:
+        last_buy = str(buy_activity.get("last_buy_at") or "ingen registrert")
+        days_since = buy_activity.get("business_days_since_last_buy")
+        days_text = f"{int(days_since)} børsdager" if days_since is not None else "ukjent"
+        decision_story.append(Paragraph(
+            f"Kjøpsaktivitet: siste registrerte kjøp {escape(last_buy)} · {days_text} siden · "
+            f"{int(buy_activity.get('candidates_evaluated') or 0)} kandidater vurdert · "
+            f"{int(buy_activity.get('buy_ready') or 0)} kjøpsklare. "
+            f"Diagnose: {escape(str(buy_activity.get('diagnosis') or '-'))}",
+            styles["BodyCompact"],
+        ))
     short_exposure = decision_portfolio.get("short_exposure") if isinstance(decision_portfolio.get("short_exposure"), Mapping) else {}
     if short_exposure:
         weighted_short = short_exposure.get("capital_weighted_short_interest_pct")
@@ -3911,6 +4089,16 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         change_rows.extend([
             ["Ny / ut av Top 3", _p((", ".join(decision_changes.get("top3_added") or []) or "Ingen") + " / " + (", ".join(decision_changes.get("top3_removed") or []) or "Ingen"), "Tiny")],
         ])
+        top3_price_text = []
+        for row in decision_changes.get("top3_price_changes") or []:
+            if not isinstance(row, Mapping):
+                continue
+            since = row.get("price_change_since_previous_pct")
+            since_text = f"rapport {float(since):+.2f}%" if since is not None else "rapport -"
+            top3_price_text.append(
+                f"{row.get('ticker')}: {since_text} · 1d {float(row.get('price_change_1d_pct') or 0):+.2f}% · score {float(row.get('score_change_points') or 0):+.2f}p"
+            )
+        change_rows.append(["Top 1–3 kurs / score", _p("; ".join(top3_price_text) or "Ingen sammenlignbare kursdata", "Tiny")])
         best = decision_changes.get("largest_improvement") or {}
         weak = decision_changes.get("largest_weakening") or {}
         movement = []
@@ -8301,7 +8489,7 @@ def render_market_intelligence() -> None:
                     fs = receipt.get("fresh_signal") if isinstance(receipt.get("fresh_signal"), Mapping) else {}
                     sig_labels = [str(x.get("label") or "") for x in (fs.get("signals") or [])[:4] if isinstance(x, Mapping)]
                     fresh_rows.append({
-                        "Ticker": receipt.get("ticker"), "Børs": receipt.get("exchange_name") or "-", "Fresh signal": fs.get("label"), "Fresh score": fs.get("score"),
+                        "Ticker": receipt.get("ticker"), "Børs": receipt.get("exchange_name") or "-", "Land": receipt.get("country") or "-", "Fresh signal": fs.get("label"), "Fresh score": fs.get("score"),
                         "Trendalder": f"{fs.get('trend_age','UKJENT')} · {fs.get('trend_age_sessions','-')} økter",
                         "1d %": receipt.get("return_1d_pct"), "3d %": receipt.get("return_3d_pct"), "5d %": receipt.get("return_5d_pct"),
                         "RS-tenning": receipt.get("relative_strength_ignition"), "Volum x": receipt.get("volume_ratio_20"),
@@ -8321,7 +8509,7 @@ def render_market_intelligence() -> None:
                     sig_labels = [str(x.get("label") or "") for x in (es.get("signals") or [])[:3] if isinstance(x, Mapping)]
                     caution = str((es.get("cautions") or [""])[0]) if es.get("cautions") else ""
                     early_rows.append({
-                        "Ticker": receipt.get("ticker"), "Børs": receipt.get("exchange_name") or "-", "Signal": es.get("label"), "Tidligscore": es.get("score"),
+                        "Ticker": receipt.get("ticker"), "Børs": receipt.get("exchange_name") or "-", "Land": receipt.get("country") or "-", "Signal": es.get("label"), "Tidligscore": es.get("score"),
                         "5d %": receipt.get("return_5d_pct"), "20d %": receipt.get("return_20d_pct"),
                         "RS20 marked %il": receipt.get("market_rs_20d_percentile"), "RS20 sektor %il": receipt.get("sector_rs_20d_percentile"),
                         "RSI": receipt.get("rsi"), "Volum x": receipt.get("volume_ratio_20"), "OBV 20d": receipt.get("obv_pressure_20d"),
@@ -8330,14 +8518,28 @@ def render_market_intelligence() -> None:
                     })
                 if early_rows:
                     st.dataframe(pd.DataFrame(early_rows), width="stretch", hide_index=True)
-            if candidates:
-                st.markdown("##### Trenddetaljer 1–10")
-                st.caption("20d er standard for tydelig trendretning. Bytt til 60d for lengre kontekst. RSI beregnes fra samme sluttkurser; volum vises relativt til 20-dagers snitt.")
-                for trend_row in candidates[:10]:
+            detail_rows = [
+                {"ticker": receipt.get("ticker"), "raw": receipt.get("raw") or {}, "trend_receipt": receipt}
+                for receipt in fresh_watch[:10] if isinstance(receipt, Mapping)
+            ]
+            seen_detail = {str(row.get("ticker") or "").upper() for row in detail_rows}
+            detail_rows.extend(
+                {"ticker": receipt.get("ticker"), "raw": receipt.get("raw") or {}, "trend_receipt": receipt}
+                for receipt in early_watch[:10]
+                if isinstance(receipt, Mapping) and str(receipt.get("ticker") or "").upper() not in seen_detail
+            )
+            seen_detail = {str(row.get("ticker") or "").upper() for row in detail_rows}
+            detail_rows.extend(row for row in candidates if str(row.get("ticker") or "").upper() not in seen_detail)
+            if detail_rows:
+                st.markdown("##### Fresh Trend- og trenddetaljer 1–10")
+                st.caption("Fresh Trend prioriteres først. Hver kandidat har kurs/tidslinje, RSI-momentum, volum, relativ styrke, bruddnivå og bekreftelses-/svakhetskriterier.")
+                for trend_row in detail_rows[:10]:
                     receipt = trend_row.get("trend_receipt") if isinstance(trend_row.get("trend_receipt"), Mapping) else {}
                     ticker = str(trend_row.get("ticker") or "-")
                     phase = str(receipt.get("trend_phase") or "UKJENT")
-                    with st.expander(f"Vis trend · {ticker} · {phase}", expanded=False):
+                    exchange = str(receipt.get("exchange_name") or receipt.get("exchange") or "Ukjent børs")
+                    country = str(receipt.get("country") or "Ukjent land")
+                    with st.expander(f"Vis trend · {ticker} · {exchange} · {country} · {phase}", expanded=False):
                         series = [r for r in (receipt.get("price_trend_60d") or []) if isinstance(r, Mapping) and r.get("close") is not None]
                         if series:
                             import plotly.graph_objects as go
@@ -8361,29 +8563,29 @@ def render_market_intelligence() -> None:
                             )
                             visible = chart_df.tail(20 if period == "20d" else 60).copy()
                             if not visible.empty:
-                                base = float(visible["close"].iloc[0]) or 1.0
-                                for col in ("close", "SMA20", "SMA50"):
-                                    visible[f"{col}_idx"] = pd.to_numeric(visible[col], errors="coerce") / base * 100.0
                                 plotted = [
-                                    float(v) for col in ("close_idx", "SMA20_idx", "SMA50_idx")
+                                    float(v) for col in ("close", "SMA20", "SMA50")
                                     for v in visible[col].dropna().tolist()
                                 ]
-                                lo = min(plotted) if plotted else 95.0
-                                hi = max(plotted) if plotted else 105.0
-                                pad = max(0.8, (hi - lo) * 0.12)
+                                lo = min(plotted) if plotted else 0.0
+                                hi = max(plotted) if plotted else 1.0
+                                pad = max(abs(hi) * 0.005, (hi - lo) * 0.10)
                                 fig = go.Figure()
-                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["close_idx"], name="Kurs", mode="lines", line={"width": 3}))
-                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["SMA20_idx"], name="SMA20", mode="lines", line={"width": 1.6}))
-                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["SMA50_idx"], name="SMA50", mode="lines", line={"width": 1.6}))
+                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["close"], name="Kurs", mode="lines", line={"width": 3}))
+                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["SMA20"], name="SMA20", mode="lines", line={"width": 1.6}))
+                                fig.add_trace(go.Scatter(x=visible["date"], y=visible["SMA50"], name="SMA50", mode="lines", line={"width": 1.6}))
+                                min_idx = visible["close"].idxmin()
+                                max_idx = visible["close"].idxmax()
                                 fig.add_trace(go.Scatter(
-                                    x=[visible["date"].iloc[-1]], y=[visible["close_idx"].iloc[-1]],
-                                    name="Siste", mode="markers", marker={"size": 8}, showlegend=False,
-                                    hovertemplate=f"Siste kurs: {float(visible['close'].iloc[-1]):.2f}<extra></extra>",
+                                    x=[visible["date"].iloc[0], visible["date"].iloc[-1], visible.loc[min_idx, "date"], visible.loc[max_idx, "date"]],
+                                    y=[visible["close"].iloc[0], visible["close"].iloc[-1], visible.loc[min_idx, "close"], visible.loc[max_idx, "close"]],
+                                    text=["Start", "Nå", "Min", "Maks"], textposition="top center",
+                                    name="Nivåer", mode="markers+text", marker={"size": 8}, showlegend=False,
                                 ))
                                 for level_key, level_name in (("prior_20d_high", "Forrige 20d-topp"), ("prior_60d_high", "Forrige 60d-topp")):
                                     level = receipt.get(level_key)
                                     try:
-                                        level_idx = float(level) / base * 100.0
+                                        level_idx = float(level)
                                     except Exception:
                                         level_idx = None
                                     if level_idx is not None and (lo - 2*pad) <= level_idx <= (hi + 2*pad):
@@ -8399,12 +8601,12 @@ def render_market_intelligence() -> None:
                                     if marker_date is not pd.NaT and pd.notna(marker_date) and start_date <= marker_date <= end_date:
                                         fig.add_vline(x=marker_date.to_pydatetime(), line_width=1, line_dash="dot", annotation_text=marker_label, annotation_position="top")
                                 fig.update_layout(
-                                    height=260, margin={"l": 35, "r": 18, "t": 26, "b": 28},
+                                    height=390, width=900, margin={"l": 65, "r": 22, "t": 32, "b": 38},
                                     hovermode="x unified", legend={"orientation": "h", "y": 1.12, "x": 0},
-                                    yaxis={"title": "Indeks (start = 100)", "range": [lo - pad, hi + pad], "fixedrange": False},
+                                    yaxis={"title": "Kurs", "range": [lo - pad, hi + pad], "fixedrange": False, "tickformat": ".2f"},
                                     xaxis={"title": None},
                                 )
-                                st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+                                st.plotly_chart(fig, width="content", config={"displayModeBar": False})
                                 rsi_visible = visible.dropna(subset=["RSI14"])
                                 if not rsi_visible.empty:
                                     rfig = go.Figure()
@@ -8507,16 +8709,7 @@ def render_market_intelligence() -> None:
                 if ranking_explanation.get("note"):
                     st.info(ranking_explanation.get("note"))
                 st.dataframe(pd.DataFrame(ranking_explanation.get("ranking_types") or []), width="stretch", hide_index=True)
-            render_report_file_center(
-                st, latest, key="latest_report_files",
-                execution_id=str(latest.get("background_execution_id") or ""),
-                include_complete_zip=True,
-            )
-            st.download_button(
-                "📝 Last ned rapport som tekst", build_text_report(latest),
-                file_name=safe_ascii_report_filename(latest, "txt"), mime="text/plain",
-                width="stretch", key="mi_download_txt_v19220_rc1631ca",
-            )
+            st.caption("Alle nedlastinger for siste rapport er samlet i Autonomi rett under Utkast/pågående kjøring.")
 
     with tab_reports:
         st.markdown("### 📚 Rapportarkiv")

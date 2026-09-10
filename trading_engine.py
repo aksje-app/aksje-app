@@ -225,7 +225,7 @@ def trades_today_count(portfolio=None, trade_type=None):
     return count
 
 
-def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, confidence=None, reason=""):
+def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, confidence=None, reason="", **details):
     """
     Sentral varsling for ALLE faktiske paper trades:
     - Cron BUY/SELL
@@ -259,6 +259,7 @@ def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, c
             shares=shares,
             confidence=confidence,
             reason=reason,
+            **details,
         )
     except Exception as e:
         print(f"notify_executed_trade failed: {e}")
@@ -268,6 +269,7 @@ def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, c
 TRADE_CONTEXT_KEYS = (
     "country",
     "market",
+    "exchange",
     "sector",
     "industry",
     "rule_used",
@@ -287,6 +289,11 @@ TRADE_CONTEXT_KEYS = (
     "scanner_execution_id",
     "decision_id",
     "market_data_at",
+    "current_score",
+    "score_path",
+    "contributing_reasons",
+    "replacement_ticker",
+    "replacement_score",
 )
 
 
@@ -309,6 +316,7 @@ def resolve_trade_security_context(ticker: Any, item: Mapping[str, Any] | None =
     return {
         "country": str(row.get("country") or row.get("land") or listing.get("country") or "").strip(),
         "market": str(row.get("market") or listing.get("market") or "").strip(),
+        "exchange": str(row.get("exchange") or row.get("exchange_name") or listing.get("exchange") or "").strip(),
         "sector": sector,
         "industry": industry,
         "asset_type": str(row.get("asset_type") or row.get("type") or "Aksje").strip() or "Aksje",
@@ -684,6 +692,13 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         "type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
         "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0),
         "pnl_pct":round(pnl_pct,2), "reason":reason, "order_kind":"paper_partial_sell" if is_partial else "paper",
+        "entry_price": round(entry, 4), "exit_price": round(price, 4),
+        "pnl_amount": round((price-entry)*shares, 2),
+        "entry_score": pos.get("entry_score"), "exit_score": trade_ctx.get("current_score"),
+        "primary_sell_reason": trade_ctx.get("trade_explanation") or reason,
+        "contributing_reasons": list(trade_ctx.get("contributing_reasons") or []),
+        "replacement_ticker": trade_ctx.get("replacement_ticker") or "",
+        "replacement_score": trade_ctx.get("replacement_score"),
         "sell_pct": round((shares / total_shares * 100.0) if total_shares else 100.0, 2),
         "remaining_shares": round(remaining_shares, 6),
         "asset_type": pos.get("asset_type", "Aksje"),
@@ -692,7 +707,29 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_sell_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "pnl_pct": round(pnl_pct, 2), "reason": reason})
     record_paper_trade("SELL", ticker=ticker, run_id=gate.run_id)
-    notify_executed_trade("SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason)
+    try:
+        opened = _parse_trade_time_v18660(pos.get("opened_at") or pos.get("entry_time"))
+        if opened:
+            start_date, end_date = opened.date(), datetime.now().date()
+            holding_days = sum(
+                1 for offset in range(max(0, (end_date - start_date).days) + 1)
+                if (start_date + timedelta(days=offset)).weekday() < 5
+            ) - 1
+            holding_days = max(0, holding_days)
+        else:
+            holding_days = 0
+    except Exception:
+        holding_days = 0
+    notify_executed_trade(
+        "SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason,
+        pnl_pct=pnl_pct, pnl_amount=(price-entry)*shares, entry_price=entry, exit_price=price,
+        holding_days=holding_days, entry_score=pos.get("entry_score"), exit_score=trade_ctx.get("current_score"),
+        score_path=list(trade_ctx.get("score_path") or pos.get("score_path") or []),
+        primary_sell_reason=trade_ctx.get("trade_explanation") or reason,
+        contributing_reasons=list(trade_ctx.get("contributing_reasons") or []),
+        replacement_ticker=trade_ctx.get("replacement_ticker"), replacement_score=trade_ctx.get("replacement_score"),
+        exchange=trade_ctx.get("exchange"), country=trade_ctx.get("country"), market=trade_ctx.get("market"),
+    )
     return True, f"PAPER-SALG {ticker} @ {price:.2f} ({pnl_pct:.2f}%)" + (f" - {shares:.4f} solgt, {remaining_shares:.4f} gjenstår" if is_partial else "")
 
 

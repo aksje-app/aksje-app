@@ -6,9 +6,10 @@ portfolio gates or trade authorisation.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-VERSION = "v19.22.0-rc16.31cb"
+VERSION = "v19.22.0-rc16.31cd"
 
 
 def _f(value: Any) -> float | None:
@@ -199,15 +200,62 @@ def _drivers(src: Mapping[str, Any], early: Mapping[str, Any], fresh: Mapping[st
     return out[:5]
 
 
+def _action_levels(src: Mapping[str, Any]) -> dict[str, Any]:
+    price = _f(src.get("last_price"))
+    breakout = _f(src.get("prior_20d_high"))
+    sma20 = _f(src.get("sma20"))
+    low20 = _f(src.get("low_20d"))
+    preferred = breakout or sma20 or price
+    pullback = breakout or sma20
+    invalidation_choices = [value for value in (sma20, low20) if value is not None and (price is None or value < price)]
+    invalidation = max(invalidation_choices) if invalidation_choices else (price * .95 if price else None)
+    risk_per_share = (preferred - invalidation) if preferred and invalidation and preferred > invalidation else None
+    target = preferred + 2.0 * risk_per_share if preferred and risk_per_share else None
+    distance = ((price / breakout) - 1.0) * 100.0 if price and breakout else None
+    return {
+        "current_price": round(price, 4) if price is not None else None,
+        "preferred_entry": round(preferred, 4) if preferred is not None else None,
+        "pullback_retest": round(pullback, 4) if pullback is not None else None,
+        "breakout_level": round(breakout, 4) if breakout is not None else None,
+        "distance_to_breakout_pct": round(distance, 2) if distance is not None else None,
+        "invalidation_level": round(invalidation, 4) if invalidation is not None else None,
+        "first_target": round(target, 4) if target is not None else None,
+        "reward_risk_ratio": 2.0 if target is not None and risk_per_share else None,
+        "trade_authority": False,
+        "note": "Observasjonsnivåer; kjøp krever alle ordinære data-, evidens-, risiko- og porteføljeporter.",
+    }
+
+
+def _data_freshness(src: Mapping[str, Any]) -> dict[str, Any]:
+    timestamp = next((src.get(key) for key in (
+        "market_data_at", "price_updated_at", "data_timestamp", "quote_timestamp", "updated_at"
+    ) if src.get(key)), "")
+    if not timestamp:
+        return {"timestamp": "", "age_seconds": None, "status": "UKJENT"}
+    try:
+        parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        parsed = parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
+        age = max(0, int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()))
+        status = "FERSK" if age <= 20 * 60 else "FORSINKET" if age <= 24 * 3600 else "FORELDET"
+        return {"timestamp": str(timestamp), "age_seconds": age, "status": status}
+    except (TypeError, ValueError):
+        return {"timestamp": str(timestamp), "age_seconds": None, "status": "UGYLDIG"}
+
+
 def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str, Any] | None = None) -> dict[str, Any]:
     src=_source(candidate); history_item=dict(history_item or {}); obs=list(history_item.get("observations") or [])
+    try:
+        from security_metadata import infer_security_listing
+        listing = infer_security_listing(candidate.get("ticker"), {**dict(src), **dict(candidate)})
+    except Exception:
+        listing = {}
     previous_rank=obs[-1].get("rank") if obs else None; current_rank=candidate.get("rank"); rank_delta=None
     try: rank_delta=int(previous_rank)-int(current_rank) if previous_rank and current_rank else None
     except Exception: pass
     early=_early_signal(src); fresh=_fresh_signal(src); age,age_label=_trend_age(src)
     return {
-        "version":VERSION,"ticker":str(candidate.get("ticker") or ""),"market":str(candidate.get("market") or src.get("market") or ""),"sector":str(candidate.get("sector") or src.get("sector") or ""),
-        "exchange_name":str(candidate.get("exchange_name") or src.get("exchange_name") or src.get("market_segment") or ""),"market_segment":str(candidate.get("market_segment") or src.get("market_segment") or src.get("exchange_name") or ""),"exchange_mic":str(candidate.get("exchange_mic") or src.get("exchange_mic") or ""),"exchange_symbol":str(candidate.get("exchange_symbol") or src.get("exchange_symbol") or ""),"isin":str(candidate.get("isin") or src.get("isin") or ""),
+        "version":VERSION,"ticker":str(candidate.get("ticker") or ""),"name":str(candidate.get("name") or src.get("name") or src.get("company_name") or ""),"country":str(candidate.get("country") or src.get("country") or listing.get("country") or "Ukjent"),"market":str(candidate.get("market") or src.get("market") or listing.get("market") or "Ukjent"),"sector":str(candidate.get("sector") or src.get("sector") or ""),
+        "exchange":str(candidate.get("exchange") or src.get("exchange") or listing.get("exchange") or "Ukjent"),"exchange_name":str(candidate.get("exchange_name") or src.get("exchange_name") or src.get("market_segment") or listing.get("exchange") or "Ukjent"),"market_segment":str(candidate.get("market_segment") or src.get("market_segment") or src.get("exchange_name") or listing.get("exchange") or "Ukjent"),"exchange_mic":str(candidate.get("exchange_mic") or src.get("exchange_mic") or ""),"exchange_symbol":str(candidate.get("exchange_symbol") or src.get("exchange_symbol") or ""),"isin":str(candidate.get("isin") or src.get("isin") or ""),
         "first_discovered_at":history_item.get("first_seen") or candidate.get("created_at") or "","last_seen_at":history_item.get("last_seen") or "","times_seen":int(history_item.get("times_in_list") or len(obs) or 0),"rank_change":rank_delta,
         "trend_phase":_phase(src),"trend_age_sessions":age,"trend_age":age_label,"last_price":_f(src.get("last_price")),
         "return_1d_pct":_f(src.get("return_1d")),"return_3d_pct":_f(src.get("return_3d")),"return_5d_pct":_f(src.get("return_5d")),"return_10d_pct":_f(src.get("return_10d")),"return_15d_pct":_f(src.get("return_15d")),"return_20d_pct":_f(src.get("return_20d") or src.get("return_1m")),"return_60d_pct":_f(src.get("return_60d") or src.get("return_3m")),
@@ -219,7 +267,7 @@ def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str,
         "distance_from_20d_high_pct":_f(src.get("distance_from_20d_high_pct")),"distance_from_60d_high_pct":_f(src.get("distance_from_60d_high_pct")),"breakout_20d":_b(src.get("breakout_20d")),"breakout_60d":_b(src.get("breakout_60d")),"breakout_20d_age_sessions":src.get("breakout_20d_age_sessions"),"breakout_hold_sessions":src.get("breakout_hold_sessions"),"breakout_holding":_b(src.get("breakout_holding")),"breakout_20d_pct":_f(src.get("breakout_20d_pct")),"breakout_60d_pct":_f(src.get("breakout_60d_pct")),
         "prior_20d_high":_f(src.get("prior_20d_high")),"prior_60d_high":_f(src.get("prior_60d_high")),"low_20d":_f(src.get("low_20d")),"low_60d":_f(src.get("low_60d")),"support_levels":list(src.get("support_levels") or []),"resistance_levels":list(src.get("resistance_levels") or []),
         "compression_ratio_10v40":_f(src.get("compression_ratio_10v40")),"volatility_expansion_5v20":_f(src.get("volatility_expansion_5v20")),"close_location_in_day":_f(src.get("close_location_in_day")),"price_trend_60d":list(src.get("price_trend_60d") or [])[-60:],
-        "early_signal":early,"fresh_signal":fresh,"top_trend_drivers":_drivers(src,early,fresh),"descriptive_only":True,
+        "early_signal":early,"fresh_signal":fresh,"action_levels":_action_levels(src),"data_freshness":_data_freshness(src),"top_trend_drivers":_drivers(src,early,fresh),"descriptive_only":True,
     }
 
 
@@ -238,15 +286,15 @@ def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) 
     candidates=list(by_ticker.values()); receipts=[]
     for row in candidates:
         ticker=str(row.get("ticker") or ""); receipt=build_trend_receipt(row,history.get(ticker) if isinstance(history.get(ticker),Mapping) else {}); row["trend_receipt"]=receipt; receipts.append(receipt)
-    market5=[x for x in (_f(r.get("return_5d_pct")) for r in receipts) if x is not None]; market20=[x for x in (_f(r.get("return_20d_pct")) for r in receipts) if x is not None]; market60=[x for x in (_f(r.get("return_60d_pct")) for r in receipts) if x is not None]
-    sectors20={}; sectors5={}
+    markets5={}; markets20={}; markets60={}; sectors20={}; sectors5={}
     for r in receipts:
-        sec=str(r.get("sector") or "Ukjent"); v20=_f(r.get("return_20d_pct")); v5=_f(r.get("return_5d_pct"))
-        if v20 is not None: sectors20.setdefault(sec,[]).append(v20)
-        if v5 is not None: sectors5.setdefault(sec,[]).append(v5)
+        market=str(r.get("market") or r.get("country") or "Ukjent"); sec=(market,str(r.get("sector") or "Ukjent")); v20=_f(r.get("return_20d_pct")); v5=_f(r.get("return_5d_pct")); v60=_f(r.get("return_60d_pct"))
+        if v20 is not None: markets20.setdefault(market,[]).append(v20); sectors20.setdefault(sec,[]).append(v20)
+        if v5 is not None: markets5.setdefault(market,[]).append(v5); sectors5.setdefault(sec,[]).append(v5)
+        if v60 is not None: markets60.setdefault(market,[]).append(v60)
     for r in receipts:
-        sec=str(r.get("sector") or "Ukjent"); p5=_pctile(_f(r.get("return_5d_pct")),market5); p20=_pctile(_f(r.get("return_20d_pct")),market20)
-        r["market_rs_5d_percentile"]=p5; r["market_rs_20d_percentile"]=p20; r["market_rs_60d_percentile"]=_pctile(_f(r.get("return_60d_pct")),market60); r["sector_rs_5d_percentile"]=_pctile(_f(r.get("return_5d_pct")),sectors5.get(sec,[])); r["sector_rs_20d_percentile"]=_pctile(_f(r.get("return_20d_pct")),sectors20.get(sec,[]))
+        market=str(r.get("market") or r.get("country") or "Ukjent"); sec=(market,str(r.get("sector") or "Ukjent")); p5=_pctile(_f(r.get("return_5d_pct")),markets5.get(market,[])); p20=_pctile(_f(r.get("return_20d_pct")),markets20.get(market,[]))
+        r["market_rs_5d_percentile"]=p5; r["market_rs_20d_percentile"]=p20; r["market_rs_60d_percentile"]=_pctile(_f(r.get("return_60d_pct")),markets60.get(market,[])); r["sector_rs_5d_percentile"]=_pctile(_f(r.get("return_5d_pct")),sectors5.get(sec,[])); r["sector_rs_20d_percentile"]=_pctile(_f(r.get("return_20d_pct")),sectors20.get(sec,[]))
         r["relative_strength_ignition"] = round(p5-p20,1) if p5 is not None and p20 is not None else None
         fs=r.get("fresh_signal") or {}
         if r.get("relative_strength_ignition") is not None and r["relative_strength_ignition"]>=20:
@@ -262,5 +310,10 @@ def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) 
         r["fresh_monitor_components"] = _components(r)
         r["pullback_retest"] = _pullback_retest(r)
     established=[r for r in early if r.get("trend_age") in {"ETABLERT","MODEN"} and float((r.get("early_signal") or {}).get("score") or 0)>=30]
-    run["trend_discovery"]={"version":VERSION,"mode":"NORWAY_PRODUCTION_STABILIZATION" if run.get("markets")==["Norge"] else "MULTI_MARKET","top10":ranked[:10],"near_candidates":ranked[10:15],"early_signal_watchlist":early[:12],"fresh_trend_watchlist":fresh_only[:12],"established_trend_watchlist":established[:12],"coverage":{"candidates":len(candidates),"full_stage1_universe":len(pool),"deep_scored":len(scored),"with_20d_return":len(ranked),"with_60d_chart":sum(1 for r in receipts if len(r.get("price_trend_60d") or [])>=20),"with_early_signal":sum(1 for r in early if float((r.get("early_signal") or {}).get("score") or 0)>=30),"with_fresh_signal":len(fresh_only)},"missed_winner_audit":{"state":"COLLECTING_BASELINE","note":"Fresh Trend måles separat fra etablerte vinnere slik at eldre 30–60d-trender ikke kan dominere nye trendstarter."},"production_scoring_changed":False,"evidence_priority_changed":True,"explanation":"Fresh Trend og etablert trend er separate køer. Fresh Trend favoriserer fersk akselerasjon, breakout, RSI/OBV-tenning og kompresjon→ekspansjon. Sterke ferske signaler kan få tidligere evidenskontroll, men kan aldri alene utløse kjøp."}
+    prior = run.get("trend_discovery") if isinstance(run.get("trend_discovery"), Mapping) else {}
+    prior_coverage = prior.get("coverage") if isinstance(prior.get("coverage"), Mapping) else {}
+    actual_by_market = (run.get("scan_configuration") or {}).get("actual_by_market") or {}
+    scan_actual = sum(int(value or 0) for value in actual_by_market.values()) if isinstance(actual_by_market, Mapping) else 0
+    full_stage1 = max(len(pool), int(prior_coverage.get("full_stage1_universe") or 0), scan_actual)
+    run["trend_discovery"]={"version":VERSION,"mode":"NORWAY_PRODUCTION_STABILIZATION" if run.get("markets")==["Norge"] else "MULTI_MARKET","top10":ranked[:10],"near_candidates":ranked[10:15],"early_signal_watchlist":early[:12],"fresh_trend_watchlist":fresh_only[:12],"established_trend_watchlist":established[:12],"coverage":{"candidates":len(candidates),"full_stage1_universe":full_stage1,"deep_scored":len(scored),"with_20d_return":len(ranked),"with_60d_chart":sum(1 for r in receipts if len(r.get("price_trend_60d") or [])>=20),"with_early_signal":sum(1 for r in early if float((r.get("early_signal") or {}).get("score") or 0)>=30),"with_fresh_signal":len(fresh_only)},"missed_winner_audit":{"state":"COLLECTING_BASELINE","note":"Fresh Trend måles separat fra etablerte vinnere slik at eldre 30–60d-trender ikke kan dominere nye trendstarter."},"production_scoring_changed":False,"evidence_priority_changed":True,"explanation":"Fresh Trend og etablert trend er separate køer. Fresh Trend favoriserer fersk akselerasjon, breakout, RSI/OBV-tenning og kompresjon→ekspansjon. Sterke ferske signaler kan få tidligere evidenskontroll, men kan aldri alene utløse kjøp."}
     return run

@@ -482,8 +482,15 @@ def build_candidate_decision_contract(candidate: Mapping[str, Any], run: Mapping
     confidence = candidate_confidence_profile(candidate, consensus)
     blockers, triggers = candidate_blockers_and_triggers(candidate, run)
     outcome_code = str(candidate.get("autonomy_outcome_code") or candidate.get("portfolio_action") or candidate.get("status") or "REVIEW")
+    try:
+        from security_metadata import infer_security_listing
+        listing = infer_security_listing(candidate.get("ticker"), candidate)
+    except Exception:
+        listing = {}
     return {
         "ticker": str(candidate.get("ticker") or ""),
+        "exchange": str(candidate.get("exchange_name") or candidate.get("exchange") or listing.get("exchange") or "Ukjent"),
+        "country": str(candidate.get("country") or listing.get("country") or candidate.get("market") or "Ukjent"),
         "action": outcome_code,
         "action_label": str(candidate.get("autonomy_outcome_label") or _action_label(outcome_code)),
         "score": candidate.get("investment_score"),
@@ -501,6 +508,16 @@ def build_candidate_decision_contract(candidate: Mapping[str, Any], run: Mapping
 
 def _candidate_by_ticker(run: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {str(row.get("ticker") or "").upper(): row for row in _rows(run.get("candidates")) if row.get("ticker")}
+
+
+def _candidate_price(candidate: Mapping[str, Any] | None) -> float:
+    row = _mapping(candidate)
+    for current in (row, _mapping(row.get("raw"))):
+        for key in ("last_price", "price", "close", "current_price"):
+            value = _safe_float(current.get(key), 0.0)
+            if value > 0:
+                return value
+    return 0.0
 
 
 def build_change_summary(run: Mapping[str, Any], previous: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -522,6 +539,20 @@ def build_change_summary(run: Mapping[str, Any], previous: Mapping[str, Any] | N
     largest_weakening = min(weakened, key=lambda row: _safe_float(row.get("score_delta")), default={})
     action_changes: list[dict[str, Any]] = []
     previous_map = _candidate_by_ticker(previous or {})
+    current_map = _candidate_by_ticker(run)
+    top3_price_changes: list[dict[str, Any]] = []
+    for ticker in current_top:
+        current_row, previous_row = current_map.get(ticker.upper()), previous_map.get(ticker.upper())
+        current_price, previous_price = _candidate_price(current_row), _candidate_price(previous_row)
+        since_previous = ((current_price / previous_price) - 1.0) * 100.0 if current_price > 0 and previous_price > 0 else None
+        raw = _mapping(_mapping(current_row).get("raw"))
+        day_change = _safe_float(raw.get("return_1d", raw.get("change_pct")), 0.0)
+        top3_price_changes.append({
+            "ticker": ticker, "price": round(current_price, 4) if current_price else None,
+            "price_change_since_previous_pct": round(since_previous, 2) if since_previous is not None else None,
+            "price_change_1d_pct": round(day_change, 2),
+            "score_change_points": round(_safe_float(_mapping(current_row).get("score_delta")), 2),
+        })
     for row in _rows(run.get("candidates")):
         ticker = str(row.get("ticker") or "").upper()
         old = previous_map.get(ticker)
@@ -535,6 +566,7 @@ def build_change_summary(run: Mapping[str, Any], previous: Mapping[str, Any] | N
         "has_previous": has_previous,
         "top3_added": top_added,
         "top3_removed": top_removed,
+        "top3_price_changes": top3_price_changes,
         "new": [{"ticker": row.get("ticker"), "score": row.get("investment_score")} for row in new_rows[:10]],
         "improved": [{"ticker": row.get("ticker"), "delta": row.get("score_delta")} for row in improved[:10]],
         "weakened": [{"ticker": row.get("ticker"), "delta": row.get("score_delta")} for row in weakened[:10]],
