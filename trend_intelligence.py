@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-VERSION = "v19.22.0-rc16.31ch"
+VERSION = "v19.22.0-rc16.31ci"
 
 
 def _f(value: Any) -> float | None:

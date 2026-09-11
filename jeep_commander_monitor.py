@@ -67,6 +67,7 @@ def default_config(*, now: datetime | None = None) -> dict[str, Any]:
         "include_other_colors": True,
         "interval_minutes": INTERVAL_MINUTES,
         "pushover": True,
+        "include_dealer_network": True,
         "created_at": created.isoformat(),
         "expires_at": (created + timedelta(days=90)).isoformat(),
     }
@@ -177,11 +178,19 @@ def build_source_urls(config: dict[str, Any]) -> list[dict[str, str]]:
     else:
         wm = f"https://www.webmotors.com.br/carros/estoque/jeep/commander/de.{low}/ate.{high}"
         olx_base = "https://www.olx.com.br/autos-e-pecas/carros-vans-e-utilitarios/jeep/commander/overl-22-td-4x4-diesel-aut/{year}/estado-brasil"
-    return [
-        {"source": "Webmotors", "query": f"{low}-{high}", "url": wm},
-        *({"source": "OLX", "query": str(year), "url": olx_base.format(year=year)} for year in years),
-        *({"source": "Mobiauto", "query": str(year), "url": f"https://www.mobiauto.com.br/comprar/carros/sp-sao-paulo/jeep/commander/ano-{year}"} for year in years),
+    sources = [
+        {"source": "Webmotors", "query": f"{low}-{high}", "url": wm, "channel": "MARKETPLACE", "default_seller_type": "UKJENT"},
+        *({"source": "OLX", "query": str(year), "url": olx_base.format(year=year), "channel": "MARKETPLACE", "default_seller_type": "UKJENT"} for year in years),
+        *({"source": "Mobiauto", "query": str(year), "url": f"https://www.mobiauto.com.br/comprar/carros/sp-sao-paulo/jeep/commander/ano-{year}", "channel": "MARKETPLACE", "default_seller_type": "UKJENT"} for year in years),
     ]
+    if config.get("include_dealer_network", True):
+        # Dealer-owned inventories complement the marketplaces. Filtering for
+        # year, engine, mileage and geography remains local and identical.
+        sources.extend([
+            {"source": "Localiza Seminovos", "query": area, "url": "https://seminovos.localiza.com/carros/jeep/commander", "channel": "DEALER_NETWORK", "default_seller_type": "FORHANDLER"},
+            {"source": "Seminovos.com.br", "query": area, "url": "https://seminovos.com.br/carros/jeep/commander", "channel": "DEALER_NETWORK", "default_seller_type": "FORHANDLER"},
+        ])
+    return sources
 
 
 def _number(value: Any) -> float | None:
@@ -258,7 +267,25 @@ def _vehicle_years(item: dict[str, Any], blob: str) -> tuple[int | None, int | N
     return production_year, model_year, display_years
 
 
-def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str) -> dict[str, Any] | None:
+def _seller_details(item: dict[str, Any], *, source: str, default_seller_type: str = "UKJENT") -> tuple[str, str, bool]:
+    raw = _first(item, ("seller", "dealer", "store", "loja", "advertiser", "provider"))
+    mapping = raw if isinstance(raw, dict) else {}
+    name = str(_first(mapping, ("name", "legalName", "tradeName", "nome")) or (raw if isinstance(raw, str) else "")).strip()
+    type_blob = " ".join(str(value or "") for value in (
+        _first(mapping, ("@type", "type", "sellerType", "advertiserType")),
+        _first(item, ("sellerType", "advertiserType", "tipoVendedor")), name, source,
+    )).lower()
+    if any(token in type_blob for token in ("person", "pessoa física", "pessoa fisica", "particular", "privado")):
+        seller_type = "PRIVAT"
+    elif any(token in type_blob for token in ("dealer", "organization", "loja", "concession", "seminovos", "revenda")):
+        seller_type = "FORHANDLER"
+    else:
+        seller_type = default_seller_type if default_seller_type in {"PRIVAT", "FORHANDLER"} else "UKJENT"
+    authorized = seller_type == "FORHANDLER" and any(token in type_blob for token in ("autorizad", "concessionária jeep", "concessionaria jeep", "jeep dealer"))
+    return name, seller_type, authorized
+
+
+def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str, default_seller_type: str = "UKJENT") -> dict[str, Any] | None:
     title = _first(item, ("name", "title", "subject", "vehicleTitle", "version"))
     url = _first(item, ("url", "link", "permalink", "detailUrl", "vehicleUrl"))
     offers = item.get("offers") if isinstance(item.get("offers"), dict) else {}
@@ -286,6 +313,7 @@ def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str) ->
     absolute_url = urljoin(base_url, str(url))
     raw_id = _first(item, ("id", "vehicleId", "adId", "listingId"))
     listing_id = str(raw_id or hashlib.sha256(absolute_url.encode()).hexdigest()[:20])
+    seller_name, seller_type, authorized = _seller_details(item, source=source, default_seller_type=default_seller_type)
     return {
         "id": f"{source.lower()}:{listing_id}", "source": source,
         "title": html_lib.unescape(str(title or "Jeep Commander")).strip(),
@@ -294,11 +322,13 @@ def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str) ->
         "km": int(round(float(_number(mileage) or 0))) if _number(mileage) is not None else None,
         "years": years, "production_year": production_year, "model_year": model_year,
         "color": color, "city": city, "state": state,
+        "seller_name": seller_name, "seller_type": seller_type,
+        "authorized_jeep": authorized,
         "raw_text": html_lib.unescape(blob),
     }
 
 
-def parse_marketplace_html(content: str, *, source: str, base_url: str) -> list[dict[str, Any]]:
+def parse_marketplace_html(content: str, *, source: str, base_url: str, default_seller_type: str = "UKJENT") -> list[dict[str, Any]]:
     """Parse structured public payloads without bypassing bot protection."""
     payloads: list[Any] = []
     for match in re.finditer(
@@ -312,10 +342,10 @@ def parse_marketplace_html(content: str, *, source: str, base_url: str) -> list[
     results: dict[str, dict[str, Any]] = {}
     for payload in payloads:
         for item in _walk(payload):
-            candidate = _candidate_from_dict(item, source=source, base_url=base_url)
+            candidate = _candidate_from_dict(item, source=source, base_url=base_url, default_seller_type=default_seller_type)
             if candidate:
                 results[candidate["id"]] = candidate
-    for candidate in _parse_visible_listing_cards(content, source=source, base_url=base_url):
+    for candidate in _parse_visible_listing_cards(content, source=source, base_url=base_url, default_seller_type=default_seller_type):
         results[candidate["id"]] = candidate
     return list(results.values())
 
@@ -326,7 +356,7 @@ def _plain_text(fragment: str) -> str:
     return re.sub(r"\s+", " ", html_lib.unescape(value)).strip()
 
 
-def _parse_visible_listing_cards(content: str, *, source: str, base_url: str) -> list[dict[str, Any]]:
+def _parse_visible_listing_cards(content: str, *, source: str, base_url: str, default_seller_type: str = "UKJENT") -> list[dict[str, Any]]:
     """Parse server-rendered OLX/Mobiauto/Webmotors result cards.
 
     Marketplace pages frequently keep each title in an anchor while mileage,
@@ -344,10 +374,10 @@ def _parse_visible_listing_cards(content: str, *, source: str, base_url: str) ->
     colors = ("Preto", "Preta", "Branco", "Branca", "Cinza", "Prata", "Azul", "Vermelho", "Verde", "Dourado", "Marrom")
     for index, match in enumerate(commander_anchors):
         title = _plain_text(match.group("body"))
-        if not re.search(r"\b2[.,]2\b", title) or not ("diesel" in title.lower() or re.search(r"\btd\b", title.lower())):
-            continue
         end = commander_anchors[index + 1].start() if index + 1 < len(commander_anchors) else min(len(page), match.end() + 5000)
         segment = _plain_text(page[match.start():end])
+        if not re.search(r"\b2[.,]2\b", segment) or not ("diesel" in segment.lower() or re.search(r"\btd\b", segment.lower())):
+            continue
         km_match = re.search(r"\b([0-9]{1,3}(?:[.]?[0-9]{3})*)\s*km\b", segment, flags=re.I)
         prices = re.findall(r"R\$\s*([0-9]{1,3}(?:[.]?[0-9]{3})+)", segment, flags=re.I)
         if not km_match or not prices:
@@ -359,7 +389,15 @@ def _parse_visible_listing_cards(content: str, *, source: str, base_url: str) ->
         location_matches = re.findall(r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'-]{1,45})\s*[-–]\s*([A-Z]{2})\b", segment)
         city, state = location_matches[-1] if location_matches else ("", "")
         color = next((name for name in colors if re.search(rf"\b{name}\b", segment, flags=re.I)), "")
-        production_year, model_year, years = _vehicle_years({}, title)
+        segment_lower = segment.lower()
+        if any(token in segment_lower for token in ("pessoa física", "pessoa fisica", "particular", "vendedor privado")):
+            seller_type = "PRIVAT"
+        elif any(token in segment_lower for token in ("concessionária", "concessionaria", "loja", "revenda")):
+            seller_type = "FORHANDLER"
+        else:
+            seller_type = default_seller_type
+        authorized = seller_type == "FORHANDLER" and any(token in segment_lower for token in ("autorizada jeep", "concessionária jeep", "concessionaria jeep"))
+        production_year, model_year, years = _vehicle_years({}, segment)
         listing_id = hashlib.sha256(url.split("?", 1)[0].encode()).hexdigest()[:20]
         row = {
             "id": f"{source.lower()}:{listing_id}", "source": source, "title": title,
@@ -367,6 +405,8 @@ def _parse_visible_listing_cards(content: str, *, source: str, base_url: str) ->
             "price_brl": int(_number(prices[-1]) or 0), "km": int(_number(km_match.group(1)) or 0),
             "years": years, "production_year": production_year, "model_year": model_year,
             "color": color, "city": city.strip(), "state": state.upper(),
+            "seller_name": "", "seller_type": seller_type,
+            "authorized_jeep": authorized,
         }
         if row["price_brl"] > 0 and _valid_url(url):
             rows[row["id"]] = row
@@ -450,6 +490,52 @@ def _enrich_and_rank(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(ranked, key=lambda row: (-float(row["value_score"]), float(row["price_brl"]), int(row.get("km") or 0)))
 
 
+def _dedupe_signature(item: dict[str, Any]) -> str:
+    """Conservative cross-site identity without inventing a VIN.
+
+    Listings are combined only when model year, exact odometer, location and
+    normalized variant agree and prices are close. Distinct cars are therefore
+    preferred over an unsafe merge when information is incomplete.
+    """
+    title = re.sub(r"\b(?:jeep|commander|diesel|turbo|at9|4x4)\b", " ", str(item.get("title") or "").lower())
+    variant = re.sub(r"[^a-z0-9]+", "", title)[:40]
+    parts = (
+        item.get("model_year"), item.get("km"), str(item.get("city") or "").lower().strip(),
+        str(item.get("state") or "").upper(), variant,
+    )
+    return hashlib.sha256("|".join(str(value or "") for value in parts).encode()).hexdigest()[:24]
+
+
+def _deduplicate_across_sources(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        groups.setdefault(_dedupe_signature(row), []).append(dict(row))
+    result: list[dict[str, Any]] = []
+    for signature, candidates in groups.items():
+        # Do not merge implausibly different prices even when sparse metadata
+        # happens to match.
+        clusters: list[list[dict[str, Any]]] = []
+        for candidate in sorted(candidates, key=lambda value: float(value.get("price_brl") or 0)):
+            price = float(candidate.get("price_brl") or 0)
+            matching = next((cluster for cluster in clusters if abs(price - float(cluster[0].get("price_brl") or 0)) <= max(5000, price * .025)), None)
+            if matching is None:
+                clusters.append([candidate])
+            else:
+                matching.append(candidate)
+        for cluster_index, cluster in enumerate(clusters):
+            best = min(cluster, key=lambda value: float(value.get("price_brl") or 0))
+            sources = sorted({str(value.get("source") or "") for value in cluster if value.get("source")})
+            alternatives = [{"source": value.get("source"), "url": value.get("url"), "price_brl": value.get("price_brl")} for value in cluster]
+            merged = dict(best)
+            merged["id"] = f"vehicle:{signature}:{cluster_index}"
+            merged["sources"] = sources
+            merged["source_count"] = len(sources)
+            merged["alternatives"] = alternatives
+            merged["source"] = sources[0] if len(sources) == 1 else " + ".join(sources)
+            result.append(merged)
+    return result
+
+
 def _fetch_sources(config: dict[str, Any], fetcher: Callable[..., Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
@@ -463,7 +549,10 @@ def _fetch_sources(config: dict[str, Any], fetcher: Callable[..., Any]) -> tuple
             if status != 200:
                 raise RuntimeError(f"HTTP {status}")
             body = str(getattr(response, "text", "") or "")
-            parsed = parse_marketplace_html(body, source=source["source"], base_url=source["url"])
+            parsed = parse_marketplace_html(
+                body, source=source["source"], base_url=source["url"],
+                default_seller_type=source.get("default_seller_type", "UKJENT"),
+            )
             visible = _plain_text(body).lower()
             explicit_empty = bool(re.search(
                 r"(?:^|[.!?])\s*(?:nenhum anúncio|nenhum veículo|não encontramos veículos|0 veículos disponíveis)",
@@ -496,11 +585,18 @@ def _message(item: dict[str, Any], reason: str) -> str:
     distance = item.get("distance_from_fortaleza_km")
     distance_text = "lokal i Ceará" if item.get("local") else (f"ca. {distance} km (delstatsestimat)" if distance is not None else "avstand ukjent")
     color = item.get("color") or ("sort" if item.get("black") else "farge ikke oppgitt")
+    seller_type = {"PRIVAT": "privatannonse", "FORHANDLER": "vanlig forhandler", "UKJENT": "selgertype ikke oppgitt"}.get(str(item.get("seller_type") or "UKJENT"), "selgertype ikke oppgitt")
+    if item.get("authorized_jeep"):
+        seller_type = "autorisert Jeep-forhandler"
+    seller = f" · {item.get('seller_name')}" if item.get("seller_name") else ""
+    sources = item.get("sources") or [item.get("source")]
+    source_text = ", ".join(str(value) for value in sources if value)
     return (
         f"{reason}\n{item.get('title') or MODULE_NAME}\n"
         f"{years} · {int(item.get('km') or 0):,} km · {color}\n"
         f"{_format_brl(item.get('price_brl'))} · {location} · {distance_text}\n"
-        f"Pris mot median: {float(item.get('price_advantage_pct') or 0):+.1f}% · kilde {item.get('source')}"
+        f"{seller_type}{seller} · {len(sources)} kilde(r)\n"
+        f"Pris mot median: {float(item.get('price_advantage_pct') or 0):+.1f}% · {source_text}"
     ).replace(",", " ")
 
 
@@ -524,6 +620,12 @@ def _events(current: list[dict[str, Any]], previous: dict[str, Any], *, first_su
             cut = (old_price - new_price) / old_price * 100
             if old_price - new_price >= 500 or cut >= 0.3:
                 events.append((item, f"💰 Prisfall {_format_brl(old_price)} → {_format_brl(new_price)} (-{cut:.1f}%)"))
+                continue
+        old_sources = set(prior.get("sources") or [prior.get("source")])
+        new_sources = set(item.get("sources") or [item.get("source")])
+        added = sorted(str(value) for value in new_sources - old_sources if value)
+        if added:
+            events.append((item, f"🔎 Samme bil funnet hos ny kilde: {', '.join(added)}"))
     return events
 
 
@@ -561,16 +663,15 @@ def run_due_monitor(
             }
             _save_state(result)
             return {"state": "FAILED_SOURCES", "checked": 0, "sent": 0, "sources": sources, "error": result["last_error"]}
-        unique = {row["id"]: row for row in raw_rows}
         rejection_counts: dict[str, int] = {}
         accepted = []
-        for row in unique.values():
+        for row in raw_rows:
             reason = _target_rejection_reason(row, config)
             if reason:
                 rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
             else:
                 accepted.append(row)
-        current = _enrich_and_rank(accepted)
+        current = _enrich_and_rank(_deduplicate_across_sources(accepted))
         first_success = not bool(state.get("baseline_created_at"))
         events = _events(current, state, first_success=first_success)
         pending_map: dict[str, tuple[dict[str, Any], str]] = {}
@@ -604,7 +705,8 @@ def run_due_monitor(
                 "id", "source", "title", "url", "price_brl", "km", "years",
                 "production_year", "model_year", "color",
                 "city", "state", "black", "local", "distance_from_fortaleza_km",
-                "price_advantage_pct", "value_score",
+                "price_advantage_pct", "value_score", "seller_name", "seller_type",
+                "authorized_jeep", "sources", "source_count", "alternatives",
             )} for item in current[:200]
         }
         result = {
@@ -618,7 +720,7 @@ def run_due_monitor(
             "pending_notifications": [{"listing": item, "reason": reason} for item, reason in unsent[:100]],
             "sources": sources, "listings": compact, "ranked": current[:50], "source": source,
             "rejection_counts": rejection_counts,
-            "config_snapshot": {key: config.get(key) for key in ("years", "max_km", "area", "preferred_color")},
+            "config_snapshot": {key: config.get(key) for key in ("years", "max_km", "area", "preferred_color", "include_dealer_network")},
             "last_error": "; ".join(send_errors)[:1000],
         }
         _save_state(result)
@@ -649,11 +751,17 @@ def render_streamlit_module(st: Any) -> None:
     active = st.toggle("Automatisk søk hvert 15. minutt", value=bool(config.get("active", True)), key="jeep_commander_active_v19220_rc1631ch")
     pushover = st.toggle("Pushover ved nye funn, prisfall eller tydelig bedre tilbud", value=bool(config.get("pushover", True)), key="jeep_commander_push_v19220_rc1631ch")
     other_colors = st.toggle("Ta med andre farger når prisen er bedre", value=bool(config.get("include_other_colors", True)), key="jeep_commander_colors_v19220_rc1631ch")
+    dealer_network = st.toggle(
+        "Søk også i forhandlernettverk",
+        value=bool(config.get("include_dealer_network", True)),
+        help="Supplerer Webmotors, OLX og Mobiauto med forhandlernes egne bruktbillister.",
+        key="jeep_commander_dealers_v19220_rc1631ci",
+    )
 
     left, right = st.columns(2)
     if left.button("Lagre søkevalg", key="jeep_commander_save_v19220_rc1631ch", width="stretch"):
         years = [2025, 2026] if year_label == "2025 og 2026" else ([2026] if year_label == "Bare 2026" else [2025])
-        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "pushover": pushover, "include_other_colors": other_colors})
+        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network})
         st.success("Søkevalgene er lagret og brukes ved neste Cron-kontroll.")
         st.rerun()
     if right.button("Søk nå", key="jeep_commander_scan_v19220_rc1631ch", width="stretch"):
@@ -681,9 +789,16 @@ def render_streamlit_module(st: Any) -> None:
             with st.expander(title):
                 st.write(_message(item, "Sort foretrukket" if item.get("black") else "Billigere alternativ farge"))
                 st.link_button("Åpne annonsen", item["url"], width="stretch")
+                alternatives = list(item.get("alternatives") or [])
+                if len(alternatives) > 1:
+                    st.caption(f"Samme bil er funnet i {len(alternatives)} annonser. Billigste annonse åpnes over.")
+                    st.dataframe(alternatives, width="stretch", hide_index=True)
     st.markdown("#### Kildestatus")
     if state.get("sources"):
         st.dataframe(state["sources"], width="stretch", hide_index=True)
+        failed = [row for row in state["sources"] if row.get("state") != "OK"]
+        if failed:
+            st.warning(f"{len(failed)} kilde(r) kunne ikke kontrolleres. Treffantallet er derfor ikke komplett; se feilen per kilde.")
     if state.get("rejection_counts"):
         st.caption("Annonser som ble lest, men avvist av søkevalgene:")
         st.dataframe(
