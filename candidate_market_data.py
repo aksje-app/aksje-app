@@ -368,6 +368,8 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             latest_v = _finite(v.iloc[-1]) if len(v) else None
             if avg20 and latest_v is not None:
                 fields["volume_ratio_20"] = latest_v / avg20
+                fields["latest_volume"] = latest_v
+                fields["average_volume_20"] = avg20
             direction = close.diff().fillna(0.0).map(lambda x: 1.0 if x > 0 else (-1.0 if x < 0 else 0.0))
             obv = (direction * v).cumsum()
             fields["obv"] = _finite(obv.iloc[-1]) if len(obv) else None

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-VERSION = "v19.22.0-rc16.31cd"
+VERSION = "v19.22.0-rc16.31cf"
 
 
 def _f(value: Any) -> float | None:
@@ -227,19 +227,25 @@ def _action_levels(src: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _data_freshness(src: Mapping[str, Any]) -> dict[str, Any]:
-    timestamp = next((src.get(key) for key in (
-        "market_data_at", "price_updated_at", "data_timestamp", "quote_timestamp", "updated_at"
+    observed_timestamp = next((src.get(key) for key in (
+        "market_data_at", "price_updated_at", "data_timestamp", "quote_timestamp",
+        "latest_trade_timestamp", "updated_at"
     ) if src.get(key)), "")
+    fetched_at = src.get("fetch_completed_at") or src.get("enriched_at") or ""
+    fetch_status = str(src.get("data_fetch_status") or "").upper()
+    timestamp = fetched_at or observed_timestamp
     if not timestamp:
-        return {"timestamp": "", "age_seconds": None, "status": "UKJENT"}
+        return {"timestamp": "", "fetched_at": "", "observed_timestamp": "", "age_seconds": None, "status": "UKJENT"}
     try:
         parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
         parsed = parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
         age = max(0, int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()))
-        status = "FERSK" if age <= 20 * 60 else "FORSINKET" if age <= 24 * 3600 else "FORELDET"
-        return {"timestamp": str(timestamp), "age_seconds": age, "status": status}
+        status = "FERSK_INNHENTET" if fetched_at and age <= 20 * 60 else "FERSK" if age <= 20 * 60 else "FORSINKET" if age <= 24 * 3600 else "FORELDET"
+        if fetch_status in {"ERROR", "NO_DATA", "QUARANTINED", "FAILED"}:
+            status = "FEIL"
+        return {"timestamp": str(timestamp), "fetched_at": str(fetched_at), "observed_timestamp": str(observed_timestamp), "age_seconds": age, "status": status, "fetch_status": fetch_status}
     except (TypeError, ValueError):
-        return {"timestamp": str(timestamp), "age_seconds": None, "status": "UGYLDIG"}
+        return {"timestamp": str(timestamp), "fetched_at": str(fetched_at), "observed_timestamp": str(observed_timestamp), "age_seconds": None, "status": "UGYLDIG"}
 
 
 def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -259,7 +265,7 @@ def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str,
         "first_discovered_at":history_item.get("first_seen") or candidate.get("created_at") or "","last_seen_at":history_item.get("last_seen") or "","times_seen":int(history_item.get("times_in_list") or len(obs) or 0),"rank_change":rank_delta,
         "trend_phase":_phase(src),"trend_age_sessions":age,"trend_age":age_label,"last_price":_f(src.get("last_price")),
         "return_1d_pct":_f(src.get("return_1d")),"return_3d_pct":_f(src.get("return_3d")),"return_5d_pct":_f(src.get("return_5d")),"return_10d_pct":_f(src.get("return_10d")),"return_15d_pct":_f(src.get("return_15d")),"return_20d_pct":_f(src.get("return_20d") or src.get("return_1m")),"return_60d_pct":_f(src.get("return_60d") or src.get("return_3m")),
-        "momentum_acceleration_3v20":_f(src.get("momentum_acceleration_3v20")),"momentum_acceleration_5v20":_f(src.get("momentum_acceleration_5v20")),"volume_ratio_20":_f(src.get("volume_ratio_20")),
+        "momentum_acceleration_3v20":_f(src.get("momentum_acceleration_3v20")),"momentum_acceleration_5v20":_f(src.get("momentum_acceleration_5v20")),"volume_ratio_20":_f(src.get("volume_ratio_20")),"latest_volume":_f(src.get("latest_volume")),"average_volume_20":_f(src.get("average_volume_20")),
         "obv_pressure_5d":_f(src.get("obv_pressure_5d")),"obv_pressure_10d":_f(src.get("obv_pressure_10d")),"obv_pressure_20d":_f(src.get("obv_pressure_20d")),
         "rsi":_f(src.get("rsi")),"rsi_cross_50_age_sessions":src.get("rsi_cross_50_age_sessions"),"rsi_cross_60_age_sessions":src.get("rsi_cross_60_age_sessions"),"rsi_cross_70_age_sessions":src.get("rsi_cross_70_age_sessions"),"rsi_10d_breakout":_b(src.get("rsi_10d_breakout")),
         "sma20":_f(src.get("sma20")),"sma50":_f(src.get("sma50")),"sma200":_f(src.get("sma200")),"sma20_slope_5d_pct":_f(src.get("sma20_slope_5d_pct")),"golden_cross_spread_change_10d_pp":_f(src.get("golden_cross_spread_change_10d_pp")),
@@ -267,7 +273,7 @@ def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str,
         "distance_from_20d_high_pct":_f(src.get("distance_from_20d_high_pct")),"distance_from_60d_high_pct":_f(src.get("distance_from_60d_high_pct")),"breakout_20d":_b(src.get("breakout_20d")),"breakout_60d":_b(src.get("breakout_60d")),"breakout_20d_age_sessions":src.get("breakout_20d_age_sessions"),"breakout_hold_sessions":src.get("breakout_hold_sessions"),"breakout_holding":_b(src.get("breakout_holding")),"breakout_20d_pct":_f(src.get("breakout_20d_pct")),"breakout_60d_pct":_f(src.get("breakout_60d_pct")),
         "prior_20d_high":_f(src.get("prior_20d_high")),"prior_60d_high":_f(src.get("prior_60d_high")),"low_20d":_f(src.get("low_20d")),"low_60d":_f(src.get("low_60d")),"support_levels":list(src.get("support_levels") or []),"resistance_levels":list(src.get("resistance_levels") or []),
         "compression_ratio_10v40":_f(src.get("compression_ratio_10v40")),"volatility_expansion_5v20":_f(src.get("volatility_expansion_5v20")),"close_location_in_day":_f(src.get("close_location_in_day")),"price_trend_60d":list(src.get("price_trend_60d") or [])[-60:],
-        "early_signal":early,"fresh_signal":fresh,"action_levels":_action_levels(src),"data_freshness":_data_freshness(src),"top_trend_drivers":_drivers(src,early,fresh),"descriptive_only":True,
+        "early_signal":early,"fresh_signal":fresh,"action_levels":_action_levels(src),"data_freshness":_data_freshness(src),"data_fetch_status":str(src.get("data_fetch_status") or ""),"data_source":str(src.get("data_source") or ""),"refresh_proof":str(src.get("refresh_proof") or ""),"top_trend_drivers":_drivers(src,early,fresh),"descriptive_only":True,
     }
 
 
@@ -295,6 +301,8 @@ def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) 
     for r in receipts:
         market=str(r.get("market") or r.get("country") or "Ukjent"); sec=(market,str(r.get("sector") or "Ukjent")); p5=_pctile(_f(r.get("return_5d_pct")),markets5.get(market,[])); p20=_pctile(_f(r.get("return_20d_pct")),markets20.get(market,[]))
         r["market_rs_5d_percentile"]=p5; r["market_rs_20d_percentile"]=p20; r["market_rs_60d_percentile"]=_pctile(_f(r.get("return_60d_pct")),markets60.get(market,[])); r["sector_rs_5d_percentile"]=_pctile(_f(r.get("return_5d_pct")),sectors5.get(sec,[])); r["sector_rs_20d_percentile"]=_pctile(_f(r.get("return_20d_pct")),sectors20.get(sec,[]))
+        r["market_rs_universe_count_5d"] = len(markets5.get(market, []))
+        r["sector_rs_universe_count_5d"] = len(sectors5.get(sec, []))
         r["relative_strength_ignition"] = round(p5-p20,1) if p5 is not None and p20 is not None else None
         fs=r.get("fresh_signal") or {}
         if r.get("relative_strength_ignition") is not None and r["relative_strength_ignition"]>=20:
