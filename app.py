@@ -17424,6 +17424,12 @@ def render_alerts_watchlist_control_center_v1869() -> None:
         render_currency_alerts_control_center_v1863af()
 
 
+def render_jeep_commander_control_center_v19220_rc1631ch() -> None:
+    """Lazy-load the isolated temporary car-search workspace."""
+    from jeep_commander_monitor import render_streamlit_module
+    render_streamlit_module(st)
+
+
 def control_center_extra_panels_v18535():
     legacy_hidden_tokens = (
         "markedsklima",
@@ -17448,6 +17454,8 @@ def control_center_extra_panels_v18535():
     # v18.9.1 direct route; the unified Alert Center remains as fallback.
     if not any(str(label) == "💱 Valutavarsler" for label, _ in panels):
         panels.insert(3, ("💱 Valutavarsler", render_currency_alerts_control_center_v1863af))
+    if not any(str(label) == "🚙 Jeep Commander 2.2" for label, _ in panels):
+        panels.insert(4, ("🚙 Jeep Commander 2.2", render_jeep_commander_control_center_v19220_rc1631ch))
 
     measured_panels = []
     for _label, _renderer in panels:

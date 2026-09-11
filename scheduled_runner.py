@@ -300,6 +300,7 @@ def _run_once_locked() -> dict[str, Any]:
         "scheduler": {},
         "report_test_mode": {},
         "currency_alerts": {},
+        "jeep_commander_monitor": {},
         "learning_observation_maintenance": {},
         "report_repair": {},
         "report_revalidation": {},
@@ -456,6 +457,16 @@ def _run_once_locked() -> dict[str, Any]:
         # A provider failure must be visible, but must not suppress scheduled reports.
         state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
 
+    # Temporary personal vehicle search. It shares the cron wake-up but keeps
+    # its own durable 15-minute lease and isolated storage namespace.
+    try:
+        from jeep_commander_monitor import run_due_monitor as run_due_jeep_monitor
+        state["jeep_commander_monitor"] = dict(
+            run_due_jeep_monitor(force=False, notify=True, source="scheduled_cron") or {}
+        )
+    except Exception as exc:
+        state["jeep_commander_monitor"] = {"state": "FAILED", "error": str(exc)[:500]}
+
     _mem("scheduler:before_scanner")
 
     # Paper scanning is intentionally owned by this 2 GiB scheduler service.
@@ -602,9 +613,11 @@ def main() -> int:
         "scheduled_runs": (state.get("scheduler") or {}).get("runs", 0),
         "report_test_mode": (state.get("report_test_mode") or {}).get("run_state"),
         "currency_alerts": (state.get("currency_alerts") or {}).get("state"),
+        "jeep_commander_monitor": (state.get("jeep_commander_monitor") or {}).get("state"),
         "learning_observations": (state.get("learning_observation_maintenance") or {}).get("status"),
         "report_repair": (state.get("report_repair") or {}).get("state"),
         "report_revalidation": (state.get("report_revalidation") or {}).get("state"),
+        "fresh_trend_monitor": (state.get("fresh_trend_monitor") or {}).get("state"),
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))

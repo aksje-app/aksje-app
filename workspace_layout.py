@@ -2367,7 +2367,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             "Long Engine": _matching_panel_labels("long engine"),
             "Autonomi": _matching_panel_labels("autonomi"),
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("marked", "varsler og watchlist", "valutavarsler", "top picks", "beslut", "muligheter", "alpha"),
+            "Marked og signaler": _matching_panel_labels("marked", "varsler og watchlist", "valutavarsler", "jeep commander", "top picks", "beslut", "muligheter", "alpha"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("system/admin"),
         }
