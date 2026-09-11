@@ -6275,7 +6275,7 @@ def _mask_secret_v18585(value, keep=4):
     return ("*" * max(0, len(value) - keep)) + value[-keep:]
 
 
-from notifier import send_pushover_alert  # v18.6.3 centralized notifier
+from notifier import send_pushover_alert, validate_pushover_credentials  # centralized notifier
 
 
 def verify_pushover_credentials_v18585():
@@ -6292,19 +6292,9 @@ def verify_pushover_credentials_v18585():
     if not result["token_present"] or not result["user_present"]:
         result["response_text"] = "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY"
         return result
-    try:
-        response = requests.post(
-            "https://api.pushover.net/1/users/validate.json",
-            data={"token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY},
-            timeout=10,
-        )
-        result["status_code"] = response.status_code
-        result["response_text"] = response.text[:1200]
-        result["ok"] = bool(response.status_code == 200)
-        return result
-    except Exception as e:
-        result["response_text"] = str(e)
-        return result
+    checked = validate_pushover_credentials()
+    result.update(checked)
+    return result
 
 
 def maybe_send_signal_alert(ticker, decision):

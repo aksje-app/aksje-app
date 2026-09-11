@@ -35,10 +35,9 @@ PROTECTED = [
 OVERSIZE_WARN_BYTES = 64 * 1024 * 1024
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off", ""}
-# User explicitly enabled retention for the production-closure release. If Render
-# omits this single variable from the cron process while the deployed code is the
-# authoritative release, retain the requested APPLY behavior. Explicit false always wins.
-RELEASE_DEFAULT_APPLY_WHEN_ENV_MISSING = True
+# Deletion is always opt-in. A missing Render variable can never authorize a
+# destructive retention pass; operators must set an explicit true value.
+RELEASE_DEFAULT_APPLY_WHEN_ENV_MISSING = False
 _RETENTION_APPLY_ALIASES = ("STORAGE_RETENTION_ENABLED", "STORAGE_RETENTION_DELETE_ENABLED")
 
 

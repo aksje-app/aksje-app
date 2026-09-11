@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31cf"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31cf Actionable Direction Alerts"
+APP_VERSION = "v19.22.0-rc16.31cg"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31cg Whole-Chain Alert Integrity"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31ce"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31cf"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31cg: Whole-Chain Alert Integrity. Adds production-replay invariants, monotonic signal and breakout counters, full-universe RS provenance, line-safe Pushover compaction, explicit setup status versus aggregate direction, honest data coverage and daily-volume comparison labels, and cross-channel alert contract checks. Production scoring and trade authority are unchanged.",
     "v19.22.0-rc16.31cf: Actionable Direction Alerts. Adds a colored aggregate direction arrow, 15-minute and 1/3/5-day price development in amount and percent, volume level/change/turnover, RS changes with explicit universe sizes, component deltas, compact risk and level context, trustworthy fetch timestamps, and recovery hysteresis after momentum loss. Unknown or stale data cannot create a new alert. Production scoring and trade authority are unchanged.",
     "v19.22.0-rc16.31ce: Deterministic Fresh Trend Alerts. Binds every decision to a market-snapshot fingerprint, suppresses identical snapshots before message formatting, prevents duplicate score-path samples, prioritizes short-term momentum loss over historical acceleration, and makes the main status reason explicit and separate from background signals. Production scoring and trade authority are unchanged.",
     "v19.22.0-rc16.31cd: Actionable Signal and Capital Rotation. Adds actual-price charts with taller geometry and labelled price scale, exchange/country identity, Top 1–3 price changes, four-decimal FX display, first-week position monitoring, named-challenger capital rotation, concrete sell receipts, 1/3/5/20-day learning checkpoints, market-specific relative strength and explicit buy/sell funnel diagnosis. Production gates remain fail-closed and real trading remains disabled.",

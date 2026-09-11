@@ -21,6 +21,37 @@ PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY")
 PUSHOVER_AUDIT_PATH = runtime_log_path("pushover_audit.jsonl")
 PUSHOVER_DEDUPE_KEY = "notifications/pushover_dedupe.json"
 PUSHOVER_DEDUPE_PATH = runtime_data_path("notifications", "pushover_dedupe.json")
+PUSHOVER_MESSAGE_LIMIT = 1024
+PUSHOVER_TITLE_LIMIT = 250
+
+
+def _trim_text(value, limit):
+    text = str(value or "")
+    return text if len(text) <= int(limit) else text[:max(0, int(limit) - 1)].rstrip() + "…"
+
+
+def fit_pushover_message(message, *, required_tail="", limit=PUSHOVER_MESSAGE_LIMIT):
+    """Shorten only between complete lines and include a required footer once."""
+    text = str(message or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    tail = str(required_tail or "").strip()
+    if tail and text.endswith(tail):
+        text = text[:-len(tail)].rstrip()
+    lines = []
+    for line in text.splitlines():
+        if not lines or line != lines[-1]:
+            lines.append(line)
+    suffix = ("\n" + tail) if tail else ""
+    if len("\n".join(lines) + suffix) <= int(limit):
+        return "\n".join(lines) + suffix
+    kept = []
+    marker = "… flere detaljer i rapportlenken"
+    budget = int(limit) - len(suffix) - len(marker) - 2
+    for line in lines:
+        candidate = "\n".join(kept + [line])
+        if len(candidate) > budget:
+            break
+        kept.append(line)
+    return ("\n".join(kept) + "\n" + marker + suffix).strip()
 
 
 def _notification_fingerprint(title, message, url) -> str:
@@ -76,6 +107,22 @@ def pushover_enabled():
     return bool(allowed)
 
 
+def validate_pushover_credentials():
+    """Validate configured credentials without sending a notification."""
+    if not PUSHOVER_APP_TOKEN or not PUSHOVER_USER_KEY:
+        return {"ok": False, "status_code": None,
+                "response_text": "Mangler PUSHOVER_APP_TOKEN eller PUSHOVER_USER_KEY"}
+    try:
+        response = requests.post(
+            "https://api.pushover.net/1/users/validate.json",
+            data={"token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY}, timeout=10,
+        )
+        return {"ok": response.status_code == 200, "status_code": response.status_code,
+                "response_text": str(response.text or "")[:1200]}
+    except Exception as exc:
+        return {"ok": False, "status_code": None, "response_text": str(exc)[:1200]}
+
+
 def normalize_notification_result(response):
     """Return one canonical ``(ok, detail)`` pair for legacy/new notifier shapes."""
     if isinstance(response, tuple):
@@ -86,6 +133,9 @@ def normalize_notification_result(response):
 
 
 def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None):
+    title = _trim_text(title, PUSHOVER_TITLE_LIMIT)
+    message = fit_pushover_message(message)
+    url_title = _trim_text(url_title, PUSHOVER_TITLE_LIMIT) if url_title else None
     allowed, safety_reason = notifications_allowed()
     if not allowed:
         print(f"Pushover blokkert: {safety_reason}")

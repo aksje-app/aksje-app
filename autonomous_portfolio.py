@@ -1512,6 +1512,10 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
         del portfolio["positions"][ticker]
     entry_price = _f(pos.get("average_price"), price)
     holding_days = _days_opened(pos.get("opened_at"))
+    exit_score = _f(pos.get("last_score"), _f(pos.get("entry_score")))
+    score_path = list(pos.get("score_path") or [])[-8:]
+    if not score_path or abs(_f(score_path[-1]) - exit_score) >= 0.01:
+        score_path.append(exit_score)
     try:
         from security_metadata import infer_security_listing
         listing = infer_security_listing(ticker, pos)

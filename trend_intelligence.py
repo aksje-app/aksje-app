@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-VERSION = "v19.22.0-rc16.31cf"
+VERSION = "v19.22.0-rc16.31cg"
 
 
 def _f(value: Any) -> float | None:
@@ -93,7 +93,7 @@ def _fresh_signal(src: Mapping[str, Any]) -> dict[str, Any]:
     """Score recent ignition separately from long-running trend strength."""
     r1 = _f(src.get("return_1d")); r3 = _f(src.get("return_3d")); r5 = _f(src.get("return_5d")); r10 = _f(src.get("return_10d")); r20 = _f(src.get("return_20d")); r60 = _f(src.get("return_60d"))
     a1 = _f(src.get("momentum_acceleration_1v20")); a3 = _f(src.get("momentum_acceleration_3v20")); a5 = _f(src.get("momentum_acceleration_5v20"))
-    rsi = _f(src.get("rsi")); vr = _f(src.get("volume_ratio_20")); obv5 = _f(src.get("obv_pressure_5d")); obv10 = _f(src.get("obv_pressure_10d"))
+    rsi = _f(src.get("rsi")); vr = _f(src.get("volume_ratio_20")); volume_comparable = bool(src.get("volume_bar_complete") or src.get("volume_time_adjusted")); obv5 = _f(src.get("obv_pressure_5d")); obv10 = _f(src.get("obv_pressure_10d"))
     slope20 = _f(src.get("sma20_slope_5d_pct")); spreadchg = _f(src.get("golden_cross_spread_change_10d_pp")); compression = _f(src.get("compression_ratio_10v40")); expansion = _f(src.get("volatility_expansion_5v20")); close_loc = _f(src.get("close_location_in_day"))
     age, age_label = _trend_age(src)
     score = 0.0; signals=[]; cautions=[]
@@ -106,7 +106,7 @@ def _fresh_signal(src: Mapping[str, Any]) -> dict[str, Any]:
     if _b(src.get("breakout_20d")) or _b(src.get("breakout_holding")):
         hold = int(src.get("breakout_hold_sessions") or 0); b_age = src.get("breakout_20d_age_sessions")
         add("FRESH_BREAKOUT", 18, f"20d-brudd · alder {b_age if b_age is not None else 0} økter · hold {hold}", "Nylig motstand er brutt; 1–3 økter over nivået gir bedre kvalitet enn et enkelt intradag-stikk.")
-    if vr is not None and vr >= 1.35: add("VOLUME_SPIKE", 12, f"Volum {vr:.2f}x 20d", "Et ferskt prisutbrudd med høyere aktivitet har større sannsynlighet for å være institusjonelt støttet.")
+    if volume_comparable and vr is not None and vr >= 1.35: add("VOLUME_SPIKE", 12, f"Volum {vr:.2f}x 20d", "Et ferskt prisutbrudd med høyere aktivitet har større sannsynlighet for å være institusjonelt støttet.")
     if obv5 is not None and obv5 > 0.10: add("OBV_5D_IGNITION", 10, f"OBV 5d {obv5:+.2f}", "Volumet følger oppgangsdagene; kjøpspresset er ferskt og målbar.")
     if src.get("rsi_cross_50_age_sessions") is not None and int(src.get("rsi_cross_50_age_sessions")) <= 7: add("RSI50_RECENT", 8, f"RSI > 50 for {int(src.get('rsi_cross_50_age_sessions'))} økter siden", "RSI har nylig skiftet fra nøytral til positiv sone.")
     if src.get("rsi_cross_60_age_sessions") is not None and int(src.get("rsi_cross_60_age_sessions")) <= 7: add("RSI60_RECENT", 6, "Nylig RSI-brudd over 60", "Momentumet har flyttet seg videre inn i positiv sone.")
@@ -119,14 +119,15 @@ def _fresh_signal(src: Mapping[str, Any]) -> dict[str, Any]:
     elif age_label == "TIDLIG": add("EARLY_TREND_BONUS", 6, f"Trendalder {age} økter", "Trenden er fortsatt tidlig nok til å fortjene ekstra oppfølging.")
     if age_label in {"ETABLERT","MODEN"}: cautions.append("Trenden er ikke lenger fersk; sterk historikk skal ikke fortrenge helt nye trendstarter i Fresh Trend-køen.")
     if rsi is not None and rsi >= 72: cautions.append(f"RSI {rsi:.1f} er overkjøpt; videre styrke kan fortsette, men kortsiktig korreksjonsrisiko er høyere.")
-    if vr is not None and vr < 0.8 and _b(src.get("breakout_20d")): cautions.append(f"Bruddet har svak volumstøtte ({vr:.2f}x).")
+    if volume_comparable and vr is not None and vr < 0.8 and _b(src.get("breakout_20d")): cautions.append(f"Bruddet har svak volumstøtte ({vr:.2f}x).")
+    elif not volume_comparable and vr is not None: cautions.append("Dagens volumbar er ikke ferdig eller tidsjustert; volumet vises, men brukes ikke som negativ bekreftelse.")
     score=max(0.0,min(100.0,score))
     label="NYTT BREAKOUTSIGNAL" if score>=75 and age_label in {"NY","TIDLIG"} else "TIDLIG AKSELERASJON" if score>=55 else "FERSKT POSITIVT OPPSETT" if score>=35 else "INGEN FERSK TENNING"
     return {"score":round(score,1),"label":label,"trend_age_sessions":age,"trend_age":age_label,"signals":signals,"cautions":cautions[:4],"descriptive_only":True}
 
 
 def _early_signal(src: Mapping[str, Any]) -> dict[str, Any]:
-    r5 = _f(src.get("return_5d")); r20 = _f(src.get("return_20d")); r60 = _f(src.get("return_60d")); rsi = _f(src.get("rsi")); vr = _f(src.get("volume_ratio_20")); obv10 = _f(src.get("obv_pressure_10d")); obv20 = _f(src.get("obv_pressure_20d"))
+    r5 = _f(src.get("return_5d")); r20 = _f(src.get("return_20d")); r60 = _f(src.get("return_60d")); rsi = _f(src.get("rsi")); vr = _f(src.get("volume_ratio_20")); volume_comparable = bool(src.get("volume_bar_complete") or src.get("volume_time_adjusted")); obv10 = _f(src.get("obv_pressure_10d")); obv20 = _f(src.get("obv_pressure_20d"))
     last = _f(src.get("last_price")); s20 = _f(src.get("sma20")); s50 = _f(src.get("sma50")); s200 = _f(src.get("sma200"))
     p_s20 = _f(src.get("price_vs_sma20_pct")); s20_s50 = _f(src.get("sma20_vs_sma50_pct")); s50_s200 = _f(src.get("sma50_vs_sma200_pct")); accel = _f(src.get("momentum_acceleration_5v20"))
     if p_s20 is None and last not in (None,0) and s20 not in (None,0): p_s20=(last/s20-1)*100
@@ -151,12 +152,13 @@ def _early_signal(src: Mapping[str, Any]) -> dict[str, Any]:
     if breakout60: add("BREAKOUT_60D",8,f"60d-brudd {(_f(src.get('breakout_60d_pct')) or 0):+.1f}%","Brudd over lengre motstand viser bredere trendstyrke.")
     if obv10 is not None and obv10>0.08: add("OBV_BUY_PRESSURE",10,f"OBV-kjøpspress 10d {obv10:+.2f}","Volum følger oppgangsdager og kan tyde på akkumulering.")
     if obv20 is not None and obv20>0.05: add("OBV_20D_CONFIRM",6,f"OBV positiv 20d {obv20:+.2f}","Kjøpspresset har vart gjennom en lengre periode.")
-    if vr is not None and vr>=1.2: add("VOLUME_CONFIRMATION",8,f"Volum {vr:.2f}x 20d-snitt","Høyere aktivitet gir mer troverdighet til brudd og akselerasjon.")
+    if volume_comparable and vr is not None and vr>=1.2: add("VOLUME_CONFIRMATION",8,f"Volum {vr:.2f}x 20d-snitt","Høyere aktivitet gir mer troverdighet til brudd og akselerasjon.")
     if rsi is not None and 52<=rsi<=68: add("RSI_HEALTHY_MOMENTUM",8,f"RSI {rsi:.1f}","Positivt momentum uten ekstrem overkjøpt tilstand.")
     if src.get("rsi_cross_50_age_sessions") is not None and int(src.get("rsi_cross_50_age_sessions"))<=10: add("RSI_50_CROSS",6,f"RSI brøt 50 for {int(src.get('rsi_cross_50_age_sessions'))} økter siden","Nylig skifte fra nøytralt til positivt momentum.")
     if rsi is not None and rsi>=72: cautions.append(f"RSI {rsi:.1f} er overkjøpt; styrken er positiv, men risikoen for kort korreksjon er høyere.")
     if p_s20 is not None and p_s20>=8: cautions.append(f"Kursen ligger {p_s20:.1f}% over SMA20 og kan være kortsiktig strukket.")
-    if breakout20 and vr is not None and vr<0.8: cautions.append(f"20d-brudd uten tydelig volumstøtte ({vr:.2f}x) er mindre robust.")
+    if volume_comparable and breakout20 and vr is not None and vr<0.8: cautions.append(f"20d-brudd uten tydelig volumstøtte ({vr:.2f}x) er mindre robust.")
+    elif not volume_comparable and vr is not None: cautions.append("Dagens volumbar er ikke ferdig eller tidsjustert; volumet kan ikke brukes som negativ bekreftelse ennå.")
     score=max(0.0,min(100.0,score)); label="STERKT TIDLIG STYRKESIGNAL" if score>=70 else "TIDLIG STYRKESIGNAL" if score>=50 else "POSITIVT TRENDOPPSETT" if score>=30 else "INGEN TYDELIG TIDLIG SIGNAL"
     conf=[]; fail=[]
     if breakout20 or breakout60:
@@ -273,7 +275,7 @@ def build_trend_receipt(candidate: Mapping[str, Any], history_item: Mapping[str,
         "distance_from_20d_high_pct":_f(src.get("distance_from_20d_high_pct")),"distance_from_60d_high_pct":_f(src.get("distance_from_60d_high_pct")),"breakout_20d":_b(src.get("breakout_20d")),"breakout_60d":_b(src.get("breakout_60d")),"breakout_20d_age_sessions":src.get("breakout_20d_age_sessions"),"breakout_hold_sessions":src.get("breakout_hold_sessions"),"breakout_holding":_b(src.get("breakout_holding")),"breakout_20d_pct":_f(src.get("breakout_20d_pct")),"breakout_60d_pct":_f(src.get("breakout_60d_pct")),
         "prior_20d_high":_f(src.get("prior_20d_high")),"prior_60d_high":_f(src.get("prior_60d_high")),"low_20d":_f(src.get("low_20d")),"low_60d":_f(src.get("low_60d")),"support_levels":list(src.get("support_levels") or []),"resistance_levels":list(src.get("resistance_levels") or []),
         "compression_ratio_10v40":_f(src.get("compression_ratio_10v40")),"volatility_expansion_5v20":_f(src.get("volatility_expansion_5v20")),"close_location_in_day":_f(src.get("close_location_in_day")),"price_trend_60d":list(src.get("price_trend_60d") or [])[-60:],
-        "early_signal":early,"fresh_signal":fresh,"action_levels":_action_levels(src),"data_freshness":_data_freshness(src),"data_fetch_status":str(src.get("data_fetch_status") or ""),"data_source":str(src.get("data_source") or ""),"refresh_proof":str(src.get("refresh_proof") or ""),"top_trend_drivers":_drivers(src,early,fresh),"descriptive_only":True,
+        "early_signal":early,"fresh_signal":fresh,"action_levels":_action_levels(src),"data_freshness":_data_freshness(src),"data_fetch_status":str(src.get("data_fetch_status") or ""),"data_source":str(src.get("data_source") or ""),"refresh_proof":str(src.get("refresh_proof") or ""),"market_bar_interval":str(src.get("market_bar_interval") or "1d"),"volume_bar_complete":bool(src.get("volume_bar_complete")),"volume_time_adjusted":bool(src.get("volume_time_adjusted")),"volume_comparison_basis":str(src.get("volume_comparison_basis") or "dagsvolum mot ferdige 20d-dager; ikke tidsjustert"),"top_trend_drivers":_drivers(src,early,fresh),"descriptive_only":True,
     }
 
 
@@ -303,6 +305,7 @@ def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) 
         r["market_rs_5d_percentile"]=p5; r["market_rs_20d_percentile"]=p20; r["market_rs_60d_percentile"]=_pctile(_f(r.get("return_60d_pct")),markets60.get(market,[])); r["sector_rs_5d_percentile"]=_pctile(_f(r.get("return_5d_pct")),sectors5.get(sec,[])); r["sector_rs_20d_percentile"]=_pctile(_f(r.get("return_20d_pct")),sectors20.get(sec,[]))
         r["market_rs_universe_count_5d"] = len(markets5.get(market, []))
         r["sector_rs_universe_count_5d"] = len(sectors5.get(sec, []))
+        r["rs_reference_scope"] = "FULL_STAGE1_UNIVERSE"
         r["relative_strength_ignition"] = round(p5-p20,1) if p5 is not None and p20 is not None else None
         fs=r.get("fresh_signal") or {}
         if r.get("relative_strength_ignition") is not None and r["relative_strength_ignition"]>=20:
@@ -323,5 +326,8 @@ def annotate_run(run: dict[str, Any], history: Mapping[str, Any] | None = None) 
     actual_by_market = (run.get("scan_configuration") or {}).get("actual_by_market") or {}
     scan_actual = sum(int(value or 0) for value in actual_by_market.values()) if isinstance(actual_by_market, Mapping) else 0
     full_stage1 = max(len(pool), int(prior_coverage.get("full_stage1_universe") or 0), scan_actual)
+    for receipt in receipts:
+        receipt["rs_full_stage1_universe"] = full_stage1
+        receipt["rs_reference_at"] = run.get("completed_at") or run.get("generated_at") or run.get("started_at") or ""
     run["trend_discovery"]={"version":VERSION,"mode":"NORWAY_PRODUCTION_STABILIZATION" if run.get("markets")==["Norge"] else "MULTI_MARKET","top10":ranked[:10],"near_candidates":ranked[10:15],"early_signal_watchlist":early[:12],"fresh_trend_watchlist":fresh_only[:12],"established_trend_watchlist":established[:12],"coverage":{"candidates":len(candidates),"full_stage1_universe":full_stage1,"deep_scored":len(scored),"with_20d_return":len(ranked),"with_60d_chart":sum(1 for r in receipts if len(r.get("price_trend_60d") or [])>=20),"with_early_signal":sum(1 for r in early if float((r.get("early_signal") or {}).get("score") or 0)>=30),"with_fresh_signal":len(fresh_only)},"missed_winner_audit":{"state":"COLLECTING_BASELINE","note":"Fresh Trend måles separat fra etablerte vinnere slik at eldre 30–60d-trender ikke kan dominere nye trendstarter."},"production_scoring_changed":False,"evidence_priority_changed":True,"explanation":"Fresh Trend og etablert trend er separate køer. Fresh Trend favoriserer fersk akselerasjon, breakout, RSI/OBV-tenning og kompresjon→ekspansjon. Sterke ferske signaler kan få tidligere evidenskontroll, men kan aldri alene utløse kjøp."}
     return run

@@ -579,6 +579,8 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
             period="1y", interval="1d", auto_adjust=True, actions=False,
             timeout=FETCH_TIMEOUT_SECONDS,
         )
+        base["market_bar_interval"] = "1d"
+        base["volume_comparison_basis"] = "dagsvolum mot ferdige 20d-dager; ikke tidsjustert"
         latest_trade_date = None
         latest_trade_timestamp = None
         try:
@@ -628,6 +630,28 @@ def enrich_candidate_row(row: Mapping[str, Any], use_cache: bool = True, force_r
         enriched["fetch_completed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         enriched["latest_trade_date"] = latest_trade_date
         enriched["latest_trade_timestamp"] = latest_trade_timestamp
+        market_hint = str(enriched.get("market") or enriched.get("country") or "").upper()
+        if ticker.endswith(".OL"):
+            market_hint = "NORGE"
+        elif ticker.endswith(".ST"):
+            market_hint = "SVERIGE"
+        elif ticker.endswith(".HE"):
+            market_hint = "FINLAND"
+        elif ticker.endswith(".CO"):
+            market_hint = "DANMARK"
+        elif not market_hint:
+            market_hint = "USA"
+        try:
+            from market_hours import market_status
+            market_open = bool(market_status(market_hint).get("is_open"))
+        except Exception:
+            market_open = False
+        enriched["volume_bar_complete"] = not market_open
+        enriched["volume_time_adjusted"] = False
+        enriched["volume_comparison_basis"] = (
+            "fullført dagsvolum mot ferdige 20d-dager" if not market_open
+            else "pågående dagsvolum mot ferdige 20d-dager; ikke tidsjustert og ikke brukt som negativt signal"
+        )
         enriched["prior_cache_snapshot"] = prior_snapshot
         old_price = _finite(prior_snapshot.get("last_price"))
         new_price = _finite(enriched.get("last_price"))

@@ -3770,7 +3770,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                 _rawp(f"{receipt.get('ticker') or '-'} · {receipt.get('exchange_name') or receipt.get('exchange') or '-'} · {receipt.get('country') or receipt.get('market') or '-'}", "Tiny"), _p(f"{emoji} {status} · {_fmt(score)}", "Tiny"),
                 _p(_fmt(comp.get("Freshness")), "Tiny"), _p(_fmt(comp.get("Confirmation")), "Tiny"),
                 _p(_fmt(comp.get("Velocity")), "Tiny"), _p(_fmt(comp.get("Risk")), "Tiny"),
-                _p(f"{_fmt(receipt.get('market_rs_5d_percentile'))} / {_fmt(receipt.get('sector_rs_5d_percentile'))}", "Tiny"),
+                _p(f"{_fmt(receipt.get('market_rs_5d_percentile'))}% / {_fmt(receipt.get('sector_rs_5d_percentile'))}% · n={int(receipt.get('market_rs_universe_count_5d') or 0)}/{int(receipt.get('sector_rs_universe_count_5d') or 0)}", "Tiny"),
                 _p(retest.get("label") or "INGEN RETEST", "Tiny"),
             ])
         fresh_table = Table(
@@ -3791,28 +3791,42 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         # Compact visual evidence in the main report: price/timeline with
         # volume and momentum stated directly beneath each of the top signals.
         for receipt in fresh_watch_short[:3]:
-            chart = _trend_chart({"trend_receipt": receipt}, width=118*mm, height=52*mm)
+            chart = _trend_chart({"trend_receipt": receipt}, width=105*mm, height=62*mm)
             if chart is not None:
                 listing_label = f"{receipt.get('exchange_name') or receipt.get('exchange') or '-'} · {receipt.get('country') or receipt.get('market') or '-'}"
-                decision_story += [Paragraph(
-                    f"{escape(str(receipt.get('ticker') or '-'))} · {escape(listing_label)} · volum {_fmt(receipt.get('volume_ratio_20'))}x · "
+                decision_story += [KeepTogether([Paragraph(
+                    f"{escape(str(receipt.get('ticker') or '-'))} · {escape(listing_label)} · volum {_fmt(receipt.get('volume_ratio_20'))}x "
+                    f"({'fullført dag' if receipt.get('volume_bar_complete') else 'pågående/ikke tidsjustert'}) · "
                     f"momentum 3d {_fmt_signed(receipt.get('return_3d_pct'))}% / 5d {_fmt_signed(receipt.get('return_5d_pct'))}%",
-                    styles["Tiny"]), chart, Spacer(1, 1*mm)]
+                    styles["Tiny"]), chart, Spacer(1, 1*mm)])]
         early_watch_short = [
             row for row in (trend_discovery_short.get("early_signal_watchlist") or [])
             if isinstance(row, Mapping)
         ][:12]
         if early_watch_short:
-            decision_story += [Paragraph("Tidlige styrkesignaler – grafisk bekreftelse", styles["Subsection"])]
-            for receipt in early_watch_short[:3]:
-                chart = _trend_chart({"trend_receipt": receipt}, width=118*mm, height=52*mm)
+            for early_index, receipt in enumerate(early_watch_short[:3]):
+                chart = _trend_chart({"trend_receipt": receipt}, width=105*mm, height=62*mm)
                 if chart is not None:
                     listing_label = f"{receipt.get('exchange_name') or receipt.get('exchange') or '-'} · {receipt.get('country') or receipt.get('market') or '-'}"
-                    decision_story += [Paragraph(
+                    chart_block = Table([[ [Paragraph(
                         f"{escape(str(receipt.get('ticker') or '-'))} · {escape(listing_label)} · "
                         f"1d {_fmt_signed(receipt.get('return_1d_pct'))}% · 5d {_fmt_signed(receipt.get('return_5d_pct'))}% · "
-                        f"RS marked/sektor {_fmt(receipt.get('market_rs_20d_percentile'))}/{_fmt(receipt.get('sector_rs_20d_percentile'))}",
-                        styles["Tiny"]), chart, Spacer(1, 1*mm)]
+                        f"RS marked/sektor {_fmt(receipt.get('market_rs_20d_percentile'))}%/{_fmt(receipt.get('sector_rs_20d_percentile'))}% · "
+                        f"volum {'fullført dag' if receipt.get('volume_bar_complete') else 'pågående/ikke tidsjustert'}",
+                        styles["Tiny"]), chart, Spacer(1, 1*mm)] ]], colWidths=[110*mm])
+                    chart_block.setStyle(TableStyle([
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ]))
+                    if early_index == 0:
+                        decision_story += [KeepTogether([
+                            Paragraph("Tidlige styrkesignaler – grafisk bekreftelse", styles["Subsection"]),
+                            chart_block,
+                        ])]
+                    else:
+                        decision_story += [chart_block]
     actionability_rows = [["Liste", "Ticker", "Score", "Status", "Konkret sperre"]]
     for row in decision_actionability.get("analysis_top3") or []:
         actionability_rows.append([
@@ -8601,7 +8615,7 @@ def render_market_intelligence() -> None:
                                     if marker_date is not pd.NaT and pd.notna(marker_date) and start_date <= marker_date <= end_date:
                                         fig.add_vline(x=marker_date.to_pydatetime(), line_width=1, line_dash="dot", annotation_text=marker_label, annotation_position="top")
                                 fig.update_layout(
-                                    height=390, width=900, margin={"l": 65, "r": 22, "t": 32, "b": 38},
+                                    height=440, width=720, margin={"l": 72, "r": 22, "t": 32, "b": 42},
                                     hovermode="x unified", legend={"orientation": "h", "y": 1.12, "x": 0},
                                     yaxis={"title": "Kurs", "range": [lo - pad, hi + pad], "fixedrange": False, "tickformat": ".2f"},
                                     xaxis={"title": None},
@@ -8640,7 +8654,8 @@ def render_market_intelligence() -> None:
                         st.caption(
                             f"Først oppdaget: {receipt.get('first_discovered_at') or 'ikke historisk registrert'} · "
                             f"5d {receipt.get('return_5d_pct')} % · 20d {receipt.get('return_20d_pct')} % · 60d {receipt.get('return_60d_pct')} % · "
-                            f"RSI {rsi_now if rsi_now is not None else '-'} · volum {volume_ratio if volume_ratio is not None else '-'}x · "
+                            f"RSI {rsi_now if rsi_now is not None else '-'} · volum {volume_ratio if volume_ratio is not None else '-'}x "
+                            f"({'fullført dag' if receipt.get('volume_bar_complete') else 'pågående/ikke tidsjustert'}) · "
                             f"fra 20d-topp {dist20 if dist20 is not None else '-'} % · rangendring {receipt.get('rank_change', 0)}"
                         )
                         if receipt.get("top_trend_drivers"):
