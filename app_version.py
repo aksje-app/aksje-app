@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ci"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ci Vehicle Dealer Network"
+APP_VERSION = "v19.22.0-rc16.31cj"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31cj Vehicle Search Integrity"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
 PREVIOUS_APP_VERSION = "v19.22.0-rc16.31cg"
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31cj: Rebuilds the temporary Jeep search for explicit same-site pagination, correct Brazil-wide Mobiauto routes, exact 2.2 diesel Webmotors routes, manual watched listings, persistent price history, previous/new price deltas, color-coded price alerts, equipment extraction and high-contrast result cards. Source failures remain explicit and search load stays bounded.",
     "v19.22.0-rc16.31ci: Expands the temporary Jeep Commander 2.2 monitor with a selectable dealer network, Localiza Seminovos and Seminovos.com.br sources, seller classification (private, ordinary dealer, authorized Jeep where explicitly documented), conservative cross-source vehicle deduplication, source-count disclosure, new-source alerts and visible per-source health.",
     "v19.22.0-rc16.31ch: Adds a temporary, isolated Jeep Commander 2.2 monitor with selectable 2025/2026 model years, 20,000/35,000 km ceilings, Ceará/Northeast/Brazil scope, price-first color-aware ranking, durable 15-minute Cron control, source-health diagnostics and deduplicated Pushover alerts for new listings and price cuts. The first successful scan seeds a quiet baseline; the complete module can be disabled and purged without touching investment data.",
     "v19.22.0-rc16.31cg: Whole-Chain Alert Integrity. Adds production-replay invariants, monotonic signal and breakout counters, full-universe RS provenance, line-safe Pushover compaction, explicit setup status versus aggregate direction, honest data coverage and daily-volume comparison labels, and cross-channel alert contract checks. Production scoring and trade authority are unchanged.",

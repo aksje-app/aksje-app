@@ -68,6 +68,11 @@ def default_config(*, now: datetime | None = None) -> dict[str, Any]:
         "interval_minutes": INTERVAL_MINUTES,
         "pushover": True,
         "include_dealer_network": True,
+        "max_pages_per_source": 4,
+        "max_detail_checks": 40,
+        "manual_urls": [],
+        "transport_estimate_brl": 0,
+        "fees_estimate_brl": 0,
         "created_at": created.isoformat(),
         "expires_at": (created + timedelta(days=90)).isoformat(),
     }
@@ -92,6 +97,9 @@ def _normalize_config(value: Any) -> dict[str, Any]:
     if base["area"] not in {"CEARA", "NORDESTE", "BRASIL"}:
         base["area"] = "CEARA"
     base["interval_minutes"] = INTERVAL_MINUTES
+    base["manual_urls"] = [str(value).strip() for value in base.get("manual_urls") or [] if _valid_url(str(value).strip())][:20]
+    base["transport_estimate_brl"] = max(0, int(_number(base.get("transport_estimate_brl")) or 0))
+    base["fees_estimate_brl"] = max(0, int(_number(base.get("fees_estimate_brl")) or 0))
     return base
 
 
@@ -170,26 +178,34 @@ def build_source_urls(config: dict[str, Any]) -> list[dict[str, str]]:
     low, high = years[0], years[-1]
     area = str(config.get("area") or "CEARA")
     if area == "CEARA":
-        wm = f"https://www.webmotors.com.br/carros/ce-fortaleza/jeep/commander/de.{low}/ate.{high}"
+        wm = f"https://www.webmotors.com.br/carros/ce-fortaleza/jeep/commander/22-turbo-diesel-overland-at9/de.{low}/ate.{high}"
         olx_base = "https://www.olx.com.br/autos-e-pecas/carros-vans-e-utilitarios/jeep/commander/overl-22-td-4x4-diesel-aut/{year}/estado-ce"
+        mobi_scope = "ce-fortaleza"
+        localiza_url = "https://seminovos.localiza.com/carros/ce-fortaleza/jeep/commander?categorias=suv"
     elif area == "NORDESTE":
-        wm = f"https://www.webmotors.com.br/carros/regiao-nordeste/jeep/commander/de.{low}/ate.{high}"
+        wm = f"https://www.webmotors.com.br/carros/regiao-nordeste/jeep/commander/22-turbo-diesel-overland-at9/de.{low}/ate.{high}"
         olx_base = "https://www.olx.com.br/regiao-nordeste/autos-e-pecas/carros-vans-e-utilitarios/jeep/commander/overl-22-td-4x4-diesel-aut/{year}"
+        mobi_scope = "brasil"
+        localiza_url = "https://seminovos.localiza.com/carros/jeep/commander?categorias=suv"
     else:
-        wm = f"https://www.webmotors.com.br/carros/estoque/jeep/commander/de.{low}/ate.{high}"
+        wm = f"https://www.webmotors.com.br/carros/estoque/jeep/commander/22-turbo-diesel-overland-at9/de.{low}/ate.{high}"
         olx_base = "https://www.olx.com.br/autos-e-pecas/carros-vans-e-utilitarios/jeep/commander/overl-22-td-4x4-diesel-aut/{year}/estado-brasil"
+        mobi_scope = "brasil"
+        localiza_url = "https://seminovos.localiza.com/carros/jeep/commander?categorias=suv"
     sources = [
         {"source": "Webmotors", "query": f"{low}-{high}", "url": wm, "channel": "MARKETPLACE", "default_seller_type": "UKJENT"},
         *({"source": "OLX", "query": str(year), "url": olx_base.format(year=year), "channel": "MARKETPLACE", "default_seller_type": "UKJENT"} for year in years),
-        *({"source": "Mobiauto", "query": str(year), "url": f"https://www.mobiauto.com.br/comprar/carros/sp-sao-paulo/jeep/commander/ano-{year}", "channel": "MARKETPLACE", "default_seller_type": "UKJENT"} for year in years),
+        *({"source": "Mobiauto", "query": str(year), "url": f"https://www.mobiauto.com.br/comprar/carros/{mobi_scope}/jeep/commander/ano-{year}", "channel": "MARKETPLACE", "default_seller_type": "UKJENT"} for year in years),
     ]
     if config.get("include_dealer_network", True):
         # Dealer-owned inventories complement the marketplaces. Filtering for
         # year, engine, mileage and geography remains local and identical.
         sources.extend([
-            {"source": "Localiza Seminovos", "query": area, "url": "https://seminovos.localiza.com/carros/jeep/commander", "channel": "DEALER_NETWORK", "default_seller_type": "FORHANDLER"},
+            {"source": "Localiza Seminovos", "query": area, "url": localiza_url, "channel": "DEALER_NETWORK", "default_seller_type": "FORHANDLER"},
             {"source": "Seminovos.com.br", "query": area, "url": "https://seminovos.com.br/carros/jeep/commander", "channel": "DEALER_NETWORK", "default_seller_type": "FORHANDLER"},
         ])
+    for index, url in enumerate(config.get("manual_urls") or [], 1):
+        sources.append({"source": f"Manuell kandidat {index}", "query": "direktelenke", "url": url, "channel": "MANUAL", "default_seller_type": "UKJENT"})
     return sources
 
 
@@ -314,6 +330,15 @@ def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str, de
     raw_id = _first(item, ("id", "vehicleId", "adId", "listingId"))
     listing_id = str(raw_id or hashlib.sha256(absolute_url.encode()).hexdigest()[:20])
     seller_name, seller_type, authorized = _seller_details(item, source=source, default_seller_type=default_seller_type)
+    vin = str(_first(item, ("vehicleIdentificationNumber", "vin", "chassis", "chassi")) or "").strip().upper()
+    equipment_blob = f"{blob} {description or ''}".lower()
+    equipment = {
+        "elektrisk_bakluke": any(x in equipment_blob for x in ("porta-malas elétrico", "porta malas elétrico", "electric tailgate")),
+        "elektrisk_passasjersete": any(x in equipment_blob for x in ("banco passageiro elétrico", "banco do passageiro elétrico")),
+        "panoramatak": any(x in equipment_blob for x in ("teto solar panorâmico", "teto panorâmico", "panoramic")),
+        "adas": any(x in equipment_blob for x in ("adas", "piloto automático adaptativo", "frenagem autônoma")),
+        "syv_seter": any(x in equipment_blob for x in ("7 lugares", "sete lugares", "7 assentos")),
+    }
     return {
         "id": f"{source.lower()}:{listing_id}", "source": source,
         "title": html_lib.unescape(str(title or "Jeep Commander")).strip(),
@@ -324,6 +349,7 @@ def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str, de
         "color": color, "city": city, "state": state,
         "seller_name": seller_name, "seller_type": seller_type,
         "authorized_jeep": authorized,
+        "vin": vin, "equipment": equipment,
         "raw_text": html_lib.unescape(blob),
     }
 
@@ -481,10 +507,23 @@ def _enrich_and_rank(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         item["local"] = local
         item["distance_from_fortaleza_km"] = _STATE_DISTANCE_KM.get(str(item.get("state") or "").upper())
         item["price_advantage_pct"] = round((median - price) / median * 100, 1) if median else 0.0
+        text = f"{item.get('description', '')} {item.get('raw_text', '')}".lower()
+        quality_flags = []
+        if not item.get("vin"):
+            quality_flags.append("chassisnummer ikke oppgitt")
+        if not any(token in text for token in ("revisão", "revisoes", "revisões", "histórico de manutenção", "servicehistor")):
+            quality_flags.append("servicehistorikk ikke dokumentert")
+        if not any(token in text for token in ("garantia", "warranty")):
+            quality_flags.append("garanti ikke oppgitt")
+        if price < median * .72:
+            quality_flags.append("uvanlig lav pris – kontroller annonsen")
+        item["quality_flags"] = quality_flags
         # Price dominates; black and local are preferences, never hard gates.
         item["value_score"] = round(
             60 * (max_price - price) / spread + 25 * (1 - min(km, 35000) / 35000)
-            + (10 if black else 0) + (5 if local else 0), 2
+            + (10 if black else 0) + (5 if local else 0)
+            + (3 if item.get("authorized_jeep") else (1 if item.get("seller_type") == "FORHANDLER" else 0))
+            + min(3, sum(1 for value in (item.get("equipment") or {}).values() if value)), 2
         )
         ranked.append(item)
     return sorted(ranked, key=lambda row: (-float(row["value_score"]), float(row["price_brl"]), int(row.get("km") or 0)))
@@ -497,11 +536,15 @@ def _dedupe_signature(item: dict[str, Any]) -> str:
     normalized variant agree and prices are close. Distinct cars are therefore
     preferred over an unsafe merge when information is incomplete.
     """
+    vin = re.sub(r"[^A-Z0-9]", "", str(item.get("vin") or "").upper())
+    if len(vin) >= 11:
+        return "vin-" + hashlib.sha256(vin.encode()).hexdigest()[:20]
     title = re.sub(r"\b(?:jeep|commander|diesel|turbo|at9|4x4)\b", " ", str(item.get("title") or "").lower())
     variant = re.sub(r"[^a-z0-9]+", "", title)[:40]
     parts = (
-        item.get("model_year"), item.get("km"), str(item.get("city") or "").lower().strip(),
-        str(item.get("state") or "").upper(), variant,
+        item.get("production_year"), item.get("model_year"), item.get("km"),
+        str(item.get("city") or "").lower().strip(), str(item.get("state") or "").upper(),
+        variant, str(item.get("color") or "").lower().strip(),
     )
     return hashlib.sha256("|".join(str(value or "") for value in parts).encode()).hexdigest()[:24]
 
@@ -536,34 +579,106 @@ def _deduplicate_across_sources(rows: list[dict[str, Any]]) -> list[dict[str, An
     return result
 
 
+def _pagination_links(content: str, *, base_url: str) -> list[str]:
+    """Return explicit same-site pagination links; never guess protected URLs."""
+    host = urlparse(base_url).netloc.lower()
+    found: list[str] = []
+    for match in re.finditer(r"<a\b(?P<attrs>[^>]*href\s*=\s*[\"'][^\"']+[\"'][^>]*)>(?P<body>.*?)</a>", str(content or ""), flags=re.I | re.S):
+        label = _plain_text(match.group("body")).strip().lower()
+        attrs = match.group("attrs")
+        href_match = re.search(r"href\s*=\s*[\"']([^\"']+)[\"']", attrs, flags=re.I)
+        if not href_match:
+            continue
+        aria_next = bool(re.search(r"(?:próxima|proxima|next|seguinte)", f"{label} {attrs}", flags=re.I))
+        numeric = bool(re.fullmatch(r"\d{1,2}", label))
+        if not (aria_next or numeric):
+            continue
+        url = urljoin(base_url, html_lib.unescape(href_match.group(1)))
+        parsed = urlparse(url)
+        if parsed.netloc.lower() == host and url != base_url and url not in found:
+            found.append(url)
+    return found
+
+
+def _merge_detail(summary: dict[str, Any], detail: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(summary)
+    for key in ("description", "raw_text", "color", "city", "state", "seller_name", "seller_type", "vin"):
+        if detail.get(key) not in (None, "", [], {}):
+            merged[key] = detail[key]
+    for key in ("km", "production_year", "model_year", "years"):
+        if merged.get(key) in (None, "", [], {}) and detail.get(key) not in (None, "", [], {}):
+            merged[key] = detail[key]
+    merged["authorized_jeep"] = bool(summary.get("authorized_jeep") or detail.get("authorized_jeep"))
+    merged["equipment"] = {
+        key: bool(value or (detail.get("equipment") or {}).get(key))
+        for key, value in (summary.get("equipment") or {}).items()
+    } or dict(detail.get("equipment") or {})
+    merged["detail_checked"] = True
+    return merged
+
+
 def _fetch_sources(config: dict[str, Any], fetcher: Callable[..., Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
+    detail_budget = max(0, min(80, int(config.get("max_detail_checks") or 40)))
     headers = {"User-Agent": "Mozilla/5.0 (compatible; JeepCommanderMonitor/1.0; low-rate personal search)"}
     for source in build_source_urls(config):
         try:
-            response = fetcher(source["url"], headers=headers, timeout=18)
-            status = int(getattr(response, "status_code", 0) or 0)
-            if status in {403, 429}:
-                raise RuntimeError(f"kilden blokkerte forespørselen (HTTP {status})")
-            if status != 200:
-                raise RuntimeError(f"HTTP {status}")
-            body = str(getattr(response, "text", "") or "")
-            parsed = parse_marketplace_html(
-                body, source=source["source"], base_url=source["url"],
-                default_seller_type=source.get("default_seller_type", "UKJENT"),
-            )
-            visible = _plain_text(body).lower()
-            explicit_empty = bool(re.search(
-                r"(?:^|[.!?])\s*(?:nenhum anúncio|nenhum veículo|não encontramos veículos|0 veículos disponíveis)",
-                visible,
-            ))
-            if not parsed and not explicit_empty:
-                raise RuntimeError("ingen lesbare annonser; kildeformatet kan ha blitt endret")
-            rows.extend(parsed)
-            sources.append({**source, "state": "OK", "parsed": len(parsed), "error": ""})
+            queue = [source["url"]]
+            visited: set[str] = set()
+            source_rows: dict[str, dict[str, Any]] = {}
+            max_pages = max(1, min(6, int(config.get("max_pages_per_source") or 4)))
+            while queue and len(visited) < max_pages:
+                page_url = queue.pop(0)
+                if page_url in visited:
+                    continue
+                response = fetcher(page_url, headers=headers, timeout=18)
+                status = int(getattr(response, "status_code", 0) or 0)
+                if status in {403, 429}:
+                    raise RuntimeError(f"kilden blokkerte forespørselen (HTTP {status})")
+                if status != 200:
+                    raise RuntimeError(f"HTTP {status}")
+                body = str(getattr(response, "text", "") or "")
+                parsed = parse_marketplace_html(
+                    body, source=source["source"], base_url=page_url,
+                    default_seller_type=source.get("default_seller_type", "UKJENT"),
+                )
+                visible = _plain_text(body).lower()
+                explicit_empty = bool(re.search(
+                    r"(?:nenhum anúncio|nenhum veículo|não encontramos veículos|0 veículos disponíveis|nenhum resultado)",
+                    visible,
+                ))
+                if not parsed and not explicit_empty and not visited:
+                    raise RuntimeError("ingen lesbare annonser; kildeformatet kan ha blitt endret")
+                visited.add(page_url)
+                for item in parsed:
+                    source_rows[item["id"]] = item
+                for url in _pagination_links(body, base_url=page_url):
+                    if url not in visited and url not in queue:
+                        queue.append(url)
+            detail_checked = 0
+            for listing_id, item in list(source_rows.items()):
+                if detail_budget <= 0 or not _valid_url(str(item.get("url") or "")):
+                    break
+                try:
+                    detail_response = fetcher(item["url"], headers=headers, timeout=18)
+                    if int(getattr(detail_response, "status_code", 0) or 0) != 200:
+                        continue
+                    detail_rows = parse_marketplace_html(
+                        str(getattr(detail_response, "text", "") or ""), source=source["source"],
+                        base_url=item["url"], default_seller_type=source.get("default_seller_type", "UKJENT"),
+                    )
+                    if detail_rows:
+                        same = next((value for value in detail_rows if value.get("url") == item.get("url")), detail_rows[0])
+                        source_rows[listing_id] = _merge_detail(item, same)
+                    detail_checked += 1
+                    detail_budget -= 1
+                except Exception:
+                    continue
+            rows.extend(source_rows.values())
+            sources.append({**source, "state": "OK", "parsed": len(source_rows), "pages_fetched": len(visited), "details_checked": detail_checked, "error": ""})
         except Exception as exc:
-            sources.append({**source, "state": "FAILED", "parsed": 0, "error": str(exc)[:300]})
+            sources.append({**source, "state": "FAILED", "parsed": 0, "pages_fetched": 0, "error": str(exc)[:300]})
     return rows, sources
 
 
@@ -591,13 +706,52 @@ def _message(item: dict[str, Any], reason: str) -> str:
     seller = f" · {item.get('seller_name')}" if item.get("seller_name") else ""
     sources = item.get("sources") or [item.get("source")]
     source_text = ", ".join(str(value) for value in sources if value)
+    first_price = float(item.get("first_price_brl") or item.get("price_brl") or 0)
+    previous_price = float(item.get("previous_price_brl") or item.get("price_brl") or 0)
+    current_price = float(item.get("price_brl") or 0)
+    price_line = ""
+    if previous_price and current_price != previous_price:
+        delta = current_price - previous_price
+        pct = delta / previous_price * 100
+        price_line = f"\nForrige → ny: {_format_brl(previous_price)} → {_format_brl(current_price)} ({_format_brl(abs(delta))} {'opp' if delta > 0 else 'ned'} / {pct:+.2f}%)"
+    history_line = f"\nFørst funnet: {item.get('first_seen_at')} · første pris {_format_brl(first_price)}" if item.get("first_seen_at") else ""
+    total_cost = int(item.get("estimated_total_brl") or current_price)
+    total_line = f"\nEstimert totalt til Fortaleza: {_format_brl(total_cost)}" if total_cost > current_price else ""
+    equipment = [name.replace("_", " ") for name, present in (item.get("equipment") or {}).items() if present]
+    equipment_line = f"\nUtstyr funnet: {', '.join(equipment)}" if equipment else ""
+    quality_line = f"\nKontroller: {'; '.join(item.get('quality_flags') or [])}" if item.get("quality_flags") else ""
     return (
         f"{reason}\n{item.get('title') or MODULE_NAME}\n"
         f"{years} · {int(item.get('km') or 0):,} km · {color}\n"
-        f"{_format_brl(item.get('price_brl'))} · {location} · {distance_text}\n"
+        f"{_format_brl(item.get('price_brl'))} · {location} · {distance_text}{price_line}{history_line}{total_line}{equipment_line}{quality_line}\n"
         f"{seller_type}{seller} · {len(sources)} kilde(r)\n"
         f"Pris mot median: {float(item.get('price_advantage_pct') or 0):+.1f}% · {source_text}"
     ).replace(",", " ")
+
+
+def _apply_listing_history(current: list[dict[str, Any]], previous: dict[str, Any], now: datetime) -> list[dict[str, Any]]:
+    old = dict(previous.get("listings") or {})
+    enriched: list[dict[str, Any]] = []
+    for raw in current:
+        item = dict(raw)
+        prior = old.get(item["id"]) if isinstance(old.get(item["id"]), dict) else {}
+        price = int(item.get("price_brl") or 0)
+        prior_price = int(prior.get("price_brl") or price)
+        history = [dict(value) for value in prior.get("price_history") or [] if isinstance(value, dict)]
+        if not history:
+            history.append({"at": prior.get("first_seen_at") or now.isoformat(), "price_brl": int(prior.get("first_price_brl") or prior_price)})
+        if price != prior_price:
+            history.append({"at": now.isoformat(), "price_brl": price})
+        item.update({
+            "first_seen_at": prior.get("first_seen_at") or now.isoformat(),
+            "last_seen_at": now.isoformat(),
+            "first_price_brl": int(prior.get("first_price_brl") or prior_price or price),
+            "previous_price_brl": prior_price,
+            "last_price_change_at": now.isoformat() if price != prior_price else prior.get("last_price_change_at"),
+            "price_history": history[-30:],
+        })
+        enriched.append(item)
+    return enriched
 
 
 def _events(current: list[dict[str, Any]], previous: dict[str, Any], *, first_success: bool) -> list[tuple[dict[str, Any], str]]:
@@ -609,9 +763,9 @@ def _events(current: list[dict[str, Any]], previous: dict[str, Any], *, first_su
     for item in current:
         prior = old.get(item["id"])
         if not isinstance(prior, dict):
-            reason = "🚙 Nytt treff"
+            reason = "🔵🆕 Nytt treff"
             if float(item.get("value_score") or 0) >= old_best + 8:
-                reason = "🏆 Nytt og tydelig bedre tilbud"
+                reason = "🟣🏆 Nytt og tydelig bedre tilbud"
             events.append((item, reason))
             continue
         old_price = float(prior.get("price_brl") or 0)
@@ -619,14 +773,45 @@ def _events(current: list[dict[str, Any]], previous: dict[str, Any], *, first_su
         if old_price > 0 and new_price < old_price:
             cut = (old_price - new_price) / old_price * 100
             if old_price - new_price >= 500 or cut >= 0.3:
-                events.append((item, f"💰 Prisfall {_format_brl(old_price)} → {_format_brl(new_price)} (-{cut:.1f}%)"))
+                events.append((item, f"🟢⬇️ Prisfall {_format_brl(old_price)} → {_format_brl(new_price)} (-{_format_brl(old_price-new_price)} / -{cut:.2f}%)"))
+                continue
+        if old_price > 0 and new_price > old_price:
+            rise = (new_price - old_price) / old_price * 100
+            if new_price - old_price >= 500 or rise >= 0.3:
+                events.append((item, f"🔴⬆️ Prisøkning {_format_brl(old_price)} → {_format_brl(new_price)} (+{_format_brl(new_price-old_price)} / +{rise:.2f}%)"))
                 continue
         old_sources = set(prior.get("sources") or [prior.get("source")])
         new_sources = set(item.get("sources") or [item.get("source")])
         added = sorted(str(value) for value in new_sources - old_sources if value)
         if added:
-            events.append((item, f"🔎 Samme bil funnet hos ny kilde: {', '.join(added)}"))
+            events.append((item, f"🟣🔎 Samme bil funnet hos ny kilde: {', '.join(added)}"))
     return events
+
+
+def _availability_events(
+    current: list[dict[str, Any]], previous: dict[str, Any], successful_sources: set[str],
+) -> tuple[list[tuple[dict[str, Any], str]], dict[str, Any]]:
+    old = {key: value for key, value in (previous.get("listings") or {}).items() if isinstance(value, dict)}
+    missing = {key: dict(value) for key, value in (previous.get("missing_listings") or {}).items() if isinstance(value, dict)}
+    current_ids = {item["id"] for item in current}
+    events: list[tuple[dict[str, Any], str]] = []
+    for item in current:
+        if item["id"] in missing:
+            events.append((item, "🔵↩️ Annonsen er publisert igjen"))
+            missing.pop(item["id"], None)
+    for item_id, item in old.items():
+        if item_id in current_ids:
+            continue
+        item_sources = {str(value) for value in item.get("sources") or [item.get("source")] if value}
+        if item_sources and not item_sources.issubset(successful_sources):
+            continue
+        entry = dict(missing.get(item_id) or {"listing": item, "misses": 0, "alerted": False})
+        entry["misses"] = int(entry.get("misses") or 0) + 1
+        if entry["misses"] >= 2 and not entry.get("alerted"):
+            events.append((dict(entry.get("listing") or item), "⚫❌ Annonsen er borte eller markert solgt etter to komplette kontroller"))
+            entry["alerted"] = True
+        missing[item_id] = entry
+    return events, missing
 
 
 def run_due_monitor(
@@ -672,8 +857,19 @@ def run_due_monitor(
             else:
                 accepted.append(row)
         current = _enrich_and_rank(_deduplicate_across_sources(accepted))
+        for item in current:
+            transport = 0 if item.get("local") else int(config.get("transport_estimate_brl") or 0)
+            item["estimated_transport_brl"] = transport
+            item["estimated_fees_brl"] = int(config.get("fees_estimate_brl") or 0)
+            item["estimated_total_brl"] = int(item.get("price_brl") or 0) + transport + item["estimated_fees_brl"]
+        current = _apply_listing_history(current, state, now)
         first_success = not bool(state.get("baseline_created_at"))
         events = _events(current, state, first_success=first_success)
+        availability_events, missing_listings = _availability_events(
+            current, state, {str(row.get("source")) for row in successful},
+        )
+        if not first_success:
+            events.extend(availability_events)
         pending_map: dict[str, tuple[dict[str, Any], str]] = {}
         for pending in state.get("pending_notifications") or []:
             if not isinstance(pending, dict) or not isinstance(pending.get("listing"), dict):
@@ -707,6 +903,9 @@ def run_due_monitor(
                 "city", "state", "black", "local", "distance_from_fortaleza_km",
                 "price_advantage_pct", "value_score", "seller_name", "seller_type",
                 "authorized_jeep", "sources", "source_count", "alternatives",
+                "vin", "equipment", "first_seen_at", "last_seen_at", "first_price_brl",
+                "previous_price_brl", "last_price_change_at", "price_history",
+                "quality_flags", "estimated_transport_brl", "estimated_fees_brl", "estimated_total_brl",
             )} for item in current[:200]
         }
         result = {
@@ -718,6 +917,7 @@ def run_due_monitor(
             "first_run_seeded": first_success, "checked_raw": len(raw_rows), "matches": len(current),
             "new_or_changed": len(events), "sent": sent, "send_errors": send_errors,
             "pending_notifications": [{"listing": item, "reason": reason} for item, reason in unsent[:100]],
+            "missing_listings": missing_listings,
             "sources": sources, "listings": compact, "ranked": current[:50], "source": source,
             "rejection_counts": rejection_counts,
             "config_snapshot": {key: config.get(key) for key in ("years", "max_km", "area", "preferred_color", "include_dealer_network")},
@@ -730,6 +930,15 @@ def run_due_monitor(
 def render_streamlit_module(st: Any) -> None:
     config = load_config()
     state = load_state()
+    st.markdown("""
+    <style>
+    div[data-testid="stExpander"] {background:#071525 !important;border:1px solid #29445f !important;border-radius:12px;}
+    div[data-testid="stExpander"] summary, div[data-testid="stExpander"] summary * {color:#f4f8fc !important;background:transparent !important;}
+    .jeep-result-card {background:#0b1d30;color:#f4f8fc;border:1px solid #31516f;border-radius:10px;padding:14px 16px;line-height:1.55;}
+    .jeep-result-card strong {color:#62d6ff;}.jeep-result-card .price {color:#70e29b;font-size:1.15rem;font-weight:800;}
+    .jeep-result-card .muted {color:#c3d1df;}.jeep-result-card * {background:transparent !important;}
+    </style>
+    """, unsafe_allow_html=True)
     st.subheader("🚙 Jeep Commander 2.2")
     st.caption("Midlertidig bruktbilsøk. Egen lagring; påvirker ikke aksjer, Autonomi, rapporter eller læring.")
 
@@ -757,11 +966,29 @@ def render_streamlit_module(st: Any) -> None:
         help="Supplerer Webmotors, OLX og Mobiauto med forhandlernes egne bruktbillister.",
         key="jeep_commander_dealers_v19220_rc1631ci",
     )
+    manual_urls_text = st.text_area(
+        "Annonser som alltid skal følges (én lenke per linje)",
+        value="\n".join(config.get("manual_urls") or []),
+        help="Lim inn en annonse som ikke blir funnet automatisk. Den kontrolleres videre for prisendringer.",
+        key="jeep_commander_manual_urls_v19220_rc1631cj",
+    )
+    cost_left, cost_right = st.columns(2)
+    transport_estimate = cost_left.number_input(
+        "Transport til Fortaleza (R$)", min_value=0, max_value=50000,
+        value=int(config.get("transport_estimate_brl") or 0), step=500,
+        key="jeep_commander_transport_v19220_rc1631cj",
+    )
+    fees_estimate = cost_right.number_input(
+        "Dokumenter/andre kostnader (R$)", min_value=0, max_value=50000,
+        value=int(config.get("fees_estimate_brl") or 0), step=500,
+        key="jeep_commander_fees_v19220_rc1631cj",
+    )
 
     left, right = st.columns(2)
     if left.button("Lagre søkevalg", key="jeep_commander_save_v19220_rc1631ch", width="stretch"):
         years = [2025, 2026] if year_label == "2025 og 2026" else ([2026] if year_label == "Bare 2026" else [2025])
-        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network})
+        manual_urls = [line.strip() for line in manual_urls_text.splitlines() if _valid_url(line.strip())]
+        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network, "manual_urls": manual_urls, "transport_estimate_brl": transport_estimate, "fees_estimate_brl": fees_estimate})
         st.success("Søkevalgene er lagret og brukes ved neste Cron-kontroll.")
         st.rerun()
     if right.button("Søk nå", key="jeep_commander_scan_v19220_rc1631ch", width="stretch"):
@@ -787,7 +1014,8 @@ def render_streamlit_module(st: Any) -> None:
         for item in rows[:20]:
             title = f"{item.get('title')} · {_format_brl(item.get('price_brl'))} · {int(item.get('km') or 0):,} km".replace(",", " ")
             with st.expander(title):
-                st.write(_message(item, "Sort foretrukket" if item.get("black") else "Billigere alternativ farge"))
+                message = html_lib.escape(_message(item, "Sort foretrukket" if item.get("black") else "Billigere alternativ farge")).replace("\n", "<br>")
+                st.markdown(f'<div class="jeep-result-card">{message}</div>', unsafe_allow_html=True)
                 st.link_button("Åpne annonsen", item["url"], width="stretch")
                 alternatives = list(item.get("alternatives") or [])
                 if len(alternatives) > 1:
