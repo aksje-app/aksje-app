@@ -233,6 +233,30 @@ def _location(raw: Any) -> tuple[str, str]:
     return (match.group(1).strip(), match.group(2)) if match else (text.strip(), "")
 
 
+def _vehicle_years(item: dict[str, Any], blob: str) -> tuple[int | None, int | None, list[int]]:
+    """Read Brazilian fabrication/model year without treating both as model years."""
+    production_raw = _first(item, ("fabricationYear", "manufactureYear", "productionYear", "anoFabricacao"))
+    model_raw = _first(item, ("modelYear", "vehicleModelYear", "anoModelo"))
+    production_year = int(_number(production_raw)) if _number(production_raw) in {2024.0, 2025.0, 2026.0, 2027.0} else None
+    model_year = int(_number(model_raw)) if _number(model_raw) in {2024.0, 2025.0, 2026.0, 2027.0} else None
+
+    # Marketplaces commonly abbreviate the pair in the title as 2025/2026.
+    pair = re.search(r"\b(202[4-7])\s*[/|-]\s*(202[4-7])\b", str(blob or ""))
+    if pair:
+        production_year = production_year or int(pair.group(1))
+        model_year = model_year or int(pair.group(2))
+    found = [int(year) for year in re.findall(r"\b(202[4-7])\b", str(blob or ""))]
+    if model_year is None and found:
+        model_year = found[-1]
+    if production_year is None and found:
+        production_year = found[0]
+    display_years = []
+    for year in (production_year, model_year):
+        if year is not None and year not in display_years:
+            display_years.append(year)
+    return production_year, model_year, display_years
+
+
 def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str) -> dict[str, Any] | None:
     title = _first(item, ("name", "title", "subject", "vehicleTitle", "version"))
     url = _first(item, ("url", "link", "permalink", "detailUrl", "vehicleUrl"))
@@ -254,7 +278,9 @@ def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str) ->
         city, state = city or city2, state or state2
     city = city or str(_first(item, ("city", "cidade")) or "").strip()
     state = state or str(_first(item, ("state", "uf")) or "").strip().upper()[:2]
-    years = sorted({int(year) for year in re.findall(r"\b(202[456])\b", blob + " " + str(_first(item, ("year", "modelYear")) or ""))})
+    generic_year = _first(item, ("year", "vehicleYear", "ano"))
+    year_blob = blob + " " + str(generic_year or "")
+    production_year, model_year, years = _vehicle_years(item, year_blob)
     color = str(_first(item, ("color", "vehicleColor", "cor")) or "").strip()
     absolute_url = urljoin(base_url, str(url))
     raw_id = _first(item, ("id", "vehicleId", "adId", "listingId"))
@@ -265,7 +291,8 @@ def _candidate_from_dict(item: dict[str, Any], *, source: str, base_url: str) ->
         "description": html_lib.unescape(str(description or "")).strip()[:1000],
         "url": absolute_url, "price_brl": int(round(float(_number(price) or 0))),
         "km": int(round(float(_number(mileage) or 0))) if _number(mileage) is not None else None,
-        "years": years, "color": color, "city": city, "state": state,
+        "years": years, "production_year": production_year, "model_year": model_year,
+        "color": color, "city": city, "state": state,
         "raw_text": html_lib.unescape(blob),
     }
 
@@ -310,8 +337,13 @@ def _is_target(listing: dict[str, Any], config: dict[str, Any]) -> bool:
     # from the abbreviated title; an explicit conflicting 4x2 is rejected.
     if "4x2" in text or "4 x 2" in text:
         return False
-    years = set(int(year) for year in listing.get("years") or [])
-    if not years.intersection(set(config.get("years") or [])):
+    model_year = listing.get("model_year")
+    if model_year is None:
+        # Compatibility for already parsed state: in a Brazilian year pair the
+        # final/highest stored value is the model year.
+        stored_years = [int(year) for year in listing.get("years") or []]
+        model_year = stored_years[-1] if stored_years else None
+    if model_year not in set(config.get("years") or []):
         return False
     km = listing.get("km")
     if km is None or int(km) > int(config.get("max_km") or 20000):
@@ -391,7 +423,12 @@ def _format_brl(value: Any) -> str:
 
 
 def _message(item: dict[str, Any], reason: str) -> str:
-    years = "/".join(str(year) for year in item.get("years") or []) or "år ukjent"
+    production_year = item.get("production_year")
+    model_year = item.get("model_year")
+    years = (
+        f"{production_year}/{model_year}" if production_year and model_year and production_year != model_year
+        else str(model_year or production_year or "år ukjent")
+    )
     location = ", ".join(part for part in (item.get("city"), item.get("state")) if part) or "sted ukjent"
     distance = item.get("distance_from_fortaleza_km")
     distance_text = "lokal i Ceará" if item.get("local") else (f"ca. {distance} km (delstatsestimat)" if distance is not None else "avstand ukjent")
@@ -493,7 +530,8 @@ def run_due_monitor(
             unsent = pending
         compact = {
             item["id"]: {key: item.get(key) for key in (
-                "id", "source", "title", "url", "price_brl", "km", "years", "color",
+                "id", "source", "title", "url", "price_brl", "km", "years",
+                "production_year", "model_year", "color",
                 "city", "state", "black", "local", "distance_from_fortaleza_km",
                 "price_advantage_pct", "value_score",
             )} for item in current[:200]
