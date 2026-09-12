@@ -53,7 +53,7 @@ from paper_scanner_runtime import (
 from paper_store import force_schema_migration
 from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
 from alert_state import should_send_alert, record_alert
-from market_hours import open_markets, should_process_ticker, market_status_lines, ticker_market as _ticker_market
+from market_hours import open_markets, should_process_ticker, market_status_lines, market_scan_schedule, ticker_market as _ticker_market
 from background_guard import print_market_guard_summary
 
 from stocks import get_sp500_tickers, get_norwegian_tickers, get_swedish_tickers, US_FALLBACK, NORWEGIAN_STOCKS, SWEDISH_STOCKS
@@ -494,10 +494,25 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
         message = f"Ingen aktiverte produksjonsmarkeder er åpne ({configured_text})"
         print(f"⏸ {message} - ingen scanning")
         print("ℹ️ Andre markeder kan være åpne, men er deaktivert av gjeldende scanner-policy.")
-        update_scanner_status(state="MARKET_CLOSED", markets_open=[], message=message)
+        prior_status = load_scanner_status()
+        skipped = int(prior_status.get("market_closed_skipped_cycles") or 0) + 1
+        schedule = market_scan_schedule(AUTOMATED_SCANNER_MARKETS)
+        next_rows = [row.get("next_open") for row in schedule if row.get("next_open")]
+        next_utc = min((row.get("utc") for row in next_rows if row.get("utc")), default=None)
+        update_scanner_status(
+            state="MARKET_CLOSED", markets_open=[], message=message,
+            market_schedule=schedule, next_market_scan_at=next_utc,
+            market_closed_skipped_cycles=skipped,
+            estimated_full_scans_avoided=skipped,
+        )
         return 0
 
     print(f"Åpne markeder: {markets}")
+    update_scanner_status(
+        markets_open=markets,
+        market_schedule=market_scan_schedule(AUTOMATED_SCANNER_MARKETS),
+        next_market_scan_at="",
+    )
     settings = load_settings()
     auto_trading_enabled = bool(settings.get("auto_trading_enabled", False))
     if bool(settings.get("auto_trading_paused", False)):

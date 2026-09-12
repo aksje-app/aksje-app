@@ -121,6 +121,7 @@ def paper_scanner_global_lock():
 def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int:
     from runtime_identity import publish_runtime_identity, validate_cluster_alignment, validate_expected_runtime
     execution_id = f"PAPER-SCANNER-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    previous_status = load_scanner_status()
     status = {
         "execution_id": execution_id,
         "state": "RUNNING",
@@ -132,6 +133,8 @@ def run_coordinated(run_impl: Callable[..., int], *, force: bool = False) -> int
         "trades_executed": 0,
         "error": "",
         "scanner_configuration": scanner_configuration_snapshot(),
+        "market_closed_skipped_cycles": int(previous_status.get("market_closed_skipped_cycles") or 0),
+        "estimated_full_scans_avoided": int(previous_status.get("estimated_full_scans_avoided") or 0),
         "runtime_identity": publish_runtime_identity("paper_scanner"),
     }
     write_scanner_status(status)

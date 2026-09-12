@@ -458,7 +458,7 @@ def _run_once_locked() -> dict[str, Any]:
         state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
 
     # Temporary personal vehicle search. It shares the cron wake-up but keeps
-    # its own durable 15-minute lease and isolated storage namespace.
+    # its own configurable 30/60-minute lease, Fortaleza night pause and isolated storage namespace.
     try:
         from jeep_commander_monitor import run_due_monitor as run_due_jeep_monitor
         state["jeep_commander_monitor"] = dict(
@@ -495,6 +495,10 @@ def _run_once_locked() -> dict[str, Any]:
             "memory_policy": scanner_status.get("memory_policy"),
             "memory_pressure_reason": str(scanner_status.get("memory_pressure_reason") or ""),
             "markets_open": list(scanner_status.get("markets_open") or []),
+            "market_schedule": list(scanner_status.get("market_schedule") or []),
+            "next_market_scan_at": scanner_status.get("next_market_scan_at"),
+            "market_closed_skipped_cycles": int(scanner_status.get("market_closed_skipped_cycles") or 0),
+            "estimated_full_scans_avoided": int(scanner_status.get("estimated_full_scans_avoided") or 0),
             "cooldown_started_at": scanner_status.get("cooldown_started_at"),
             "error": str(scanner_status.get("error") or "")[:500],
         }

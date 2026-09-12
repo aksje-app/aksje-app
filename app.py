@@ -6130,6 +6130,23 @@ def render_system_admin_workspace(expanded=False):
         else:
             st.success("Status: Aktiv ✅")
         st.caption(_cron_status.get("reason", ""))
+        _market_schedule = list(_cron_status.get("market_schedule") or [])
+        if _market_schedule:
+            st.markdown("**Automatisk markedshvile**")
+            st.dataframe([
+                {
+                    "Marked": row.get("name") or row.get("market"),
+                    "Status": row.get("scan_state"),
+                    "Lokal tid": row.get("local_time"),
+                    "Neste åpning": (row.get("next_open") or {}).get("label") or "Åpent nå",
+                }
+                for row in _market_schedule
+            ], width="stretch", hide_index=True)
+            st.caption(
+                f"Hoppet over {int(_cron_status.get('market_closed_skipped_cycles') or 0)} lukkede 15-minutterskontroller · "
+                f"estimerte fulle scannerkjøringer spart: {int(_cron_status.get('estimated_full_scans_avoided') or 0)}. "
+                "Rapporter, valutavarsler og vedlikehold fortsetter uavhengig."
+            )
 
         with st.form("system_admin_cron_form_v17", clear_on_submit=False):
             c1, c2, c3 = st.columns(3)

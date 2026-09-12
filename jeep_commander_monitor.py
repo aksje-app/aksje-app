@@ -17,6 +17,7 @@ import re
 import threading
 from typing import Any, Callable, Iterable
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -62,12 +63,16 @@ def default_config(*, now: datetime | None = None) -> dict[str, Any]:
         "schema_version": 2,
         "name": MODULE_NAME,
         "active": True,
+        "module_mode": "ACTIVE",
         "years": [2025, 2026],
         "max_km": 20000,
         "area": "CEARA",
         "preferred_color": "PRETO",
         "include_other_colors": True,
         "interval_minutes": INTERVAL_MINUTES,
+        "night_pause_enabled": True,
+        "night_pause_start": 1,
+        "night_pause_end": 6,
         "dataforseo_enabled": False,
         "dataforseo_monthly_cap_usd": 10.0,
         "dataforseo_trial_cap_usd": 0.10,
@@ -102,6 +107,12 @@ def _normalize_config(value: Any) -> dict[str, Any]:
     if base["area"] not in {"CEARA", "NORDESTE", "BRASIL"}:
         base["area"] = "CEARA"
     base["interval_minutes"] = 30 if int(base.get("interval_minutes") or INTERVAL_MINUTES) == 30 else 60
+    mode = str(raw.get("module_mode") if "module_mode" in raw else ("ACTIVE" if raw.get("active", True) else "PAUSED")).upper()
+    base["module_mode"] = mode if mode in {"ACTIVE", "PAUSED", "STOPPED"} else "ACTIVE"
+    base["active"] = base["module_mode"] == "ACTIVE"
+    base["night_pause_enabled"] = bool(base.get("night_pause_enabled", True))
+    base["night_pause_start"] = min(23, max(0, int(base.get("night_pause_start", 1))))
+    base["night_pause_end"] = min(23, max(0, int(base.get("night_pause_end", 6))))
     base["dataforseo_enabled"] = bool(base.get("dataforseo_enabled", False))
     base["dataforseo_monthly_cap_usd"] = min(25.0, max(0.10, float(_number(base.get("dataforseo_monthly_cap_usd")) or 10.0)))
     base["dataforseo_trial_cap_usd"] = min(1.0, max(0.01, float(_number(base.get("dataforseo_trial_cap_usd")) or 0.10)))
@@ -147,6 +158,20 @@ def purge_temporary_module() -> None:
             path.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _progress(callback: Callable[[str, int, str], None] | None, stage: str, percent: int, detail: str) -> None:
+    if callback:
+        callback(stage, min(100, max(0, int(percent))), detail)
+
+
+def _night_pause(config: dict[str, Any], now: datetime) -> tuple[bool, str]:
+    if not config.get("night_pause_enabled", True):
+        return False, ""
+    local = now.astimezone(ZoneInfo("America/Fortaleza"))
+    start, end = int(config.get("night_pause_start", 1)), int(config.get("night_pause_end", 6))
+    paused = start <= local.hour < end if start < end else (local.hour >= start or local.hour < end)
+    return paused, f"Nattpause {start:02d}:00–{end:02d}:00 (Fortaleza); lokal tid {local:%H:%M}"
 
 
 @contextmanager
@@ -677,7 +702,10 @@ def _dataforseo_month_usage(state: dict[str, Any], now: datetime) -> tuple[str, 
     return month, float(usage.get("estimated_usd") or 0) if usage.get("month") == month else 0.0
 
 
-def _fetch_dataforseo(config: dict[str, Any], state: dict[str, Any], *, post: Callable[..., Any], validation: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+def _fetch_dataforseo(
+    config: dict[str, Any], state: dict[str, Any], *, post: Callable[..., Any], validation: bool = False,
+    progress: Callable[[str, int, str], None] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     now = _now()
     month, used = _dataforseo_month_usage(state, now)
     queries = _dataforseo_queries(config)
@@ -689,6 +717,7 @@ def _fetch_dataforseo(config: dict[str, Any], state: dict[str, Any], *, post: Ca
         return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "COST_CAP", "parsed": 0, "error": f"kostnadssperre ${cap:.2f}"} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
     payload = [{"keyword": row["keyword"], "location_name": "Brazil", "language_code": "pt", "device": "desktop", "depth": 20} for row in queries]
     try:
+        _progress(progress, "DATAFORSEO", 68, "Sender samlet, kostnadsbegrenset søk til DataForSEO")
         response = post(DATAFORSEO_ENDPOINT, auth=(os.getenv("DATAFORSEO_LOGIN", "").strip(), os.getenv("DATAFORSEO_PASSWORD", "").strip()), json=payload, timeout=30)
         status = int(getattr(response, "status_code", 0) or 0)
         if status != 200:
@@ -701,6 +730,7 @@ def _fetch_dataforseo(config: dict[str, Any], state: dict[str, Any], *, post: Ca
         source_rows: list[dict[str, Any]] = []
         actual_cost = sum(float(task.get("cost") or 0) for task in tasks if isinstance(task, dict)) or estimate
         for index, query in enumerate(queries):
+            _progress(progress, "DATAFORSEO_RESULT", 72 + index * 6, f"Tolker {query['source']}")
             task = tasks[index] if index < len(tasks) and isinstance(tasks[index], dict) else {}
             task_status = int(task.get("status_code") or 0)
             items: list[dict[str, Any]] = []
@@ -716,12 +746,21 @@ def _fetch_dataforseo(config: dict[str, Any], state: dict[str, Any], *, post: Ca
         return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "FAILED", "parsed": 0, "error": str(exc)[:300]} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
 
 
-def _fetch_sources(config: dict[str, Any], fetcher: Callable[..., Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _fetch_sources(
+    config: dict[str, Any], fetcher: Callable[..., Any],
+    progress: Callable[[str, int, str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
     detail_budget = max(0, min(80, int(config.get("max_detail_checks") or 40)))
     headers = {"User-Agent": "Mozilla/5.0 (compatible; JeepCommanderMonitor/1.0; low-rate personal search)"}
-    for source in build_source_urls(config):
+    source_list = build_source_urls(config)
+    for source_index, source in enumerate(source_list):
+        if cancel_check and cancel_check():
+            sources.append({"source": source["source"], "channel": source.get("channel"), "state": "CANCELLED", "parsed": 0, "error": "Jobben ble stoppet før denne kilden"})
+            break
+        _progress(progress, "SOURCE", 10 + int(52 * source_index / max(1, len(source_list))), f"Leser {source['source']} ({source_index + 1}/{len(source_list)})")
         try:
             queue = [source["url"]]
             visited: set[str] = set()
@@ -917,12 +956,32 @@ def run_due_monitor(
     *, force: bool = False, notify: bool = True, source: str = "scheduled_cron",
     fetcher: Callable[..., Any] | None = None, sender: Callable[..., Any] | None = None,
     dataforseo_post: Callable[..., Any] | None = None,
+    progress: Callable[[str, int, str], None] | None = None,
 ) -> dict[str, Any]:
     config = load_config()
     now = _now()
     state = load_state()
-    if not config.get("active", True):
-        return {"state": "DISABLED", "checked": 0, "sent": 0}
+    mode = str(config.get("module_mode") or "ACTIVE")
+    _progress(progress, "START", 2, "Kontrollerer modulstatus og tidsplan")
+    if mode == "STOPPED":
+        return {"state": "STOPPED", "checked": 0, "sent": 0}
+    if mode == "PAUSED" and source == "scheduled_cron":
+        return {"state": "PAUSED", "checked": 0, "sent": 0}
+    night_paused, night_reason = _night_pause(config, now)
+    if source == "scheduled_cron" and night_paused:
+        previous_skip = _parse_time(state.get("last_night_skip_at"))
+        interval = int(config.get("interval_minutes") or INTERVAL_MINUTES)
+        newly_skipped = previous_skip is None or (now - previous_skip).total_seconds() >= interval * 60
+        skipped = int(state.get("night_skipped_cycles") or 0) + (1 if newly_skipped else 0)
+        local = now.astimezone(ZoneInfo("America/Fortaleza"))
+        end_local = local.replace(hour=int(config.get("night_pause_end", 6)), minute=0, second=0, microsecond=0)
+        if end_local <= local:
+            end_local += timedelta(days=1)
+        state.update({"state": "NIGHT_PAUSE", "night_skipped_cycles": skipped, "last_skip_reason": night_reason, "next_check_at": end_local.astimezone(timezone.utc).isoformat()})
+        if newly_skipped:
+            state["last_night_skip_at"] = now.isoformat()
+        _save_state(state)
+        return {"state": "NIGHT_PAUSE", "checked": 0, "sent": 0, "reason": night_reason, "night_skipped_cycles": skipped, "next_check_at": state["next_check_at"]}
     expires = _parse_time(config.get("expires_at"))
     if expires is not None and now >= expires:
         config["active"] = False
@@ -939,12 +998,20 @@ def run_due_monitor(
             return {"state": "LOCKED", "checked": 0, "sent": 0}
         fetcher = fetcher or requests.get
         sender = sender or send_pushover_alert
-        raw_rows, sources = _fetch_sources(config, fetcher)
+        _progress(progress, "DIRECT_SOURCES", 8, "Starter direkte markedsplass- og forhandlersøk")
+        def cancelled() -> bool:
+            latest = load_config()
+            return str(latest.get("module_mode") or "ACTIVE") == "STOPPED" or bool(latest.get("cancel_requested"))
+        raw_rows, sources = _fetch_sources(config, fetcher, progress=progress, cancel_check=cancelled)
+        if cancelled():
+            state.update({"state": "CANCELLED", "last_cycle_at": now.isoformat(), "sources": sources})
+            _save_state(state)
+            return {"state": "CANCELLED", "checked": len(raw_rows), "sent": 0, "sources": sources}
         dataforseo_usage = state.get("dataforseo_usage") or {}
         dataforseo_ran = False
         if config.get("dataforseo_enabled") and state.get("dataforseo_validation_passed"):
             indexed, indexed_sources, dataforseo_usage = _fetch_dataforseo(
-                config, state, post=dataforseo_post or requests.post, validation=False,
+                config, state, post=dataforseo_post or requests.post, validation=False, progress=progress,
             )
             raw_rows.extend(indexed)
             sources.extend(indexed_sources)
@@ -958,6 +1025,7 @@ def run_due_monitor(
             }
             _save_state(result)
             return {"state": "FAILED_SOURCES", "checked": 0, "sent": 0, "sources": sources, "error": result["last_error"]}
+        _progress(progress, "FILTER", 84, "Kontrollerer modell, år, kilometer, sted og pris")
         rejection_counts: dict[str, int] = {}
         accepted = []
         for row in raw_rows:
@@ -966,6 +1034,7 @@ def run_due_monitor(
                 rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
             else:
                 accepted.append(row)
+        _progress(progress, "RANK", 89, "Fjerner duplikater og sammenligner pris og kvalitet")
         current = _enrich_and_rank(_deduplicate_across_sources(accepted))
         for item in current:
             transport = 0 if item.get("local") else int(config.get("transport_estimate_brl") or 0)
@@ -998,6 +1067,7 @@ def run_due_monitor(
             pending_map[key] = (item, reason)
         pending = list(pending_map.values())
         sent, send_errors, unsent = 0, [], []
+        _progress(progress, "NOTIFY", 94, "Kontrollerer nye funn og prisendringer")
         if notify and config.get("pushover", True):
             for item, reason in pending[:5]:
                 ok, detail = normalize_notification_result(sender(
@@ -1044,13 +1114,15 @@ def run_due_monitor(
             "last_error": "; ".join(send_errors)[:1000],
         }
         _save_state(result)
+        _progress(progress, "DONE", 100, f"Ferdig: {len(current)} gyldige treff, {sent} varsler")
         return {key: result[key] for key in ("state", "matches", "new_or_changed", "sent", "sources", "first_run_seeded", "next_check_at")}
 
 
-def validate_dataforseo(*, post: Callable[..., Any] | None = None) -> dict[str, Any]:
+def validate_dataforseo(*, post: Callable[..., Any] | None = None, progress: Callable[[str, int, str], None] | None = None) -> dict[str, Any]:
     """One quiet, cost-capped proof run. It never sends Pushover."""
     config, state = load_config(), load_state()
-    rows, sources, usage = _fetch_dataforseo(config, state, post=post or requests.post, validation=True)
+    _progress(progress, "START", 5, "Kontrollerer API-oppsett og kostnadssperre")
+    rows, sources, usage = _fetch_dataforseo(config, state, post=post or requests.post, validation=True, progress=progress)
     counts = {
         "olx": sum(1 for row in rows if "olx.com.br" in urlparse(str(row.get("url") or "")).netloc.lower()),
         "webmotors": sum(1 for row in rows if "webmotors.com.br" in urlparse(str(row.get("url") or "")).netloc.lower()),
@@ -1064,6 +1136,7 @@ def validate_dataforseo(*, post: Callable[..., Any] | None = None) -> dict[str, 
     }
     state.update({"dataforseo_validation_passed": passed, "dataforseo_validation": validation, "dataforseo_usage": usage})
     _save_state(state)
+    _progress(progress, "DONE", 100, validation["message"])
     return validation
 
 
@@ -1097,12 +1170,26 @@ def render_streamlit_module(st: Any) -> None:
     area_options = {"Fortaleza / Ceará": "CEARA", "Nordøst-Brasil": "NORDESTE", "Hele Brasil": "BRASIL"}
     current_area = next((label for label, value in area_options.items() if value == config.get("area")), "Fortaleza / Ceará")
     area_label = st.selectbox("Søkeområde", list(area_options), index=list(area_options).index(current_area), key="jeep_commander_area_v19220_rc1631ch")
+    mode_labels = {"Aktiv": "ACTIVE", "Pauset – behold historikk": "PAUSED", "Stoppet – ingen søk eller varsler": "STOPPED"}
+    current_mode_label = next((label for label, value in mode_labels.items() if value == config.get("module_mode")), "Aktiv")
+    mode_label = st.radio(
+        "Driftstilstand", list(mode_labels), horizontal=True, index=list(mode_labels).index(current_mode_label),
+        help="Pauset stopper automatiske kjøringer, men tillater Søk nå. Stoppet blokkerer alle søk og varsler. Historikken beholdes i begge tilfeller.",
+        key="jeep_commander_mode_v19220_rc1631cl",
+    )
+    mode_actions = st.columns(3)
+    if mode_actions[0].button("▶️ Aktiver nå", key="jeep_mode_active_now_v19220_rc1631cl", width="stretch"):
+        save_config({**config, "module_mode": "ACTIVE", "active": True, "cancel_requested": False}); st.rerun()
+    if mode_actions[1].button("⏸ Pause nå", key="jeep_mode_pause_now_v19220_rc1631cl", width="stretch"):
+        save_config({**config, "module_mode": "PAUSED", "active": False}); st.rerun()
+    if mode_actions[2].button("⏹ Stopp nå", key="jeep_mode_stop_now_v19220_rc1631cl", width="stretch"):
+        save_config({**config, "module_mode": "STOPPED", "active": False}); st.rerun()
     interval_minutes = st.radio(
         "Søkeintervall", [60, 30], horizontal=True, format_func=lambda value: f"Hvert {value}. minutt",
         index=1 if int(config.get("interval_minutes") or 60) == 30 else 0,
         key="jeep_commander_interval_v19220_rc1631ck",
     )
-    active = st.toggle("Automatisk bilsøk", value=bool(config.get("active", True)), key="jeep_commander_active_v19220_rc1631ck")
+    active = mode_labels[mode_label] == "ACTIVE"
     pushover = st.toggle("Pushover ved nye funn, prisfall eller tydelig bedre tilbud", value=bool(config.get("pushover", True)), key="jeep_commander_push_v19220_rc1631ch")
     other_colors = st.toggle("Ta med andre farger når prisen er bedre", value=bool(config.get("include_other_colors", True)), key="jeep_commander_colors_v19220_rc1631ch")
     dealer_network = st.toggle(
@@ -1111,6 +1198,13 @@ def render_streamlit_module(st: Any) -> None:
         help="Supplerer Webmotors, OLX og Mobiauto med forhandlernes egne bruktbillister.",
         key="jeep_commander_dealers_v19220_rc1631ci",
     )
+    night_pause_enabled = st.toggle(
+        "Nattpause for automatiske søk (Fortaleza-tid)", value=bool(config.get("night_pause_enabled", True)),
+        key="jeep_commander_night_pause_v19220_rc1631cl",
+    )
+    night_left, night_right = st.columns(2)
+    night_start = night_left.number_input("Pause fra kl.", min_value=0, max_value=23, value=int(config.get("night_pause_start", 1)), step=1, disabled=not night_pause_enabled, key="jeep_night_start_v19220_rc1631cl")
+    night_end = night_right.number_input("Start igjen kl.", min_value=0, max_value=23, value=int(config.get("night_pause_end", 6)), step=1, disabled=not night_pause_enabled, key="jeep_night_end_v19220_rc1631cl")
     credentials_ready = dataforseo_credentials_ready()
     validation = state.get("dataforseo_validation") if isinstance(state.get("dataforseo_validation"), dict) else {}
     validated = bool(state.get("dataforseo_validation_passed"))
@@ -1134,10 +1228,20 @@ def render_streamlit_module(st: Any) -> None:
         st.success(f"DataForSEO-test godkjent · OLX {validation.get('counts', {}).get('olx', 0)} · Webmotors {validation.get('counts', {}).get('webmotors', 0)} · estimert månedsbruk ${float(usage.get('estimated_usd') or 0):.4f}")
     else:
         st.info("DataForSEO er konfigurert, men ikke godkjent. Testen er stille og sender ingen Pushover.")
-    if st.button("Test DataForSEO uten varsler", disabled=not credentials_ready, key="jeep_commander_dataforseo_test_v19220_rc1631ck"):
-        with st.spinner("Kontrollerer individuelle OLX- og Webmotors-lenker …"):
-            proof = validate_dataforseo()
-        (st.success if proof.get("passed") else st.error)(proof.get("message"))
+    validation_sources = list(validation.get("sources") or [])
+    olx_test = next((row for row in validation_sources if "OLX" in str(row.get("source"))), {})
+    webmotors_test = next((row for row in validation_sources if "Webmotors" in str(row.get("source"))), {})
+    status_cols = st.columns(4)
+    status_cols[0].success("✅ API konfigurert") if credentials_ready else status_cols[0].error("❌ API mangler")
+    status_cols[1].success(f"✅ OLX: {validation.get('counts', {}).get('olx', 0)}") if olx_test.get("state") == "OK" and validation.get('counts', {}).get('olx', 0) else status_cols[1].error(f"❌ OLX: {olx_test.get('error') or ('0 individuelle annonser' if olx_test else 'ikke testet')}")
+    status_cols[2].success(f"✅ Webmotors: {validation.get('counts', {}).get('webmotors', 0)}") if webmotors_test.get("state") == "OK" and validation.get('counts', {}).get('webmotors', 0) else status_cols[2].error(f"❌ Webmotors: {webmotors_test.get('error') or ('0 individuelle annonser' if webmotors_test else 'ikke testet')}")
+    status_cols[3].success("✅ 0 Pushover sendt") if validation else status_cols[3].info("Ingen test kjørt")
+    if validation:
+        st.caption(f"Siste API-test: {validation.get('at')} · individuelle lenker {validation.get('individual_urls', 0)} · komplette kandidater {validation.get('complete_candidates', 0)} · estimert bruk ${float(usage.get('estimated_usd') or 0):.4f}")
+
+    busy = bool(st.session_state.get("jeep_commander_job_v19220_rc1631cl"))
+    if st.button("Test DataForSEO uten varsler", disabled=not credentials_ready or busy or mode_labels[mode_label] == "STOPPED", key="jeep_commander_dataforseo_test_v19220_rc1631cl"):
+        st.session_state["jeep_commander_job_v19220_rc1631cl"] = "TEST"
         st.rerun()
     manual_urls_text = st.text_area(
         "Annonser som alltid skal følges (én lenke per linje)",
@@ -1161,16 +1265,23 @@ def render_streamlit_module(st: Any) -> None:
     if left.button("Lagre søkevalg", key="jeep_commander_save_v19220_rc1631ch", width="stretch"):
         years = [2025, 2026] if year_label == "2025 og 2026" else ([2026] if year_label == "Bare 2026" else [2025])
         manual_urls = [line.strip() for line in manual_urls_text.splitlines() if _valid_url(line.strip())]
-        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "interval_minutes": interval_minutes, "dataforseo_enabled": dataforseo_enabled, "dataforseo_monthly_cap_usd": dataforseo_monthly_cap, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network, "manual_urls": manual_urls, "transport_estimate_brl": transport_estimate, "fees_estimate_brl": fees_estimate})
+        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "module_mode": mode_labels[mode_label], "interval_minutes": interval_minutes, "night_pause_enabled": night_pause_enabled, "night_pause_start": night_start, "night_pause_end": night_end, "dataforseo_enabled": dataforseo_enabled, "dataforseo_monthly_cap_usd": dataforseo_monthly_cap, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network, "manual_urls": manual_urls, "transport_estimate_brl": transport_estimate, "fees_estimate_brl": fees_estimate})
         st.success("Søkevalgene er lagret og brukes ved neste Cron-kontroll.")
         st.rerun()
-    if right.button("Søk nå", key="jeep_commander_scan_v19220_rc1631ch", width="stretch"):
-        with st.spinner("Kontrollerer markedsplassene …"):
-            result = run_due_monitor(force=True, notify=True, source="manual")
-        if result.get("state") == "FAILED_SOURCES":
-            st.error(f"Ingen kilde kunne leses. Dette vises som kildefeil, ikke som null treff. {result.get('error', '')}")
+    if right.button("Søk nå", disabled=busy or mode_labels[mode_label] == "STOPPED", key="jeep_commander_scan_v19220_rc1631cl", width="stretch"):
+        st.session_state["jeep_commander_job_v19220_rc1631cl"] = "SEARCH"
+        st.rerun()
+
+    pending_job = st.session_state.get("jeep_commander_job_v19220_rc1631cl")
+    if pending_job:
+        progress_bar = st.progress(0, text="Starter …")
+        def update_progress(stage: str, percent: int, detail: str) -> None:
+            progress_bar.progress(percent, text=f"{percent}% · {detail}")
+        if pending_job == "TEST":
+            validate_dataforseo(progress=update_progress)
         else:
-            st.success(f"Kontroll ferdig: {result.get('matches', 0)} gyldige treff, {result.get('sent', 0)} varsler sendt.")
+            run_due_monitor(force=True, notify=True, source="manual", progress=update_progress)
+        st.session_state["jeep_commander_job_v19220_rc1631cl"] = ""
         st.rerun()
 
     state_name = str(state.get("state") or "NOT_STARTED")

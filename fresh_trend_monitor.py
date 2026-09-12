@@ -624,6 +624,27 @@ def _run_due_monitor_unlocked(*, now: datetime | None = None, notify: bool = Tru
     if not receipts:
         result = {**dict(state), "state": "NO_CANDIDATES", "last_scan_at": now.isoformat(timespec="seconds")}
         write_json(STATE_KEY, STATE_PATH, result); return result
+    # Never spend quote/news capacity on a closed exchange. Each candidate is
+    # evaluated against its own market calendar, including weekends, holidays
+    # and daylight-saving differences.
+    from market_hours import market_scan_schedule, ticker_market
+    relevant_markets = sorted({ticker_market(str(row.get("ticker") or "")) for row in receipts})
+    schedule = market_scan_schedule(relevant_markets, now=now)
+    open_set = {str(row.get("market")) for row in schedule if row.get("is_open")}
+    eligible = [row for row in receipts if ticker_market(str(row.get("ticker") or "")) in open_set]
+    if not eligible:
+        next_rows = [row.get("next_open") for row in schedule if row.get("next_open")]
+        result = {
+            **dict(state), "state": "MARKET_CLOSED", "last_scan_at": now.isoformat(timespec="seconds"),
+            "market_schedule": schedule,
+            "next_market_scan_at": min((row.get("utc") for row in next_rows if row.get("utc")), default=None),
+            "skipped_market_closed_count": int(state.get("skipped_market_closed_count") or 0) + 1,
+            "estimated_candidate_refreshes_avoided": int(state.get("estimated_candidate_refreshes_avoided") or 0) + len(receipts),
+            "notification_policy": "Ingen kurs-, nyhets- eller Pushover-kall når alle kandidatmarkedene er stengt.",
+        }
+        write_json(STATE_KEY, STATE_PATH, result)
+        return result
+    receipts = eligible
     # Refresh the small monitored queue only. The ordinary report retains its full 294/294 stage-1 scan.
     try:
         from candidate_market_data import enrich_candidate_rows

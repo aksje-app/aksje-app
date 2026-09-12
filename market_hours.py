@@ -367,9 +367,11 @@ def _format_status_line(status):
 ALL_MARKETS = ("USA", "NORGE", "SVERIGE", "FINLAND", "DANMARK", "BRASIL")
 
 
-def market_statuses(markets=None):
+def market_statuses(markets=None, now=None):
     selected = tuple(markets or ALL_MARKETS)
-    return {m: market_status(m) for m in selected if m in ALL_MARKETS}
+    if now is None:
+        return {m: market_status(m) for m in selected if m in ALL_MARKETS}
+    return {m: market_status(m, now=now) for m in selected if m in ALL_MARKETS}
 
 
 def market_status_lines(markets=None):
@@ -379,6 +381,47 @@ def market_status_lines(markets=None):
 
 def open_markets(markets=None):
     return [m for m, s in market_statuses(markets).items() if s.get("is_open")]
+
+
+def next_market_open(market, now=None):
+    """Return the next real session opening in UTC and exchange-local time."""
+    market = str(market).upper()
+    if market not in MARKETS:
+        return None
+    cfg = MARKETS[market]
+    tz = pytz.timezone(cfg["tz"])
+    current = now.astimezone(tz) if now else datetime.now(tz)
+    if mcal is not None:
+        try:
+            cal = mcal.get_calendar(cfg["calendar"])
+            schedule = cal.schedule(start_date=current.date(), end_date=current.date() + timedelta(days=14))
+            for value in schedule["market_open"]:
+                opening = value.to_pydatetime().astimezone(tz)
+                if opening > current:
+                    return {"utc": opening.astimezone(pytz.UTC).isoformat(), "local": opening.isoformat(), "label": opening.strftime("%d.%m %H:%M")}
+        except Exception:
+            pass
+    for offset in range(0, 15):
+        candidate_date = current.date() + timedelta(days=offset)
+        if candidate_date.weekday() >= 5 or candidate_date in _manual_holidays(market, candidate_date.year):
+            continue
+        opening = tz.localize(datetime.combine(candidate_date, cfg["open"]))
+        if opening > current:
+            return {"utc": opening.astimezone(pytz.UTC).isoformat(), "local": opening.isoformat(), "label": opening.strftime("%d.%m %H:%M")}
+    return None
+
+
+def market_scan_schedule(markets=None, now=None):
+    selected = tuple(markets or ALL_MARKETS)
+    rows = []
+    for market in selected:
+        if market not in MARKETS:
+            continue
+        status = market_status(market, now=now)
+        reason = str(status.get("reason") or "")
+        state = "OPEN" if status.get("is_open") else ("WEEKEND" if reason == "helg" else ("HOLIDAY" if reason == "helligdag" else ("PREOPEN" if "ikke åpnet" in reason else "CLOSED")))
+        rows.append({**status, "scan_state": state, "next_open": None if status.get("is_open") else next_market_open(market, now=now)})
+    return rows
 
 
 def ticker_market(ticker):

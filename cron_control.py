@@ -176,6 +176,10 @@ def cron_status_text():
         "scanner_worker_healthy": worker_healthy,
         "scanner_trades_executed": int(scanner_status.get("trades_executed") or 0),
         "scanner_error": str(scanner_status.get("error") or ""),
+        "market_schedule": list(scanner_status.get("market_schedule") or []),
+        "next_market_scan_at": scanner_status.get("next_market_scan_at"),
+        "market_closed_skipped_cycles": int(scanner_status.get("market_closed_skipped_cycles") or 0),
+        "estimated_full_scans_avoided": int(scanner_status.get("estimated_full_scans_avoided") or 0),
     }
 
 
