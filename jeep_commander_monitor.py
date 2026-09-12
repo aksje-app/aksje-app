@@ -11,10 +11,12 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import html as html_lib
+import io
 import json
 import os
 import re
 import threading
+import zipfile
 from typing import Any, Callable, Iterable
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
@@ -696,6 +698,58 @@ def _dataforseo_candidate(item: dict[str, Any], *, source: str, domain: str) -> 
     }
 
 
+def _dataforseo_item_diagnostic(item: dict[str, Any], *, source: str, domain: str) -> dict[str, Any]:
+    """Explain exactly why one organic search result was accepted or rejected."""
+    url = str(item.get("url") or item.get("link") or "").strip()
+    title = html_lib.unescape(str(item.get("title") or "")).strip()
+    description = html_lib.unescape(str(item.get("description") or item.get("snippet") or "")).strip()
+    parsed = urlparse(url)
+    reason = "GODKJENT_INDIVIDUELL_ANNONSE"
+    if not _valid_url(url):
+        reason = "UGYLDIG_ELLER_MANGLENDE_URL"
+    elif domain not in parsed.netloc.lower():
+        reason = "FEIL_DOMENE"
+    elif not any(token in parsed.path.lower() for token in ("/anuncio", "/ad/", "/comprar/", "/carro/", "/veiculo/")):
+        reason = "URL_IKKE_GJENKJENT_SOM_ENKELTANNONSE"
+    elif "commander" not in f"{title} {description}".lower():
+        reason = "COMMANDER_MANGLER_I_TITTEL_OG_UTDRAG"
+    accepted = reason == "GODKJENT_INDIVIDUELL_ANNONSE"
+    return {
+        "source": source, "accepted": accepted, "decision": "GODKJENT" if accepted else "FORKASTET",
+        "reason": reason, "result_type": str(item.get("type") or ""),
+        "domain": parsed.netloc.lower(), "path": parsed.path,
+        "url": url, "title": title[:500], "description": description[:1000],
+    }
+
+
+def build_dataforseo_diagnostic_zip(validation: dict[str, Any], usage: dict[str, Any] | None = None) -> bytes:
+    """Create a credential-free diagnostic archive suitable for support."""
+    safe = {
+        "module": MODULE_NAME, "generated_at": _now().isoformat(),
+        "app_version": __import__("app_version").APP_VERSION,
+        "validation": validation, "usage": dict(usage or {}),
+        "security": "API-login, API-passord, HTTP-headere og autentisering er ikke inkludert.",
+    }
+    encoded = json.dumps(safe, ensure_ascii=False, indent=2, default=str)
+    for secret in (value for value in (os.getenv("DATAFORSEO_LOGIN", ""), os.getenv("DATAFORSEO_PASSWORD", "")) if value):
+        encoded = encoded.replace(secret, "[FJERNET]")
+    summary = [
+        "Jeep Commander 2.2 – DataForSEO-diagnose",
+        f"Versjon: {safe['app_version']}", f"Tid: {safe['generated_at']}",
+        f"Godkjent: {bool(validation.get('passed'))}",
+        f"OLX individuelle annonser: {(validation.get('counts') or {}).get('olx', 0)}",
+        f"Webmotors individuelle annonser: {(validation.get('counts') or {}).get('webmotors', 0)}",
+        f"Organiske resultater: {sum(int(row.get('organic_items') or 0) for row in validation.get('sources') or [])}",
+        f"Forkastede resultater: {sum(int(row.get('rejected_items') or 0) for row in validation.get('sources') or [])}",
+        "Ingen API-hemmeligheter er inkludert.",
+    ]
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("LES_MEG.txt", "\n".join(summary) + "\n")
+        archive.writestr("dataforseo_diagnose.json", encoded)
+    return output.getvalue()
+
+
 def _dataforseo_month_usage(state: dict[str, Any], now: datetime) -> tuple[str, float]:
     month = now.strftime("%Y-%m")
     usage = state.get("dataforseo_usage") if isinstance(state.get("dataforseo_usage"), dict) else {}
@@ -745,10 +799,19 @@ def _fetch_dataforseo(
             for result in task.get("result") or []:
                 if isinstance(result, dict):
                     items.extend(value for value in result.get("items") or [] if isinstance(value, dict) and value.get("type") == "organic")
+            diagnostics = [_dataforseo_item_diagnostic(value, source=query["source"], domain=query["domain"]) for value in items]
             candidates = [candidate for value in items if (candidate := _dataforseo_candidate(value, source=query["source"], domain=query["domain"]))]
             rows.extend(candidates)
             ok = task_status in {20000, 0} and bool(task)
-            source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "OK" if ok else "FAILED", "parsed": len(candidates), "organic_items": len(items), "error": "" if ok else str(task.get("status_message") or "ugyldig API-svar")[:300]})
+            source_rows.append({
+                "source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX",
+                "state": "OK" if ok else "FAILED", "parsed": len(candidates), "organic_items": len(items),
+                "accepted_items": sum(1 for row in diagnostics if row["accepted"]),
+                "rejected_items": sum(1 for row in diagnostics if not row["accepted"]),
+                "diagnostics": diagnostics,
+                "task_status_code": task_status, "task_status_message": str(task.get("status_message") or "")[:300],
+                "error": "" if ok else str(task.get("status_message") or "ugyldig API-svar")[:300],
+            })
         except Exception as exc:
             source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "FAILED", "parsed": 0, "organic_items": 0, "error": str(exc)[:300]})
     return rows, source_rows, {
@@ -1249,6 +1312,30 @@ def render_streamlit_module(st: Any) -> None:
     status_cols[3].success("✅ 0 Pushover sendt") if validation else status_cols[3].info("Ingen test kjørt")
     if validation:
         st.caption(f"Siste API-test: {validation.get('at')} · individuelle lenker {validation.get('individual_urls', 0)} · komplette kandidater {validation.get('complete_candidates', 0)} · estimert bruk ${float(usage.get('estimated_usd') or 0):.4f}")
+        with st.expander("🔎 DataForSEO-diagnose – se hva som ble funnet og forkastet", expanded=not validated):
+            diagnosis_rows = []
+            for source_row in validation_sources:
+                st.markdown(
+                    f"**{source_row.get('source')}** · organiske resultater {source_row.get('organic_items', 0)} · "
+                    f"godkjent {source_row.get('accepted_items', 0)} · forkastet {source_row.get('rejected_items', 0)}"
+                )
+                for item in source_row.get("diagnostics") or []:
+                    diagnosis_rows.append({
+                        "Kilde": source_row.get("source"), "Resultat": item.get("decision"),
+                        "Årsak": item.get("reason"), "Tittel": item.get("title"),
+                        "Domene": item.get("domain"), "URL": item.get("url"),
+                    })
+            if diagnosis_rows:
+                st.dataframe(diagnosis_rows, width="stretch", hide_index=True)
+            else:
+                st.info("API-et returnerte ingen organiske resultater som kunne diagnostiseres. Kildestatusen over viser eventuell API-feil.")
+            st.download_button(
+                "⬇️ Last ned sikker diagnose-ZIP",
+                data=build_dataforseo_diagnostic_zip(validation, usage),
+                file_name=f"Jeep_Commander_2_2_DataForSEO_diagnose_{__import__('app_version').APP_VERSION}.zip",
+                mime="application/zip", width="stretch",
+                key="jeep_dataforseo_diagnostic_zip_v19220_rc1631cn",
+            )
 
     busy = bool(st.session_state.get("jeep_commander_job_v19220_rc1631cl"))
     if st.button("Test DataForSEO uten varsler", disabled=not credentials_ready or busy or mode_labels[mode_label] == "STOPPED", key="jeep_commander_dataforseo_test_v19220_rc1631cl"):
