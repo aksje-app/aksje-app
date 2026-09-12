@@ -223,6 +223,7 @@ def build_source_urls(config: dict[str, Any]) -> list[dict[str, str]]:
     """Return low-rate public searches. Result filtering is always local and strict."""
     years = sorted(config.get("years") or [2025, 2026])
     low, high = years[0], years[-1]
+    km_max = int(config.get("km_max") or 35000)
     area = str(config.get("area") or "CEARA")
     if area == "CEARA":
         wm = f"https://www.webmotors.com.br/carros/ce-fortaleza/jeep/commander/22-turbo-diesel-overland-at9/de.{low}/ate.{high}"
@@ -235,7 +236,16 @@ def build_source_urls(config: dict[str, Any]) -> list[dict[str, str]]:
         mobi_scope = "brasil"
         localiza_url = "https://seminovos.localiza.com/carros/jeep/commander?categorias=suv"
     else:
-        wm = f"https://www.webmotors.com.br/carros/estoque/jeep/commander/22-turbo-diesel-overland-at9/de.{low}/ate.{high}"
+        # Canonical filter confirmed in the Webmotors UI. Local validation is
+        # still authoritative for every listing returned by this page.
+        wm = (
+            "https://www.webmotors.com.br/carros-usados/estoque/jeep/commander/"
+            f"22-turbo-diesel-overland-at9/de.{low}/ate.{high}"
+            "?tipoveiculo=carros-usados"
+            "&marca1=Jeep&modelo1=Commander"
+            "&versao1=2.2%20TURBO%20DIESEL%20OVERLAND%20AT9"
+            f"&kmate={km_max}&page=1&anode={low}&anoate={high}"
+        )
         olx_base = "https://www.olx.com.br/autos-e-pecas/carros-vans-e-utilitarios/jeep/commander/overl-22-td-4x4-diesel-aut/{year}/estado-brasil"
         mobi_scope = "brasil"
         localiza_url = "https://seminovos.localiza.com/carros/jeep/commander?categorias=suv"
@@ -673,7 +683,7 @@ def _dataforseo_queries(config: dict[str, Any]) -> list[dict[str, str]]:
     year_terms = " OR ".join(f'\"{year}\"' for year in years)
     area = str(config.get("area") or "CEARA")
     place = {"CEARA": "Ceará Fortaleza", "NORDESTE": "Nordeste Brasil", "BRASIL": "Brasil"}[area]
-    core = f'\"Jeep Commander\" \"2.2\" diesel ({year_terms}) {place}'
+    core = f'\"Jeep Commander\" \"2.2\" diesel overland AT9 ({year_terms}) {place}'
     return [
         {"source": "DataForSEO → Webmotors", "domain": "webmotors.com.br", "keyword": f"site:webmotors.com.br/comprar/jeep/commander {core}"},
         {"source": "DataForSEO → OLX", "domain": "olx.com.br", "keyword": f"site:olx.com.br/autos-e-pecas {core} R$ km"},
