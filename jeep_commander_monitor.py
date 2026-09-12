@@ -709,29 +709,37 @@ def _fetch_dataforseo(
     now = _now()
     month, used = _dataforseo_month_usage(state, now)
     queries = _dataforseo_queries(config)
-    estimate = len(queries) * DATAFORSEO_UNIT_ESTIMATE_USD
     cap = float(config.get("dataforseo_trial_cap_usd") if validation else config.get("dataforseo_monthly_cap_usd") or 0)
     if not dataforseo_credentials_ready():
         return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "NOT_CONFIGURED", "parsed": 0, "error": "DATAFORSEO_LOGIN/PASSWORD mangler"} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
-    if used + estimate > cap + 1e-9:
-        return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "COST_CAP", "parsed": 0, "error": f"kostnadssperre ${cap:.2f}"} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
-    payload = [{"keyword": row["keyword"], "location_name": "Brazil", "language_code": "pt", "device": "desktop", "depth": 20} for row in queries]
-    try:
-        _progress(progress, "DATAFORSEO", 68, "Sender samlet, kostnadsbegrenset søk til DataForSEO")
-        response = post(DATAFORSEO_ENDPOINT, auth=(os.getenv("DATAFORSEO_LOGIN", "").strip(), os.getenv("DATAFORSEO_PASSWORD", "").strip()), json=payload, timeout=30)
-        status = int(getattr(response, "status_code", 0) or 0)
-        if status != 200:
-            raise RuntimeError(f"DataForSEO HTTP {status}")
-        data = response.json()
-        tasks = data.get("tasks") if isinstance(data, dict) else None
-        if not isinstance(tasks, list):
-            raise RuntimeError("DataForSEO-svar mangler tasks")
-        rows: list[dict[str, Any]] = []
-        source_rows: list[dict[str, Any]] = []
-        actual_cost = sum(float(task.get("cost") or 0) for task in tasks if isinstance(task, dict)) or estimate
-        for index, query in enumerate(queries):
-            _progress(progress, "DATAFORSEO_RESULT", 72 + index * 6, f"Tolker {query['source']}")
-            task = tasks[index] if index < len(tasks) and isinstance(tasks[index], dict) else {}
+    rows: list[dict[str, Any]] = []
+    source_rows: list[dict[str, Any]] = []
+    running_cost = used
+    calls = 0
+    auth = (os.getenv("DATAFORSEO_LOGIN", "").strip(), os.getenv("DATAFORSEO_PASSWORD", "").strip())
+    for index, query in enumerate(queries):
+        # The Live endpoint/account accepts one task per request.  Enforce the
+        # cap before every request so a successful first source can never make
+        # the second source overspend the configured limit.
+        if running_cost + DATAFORSEO_UNIT_ESTIMATE_USD > cap + 1e-9:
+            source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "COST_CAP", "parsed": 0, "organic_items": 0, "error": f"kostnadssperre ${cap:.2f}"})
+            continue
+        payload = [{"keyword": query["keyword"], "location_name": "Brazil", "language_code": "pt", "device": "desktop", "depth": 20}]
+        try:
+            _progress(progress, "DATAFORSEO", 64 + index * 14, f"Søker {query['source']} ({index + 1}/{len(queries)})")
+            calls += 1
+            response = post(DATAFORSEO_ENDPOINT, auth=auth, json=payload, timeout=30)
+            status = int(getattr(response, "status_code", 0) or 0)
+            if status != 200:
+                raise RuntimeError(f"DataForSEO HTTP {status}")
+            data = response.json()
+            tasks = data.get("tasks") if isinstance(data, dict) else None
+            if not isinstance(tasks, list) or not tasks or not isinstance(tasks[0], dict):
+                raise RuntimeError("DataForSEO-svar mangler én gyldig task")
+            task = tasks[0]
+            task_cost = float(task.get("cost") or DATAFORSEO_UNIT_ESTIMATE_USD)
+            running_cost += task_cost
+            _progress(progress, "DATAFORSEO_RESULT", 72 + index * 14, f"Tolker {query['source']}")
             task_status = int(task.get("status_code") or 0)
             items: list[dict[str, Any]] = []
             for result in task.get("result") or []:
@@ -741,9 +749,12 @@ def _fetch_dataforseo(
             rows.extend(candidates)
             ok = task_status in {20000, 0} and bool(task)
             source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "OK" if ok else "FAILED", "parsed": len(candidates), "organic_items": len(items), "error": "" if ok else str(task.get("status_message") or "ugyldig API-svar")[:300]})
-        return rows, source_rows, {"month": month, "estimated_usd": round(used + actual_cost, 6), "last_cost_usd": actual_cost, "calls": len(queries)}
-    except Exception as exc:
-        return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "FAILED", "parsed": 0, "error": str(exc)[:300]} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
+        except Exception as exc:
+            source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "FAILED", "parsed": 0, "organic_items": 0, "error": str(exc)[:300]})
+    return rows, source_rows, {
+        "month": month, "estimated_usd": round(running_cost, 6),
+        "last_cost_usd": round(max(0.0, running_cost - used), 6), "calls": calls,
+    }
 
 
 def _fetch_sources(

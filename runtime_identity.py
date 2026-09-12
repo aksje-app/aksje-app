@@ -81,10 +81,22 @@ def runtime_identity_snapshot(max_age_minutes: int | None = None) -> dict:
 
 
 def validate_expected_runtime() -> tuple[bool, str]:
+    """Validate an optional emergency version pin.
+
+    APP_VERSION is the normal release authority.  EXPECTED_APP_VERSION is only
+    blocking when ENFORCE_EXPECTED_APP_VERSION is explicitly enabled, avoiding
+    a manual environment edit for every ordinary deploy.
+    """
     expected = str(os.getenv("EXPECTED_APP_VERSION") or "").strip()
+    enforced = str(os.getenv("ENFORCE_EXPECTED_APP_VERSION") or "").strip().lower() in {"1", "true", "yes", "on"}
     if expected and expected != APP_VERSION:
-        return False, f"Kjøretidsversjon {APP_VERSION} avviker fra EXPECTED_APP_VERSION={expected}"
-    return True, "Kjøretidsversjonen samsvarer med forventet versjon." if expected else "Ingen eksplisitt forventet versjon er satt."
+        message = f"Kjøretidsversjon {APP_VERSION} avviker fra EXPECTED_APP_VERSION={expected}"
+        if enforced:
+            return False, message + "; nød-/deploylåsen er aktiv."
+        return True, message + "; den gamle valgfrie verdien ignoreres. Klyngesamsvar kontrolleres separat."
+    if expected:
+        return True, "Kjøretidsversjonen samsvarer med valgfri nød-/deploylås."
+    return True, "Sentral APP_VERSION brukes; ingen nød-/deploylås er aktiv."
 
 
 def validate_cluster_alignment(role: str, required_roles: tuple[str, ...] = ("web",), max_age_minutes: int = 90) -> tuple[bool, str]:
