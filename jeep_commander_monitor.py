@@ -130,7 +130,10 @@ def _normalize_config(value: Any) -> dict[str, Any]:
     base["dataforseo_enabled"] = bool(base.get("dataforseo_enabled", False))
     base["dataforseo_monthly_cap_usd"] = min(25.0, max(0.10, float(_number(base.get("dataforseo_monthly_cap_usd")) or 12.0)))
     base["dataforseo_trial_cap_usd"] = min(1.0, max(0.01, float(_number(base.get("dataforseo_trial_cap_usd")) or 0.15)))
-    base["manual_urls"] = [str(value).strip() for value in base.get("manual_urls") or [] if _valid_url(str(value).strip())][:20]
+    base["manual_urls"] = [
+        str(value).strip() for value in base.get("manual_urls") or []
+        if _is_individual_listing_url(str(value).strip())
+    ][:20]
     base["transport_estimate_brl"] = max(0, int(_number(base.get("transport_estimate_brl")) or 0))
     base["fees_estimate_brl"] = max(0, int(_number(base.get("fees_estimate_brl")) or 0))
     return base
@@ -223,7 +226,7 @@ def build_source_urls(config: dict[str, Any]) -> list[dict[str, str]]:
     """Return low-rate public searches. Result filtering is always local and strict."""
     years = sorted(config.get("years") or [2025, 2026])
     low, high = years[0], years[-1]
-    km_max = int(config.get("km_max") or 35000)
+    km_max = int(config.get("max_km") or 35000)
     area = str(config.get("area") or "CEARA")
     if area == "CEARA":
         wm = f"https://www.webmotors.com.br/carros/ce-fortaleza/jeep/commander/22-turbo-diesel-overland-at9/de.{low}/ate.{high}"
@@ -499,6 +502,19 @@ def _parse_visible_listing_cards(content: str, *, source: str, base_url: str, de
 def _valid_url(value: str) -> bool:
     parsed = urlparse(str(value or ""))
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _is_individual_listing_url(value: str) -> bool:
+    if not _valid_url(value):
+        return False
+    parsed = urlparse(value)
+    path = parsed.path.lower()
+    host = parsed.netloc.lower()
+    if "webmotors.com.br" in host:
+        return "/comprar/" in path
+    if "olx.com.br" in host:
+        return bool(re.search(r"-[0-9]{7,}/?$", path)) or "/anuncio" in path
+    return any(token in path for token in ("/anuncio", "/ad/", "/comprar/", "/carro/", "/veiculo/"))
 
 
 def _is_black(text: str) -> bool:
@@ -786,20 +802,26 @@ def _fetch_dataforseo(
     now = _now()
     month, used = _dataforseo_month_usage(state, now)
     queries = _dataforseo_queries(config)
-    cap = float(config.get("dataforseo_trial_cap_usd") if validation else config.get("dataforseo_monthly_cap_usd") or 0)
+    monthly_cap = float(config.get("dataforseo_monthly_cap_usd") or 0)
+    run_cap = float(config.get("dataforseo_trial_cap_usd") or 0) if validation else monthly_cap
     if not dataforseo_credentials_ready():
         return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "NOT_CONFIGURED", "parsed": 0, "error": "DATAFORSEO_LOGIN/PASSWORD mangler"} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
     rows: list[dict[str, Any]] = []
     source_rows: list[dict[str, Any]] = []
     running_cost = used
+    run_cost = 0.0
     calls = 0
     auth = (os.getenv("DATAFORSEO_LOGIN", "").strip(), os.getenv("DATAFORSEO_PASSWORD", "").strip())
     for index, query in enumerate(queries):
         # The Live endpoint/account accepts one task per request.  Enforce the
         # cap before every request so a successful first source can never make
         # the second source overspend the configured limit.
-        if running_cost + DATAFORSEO_UNIT_ESTIMATE_USD > cap + 1e-9:
-            source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "COST_CAP", "parsed": 0, "organic_items": 0, "error": f"kostnadssperre ${cap:.2f}"})
+        monthly_blocked = running_cost + DATAFORSEO_UNIT_ESTIMATE_USD > monthly_cap + 1e-9
+        run_blocked = run_cost + DATAFORSEO_UNIT_ESTIMATE_USD > run_cap + 1e-9
+        if monthly_blocked or run_blocked:
+            label = "månedsgrense" if monthly_blocked else "testgrense"
+            limit = monthly_cap if monthly_blocked else run_cap
+            source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "COST_CAP", "parsed": 0, "organic_items": 0, "error": f"{label} ${limit:.2f}; API-kall ikke utført"})
             continue
         payload = [{"keyword": query["keyword"], "location_name": "Brazil", "language_code": "pt", "device": "desktop", "depth": 20}]
         try:
@@ -816,6 +838,7 @@ def _fetch_dataforseo(
             task = tasks[0]
             task_cost = float(task.get("cost") or DATAFORSEO_UNIT_ESTIMATE_USD)
             running_cost += task_cost
+            run_cost += task_cost
             _progress(progress, "DATAFORSEO_RESULT", 72 + index * 14, f"Tolker {query['source']}")
             task_status = int(task.get("status_code") or 0)
             items: list[dict[str, Any]] = []
@@ -839,7 +862,7 @@ def _fetch_dataforseo(
             source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "FAILED", "parsed": 0, "organic_items": 0, "error": str(exc)[:300]})
     return rows, source_rows, {
         "month": month, "estimated_usd": round(running_cost, 6),
-        "last_cost_usd": round(max(0.0, running_cost - used), 6), "calls": calls,
+        "last_cost_usd": round(run_cost, 6), "calls": calls,
     }
 
 
@@ -1225,11 +1248,21 @@ def validate_dataforseo(*, post: Callable[..., Any] | None = None, progress: Cal
         "webmotors": sum(1 for row in rows if "webmotors.com.br" in urlparse(str(row.get("url") or "")).netloc.lower()),
     }
     passed = counts["olx"] > 0 and counts["webmotors"] > 0 and all(row.get("state") == "OK" for row in sources)
+    blocked = any(row.get("state") == "COST_CAP" for row in sources)
+    failed = any(row.get("state") == "FAILED" for row in sources)
+    if passed:
+        message = "Godkjent: individuelle OLX- og Webmotors-lenker funnet."
+    elif blocked:
+        message = "Testen ble ikke fullført: minst ett API-kall ble stoppet av kostnadsgrensen. Dette er ikke et nullresultat."
+    elif failed:
+        message = "Testen feilet i API-et. Se feilen per kilde; dette er ikke et bekreftet nullresultat."
+    else:
+        message = "Testen ble kjørt, men begge markedsplassene ga ikke minst én godkjent individuell annonselenke."
     validation = {
         "passed": passed, "at": _now().isoformat(), "counts": counts,
         "individual_urls": len(rows), "complete_candidates": sum(1 for row in rows if not _target_rejection_reason(row, {**config, "area": "BRASIL"})),
         "pushover_sent": 0, "sources": sources,
-        "message": "Godkjent: individuelle OLX- og Webmotors-lenker funnet." if passed else "Ikke godkjent: begge markedsplassene må gi minst én individuell annonselenke.",
+        "executed_calls": int(usage.get("calls") or 0), "blocked": blocked, "message": message,
     }
     state.update({"dataforseo_validation_passed": passed, "dataforseo_validation": validation, "dataforseo_usage": usage})
     _save_state(state)
@@ -1267,6 +1300,11 @@ def render_streamlit_module(st: Any) -> None:
     area_options = {"Fortaleza / Ceará": "CEARA", "Nordøst-Brasil": "NORDESTE", "Hele Brasil": "BRASIL"}
     current_area = next((label for label, value in area_options.items() if value == config.get("area")), "Fortaleza / Ceará")
     area_label = st.selectbox("Søkeområde", list(area_options), index=list(area_options).index(current_area), key="jeep_commander_area_v19220_rc1631ch")
+    preview_years = [2025, 2026] if year_label == "2025 og 2026" else ([2026] if year_label == "Bare 2026" else [2025])
+    preview_cfg = {**config, "years": preview_years, "max_km": max_km, "area": area_options[area_label]}
+    webmotors_main = next(row["url"] for row in build_source_urls(preview_cfg) if row["source"] == "Webmotors")
+    st.link_button("🔗 Åpne Webmotors-hovedsøket", webmotors_main, width="stretch")
+    st.caption("Hovedsøket åpnes i nettleseren. Feltet for annonser lenger ned godtar bare individuelle bilannonser.")
     mode_labels = {"Aktiv": "ACTIVE", "Pauset – behold historikk": "PAUSED", "Stoppet – ingen søk eller varsler": "STOPPED"}
     current_mode_label = next((label for label, value in mode_labels.items() if value == config.get("module_mode")), "Aktiv")
     mode_label = st.radio(
@@ -1330,9 +1368,21 @@ def render_streamlit_module(st: Any) -> None:
     olx_test = next((row for row in validation_sources if "OLX" in str(row.get("source"))), {})
     webmotors_test = next((row for row in validation_sources if "Webmotors" in str(row.get("source"))), {})
     status_cols = st.columns(4)
+    error_prefix = {"OLX": "❌ OLX", "Webmotors": "❌ Webmotors"}
     status_cols[0].success("✅ API konfigurert") if credentials_ready else status_cols[0].error("❌ API mangler")
-    status_cols[1].success(f"✅ OLX: {validation.get('counts', {}).get('olx', 0)}") if olx_test.get("state") == "OK" and validation.get('counts', {}).get('olx', 0) else status_cols[1].error(f"❌ OLX: {olx_test.get('error') or ('0 individuelle annonser' if olx_test else 'ikke testet')}")
-    status_cols[2].success(f"✅ Webmotors: {validation.get('counts', {}).get('webmotors', 0)}") if webmotors_test.get("state") == "OK" and validation.get('counts', {}).get('webmotors', 0) else status_cols[2].error(f"❌ Webmotors: {webmotors_test.get('error') or ('0 individuelle annonser' if webmotors_test else 'ikke testet')}")
+    def render_api_source_status(column: Any, label: str, row: dict[str, Any], count: int) -> None:
+        if row.get("state") == "OK" and count:
+            column.success(f"✅ {label}: {count}")
+        elif not row:
+            column.info(f"⚪ {label}: ikke testet")
+        elif row.get("state") == "COST_CAP":
+            column.warning(f"🟡 {label}: ikke kjørt – {row.get('error')}")
+        elif row.get("state") == "FAILED":
+            column.error(f"{error_prefix[label]}: API-feil – {row.get('error') or 'ukjent feil'}")
+        else:
+            column.error(f"{error_prefix[label]}: testen ga 0 individuelle annonser")
+    render_api_source_status(status_cols[1], "OLX", olx_test, int(validation.get('counts', {}).get('olx', 0)))
+    render_api_source_status(status_cols[2], "Webmotors", webmotors_test, int(validation.get('counts', {}).get('webmotors', 0)))
     status_cols[3].success("✅ 0 Pushover sendt") if validation else status_cols[3].info("Ingen test kjørt")
     if validation:
         st.caption(f"Siste API-test: {validation.get('at')} · individuelle lenker {validation.get('individual_urls', 0)} · komplette kandidater {validation.get('complete_candidates', 0)} · estimert bruk ${float(usage.get('estimated_usd') or 0):.4f}")
@@ -1368,7 +1418,7 @@ def render_streamlit_module(st: Any) -> None:
     manual_urls_text = st.text_area(
         "Annonser som alltid skal følges (én lenke per linje)",
         value="\n".join(config.get("manual_urls") or []),
-        help="Lim inn en annonse som ikke blir funnet automatisk. Den kontrolleres videre for prisendringer.",
+        help="Kun direkte lenke til én bilannonse, for eksempel Webmotors /comprar/… eller en OLX-annonse med annonse-ID. Søkeresultatsider forkastes.",
         key="jeep_commander_manual_urls_v19220_rc1631cj",
     )
     cost_left, cost_right = st.columns(2)
@@ -1386,8 +1436,12 @@ def render_streamlit_module(st: Any) -> None:
     left, right = st.columns(2)
     if left.button("Lagre søkevalg", key="jeep_commander_save_v19220_rc1631ch", width="stretch"):
         years = [2025, 2026] if year_label == "2025 og 2026" else ([2026] if year_label == "Bare 2026" else [2025])
-        manual_urls = [line.strip() for line in manual_urls_text.splitlines() if _valid_url(line.strip())]
+        submitted_urls = [line.strip() for line in manual_urls_text.splitlines() if line.strip()]
+        manual_urls = [line for line in submitted_urls if _is_individual_listing_url(line)]
+        rejected_urls = [line for line in submitted_urls if line not in manual_urls]
         save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "module_mode": mode_labels[mode_label], "interval_minutes": interval_minutes, "night_pause_enabled": night_pause_enabled, "night_pause_start": night_start, "night_pause_end": night_end, "dataforseo_enabled": dataforseo_enabled, "dataforseo_monthly_cap_usd": dataforseo_monthly_cap, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network, "manual_urls": manual_urls, "transport_estimate_brl": transport_estimate, "fees_estimate_brl": fees_estimate})
+        if rejected_urls:
+            st.warning(f"{len(rejected_urls)} lenke(r) ble ikke lagret fordi de ikke er individuelle bilannonser.")
         st.success("Søkevalgene er lagret og brukes ved neste Cron-kontroll.")
         st.rerun()
     if right.button("Søk nå", disabled=busy or mode_labels[mode_label] == "STOPPED", key="jeep_commander_scan_v19220_rc1631cl", width="stretch"):
