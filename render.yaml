@@ -35,6 +35,10 @@ services:
         sync: false
       - key: NEWSAPI_KEY
         sync: false
+      - key: DATAFORSEO_LOGIN
+        sync: false
+      - key: DATAFORSEO_PASSWORD
+        sync: false
       - key: NEWSAPI_PLAN
         value: Developer
       - key: NEWSAPI_DAILY_BUDGET
@@ -97,6 +101,10 @@ services:
       - key: FINNHUB_API_KEY
         sync: false
       - key: NEWSAPI_KEY
+        sync: false
+      - key: DATAFORSEO_LOGIN
+        sync: false
+      - key: DATAFORSEO_PASSWORD
         sync: false
       - key: NEWSAPI_PLAN
         value: Developer

@@ -30,7 +30,9 @@ CONFIG_KEY = "temporary/jeep_commander_22/config.json"
 STATE_KEY = "temporary/jeep_commander_22/state.json"
 CONFIG_PATH = runtime_data_path("temporary", "jeep_commander_22", "config.json")
 STATE_PATH = runtime_data_path("temporary", "jeep_commander_22", "state.json")
-INTERVAL_MINUTES = 15
+INTERVAL_MINUTES = 60
+DATAFORSEO_ENDPOINT = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
+DATAFORSEO_UNIT_ESTIMATE_USD = 0.004  # depth 20: conservative 2 × ten-result live blocks
 _PROCESS_LOCK = threading.Lock()
 _PG_ADVISORY_LOCK_ID = 22122026
 _NORTHEAST_STATES = {"AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"}
@@ -57,7 +59,7 @@ def _parse_time(value: Any) -> datetime | None:
 def default_config(*, now: datetime | None = None) -> dict[str, Any]:
     created = (now or _now()).astimezone(timezone.utc)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "name": MODULE_NAME,
         "active": True,
         "years": [2025, 2026],
@@ -66,6 +68,9 @@ def default_config(*, now: datetime | None = None) -> dict[str, Any]:
         "preferred_color": "PRETO",
         "include_other_colors": True,
         "interval_minutes": INTERVAL_MINUTES,
+        "dataforseo_enabled": False,
+        "dataforseo_monthly_cap_usd": 10.0,
+        "dataforseo_trial_cap_usd": 0.10,
         "pushover": True,
         "include_dealer_network": True,
         "max_pages_per_source": 4,
@@ -96,7 +101,10 @@ def _normalize_config(value: Any) -> dict[str, Any]:
     base["area"] = str(base.get("area") or "CEARA").upper()
     if base["area"] not in {"CEARA", "NORDESTE", "BRASIL"}:
         base["area"] = "CEARA"
-    base["interval_minutes"] = INTERVAL_MINUTES
+    base["interval_minutes"] = 30 if int(base.get("interval_minutes") or INTERVAL_MINUTES) == 30 else 60
+    base["dataforseo_enabled"] = bool(base.get("dataforseo_enabled", False))
+    base["dataforseo_monthly_cap_usd"] = min(25.0, max(0.10, float(_number(base.get("dataforseo_monthly_cap_usd")) or 10.0)))
+    base["dataforseo_trial_cap_usd"] = min(1.0, max(0.01, float(_number(base.get("dataforseo_trial_cap_usd")) or 0.10)))
     base["manual_urls"] = [str(value).strip() for value in base.get("manual_urls") or [] if _valid_url(str(value).strip())][:20]
     base["transport_estimate_brl"] = max(0, int(_number(base.get("transport_estimate_brl")) or 0))
     base["fees_estimate_brl"] = max(0, int(_number(base.get("fees_estimate_brl")) or 0))
@@ -617,6 +625,97 @@ def _merge_detail(summary: dict[str, Any], detail: dict[str, Any]) -> dict[str, 
     return merged
 
 
+def dataforseo_credentials_ready() -> bool:
+    return bool(os.getenv("DATAFORSEO_LOGIN", "").strip() and os.getenv("DATAFORSEO_PASSWORD", "").strip())
+
+
+def _dataforseo_queries(config: dict[str, Any]) -> list[dict[str, str]]:
+    years = sorted(int(value) for value in config.get("years") or [2025, 2026])
+    year_terms = " OR ".join(f'\"{year}\"' for year in years)
+    area = str(config.get("area") or "CEARA")
+    place = {"CEARA": "Ceará Fortaleza", "NORDESTE": "Nordeste Brasil", "BRASIL": "Brasil"}[area]
+    core = f'\"Jeep Commander\" (\"2.2\" OR \"2,2\") (diesel OR TD) ({year_terms}) {place}'
+    return [
+        {"source": "DataForSEO → Webmotors", "domain": "webmotors.com.br", "keyword": f"site:webmotors.com.br {core}"},
+        {"source": "DataForSEO → OLX", "domain": "olx.com.br", "keyword": f"site:olx.com.br {core}"},
+    ]
+
+
+def _dataforseo_candidate(item: dict[str, Any], *, source: str, domain: str) -> dict[str, Any] | None:
+    url = str(item.get("url") or item.get("link") or "").strip()
+    parsed = urlparse(url)
+    if not _valid_url(url) or domain not in parsed.netloc.lower():
+        return None
+    # Search/category pages are evidence of a source, not individual vehicles.
+    if not any(token in parsed.path.lower() for token in ("/anuncio", "/ad/", "/comprar/", "/carro/", "/veiculo/")):
+        return None
+    title = html_lib.unescape(str(item.get("title") or "")).strip()
+    description = html_lib.unescape(str(item.get("description") or item.get("snippet") or "")).strip()
+    blob = f"{title} {description}"
+    if "commander" not in blob.lower():
+        return None
+    price_matches = re.findall(r"R\$\s*([0-9]{1,3}(?:[.]?[0-9]{3})+)", blob, flags=re.I)
+    km_match = re.search(r"\b([0-9]{1,3}(?:[.]?[0-9]{3})*)\s*km\b", blob, flags=re.I)
+    city, state = _location(blob)
+    production_year, model_year, years = _vehicle_years({}, blob)
+    raw_id = hashlib.sha256(url.split("?", 1)[0].encode()).hexdigest()[:20]
+    return {
+        "id": f"{source.lower()}:{raw_id}", "source": source, "title": title or MODULE_NAME,
+        "description": description, "raw_text": blob, "url": url,
+        "price_brl": int(_number(price_matches[-1]) or 0) if price_matches else None,
+        "km": int(_number(km_match.group(1)) or 0) if km_match else None,
+        "years": years, "production_year": production_year, "model_year": model_year,
+        "color": next((name for name in ("Preto", "Branco", "Cinza", "Prata", "Azul", "Vermelho") if name.lower() in blob.lower()), ""),
+        "city": city, "state": state, "seller_name": "", "seller_type": "UKJENT",
+        "authorized_jeep": False, "discovery_channel": "SEARCH_INDEX",
+    }
+
+
+def _dataforseo_month_usage(state: dict[str, Any], now: datetime) -> tuple[str, float]:
+    month = now.strftime("%Y-%m")
+    usage = state.get("dataforseo_usage") if isinstance(state.get("dataforseo_usage"), dict) else {}
+    return month, float(usage.get("estimated_usd") or 0) if usage.get("month") == month else 0.0
+
+
+def _fetch_dataforseo(config: dict[str, Any], state: dict[str, Any], *, post: Callable[..., Any], validation: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    now = _now()
+    month, used = _dataforseo_month_usage(state, now)
+    queries = _dataforseo_queries(config)
+    estimate = len(queries) * DATAFORSEO_UNIT_ESTIMATE_USD
+    cap = float(config.get("dataforseo_trial_cap_usd") if validation else config.get("dataforseo_monthly_cap_usd") or 0)
+    if not dataforseo_credentials_ready():
+        return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "NOT_CONFIGURED", "parsed": 0, "error": "DATAFORSEO_LOGIN/PASSWORD mangler"} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
+    if used + estimate > cap + 1e-9:
+        return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "COST_CAP", "parsed": 0, "error": f"kostnadssperre ${cap:.2f}"} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
+    payload = [{"keyword": row["keyword"], "location_name": "Brazil", "language_code": "pt", "device": "desktop", "depth": 20} for row in queries]
+    try:
+        response = post(DATAFORSEO_ENDPOINT, auth=(os.getenv("DATAFORSEO_LOGIN", "").strip(), os.getenv("DATAFORSEO_PASSWORD", "").strip()), json=payload, timeout=30)
+        status = int(getattr(response, "status_code", 0) or 0)
+        if status != 200:
+            raise RuntimeError(f"DataForSEO HTTP {status}")
+        data = response.json()
+        tasks = data.get("tasks") if isinstance(data, dict) else None
+        if not isinstance(tasks, list):
+            raise RuntimeError("DataForSEO-svar mangler tasks")
+        rows: list[dict[str, Any]] = []
+        source_rows: list[dict[str, Any]] = []
+        actual_cost = sum(float(task.get("cost") or 0) for task in tasks if isinstance(task, dict)) or estimate
+        for index, query in enumerate(queries):
+            task = tasks[index] if index < len(tasks) and isinstance(tasks[index], dict) else {}
+            task_status = int(task.get("status_code") or 0)
+            items: list[dict[str, Any]] = []
+            for result in task.get("result") or []:
+                if isinstance(result, dict):
+                    items.extend(value for value in result.get("items") or [] if isinstance(value, dict) and value.get("type") == "organic")
+            candidates = [candidate for value in items if (candidate := _dataforseo_candidate(value, source=query["source"], domain=query["domain"]))]
+            rows.extend(candidates)
+            ok = task_status in {20000, 0} and bool(task)
+            source_rows.append({"source": query["source"], "query": query["keyword"], "channel": "SEARCH_INDEX", "state": "OK" if ok else "FAILED", "parsed": len(candidates), "organic_items": len(items), "error": "" if ok else str(task.get("status_message") or "ugyldig API-svar")[:300]})
+        return rows, source_rows, {"month": month, "estimated_usd": round(used + actual_cost, 6), "last_cost_usd": actual_cost, "calls": len(queries)}
+    except Exception as exc:
+        return [], [{"source": row["source"], "channel": "SEARCH_INDEX", "state": "FAILED", "parsed": 0, "error": str(exc)[:300]} for row in queries], {"month": month, "estimated_usd": used, "calls": 0}
+
+
 def _fetch_sources(config: dict[str, Any], fetcher: Callable[..., Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
@@ -817,6 +916,7 @@ def _availability_events(
 def run_due_monitor(
     *, force: bool = False, notify: bool = True, source: str = "scheduled_cron",
     fetcher: Callable[..., Any] | None = None, sender: Callable[..., Any] | None = None,
+    dataforseo_post: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     config = load_config()
     now = _now()
@@ -831,14 +931,24 @@ def run_due_monitor(
         _save_state(state)
         return {"state": "EXPIRED", "checked": 0, "sent": 0}
     last = _parse_time(state.get("last_cycle_at"))
-    if not force and last is not None and (now - last).total_seconds() < INTERVAL_MINUTES * 60:
-        return {"state": "NOT_DUE", "next_check_at": (last + timedelta(minutes=INTERVAL_MINUTES)).isoformat(), "checked": 0, "sent": 0}
+    interval_minutes = int(config.get("interval_minutes") or INTERVAL_MINUTES)
+    if not force and last is not None and (now - last).total_seconds() < interval_minutes * 60:
+        return {"state": "NOT_DUE", "next_check_at": (last + timedelta(minutes=interval_minutes)).isoformat(), "checked": 0, "sent": 0}
     with _global_lock() as acquired:
         if not acquired:
             return {"state": "LOCKED", "checked": 0, "sent": 0}
         fetcher = fetcher or requests.get
         sender = sender or send_pushover_alert
         raw_rows, sources = _fetch_sources(config, fetcher)
+        dataforseo_usage = state.get("dataforseo_usage") or {}
+        dataforseo_ran = False
+        if config.get("dataforseo_enabled") and state.get("dataforseo_validation_passed"):
+            indexed, indexed_sources, dataforseo_usage = _fetch_dataforseo(
+                config, state, post=dataforseo_post or requests.post, validation=False,
+            )
+            raw_rows.extend(indexed)
+            sources.extend(indexed_sources)
+            dataforseo_ran = any(row.get("state") == "OK" for row in indexed_sources)
         successful = [row for row in sources if row["state"] == "OK"]
         if not successful:
             result = {
@@ -865,8 +975,14 @@ def run_due_monitor(
         current = _apply_listing_history(current, state, now)
         first_success = not bool(state.get("baseline_created_at"))
         events = _events(current, state, first_success=first_success)
+        dataforseo_first_baseline = dataforseo_ran and not bool(state.get("dataforseo_baseline_created_at"))
+        if dataforseo_first_baseline:
+            events = [
+                (item, reason) for item, reason in events
+                if not any(str(value).startswith("DataForSEO") for value in item.get("sources") or [item.get("source")])
+            ]
         availability_events, missing_listings = _availability_events(
-            current, state, {str(row.get("source")) for row in successful},
+            current, state, {str(row.get("source")) for row in successful if row.get("channel") != "SEARCH_INDEX"},
         )
         if not first_success:
             events.extend(availability_events)
@@ -912,7 +1028,7 @@ def run_due_monitor(
             "state": "DEGRADED" if len(successful) < len(sources) or send_errors else "COMPLETED",
             "last_cycle_at": now.isoformat(), "last_success_at": now.isoformat(),
             "last_automatic_at": now.isoformat() if source == "scheduled_cron" else state.get("last_automatic_at"),
-            "next_check_at": (now + timedelta(minutes=INTERVAL_MINUTES)).isoformat(),
+            "next_check_at": (now + timedelta(minutes=interval_minutes)).isoformat(),
             "baseline_created_at": state.get("baseline_created_at") or now.isoformat(),
             "first_run_seeded": first_success, "checked_raw": len(raw_rows), "matches": len(current),
             "new_or_changed": len(events), "sent": sent, "send_errors": send_errors,
@@ -920,11 +1036,35 @@ def run_due_monitor(
             "missing_listings": missing_listings,
             "sources": sources, "listings": compact, "ranked": current[:50], "source": source,
             "rejection_counts": rejection_counts,
+            "dataforseo_usage": dataforseo_usage,
+            "dataforseo_validation_passed": bool(state.get("dataforseo_validation_passed")),
+            "dataforseo_validation": state.get("dataforseo_validation") or {},
+            "dataforseo_baseline_created_at": (now.isoformat() if dataforseo_first_baseline else state.get("dataforseo_baseline_created_at")),
             "config_snapshot": {key: config.get(key) for key in ("years", "max_km", "area", "preferred_color", "include_dealer_network")},
             "last_error": "; ".join(send_errors)[:1000],
         }
         _save_state(result)
         return {key: result[key] for key in ("state", "matches", "new_or_changed", "sent", "sources", "first_run_seeded", "next_check_at")}
+
+
+def validate_dataforseo(*, post: Callable[..., Any] | None = None) -> dict[str, Any]:
+    """One quiet, cost-capped proof run. It never sends Pushover."""
+    config, state = load_config(), load_state()
+    rows, sources, usage = _fetch_dataforseo(config, state, post=post or requests.post, validation=True)
+    counts = {
+        "olx": sum(1 for row in rows if "olx.com.br" in urlparse(str(row.get("url") or "")).netloc.lower()),
+        "webmotors": sum(1 for row in rows if "webmotors.com.br" in urlparse(str(row.get("url") or "")).netloc.lower()),
+    }
+    passed = counts["olx"] > 0 and counts["webmotors"] > 0 and all(row.get("state") == "OK" for row in sources)
+    validation = {
+        "passed": passed, "at": _now().isoformat(), "counts": counts,
+        "individual_urls": len(rows), "complete_candidates": sum(1 for row in rows if not _target_rejection_reason(row, {**config, "area": "BRASIL"})),
+        "pushover_sent": 0, "sources": sources,
+        "message": "Godkjent: individuelle OLX- og Webmotors-lenker funnet." if passed else "Ikke godkjent: begge markedsplassene må gi minst én individuell annonselenke.",
+    }
+    state.update({"dataforseo_validation_passed": passed, "dataforseo_validation": validation, "dataforseo_usage": usage})
+    _save_state(state)
+    return validation
 
 
 def render_streamlit_module(st: Any) -> None:
@@ -957,7 +1097,12 @@ def render_streamlit_module(st: Any) -> None:
     area_options = {"Fortaleza / Ceará": "CEARA", "Nordøst-Brasil": "NORDESTE", "Hele Brasil": "BRASIL"}
     current_area = next((label for label, value in area_options.items() if value == config.get("area")), "Fortaleza / Ceará")
     area_label = st.selectbox("Søkeområde", list(area_options), index=list(area_options).index(current_area), key="jeep_commander_area_v19220_rc1631ch")
-    active = st.toggle("Automatisk søk hvert 15. minutt", value=bool(config.get("active", True)), key="jeep_commander_active_v19220_rc1631ch")
+    interval_minutes = st.radio(
+        "Søkeintervall", [60, 30], horizontal=True, format_func=lambda value: f"Hvert {value}. minutt",
+        index=1 if int(config.get("interval_minutes") or 60) == 30 else 0,
+        key="jeep_commander_interval_v19220_rc1631ck",
+    )
+    active = st.toggle("Automatisk bilsøk", value=bool(config.get("active", True)), key="jeep_commander_active_v19220_rc1631ck")
     pushover = st.toggle("Pushover ved nye funn, prisfall eller tydelig bedre tilbud", value=bool(config.get("pushover", True)), key="jeep_commander_push_v19220_rc1631ch")
     other_colors = st.toggle("Ta med andre farger når prisen er bedre", value=bool(config.get("include_other_colors", True)), key="jeep_commander_colors_v19220_rc1631ch")
     dealer_network = st.toggle(
@@ -966,6 +1111,34 @@ def render_streamlit_module(st: Any) -> None:
         help="Supplerer Webmotors, OLX og Mobiauto med forhandlernes egne bruktbillister.",
         key="jeep_commander_dealers_v19220_rc1631ci",
     )
+    credentials_ready = dataforseo_credentials_ready()
+    validation = state.get("dataforseo_validation") if isinstance(state.get("dataforseo_validation"), dict) else {}
+    validated = bool(state.get("dataforseo_validation_passed"))
+    dataforseo_enabled = st.toggle(
+        "Bruk DataForSEO for OLX og Webmotors",
+        value=bool(config.get("dataforseo_enabled", False)),
+        disabled=not (credentials_ready and validated),
+        help="Kan først aktiveres etter en vellykket, stille test. Søkeindeksen erstatter ikke en garanti om komplett lager.",
+        key="jeep_commander_dataforseo_v19220_rc1631ck",
+    )
+    dataforseo_monthly_cap = st.number_input(
+        "Maks estimert DataForSEO-bruk per måned (USD)", min_value=1.0, max_value=25.0,
+        value=float(config.get("dataforseo_monthly_cap_usd") or 10.0), step=1.0,
+        help="Hard sperre i modulen. Med 60-minutters søk er forventet nivå rundt USD 5,76 per 30 dager ved to depth-20 søk per kontroll.",
+        key="jeep_commander_dataforseo_cap_v19220_rc1631ck",
+    )
+    usage = state.get("dataforseo_usage") if isinstance(state.get("dataforseo_usage"), dict) else {}
+    if not credentials_ready:
+        st.warning("DataForSEO er ikke konfigurert. Legg DATAFORSEO_LOGIN og DATAFORSEO_PASSWORD inn som hemmelige Render-variabler for både web og scheduler.")
+    elif validated:
+        st.success(f"DataForSEO-test godkjent · OLX {validation.get('counts', {}).get('olx', 0)} · Webmotors {validation.get('counts', {}).get('webmotors', 0)} · estimert månedsbruk ${float(usage.get('estimated_usd') or 0):.4f}")
+    else:
+        st.info("DataForSEO er konfigurert, men ikke godkjent. Testen er stille og sender ingen Pushover.")
+    if st.button("Test DataForSEO uten varsler", disabled=not credentials_ready, key="jeep_commander_dataforseo_test_v19220_rc1631ck"):
+        with st.spinner("Kontrollerer individuelle OLX- og Webmotors-lenker …"):
+            proof = validate_dataforseo()
+        (st.success if proof.get("passed") else st.error)(proof.get("message"))
+        st.rerun()
     manual_urls_text = st.text_area(
         "Annonser som alltid skal følges (én lenke per linje)",
         value="\n".join(config.get("manual_urls") or []),
@@ -988,7 +1161,7 @@ def render_streamlit_module(st: Any) -> None:
     if left.button("Lagre søkevalg", key="jeep_commander_save_v19220_rc1631ch", width="stretch"):
         years = [2025, 2026] if year_label == "2025 og 2026" else ([2026] if year_label == "Bare 2026" else [2025])
         manual_urls = [line.strip() for line in manual_urls_text.splitlines() if _valid_url(line.strip())]
-        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network, "manual_urls": manual_urls, "transport_estimate_brl": transport_estimate, "fees_estimate_brl": fees_estimate})
+        save_config({**config, "years": years, "max_km": max_km, "area": area_options[area_label], "active": active, "interval_minutes": interval_minutes, "dataforseo_enabled": dataforseo_enabled, "dataforseo_monthly_cap_usd": dataforseo_monthly_cap, "pushover": pushover, "include_other_colors": other_colors, "include_dealer_network": dealer_network, "manual_urls": manual_urls, "transport_estimate_brl": transport_estimate, "fees_estimate_brl": fees_estimate})
         st.success("Søkevalgene er lagret og brukes ved neste Cron-kontroll.")
         st.rerun()
     if right.button("Søk nå", key="jeep_commander_scan_v19220_rc1631ch", width="stretch"):
