@@ -33,9 +33,9 @@ CONFIG_KEY = "temporary/jeep_commander_22/config.json"
 STATE_KEY = "temporary/jeep_commander_22/state.json"
 CONFIG_PATH = runtime_data_path("temporary", "jeep_commander_22", "config.json")
 STATE_PATH = runtime_data_path("temporary", "jeep_commander_22", "state.json")
-INTERVAL_MINUTES = 60
+INTERVAL_MINUTES = 120
 DATAFORSEO_ENDPOINT = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
-DATAFORSEO_UNIT_ESTIMATE_USD = 0.004  # depth 20: conservative 2 × ten-result live blocks
+DATAFORSEO_UNIT_ESTIMATE_USD = 0.020  # observed depth-20 Live cost; reserved before every call
 _PROCESS_LOCK = threading.Lock()
 _PG_ADVISORY_LOCK_ID = 22122026
 _NORTHEAST_STATES = {"AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"}
@@ -62,7 +62,7 @@ def _parse_time(value: Any) -> datetime | None:
 def default_config(*, now: datetime | None = None) -> dict[str, Any]:
     created = (now or _now()).astimezone(timezone.utc)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "name": MODULE_NAME,
         "active": True,
         "module_mode": "ACTIVE",
@@ -73,11 +73,11 @@ def default_config(*, now: datetime | None = None) -> dict[str, Any]:
         "include_other_colors": True,
         "interval_minutes": INTERVAL_MINUTES,
         "night_pause_enabled": True,
-        "night_pause_start": 1,
-        "night_pause_end": 6,
+        "night_pause_start": 0,
+        "night_pause_end": 7,
         "dataforseo_enabled": False,
-        "dataforseo_monthly_cap_usd": 10.0,
-        "dataforseo_trial_cap_usd": 0.10,
+        "dataforseo_monthly_cap_usd": 12.0,
+        "dataforseo_trial_cap_usd": 0.15,
         "pushover": True,
         "include_dealer_network": True,
         "max_pages_per_source": 4,
@@ -92,8 +92,19 @@ def default_config(*, now: datetime | None = None) -> dict[str, Any]:
 
 def _normalize_config(value: Any) -> dict[str, Any]:
     raw = value if isinstance(value, dict) else {}
+    legacy_schema = int(raw.get("schema_version") or 3) < 3
     base = default_config()
     base.update(raw)
+    if legacy_schema:
+        if int(raw.get("interval_minutes") or 60) == 60:
+            base["interval_minutes"] = 120
+        if int(raw.get("night_pause_start", 1)) == 1 and int(raw.get("night_pause_end", 6)) == 6:
+            base["night_pause_start"], base["night_pause_end"] = 0, 7
+        if float(_number(raw.get("dataforseo_monthly_cap_usd")) or 10.0) == 10.0:
+            base["dataforseo_monthly_cap_usd"] = 12.0
+        if float(_number(raw.get("dataforseo_trial_cap_usd")) or 0.10) == 0.10:
+            base["dataforseo_trial_cap_usd"] = 0.15
+        base["schema_version"] = 3
     years_set: set[int] = set()
     for year in base.get("years") or []:
         try:
@@ -108,16 +119,17 @@ def _normalize_config(value: Any) -> dict[str, Any]:
     base["area"] = str(base.get("area") or "CEARA").upper()
     if base["area"] not in {"CEARA", "NORDESTE", "BRASIL"}:
         base["area"] = "CEARA"
-    base["interval_minutes"] = 30 if int(base.get("interval_minutes") or INTERVAL_MINUTES) == 30 else 60
+    interval = int(base.get("interval_minutes") or INTERVAL_MINUTES)
+    base["interval_minutes"] = interval if interval in {30, 60, 120} else INTERVAL_MINUTES
     mode = str(raw.get("module_mode") if "module_mode" in raw else ("ACTIVE" if raw.get("active", True) else "PAUSED")).upper()
     base["module_mode"] = mode if mode in {"ACTIVE", "PAUSED", "STOPPED"} else "ACTIVE"
     base["active"] = base["module_mode"] == "ACTIVE"
     base["night_pause_enabled"] = bool(base.get("night_pause_enabled", True))
-    base["night_pause_start"] = min(23, max(0, int(base.get("night_pause_start", 1))))
-    base["night_pause_end"] = min(23, max(0, int(base.get("night_pause_end", 6))))
+    base["night_pause_start"] = min(23, max(0, int(base.get("night_pause_start", 0))))
+    base["night_pause_end"] = min(23, max(0, int(base.get("night_pause_end", 7))))
     base["dataforseo_enabled"] = bool(base.get("dataforseo_enabled", False))
-    base["dataforseo_monthly_cap_usd"] = min(25.0, max(0.10, float(_number(base.get("dataforseo_monthly_cap_usd")) or 10.0)))
-    base["dataforseo_trial_cap_usd"] = min(1.0, max(0.01, float(_number(base.get("dataforseo_trial_cap_usd")) or 0.10)))
+    base["dataforseo_monthly_cap_usd"] = min(25.0, max(0.10, float(_number(base.get("dataforseo_monthly_cap_usd")) or 12.0)))
+    base["dataforseo_trial_cap_usd"] = min(1.0, max(0.01, float(_number(base.get("dataforseo_trial_cap_usd")) or 0.15)))
     base["manual_urls"] = [str(value).strip() for value in base.get("manual_urls") or [] if _valid_url(str(value).strip())][:20]
     base["transport_estimate_brl"] = max(0, int(_number(base.get("transport_estimate_brl")) or 0))
     base["fees_estimate_brl"] = max(0, int(_number(base.get("fees_estimate_brl")) or 0))
@@ -171,7 +183,7 @@ def _night_pause(config: dict[str, Any], now: datetime) -> tuple[bool, str]:
     if not config.get("night_pause_enabled", True):
         return False, ""
     local = now.astimezone(ZoneInfo("America/Fortaleza"))
-    start, end = int(config.get("night_pause_start", 1)), int(config.get("night_pause_end", 6))
+    start, end = int(config.get("night_pause_start", 0)), int(config.get("night_pause_end", 7))
     paused = start <= local.hour < end if start < end else (local.hour >= start or local.hour < end)
     return paused, f"Nattpause {start:02d}:00–{end:02d}:00 (Fortaleza); lokal tid {local:%H:%M}"
 
@@ -661,10 +673,10 @@ def _dataforseo_queries(config: dict[str, Any]) -> list[dict[str, str]]:
     year_terms = " OR ".join(f'\"{year}\"' for year in years)
     area = str(config.get("area") or "CEARA")
     place = {"CEARA": "Ceará Fortaleza", "NORDESTE": "Nordeste Brasil", "BRASIL": "Brasil"}[area]
-    core = f'\"Jeep Commander\" (\"2.2\" OR \"2,2\") (diesel OR TD) ({year_terms}) {place}'
+    core = f'\"Jeep Commander\" \"2.2\" diesel ({year_terms}) {place}'
     return [
-        {"source": "DataForSEO → Webmotors", "domain": "webmotors.com.br", "keyword": f"site:webmotors.com.br {core}"},
-        {"source": "DataForSEO → OLX", "domain": "olx.com.br", "keyword": f"site:olx.com.br {core}"},
+        {"source": "DataForSEO → Webmotors", "domain": "webmotors.com.br", "keyword": f"site:webmotors.com.br/comprar/jeep/commander {core}"},
+        {"source": "DataForSEO → OLX", "domain": "olx.com.br", "keyword": f"site:olx.com.br/autos-e-pecas {core} R$ km"},
     ]
 
 
@@ -673,8 +685,9 @@ def _dataforseo_candidate(item: dict[str, Any], *, source: str, domain: str) -> 
     parsed = urlparse(url)
     if not _valid_url(url) or domain not in parsed.netloc.lower():
         return None
-    # Search/category pages are evidence of a source, not individual vehicles.
-    if not any(token in parsed.path.lower() for token in ("/anuncio", "/ad/", "/comprar/", "/carro/", "/veiculo/")):
+    # OLX commonly uses a descriptive slug ending in a long numeric listing id.
+    olx_numeric_ad = domain == "olx.com.br" and bool(re.search(r"-[0-9]{7,}/?$", parsed.path.lower()))
+    if not olx_numeric_ad and not any(token in parsed.path.lower() for token in ("/anuncio", "/ad/", "/comprar/", "/carro/", "/veiculo/")):
         return None
     title = html_lib.unescape(str(item.get("title") or "")).strip()
     description = html_lib.unescape(str(item.get("description") or item.get("snippet") or "")).strip()
@@ -709,7 +722,7 @@ def _dataforseo_item_diagnostic(item: dict[str, Any], *, source: str, domain: st
         reason = "UGYLDIG_ELLER_MANGLENDE_URL"
     elif domain not in parsed.netloc.lower():
         reason = "FEIL_DOMENE"
-    elif not any(token in parsed.path.lower() for token in ("/anuncio", "/ad/", "/comprar/", "/carro/", "/veiculo/")):
+    elif not (domain == "olx.com.br" and re.search(r"-[0-9]{7,}/?$", parsed.path.lower())) and not any(token in parsed.path.lower() for token in ("/anuncio", "/ad/", "/comprar/", "/carro/", "/veiculo/")):
         reason = "URL_IKKE_GJENKJENT_SOM_ENKELTANNONSE"
     elif "commander" not in f"{title} {description}".lower():
         reason = "COMMANDER_MANGLER_I_TITTEL_OG_UTDRAG"
@@ -1048,7 +1061,7 @@ def run_due_monitor(
         newly_skipped = previous_skip is None or (now - previous_skip).total_seconds() >= interval * 60
         skipped = int(state.get("night_skipped_cycles") or 0) + (1 if newly_skipped else 0)
         local = now.astimezone(ZoneInfo("America/Fortaleza"))
-        end_local = local.replace(hour=int(config.get("night_pause_end", 6)), minute=0, second=0, microsecond=0)
+        end_local = local.replace(hour=int(config.get("night_pause_end", 7)), minute=0, second=0, microsecond=0)
         if end_local <= local:
             end_local += timedelta(days=1)
         state.update({"state": "NIGHT_PAUSE", "night_skipped_cycles": skipped, "last_skip_reason": night_reason, "next_check_at": end_local.astimezone(timezone.utc).isoformat()})
@@ -1259,8 +1272,9 @@ def render_streamlit_module(st: Any) -> None:
     if mode_actions[2].button("⏹ Stopp nå", key="jeep_mode_stop_now_v19220_rc1631cl", width="stretch"):
         save_config({**config, "module_mode": "STOPPED", "active": False}); st.rerun()
     interval_minutes = st.radio(
-        "Søkeintervall", [60, 30], horizontal=True, format_func=lambda value: f"Hvert {value}. minutt",
-        index=1 if int(config.get("interval_minutes") or 60) == 30 else 0,
+        "Søkeintervall", [120, 60, 30], horizontal=True,
+        format_func=lambda value: "Hver 2. time" if value == 120 else f"Hvert {value}. minutt",
+        index=[120, 60, 30].index(int(config.get("interval_minutes") or 120)),
         key="jeep_commander_interval_v19220_rc1631ck",
     )
     active = mode_labels[mode_label] == "ACTIVE"
@@ -1277,8 +1291,8 @@ def render_streamlit_module(st: Any) -> None:
         key="jeep_commander_night_pause_v19220_rc1631cl",
     )
     night_left, night_right = st.columns(2)
-    night_start = night_left.number_input("Pause fra kl.", min_value=0, max_value=23, value=int(config.get("night_pause_start", 1)), step=1, disabled=not night_pause_enabled, key="jeep_night_start_v19220_rc1631cl")
-    night_end = night_right.number_input("Start igjen kl.", min_value=0, max_value=23, value=int(config.get("night_pause_end", 6)), step=1, disabled=not night_pause_enabled, key="jeep_night_end_v19220_rc1631cl")
+    night_start = night_left.number_input("Pause fra kl.", min_value=0, max_value=23, value=int(config.get("night_pause_start", 0)), step=1, disabled=not night_pause_enabled, key="jeep_night_start_v19220_rc1631co")
+    night_end = night_right.number_input("Start igjen kl.", min_value=0, max_value=23, value=int(config.get("night_pause_end", 7)), step=1, disabled=not night_pause_enabled, key="jeep_night_end_v19220_rc1631co")
     credentials_ready = dataforseo_credentials_ready()
     validation = state.get("dataforseo_validation") if isinstance(state.get("dataforseo_validation"), dict) else {}
     validated = bool(state.get("dataforseo_validation_passed"))
@@ -1291,8 +1305,8 @@ def render_streamlit_module(st: Any) -> None:
     )
     dataforseo_monthly_cap = st.number_input(
         "Maks estimert DataForSEO-bruk per måned (USD)", min_value=1.0, max_value=25.0,
-        value=float(config.get("dataforseo_monthly_cap_usd") or 10.0), step=1.0,
-        help="Hard sperre i modulen. Med 60-minutters søk er forventet nivå rundt USD 5,76 per 30 dager ved to depth-20 søk per kontroll.",
+        value=float(config.get("dataforseo_monthly_cap_usd") or 12.0), step=1.0,
+        help="Hard sperre. Med søk hver andre time kl. 07–23 og to markedsplasser er estimatet ca. USD 10,80 per 30 dager ved USD 0,020 per API-søk.",
         key="jeep_commander_dataforseo_cap_v19220_rc1631ck",
     )
     usage = state.get("dataforseo_usage") if isinstance(state.get("dataforseo_usage"), dict) else {}
