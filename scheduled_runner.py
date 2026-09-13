@@ -360,6 +360,12 @@ def _run_once_locked() -> dict[str, Any]:
 
         return _save(state)
 
+    try:
+        from parameter_integrity import verify_parameter_integrity
+        state["parameter_integrity"] = verify_parameter_integrity(notify=True)
+    except Exception as exc:
+        state["parameter_integrity"] = {"status": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+
     _mem("scheduler:before_due_jobs")
 
     # The due-job check is the primary purpose of this process and must run
@@ -517,6 +523,11 @@ def _run_once_locked() -> dict[str, Any]:
         mark_breadcrumb("scheduler:learning_maintenance:after", component="scheduled_runner", detail={"status": (state.get("learning_observation_maintenance") or {}).get("status")})
     except Exception as exc:
         state["learning_observation_maintenance"] = {"status":"FAILED","error":f"{type(exc).__name__}: {str(exc)[:500]}","production_changed":False}
+    try:
+        from controlled_parameter_learning import learning_guard_snapshot
+        state["controlled_learning_guard"] = learning_guard_snapshot(notify=True)
+    except Exception as exc:
+        state["controlled_learning_guard"] = {"status": "FAILED", "error": str(exc)[:500]}
 
     _mem("scheduler:after_learning")
 

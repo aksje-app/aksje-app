@@ -309,6 +309,11 @@ class AutonomousParameters:
     learning_policy_profile_version: str = "2.0"
     notify_trades: bool = True
     notify_risk_events: bool = True
+    stagnation_days: int = 5
+    stagnation_band_pct: float = 1.0
+    cash_review_days: int = 5
+    cash_review_max_return_pct: float = 1.0
+    reentry_cooldown_days: int = 5
 
     def normalized(self) -> "AutonomousParameters":
         return AutonomousParameters(
@@ -336,6 +341,11 @@ class AutonomousParameters:
             learning_policy_profile_version="2.0",
             notify_trades=bool(self.notify_trades),
             notify_risk_events=bool(self.notify_risk_events),
+            stagnation_days=max(5, min(30, int(self.stagnation_days))),
+            stagnation_band_pct=max(0.25, min(3.0, _f(self.stagnation_band_pct, 1.0))),
+            cash_review_days=max(5, min(30, int(self.cash_review_days))),
+            cash_review_max_return_pct=max(0.25, min(3.0, _f(self.cash_review_max_return_pct, 1.0))),
+            reentry_cooldown_days=max(1, min(30, int(self.reentry_cooldown_days))),
         )
 
 
@@ -407,6 +417,11 @@ def recommended_production_profile(current: AutonomousParameters) -> AutonomousP
         trailing_stop_pct=7.0,
         take_profit_pct=14.0,
         score_exit_threshold=55.0,
+        stagnation_days=current.stagnation_days,
+        stagnation_band_pct=current.stagnation_band_pct,
+        cash_review_days=current.cash_review_days,
+        cash_review_max_return_pct=current.cash_review_max_return_pct,
+        reentry_cooldown_days=current.reentry_cooldown_days,
         maximum_drawdown_pct=12.0,
         daily_loss_limit_pct=current.daily_loss_limit_pct,
         allow_additions=current.allow_additions,
@@ -1237,6 +1252,56 @@ def _days_opened(value: Any) -> int:
         return 0
 
 
+def _candidate_event_protection(candidate: Mapping[str, Any], *, horizon_business_days: int = 3) -> tuple[bool, str]:
+    """Protect a flat holding only for a documented, near-term event."""
+    raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+    values = []
+    for key in ("next_event", "next_expected_event", "earnings_date"):
+        value = candidate.get(key) or raw.get(key)
+        if value:
+            values.append((key, value))
+    today = datetime.now(timezone.utc).date()
+    for key, value in values:
+        try:
+            if isinstance(value, Mapping):
+                value = value.get("date") or value.get("at") or value.get("timestamp")
+            event_date = datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+            if event_date < today:
+                continue
+            days, cursor = 0, today
+            while cursor < event_date:
+                cursor += timedelta(days=1)
+                if cursor.weekday() < 5:
+                    days += 1
+            if days <= horizon_business_days:
+                return True, f"Dokumentert {key} om {days} børsdag(er): {event_date.isoformat()}"
+        except Exception:
+            continue
+    return False, ""
+
+
+def _reentry_cooldown(candidate: Mapping[str, Any], params: AutonomousParameters) -> tuple[bool, str]:
+    """Block churn after a full exit unless genuinely new evidence is present."""
+    ticker = str(candidate.get("ticker") or "").upper()
+    rows = _read(TRADES_PATH, [])
+    sells = [row for row in rows if isinstance(row, Mapping)
+             and str(row.get("ticker") or "").upper() == ticker
+             and str(row.get("action") or "").upper() == "SELL"] if isinstance(rows, list) else []
+    if not sells:
+        return False, ""
+    latest = max(sells, key=lambda row: str(row.get("timestamp") or ""))
+    elapsed = _days_opened(latest.get("timestamp"))
+    cooldown = max(0, int(params.reentry_cooldown_days))
+    if elapsed >= cooldown:
+        return False, ""
+    protected, event_reason = _candidate_event_protection(candidate)
+    exit_score = _f(latest.get("exit_score"))
+    improved = _candidate_entry_score(candidate) >= exit_score + 3.0 if exit_score else False
+    if protected or improved or candidate.get("breakout_holding") is True:
+        return False, event_reason or "Ny dokumentert score-/breakout-evidens opphever sperren"
+    return True, f"Gjenkjøpssperre: {elapsed}/{cooldown} børsdager siden salg"
+
+
 def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str) -> dict[str, Any] | None:
     pos = (portfolio.get("positions") or {}).get(ticker)
     if not pos or price <= 0:
@@ -1558,6 +1623,10 @@ def run_autonomous_cycle(
     learning_trades: list[dict[str, Any]] = []
     exited_this_cycle: set[str] = set()
     entry_tickers_seen: set[str] = set()
+    capital_cleanup: dict[str, Any] = {
+        "evaluated": 0, "eligible_after_five_days": 0, "protected": 0,
+        "sold_to_cash": 0, "replaced": 0, "held": 0, "missing_price": 0,
+    }
     replay_snapshot_result: dict[str, Any] = {
         "replay_level": "DECISION_REPLAY",
         "missing": ["FULL_REPLAY_SNAPSHOT_NOT_FINALIZED"],
@@ -1683,9 +1752,11 @@ def run_autonomous_cycle(
 
     # Mark ordinary autonomous positions and evaluate hard exits first.
     for ticker, pos in list((portfolio.get("positions") or {}).items()):
+        capital_cleanup["evaluated"] += 1
         candidate = candidate_map.get(ticker, {})
         price = _candidate_price(candidate, pos)
         if price <= 0:
+            capital_cleanup["missing_price"] += 1
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "HOLD", "reason": "Mangler ny pris; eksisterende markering beholdes"})
             continue
         pos["last_price"] = price
@@ -1699,10 +1770,14 @@ def run_autonomous_cycle(
         pos["score_path"] = score_path[-8:]
         replacement_raw = best_replacement.get("raw") if isinstance(best_replacement.get("raw"), Mapping) else {}
         candidate_raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        holding_days = _days_opened(pos.get("opened_at"))
+        if holding_days >= params.cash_review_days:
+            capital_cleanup["eligible_after_five_days"] += 1
+        event_protected, event_protection_reason = _candidate_event_protection(candidate)
         exit_result = evaluate_exit(
             entry_price=avg, current_price=price, highest_price=_f(pos.get("highest_price"), price),
             entry_score=_f(pos.get("entry_score"), score), current_score=score if candidate else None,
-            holding_days=_days_opened(pos.get("opened_at")),
+            holding_days=holding_days,
             rsi=candidate.get("rsi") if candidate else None,
             previous_rsi=pos.get("last_rsi"), take_profit_taken=bool(pos.get("partial_take_profit_taken")),
             best_replacement_score=_candidate_entry_score(best_replacement) if best_replacement else None,
@@ -1714,6 +1789,8 @@ def run_autonomous_cycle(
             momentum_pct=_f(candidate_raw.get("return_3d")) if candidate_raw else None,
             relative_strength_delta=_f(candidate.get("relative_strength_delta")) if candidate.get("relative_strength_delta") is not None else None,
             transaction_cost_pct=_f(portfolio.get("transaction_cost_pct"), 0.2),
+            event_protection_active=event_protected,
+            event_protection_reason=event_protection_reason,
             policy=policy_from(params),
         )
         if candidate.get("rsi") is not None:
@@ -1724,13 +1801,19 @@ def run_autonomous_cycle(
             trade = _sell(portfolio, ticker, price, reason, run_id, params, commit=False, sell_pct=sell_pct)
             if trade:
                 if exit_result["action"] == "REPLACE_REVIEW":
+                    capital_cleanup["replaced"] += 1
                     trade["replacement_ticker"] = str(best_replacement.get("ticker") or "")
                     trade["replacement_score"] = round(_candidate_entry_score(best_replacement), 2)
                 trades.append(trade)
                 if trade["action"] == "SELL":
                     exited_this_cycle.add(ticker)
+                    if exit_result.get("reason_code") == "OPPORTUNITY_COST_CASH_EXIT":
+                        capital_cleanup["sold_to_cash"] += 1
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": trade["action"], "reason": reason, "price": price, "score": score, "sell_pct": exit_result["sell_pct"]})
         else:
+            capital_cleanup["held"] += 1
+            if exit_result.get("reason_code") == "FLAT_POSITION_PROTECTED":
+                capital_cleanup["protected"] += 1
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": exit_result["action"], "reason": exit_result["reason"], "reason_code": exit_result["reason_code"], "price": price, "score": score})
     emit_progress(5, progress_total, "Salgs- og holdbeslutninger er kontrollert")
 
@@ -1771,6 +1854,13 @@ def run_autonomous_cycle(
                                   "order_executed": False, "execution_stage": "DUPLICATE_CANDIDATE_BLOCKED"})
                 continue
             entry_tickers_seen.add(ticker)
+            cooldown_blocked, cooldown_reason = _reentry_cooldown(candidate, params)
+            if cooldown_blocked:
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP",
+                                  "reason": cooldown_reason, "reason_code": "REENTRY_COOLDOWN",
+                                  "score": _candidate_entry_score(candidate), "order_intent_created": False,
+                                  "order_executed": False, "execution_stage": "REENTRY_COOLDOWN"})
+                continue
             authorized, authorization_reasons = production_buy_authorization(candidate)
             if not authorized:
                 decisions.append({
@@ -1899,6 +1989,12 @@ def run_autonomous_cycle(
             for candidate in learning_ranked:
                 ticker = str(candidate.get("ticker") or "").upper()
                 if not ticker:
+                    continue
+                cooldown_blocked, cooldown_reason = _reentry_cooldown(candidate, params)
+                if cooldown_blocked:
+                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                                               "action": "OBSERVE", "reason": cooldown_reason,
+                                               "reason_code": "REENTRY_COOLDOWN", "learning_probe": True})
                     continue
                 learning_tier = _learning_tier(candidate)
                 strategy = _candidate_strategy(candidate)
@@ -2265,7 +2361,22 @@ def run_autonomous_cycle(
         learning_result = run_automatic_learning_if_due(trigger="AUTONOMOUS_CYCLE", force=False)
     except Exception as exc:
         _append_audit("AUTOMATIC_LEARNING_HOOK_FAILED", {"run_id": run_id, "error": str(exc)})
-    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "learning_observations": observation_progress, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity, "full_replay": replay_snapshot_result, "replay_level": replay_snapshot_result.get("replay_level", "DECISION_REPLAY")}
+    capital_cleanup["cash_after"] = round(_f(portfolio.get("cash")), 2)
+    capital_cleanup["ordinary_buys"] = sum(str(t.get("action") or "").upper() == "BUY" for t in trades)
+    capital_cleanup["cash_decision"] = (
+        "KONTANTER BEHOLDES: ingen kandidat bestod alle kjøpsporter"
+        if capital_cleanup["ordinary_buys"] == 0 else "KONTANTER ER DELVIS REINVESTERT"
+    )
+    if params.notify_trades:
+        _notification(
+            "SUMMARY", "AUTONOMI · PORTEFØLJEKONTROLL",
+            (f"Vurdert {capital_cleanup['evaluated']} posisjoner. "
+             f"Solgt til kontanter {capital_cleanup['sold_to_cash']}, erstattet {capital_cleanup['replaced']}, "
+             f"beskyttet {capital_cleanup['protected']}, kjøpt {capital_cleanup['ordinary_buys']}. "
+             f"{capital_cleanup['cash_decision']}. Kontanter {capital_cleanup['cash_after']:,.0f}."),
+            {"run_id": run_id, **capital_cleanup},
+        )
+    return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "learning_observations": observation_progress, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "capital_cleanup": capital_cleanup, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity, "full_replay": replay_snapshot_result, "replay_level": replay_snapshot_result.get("replay_level", "DECISION_REPLAY")}
 
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -2934,7 +3045,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         learning_max_risk = st.slider("Maksimal risiko for kun læringskjøp", 0.0, 75.0, float(params.learning_probe_maximum_risk_score), 1.0, key="alp_learning_risk_v19220_rc1626")
         notify = st.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
         if st.button("Lagre parametere", key="alp_save_params_v18688"):
-            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_maximum_risk_score=learning_max_risk, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
+            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, stagnation_days=params.stagnation_days, stagnation_band_pct=params.stagnation_band_pct, cash_review_days=params.cash_review_days, cash_review_max_return_pct=params.cash_review_max_return_pct, reentry_cooldown_days=params.reentry_cooldown_days, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_maximum_risk_score=learning_max_risk, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
             st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
 
         st.markdown("**Kontrollert anbefalt produksjonsprofil**")

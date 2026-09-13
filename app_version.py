@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31cs"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31cs Autonomy Continuity and Cash Exit"
+APP_VERSION = "v19.22.0-rc16.31ct"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ct Five-Day Capital Rotation and Learning Guard"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31cr"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.31cs"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.31ct: Five-Day Capital Rotation and Learning Guard. Existing holdings are assessed immediately from their original purchase date; flat or weak positions may exit to cash after five business days unless score, momentum, breakout or a documented near-term event protects them. Adds five-day re-entry cooldown, explicit cash decisions, capital-cleanup summaries, per-business-day efficiency, combined Pushover receipts, controlled-learning progress/lifecycle, 24-hour learning guard, and a durable approval-bound parameter-integrity seal.",
     "v19.22.0-rc16.31cj: Rebuilds the temporary Jeep search for explicit same-site pagination, correct Brazil-wide Mobiauto routes, exact 2.2 diesel Webmotors routes, manual watched listings, persistent price history, previous/new price deltas, color-coded price alerts, equipment extraction and high-contrast result cards. Source failures remain explicit and search load stays bounded.",
     "v19.22.0-rc16.31ci: Expands the temporary Jeep Commander 2.2 monitor with a selectable dealer network, Localiza Seminovos and Seminovos.com.br sources, seller classification (private, ordinary dealer, authorized Jeep where explicitly documented), conservative cross-source vehicle deduplication, source-count disclosure, new-source alerts and visible per-source health.",
     "v19.22.0-rc16.31ch: Adds a temporary, isolated Jeep Commander 2.2 monitor with selectable 2025/2026 model years, 20,000/35,000 km ceilings, Ceará/Northeast/Brazil scope, price-first color-aware ranking, durable 15-minute Cron control, source-health diagnostics and deduplicated Pushover alerts for new listings and price cuts. The first successful scan seeds a quiet baseline; the complete module can be disabled and purged without touching investment data.",

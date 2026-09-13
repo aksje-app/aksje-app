@@ -425,6 +425,9 @@ def promote_trial(*, explicit_user_approval: bool = False, approval_id: str = ""
         h = next((x for x in hypotheses if x.get("hypothesis_id") == trial.get("hypothesis_id")), None)
         if h: h["lifecycle_status"] = "GODKJENT"; h["status"] = "APPROVED"; h["production_applied"] = True
         _write(HYPOTHESES_PATH, hypotheses)
+    _write(VERSIONS_PATH, versions)
+    from parameter_integrity import write_approved_seal
+    trial["parameter_integrity"] = write_approved_seal(approval_id=approval_id, reason=f"Godkjent promotering {trial['version_id']}")
     _write(VERSIONS_PATH, versions); _audit("TRIAL_PROMOTED_TO_CHAMPION", trial); _notify("Learning: ny Champion", f"Parameter-versjon {trial['version_id']} er godkjent og promotert.", trial)
     return trial
 
@@ -501,6 +504,10 @@ def _queue_promotion_approval(trial: Mapping[str, Any], guard: Mapping[str, Any]
     existing = next((a for a in approvals if a.get("version_id") == trial.get("version_id") and a.get("status") == "PENDING"), None)
     if existing:
         return existing
+    before = dict(trial.get("previous_parameters") or ensure_champion_version().get("parameters") or {})
+    after = dict(trial.get("parameters") or {})
+    changes = [{"parameter": key, "before": before.get(key), "after": after.get(key)}
+               for key in sorted(set(before) | set(after)) if before.get(key) != after.get(key)]
     item = {
         "approval_id": "PA-" + uuid.uuid4().hex[:10],
         "created_at": _now(),
@@ -509,6 +516,8 @@ def _queue_promotion_approval(trial: Mapping[str, Any], guard: Mapping[str, Any]
         "version_id": trial.get("version_id"),
         "hypothesis_id": trial.get("hypothesis_id"),
         "guard": dict(guard),
+        "parameter_changes": changes,
+        "reason": "Skyggetesten oppfylte evidenskravene; produksjon endres først etter brukerens valg.",
     }
     approvals.insert(0, item)
     _write(APPROVALS_PATH, approvals)
@@ -525,7 +534,8 @@ def _queue_promotion_approval(trial: Mapping[str, Any], guard: Mapping[str, Any]
         if h: h["lifecycle_status"] = "KLAR_FOR_VURDERING"
         _write(HYPOTHESES_PATH, hypotheses)
     _audit("CHAMPION_PROMOTION_APPROVAL_REQUIRED", item)
-    _notify("Autonomi: godkjenning kreves", f"Champion-promotering {trial.get('version_id')} krever brukerbekreftelse.", item)
+    change_text = ", ".join(f"{row['parameter']} {row['before']} → {row['after']}" for row in changes[:4])
+    _notify("Autonomi: godkjenning kreves", f"{change_text or trial.get('version_id')}. Godkjenn eller avvis i Kontrollsenteret; ingen endring er utført.", item)
     return item
 
 
@@ -703,6 +713,60 @@ def run_automatic_learning_if_due(trigger: str = "APP", force: bool = False) -> 
     return {"ran": True, "evaluation": result, "management_report": report}
 
 
+def proposal_lifecycle() -> list[dict[str, Any]]:
+    hypotheses = _read(HYPOTHESES_PATH, [])
+    experiments = _read(EXPERIMENTS_PATH, [])
+    versions = _read(VERSIONS_PATH, [])
+    approvals = _read(APPROVALS_PATH, [])
+    result = []
+    for raw in hypotheses if isinstance(hypotheses, list) else []:
+        row = dict(raw)
+        exp = next((x for x in experiments if x.get("hypothesis_id") == row.get("hypothesis_id")), {}) if isinstance(experiments, list) else {}
+        version = next((x for x in versions if x.get("hypothesis_id") == row.get("hypothesis_id")), {}) if isinstance(versions, list) else {}
+        approval = next((x for x in approvals if x.get("hypothesis_id") == row.get("hypothesis_id")), {}) if isinstance(approvals, list) else {}
+        result.append({
+            "hypothesis_id": row.get("hypothesis_id"), "parameter": row.get("parameter"),
+            "change": f"{row.get('before')} → {row.get('after')}", "reason": row.get("reason"),
+            "stage": approval.get("lifecycle_status") or version.get("lifecycle_status") or exp.get("lifecycle_status") or row.get("lifecycle_status"),
+            "observed_trades": exp.get("observed_trades", 0),
+            "required_trades": exp.get("minimum_trial_trades", load_state().get("minimum_trial_trades")),
+            "approval_id": approval.get("approval_id"), "approval_status": approval.get("status"),
+            "production_applied": bool(version.get("production_applied")),
+        })
+    return result
+
+
+def learning_guard_snapshot(*, notify: bool = False) -> dict[str, Any]:
+    state = load_state()
+    evidence = learning_evidence_summary()
+    mature = _mature_observation_evidence()
+    last = _parse_time(state.get("last_evaluation_at"))
+    now = datetime.now(timezone.utc).astimezone()
+    age_hours = (now - last).total_seconds() / 3600 if last else None
+    warnings = []
+    if state.get("enabled") and now.weekday() < 5 and (age_hours is None or age_hours > 24):
+        warnings.append("Ingen kontrollert læringsevaluering siste 24 timer på børsdag")
+    lifecycle = proposal_lifecycle()
+    oldest_open = next((row for row in lifecycle if row.get("stage") not in {"GODKJENT", "AVVIST", "TILBAKERULLERT"}), None)
+    result = {
+        "status": "WARNING" if warnings else ("ACTIVE" if state.get("enabled") else "DISABLED"),
+        "last_evaluation_at": state.get("last_evaluation_at"), "age_hours": round(age_hours, 1) if age_hours is not None else None,
+        "closed_evidence": evidence.get("usable_hypothesis_evidence", 0),
+        "closed_required": int(state.get("hypothesis_min_closed_trades", 15)),
+        "mature_observations": mature.get("mature_count", 0),
+        "mature_required": int(state.get("hypothesis_min_mature_observations", 20)),
+        "open_proposals": len([row for row in lifecycle if row.get("stage") not in {"GODKJENT", "AVVIST", "TILBAKERULLERT"}]),
+        "oldest_open_proposal": oldest_open, "warnings": warnings,
+    }
+    fingerprint = "|".join(warnings)
+    if notify and warnings and state.get("last_guard_warning_fingerprint") != fingerprint:
+        _notify("⚠️ Autonomi læringsvakt", "; ".join(warnings), result)
+        state["last_guard_warning_fingerprint"] = fingerprint
+        state["last_guard_warning_at"] = _now()
+        _write(STATE_PATH, state)
+    return result
+
+
 def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
     state = load_state(); perf = calculate_performance(); ordinary_trades = _closed_trades(); learning_trades = _closed_learning_trades(); trades = ordinary_trades + learning_trades; stats = _stats(trades); actions: list[Any] = []
     policy = _mode_policy(state)
@@ -793,6 +857,13 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
     c1.metric("Læring", "NØDSTOPP" if state.get("emergency_stop") else ("AKTIV" if state["enabled"] else "AV"))
     c2.metric("Lukkede handler", len(trades)); c3.metric("Expectancy", f"{stats['expectancy']:,.0f}")
     c4.metric("Profit Factor", f"{stats['profit_factor']:.2f}"); c5.metric("Siste evaluering", str(state.get("last_evaluation_at") or "–")[:16])
+    guard = learning_guard_snapshot(notify=False)
+    g1, g2, g3 = st.columns(3)
+    g1.metric("Læringsvakt", guard["status"])
+    g2.metric("Lukkede bevis", f"{guard['closed_evidence']}/{guard['closed_required']}")
+    g3.metric("Modne observasjoner", f"{guard['mature_observations']}/{guard['mature_required']}")
+    if guard["warnings"]:
+        st.error(" · ".join(guard["warnings"]))
 
     overview_tab, settings_tab, approvals_tab = st.tabs(["Læring og eksperimenter", "⚙️ Autonomy Settings", "🛡️ Godkjenninger"])
     with settings_tab:
@@ -920,6 +991,12 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
             st.dataframe(pd.DataFrame(approvals), width="stretch", hide_index=True)
 
     with overview_tab:
+        lifecycle_rows = proposal_lifecycle()
+        st.markdown("##### Parameterforslag – livsløp")
+        if lifecycle_rows:
+            st.dataframe(pd.DataFrame(lifecycle_rows), width="stretch", hide_index=True)
+        else:
+            st.info("Ingen parameterforslag ennå. Fremdriften vises over og forslag opprettes når ett av evidenskravene er nådd.")
         x,y,z = st.columns(3)
         if x.button("Evaluer nå", type="primary", width="stretch", key=_k("cpl_eval_v18689b")):
             result = evaluate_learning(); st.success(f"Evaluert {result['closed_trades']} lukkede handler. {len(result['actions'])} handlinger."); st.rerun()

@@ -19,7 +19,7 @@ def _f(value: Any, default: float = 0.0) -> float:
 
 @dataclass(frozen=True)
 class ExitPolicy:
-    policy_version: str = "1.1"
+    policy_version: str = "1.2"
     stop_loss_pct: float = 5.0
     take_profit_pct: float = 14.0
     trailing_stop_pct: float = 7.0
@@ -29,10 +29,10 @@ class ExitPolicy:
     rsi_exit_level: float = 75.0
     rsi_must_fall: bool = True
     partial_take_profit_pct: float = 25.0
-    stagnation_days: int = 20
-    stagnation_band_pct: float = 2.0
+    stagnation_days: int = 5
+    stagnation_band_pct: float = 1.0
     replacement_score_advantage: float = 6.0
-    cash_review_days: int = 30
+    cash_review_days: int = 5
     cash_review_max_return_pct: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,10 +62,10 @@ def policy_from(source: Mapping[str, Any] | Any | None = None) -> ExitPolicy:
         rsi_exit_level=max(0.0, min(100.0, _f(base["rsi_exit_level"], 75))),
         rsi_must_fall=bool(base["rsi_must_fall"]),
         partial_take_profit_pct=max(0.0, min(100.0, _f(base["partial_take_profit_pct"], 25))),
-        stagnation_days=max(1, int(_f(base["stagnation_days"], 20))),
-        stagnation_band_pct=max(0.0, _f(base["stagnation_band_pct"], 2)),
+        stagnation_days=max(1, int(_f(base["stagnation_days"], 5))),
+        stagnation_band_pct=max(0.0, _f(base["stagnation_band_pct"], 1)),
         replacement_score_advantage=max(0.0, _f(base["replacement_score_advantage"], 6)),
-        cash_review_days=max(20, int(_f(base["cash_review_days"], 30))),
+        cash_review_days=max(5, int(_f(base["cash_review_days"], 5))),
         cash_review_max_return_pct=max(0.0, _f(base["cash_review_max_return_pct"], 1)),
     )
 
@@ -79,6 +79,7 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
                   replacement_momentum_pct: float | None = None,
                   breakout_expected: bool = False, breakout_holding: bool | None = None,
                   momentum_pct: float | None = None, relative_strength_delta: float | None = None,
+                  event_protection_active: bool = False, event_protection_reason: str = "",
                   transaction_cost_pct: float = 0.0,
                   policy: ExitPolicy | Mapping[str, Any] | Any | None = None) -> dict[str, Any]:
     p = policy if isinstance(policy, ExitPolicy) else policy_from(policy)
@@ -106,6 +107,8 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
               "review_interval_minutes": 15 if int(holding_days) <= 1 else None,
               "next_formal_review_day": next_review, "hypothesis_breaks": hypothesis_breaks,
               "replacement_ticker": str(replacement_ticker or ""),
+              "event_protection_active": bool(event_protection_active),
+              "event_protection_reason": str(event_protection_reason or ""),
               "transaction_cost_pct": round(max(0.0, _f(transaction_cost_pct)), 4)}
     if entry <= 0 or price <= 0:
         return {**result, "reason_code": "PRICE_INVALID", "reason": "Mangler gyldig inngangs- eller markedskurs"}
@@ -124,6 +127,9 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
                 "reason": "Kjøpsgrunnlaget er svekket: " + "; ".join(hypothesis_breaks),
                 "monitoring_status": "OVERVÅK FOR SALG"}
     stagnating = int(holding_days) >= p.stagnation_days and abs(pnl_pct) < p.stagnation_band_pct
+    positive_momentum = momentum_pct is not None and _f(momentum_pct) > 0.5
+    improving_score = bool(entry_score) and score > _f(entry_score) + 1.0
+    protected_flat = bool(event_protection_active or positive_momentum or improving_score or (breakout_expected and breakout_holding is not False))
     replacement_advantage = (_f(best_replacement_score) - score) if best_replacement_score is not None else 0.0
     replacement_quality_ok = (
         bool(replacement_ticker)
@@ -141,10 +147,19 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
     # not merely a report label: a superior replacement is optional.  A clearly
     # improving score still protects a position from a mechanical flat exit.
     score_not_improving = not entry_score or score <= _f(entry_score) + 1.0
-    if int(holding_days) >= p.cash_review_days and pnl_pct <= p.cash_review_max_return_pct and score_not_improving:
+    if int(holding_days) >= p.cash_review_days and abs(pnl_pct) <= p.cash_review_max_return_pct and score_not_improving and not protected_flat:
         return {**result, "action": "SELL", "reason_code": "OPPORTUNITY_COST_CASH_EXIT",
                 "reason": f"Kapital bundet i {holding_days} børsdager med {pnl_pct:.2f}% avkastning uten dokumentert scoreforbedring; går til kontanter",
                 "sell_pct": 100.0, "monitoring_status": "SELG TIL KONTANTER"}
+    if stagnating and protected_flat:
+        protections = []
+        if improving_score: protections.append("score forbedres")
+        if positive_momentum: protections.append(f"momentum {_f(momentum_pct):+.2f}%")
+        if breakout_expected and breakout_holding is not False: protections.append("breakout-hypotesen holder")
+        if event_protection_active: protections.append(event_protection_reason or "bekreftet hendelse nærmer seg")
+        return {**result, "action": "REVIEW", "reason_code": "FLAT_POSITION_PROTECTED",
+                "reason": "Flat posisjon beholdes midlertidig: " + "; ".join(protections),
+                "monitoring_status": "BESKYTTET – NY KONTROLL NESTE RAPPORT"}
     if stagnating:
         return {**result, "action": "REVIEW", "reason_code": "CAPITAL_STAGNATION", "reason": f"Kapitalstagnasjon i {holding_days} børsdager", "monitoring_status": "OVERVÅK FOR SALG"}
     if score_drop >= p.score_drop_review_points:

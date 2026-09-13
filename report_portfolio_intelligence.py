@@ -1,7 +1,7 @@
 """Read-only portfolio and capital-efficiency section for scheduled reports."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from issuer_identity import issuer_identity
@@ -41,6 +41,24 @@ def _dt(value: Any) -> datetime | None:
         return result.replace(tzinfo=result.tzinfo or timezone.utc)
     except ValueError:
         return None
+
+
+def _event_protection(candidate: Mapping[str, Any], now: datetime) -> tuple[bool, str]:
+    raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+    for key in ("next_event", "next_expected_event", "earnings_date"):
+        value = candidate.get(key) or raw.get(key)
+        if isinstance(value, Mapping):
+            value = value.get("date") or value.get("at") or value.get("timestamp")
+        event = _dt(value)
+        if not event or event.date() < now.date():
+            continue
+        cursor, days = now.date(), 0
+        while cursor < event.date():
+            cursor += timedelta(days=1)
+            days += int(cursor.weekday() < 5)
+        if days <= 3:
+            return True, f"Dokumentert {key} om {days} børsdag(er): {event.date().isoformat()}"
+    return False, ""
 
 
 def _business_days_between(start: datetime | None, end: datetime) -> int:
@@ -189,6 +207,7 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         entry_score = _f(position.get("entry_score"), _f(position.get("autonomy_adjusted_investment_score")))
         current_score = _f(candidate.get("effective_entry_score"), _f(candidate.get("investment_score"), entry_score))
         score_change = current_score - entry_score if entry_score else 0.0
+        event_protected, event_reason = _event_protection(candidate, now)
         exit_decision = evaluate_exit(entry_price=entry, current_price=last,
                                       highest_price=_f(position.get("highest_price"), max(entry, last)),
                                       entry_score=entry_score, current_score=current_score,
@@ -203,6 +222,8 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
                                       momentum_pct=_f((candidate.get("raw") or {}).get("return_3d")) if isinstance(candidate.get("raw"), Mapping) else None,
                                       relative_strength_delta=_f(candidate.get("relative_strength_delta")) if candidate.get("relative_strength_delta") is not None else None,
                                       transaction_cost_pct=_f(portfolio.get("transaction_cost_pct"), 0.2),
+                                      event_protection_active=event_protected,
+                                      event_protection_reason=event_reason,
                                       policy=active_policy)
         sideways = exit_decision["reason_code"] in {"CAPITAL_STAGNATION", "CAPITAL_REPLACEMENT", "OPPORTUNITY_COST", "OPPORTUNITY_COST_CASH_EXIT"}
         weakened = bool(entry_score and score_change <= -active_policy.score_drop_review_points)
@@ -229,6 +250,9 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "quantity": round(quantity, 4), "entry_price": round(entry, 4), "last_price": round(last, 4),
             "market_value": round(last * quantity, 2), "unrealized_pnl": round(pnl_amount, 2),
             "unrealized_pnl_pct": round(pnl_pct, 2), "entry_score": round(entry_score, 2),
+            "return_per_business_day_pct": round(pnl_pct / max(1, holding_days), 3),
+            "event_protection_active": event_protected,
+            "event_protection_reason": event_reason,
             "current_score": round(current_score, 2), "score_change": round(score_change, 2),
             "sideways_20d_proxy": sideways, "weakened_score": weakened, "capital_efficiency_status": label,
             "exit_action": exit_decision["action"], "exit_reason_code": exit_decision["reason_code"],
