@@ -43,6 +43,21 @@ def test_stagnation_only_becomes_replacement_with_named_superior_candidate():
     assert replace["reason_code"] == "CAPITAL_REPLACEMENT"
 
 
+def test_long_flat_position_is_sold_to_cash_without_replacement():
+    result = evaluate_exit(entry_price=100, current_price=100.7, highest_price=102,
+                           entry_score=74, current_score=74.5, holding_days=31)
+    assert result["action"] == "SELL"
+    assert result["reason_code"] == "OPPORTUNITY_COST_CASH_EXIT"
+    assert result["sell_pct"] == 100.0
+
+
+def test_long_flat_position_with_clearly_improving_score_is_protected():
+    result = evaluate_exit(entry_price=100, current_price=100.7, highest_price=102,
+                           entry_score=70, current_score=74, holding_days=31)
+    assert result["action"] == "REVIEW"
+    assert result["reason_code"] == "CAPITAL_STAGNATION"
+
+
 def test_report_names_the_replacement_and_exposes_active_policy():
     portfolio = {"initial_cash": 100000, "cash": 90000, "realized_pnl": 0, "reserve_cash_pct": 10,
                  "positions": {"OLD": {"ticker": "OLD", "quantity": 100, "average_price": 100,
@@ -50,7 +65,8 @@ def test_report_names_the_replacement_and_exposes_active_policy():
                                               "opened_at": "2026-07-01T00:00:00+00:00"}}}
     candidates = [
         {"ticker": "OLD", "investment_score": 69, "valid_for_decision": True, "evidence_valid_for_decision": True},
-        {"ticker": "NEW", "investment_score": 76, "valid_for_decision": True, "evidence_valid_for_decision": True},
+        {"ticker": "NEW", "investment_score": 76, "valid_for_decision": True,
+         "evidence_valid_for_decision": True, "final_decision_ready": True},
     ]
     report = build_portfolio_report(portfolio, candidates, now=datetime(2026, 8, 16, tzinfo=timezone.utc))
     row = report["positions"][0]
