@@ -19,7 +19,7 @@ def _f(value: Any, default: float = 0.0) -> float:
 
 @dataclass(frozen=True)
 class ExitPolicy:
-    policy_version: str = "1.0"
+    policy_version: str = "1.1"
     stop_loss_pct: float = 5.0
     take_profit_pct: float = 14.0
     trailing_stop_pct: float = 7.0
@@ -32,7 +32,7 @@ class ExitPolicy:
     stagnation_days: int = 20
     stagnation_band_pct: float = 2.0
     replacement_score_advantage: float = 6.0
-    cash_review_days: int = 40
+    cash_review_days: int = 30
     cash_review_max_return_pct: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -65,7 +65,7 @@ def policy_from(source: Mapping[str, Any] | Any | None = None) -> ExitPolicy:
         stagnation_days=max(1, int(_f(base["stagnation_days"], 20))),
         stagnation_band_pct=max(0.0, _f(base["stagnation_band_pct"], 2)),
         replacement_score_advantage=max(0.0, _f(base["replacement_score_advantage"], 6)),
-        cash_review_days=max(20, int(_f(base["cash_review_days"], 40))),
+        cash_review_days=max(20, int(_f(base["cash_review_days"], 30))),
         cash_review_max_return_pct=max(0.0, _f(base["cash_review_max_return_pct"], 1)),
     )
 
@@ -136,9 +136,15 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
         return {**result, "action": "REPLACE_REVIEW", "reason_code": "CAPITAL_REPLACEMENT",
                 "reason": f"Sidelengs {holding_days} børsdager; {replacement_ticker} er {replacement_advantage:.1f} scorepoeng bedre etter risiko- og kostnadskontroll",
                 "monitoring_status": "BYTT UT", "replacement_score_advantage": round(replacement_advantage, 2)}
-    if int(holding_days) >= p.cash_review_days and pnl_pct <= p.cash_review_max_return_pct and (score_drop >= p.score_drop_review_points or score < _f(entry_score)):
-        return {**result, "action": "CASH_REVIEW", "reason_code": "OPPORTUNITY_COST",
-                "reason": f"Kapital bundet i {holding_days} dager med {pnl_pct:.2f}% avkastning og svekket score; kontanter vurderes"}
+    # A position that remains essentially flat for a full review window ties up
+    # capital without paying for its risk.  This is an executable cash exit,
+    # not merely a report label: a superior replacement is optional.  A clearly
+    # improving score still protects a position from a mechanical flat exit.
+    score_not_improving = not entry_score or score <= _f(entry_score) + 1.0
+    if int(holding_days) >= p.cash_review_days and pnl_pct <= p.cash_review_max_return_pct and score_not_improving:
+        return {**result, "action": "SELL", "reason_code": "OPPORTUNITY_COST_CASH_EXIT",
+                "reason": f"Kapital bundet i {holding_days} børsdager med {pnl_pct:.2f}% avkastning uten dokumentert scoreforbedring; går til kontanter",
+                "sell_pct": 100.0, "monitoring_status": "SELG TIL KONTANTER"}
     if stagnating:
         return {**result, "action": "REVIEW", "reason_code": "CAPITAL_STAGNATION", "reason": f"Kapitalstagnasjon i {holding_days} børsdager", "monitoring_status": "OVERVÅK FOR SALG"}
     if score_drop >= p.score_drop_review_points:

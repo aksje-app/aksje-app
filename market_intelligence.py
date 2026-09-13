@@ -874,6 +874,8 @@ def ensure_required_report_jobs(jobs: Sequence[JobProfile]) -> tuple[list[JobPro
             timezone_name="Europe/Oslo", enabled=True,
             notify_pushover=True, notify_only_changes=False,
             notification_mode="ALWAYS", include_report_link=True, save_pdf=True,
+            run_autonomous_portfolio=True, run_controlled_learning=True,
+            require_active_portfolio=True,
             scan_windows=[], report_test_series_id="", report_test_part=0,
             report_test_total=0, report_test_attempt=0,
         )
@@ -6444,6 +6446,14 @@ def _run_job_impl(
     try:
         if analysis_aborted:
             run["autonomous_chain"] = {"status": "SKIPPED", "reason": "Utilstrekkelige markedsdata"}
+            run["autonomy_required_evaluation"] = {
+                "status": "BLOCKED_REPORT_ABORTED", "completed": False,
+                "reason": "Obligatorisk porteføljevurdering ble ikke kjørt fordi rapporten ble avbrutt av datakrav.",
+            }
+            _audit("AUTONOMY_REQUIRED_EVALUATION_BLOCKED", {
+                "run_id": run_id, "job_id": job.job_id,
+                "reason": run["autonomy_required_evaluation"]["reason"],
+            })
         else:
             from runtime_memory import release_process_memory
             run["memory_cleanup_before_autonomy"] = release_process_memory("before_autonomy")
@@ -6462,6 +6472,12 @@ def _run_job_impl(
                     ticker=str(event.get("ticker") or ""),
                 ),
             )
+            run["autonomy_required_evaluation"] = {
+                "status": "COMPLETED" if (run.get("autonomous_chain") or {}).get("status") == "OK" else "COMPLETED_WITH_ERRORS",
+                "completed": (run.get("autonomous_chain") or {}).get("status") == "OK",
+                "chain_id": (run.get("autonomous_chain") or {}).get("chain_id"),
+                "reason": "Porteføljen ble vurdert som del av den obligatoriske rapporten.",
+            }
             mark_breadcrumb("report:autonomy:execute_market_mission:after", component="market_intelligence", detail={"run_id": run_id, "chain_status": (run.get("autonomous_chain") or {}).get("status")})
             emit("AUTONOMOUS", 1, 3, "Autonomi fullført; kontrollerer lagrede læringsbeslutninger")
             from learning_acceptance import evaluate_learning_run

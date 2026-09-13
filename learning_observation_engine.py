@@ -937,7 +937,10 @@ def generate_weekly_report(*, now: datetime | None = None, notify: bool = True) 
     current = (now or datetime.now(timezone.utc)).astimezone(OSLO); week_key = current.strftime("%G-W%V")
     previous = load_weekly_reports()
     existing = next((row for row in previous if str(row.get("week_key") or "") == week_key), None)
-    if existing: return {"status":"ALREADY_COMPLETED","week_key":week_key,"report_id":existing.get("report_id")}
+    if existing:
+        return {"status":"ALREADY_COMPLETED","week_key":week_key,"report_id":existing.get("report_id"),
+                "notification":dict(existing.get("notification") or {}),
+                "reason":"Ukens rapport finnes allerede; duplikat og nytt Pushover-varsel ble undertrykt."}
     analysis = build_weekly_analysis(now=now); main_pdf = build_weekly_pdf(analysis); technical_pdf = build_weekly_pdf(analysis,technical=True)
     report_id = f"LWR-{week_key}-{current.strftime('%Y%m%d%H%M%S')}"
     record: dict[str, Any] = {"schema_version":SCHEMA_VERSION,"report_id":report_id,"run_id":report_id,
@@ -967,9 +970,11 @@ def generate_weekly_report(*, now: datetime | None = None, notify: bool = True) 
     from public_report_store import publish_durable_file
     record["public_json_token"]=publish_durable_file(payload,filename=record["public_json_name"],mime="application/json",report_id=report_id)
     write_json(WEEKLY_KEY,WEEKLY_PATH,[record]+previous[:51])
-    state=load_engine_state(); state["weekly"]={"status":"COMPLETED","week_key":week_key,"report_id":report_id,"completed_at":_now_iso(now)}
+    final_status = "COMPLETED" if (not notify or record["notification"].get("sent")) else "PUSHOVER_FAILED"
+    state=load_engine_state(); state["weekly"]={"status":final_status,"week_key":week_key,"report_id":report_id,"completed_at":_now_iso(now),"notification":record["notification"]}
     write_json(STATE_KEY,STATE_PATH,state)
-    return {"status":"COMPLETED","week_key":week_key,"report_id":report_id,"notification":record["notification"],"pdf_sizes":record["pdf_sizes"]}
+    return {"status":final_status,"week_key":week_key,"report_id":report_id,"notification":record["notification"],"pdf_sizes":record["pdf_sizes"],
+            "reason":"Rapport opprettet og heartbeat sendt." if final_status == "COMPLETED" else "Rapport opprettet, men Pushover-leveringen feilet."}
 
 
 def _daily_due(now: datetime) -> bool:
@@ -993,7 +998,10 @@ def _weekly_due(now: datetime) -> bool:
 
 def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader|None=None)->dict[str,Any]:
     current=now or datetime.now(timezone.utc)
-    result={"status":"COMPLETED","daily":{"status":"NOT_DUE"},"weekly":{"status":"NOT_DUE"},"baseline":{"status":"NOT_DUE"},"production_changed":False}
+    result={"status":"COMPLETED","daily":{"status":"NOT_DUE"},
+            "weekly":{"status":"NOT_DUE","notification":{"attempted":False,"sent":False},
+                      "reason":"Ukentlig rapport er bare forfalt fredag etter 23:10 eller i helgen, og bare én gang per ISO-uke."},
+            "baseline":{"status":"NOT_DUE"},"production_changed":False}
     _breadcrumb("learning:maintenance:start", {"local_weekday": current.astimezone(OSLO).weekday()})
 
     daily_due = _daily_due(current)
@@ -1037,7 +1045,14 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
         result["weekly"]=generate_weekly_report(now=current)
         _breadcrumb("learning:maintenance:weekly_report:after", {"status": result["weekly"].get("status")})
         _release_memory("learning_maintenance_after_weekly_report")
-    if result["daily"].get("status")=="FAILED" or result["weekly"].get("status")=="FAILED": result["status"]="DEGRADED"
+    elif local.weekday() in {4,5,6}:
+        existing = next((row for row in load_weekly_reports() if str(row.get("week_key") or "") == local.strftime("%G-W%V")), None)
+        if existing:
+            result["weekly"] = {"status":"ALREADY_COMPLETED","week_key":existing.get("week_key"),
+                                "report_id":existing.get("report_id"),
+                                "notification":dict(existing.get("notification") or {}),
+                                "reason":"Ukens rapport og heartbeat er allerede opprettet."}
+    if result["daily"].get("status")=="FAILED" or result["weekly"].get("status") in {"FAILED","PUSHOVER_FAILED"}: result["status"]="DEGRADED"
     _breadcrumb("learning:maintenance:done", {"status": result["status"]})
     return result
 

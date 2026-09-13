@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -23,6 +23,8 @@ ROOT = runtime_data_path("autonomous_orchestrator")
 RUNS_DIR = ROOT / "runs"
 LATEST_PATH = ROOT / "latest_run.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
+HEALTH_PATH = ROOT / "operational_health.json"
+HEALTH_KEY = "autonomous_orchestrator/operational_health.json"
 
 
 def _now() -> str:
@@ -112,6 +114,10 @@ def run_post_scan_chain(
                 shared_metrics = dict(shared_learning.get("account_metrics") or {})
                 cycle_trades = portfolio_trades + learning_trades
                 cycle_decisions = cycle.get("decisions") or []
+                decision_diagnostics = [
+                    {key: row.get(key) for key in ("ticker", "action", "reason_code", "reason", "score", "price", "sell_pct")}
+                    for row in cycle_decisions if isinstance(row, Mapping)
+                ]
                 ordinary_buys = [x for x in portfolio_trades if str(x.get("action") or "").upper() == "BUY"]
                 sells = [x for x in portfolio_trades if str(x.get("action") or "").upper() == "SELL"]
                 legacy_learning_buys = [x for x in learning_trades if str(x.get("action") or "").upper() == "BUY"]
@@ -144,6 +150,7 @@ def run_post_scan_chain(
                     "full_replay_audit": full_replay.get("audit") or {},
                     "full_replay_missing": full_replay.get("missing") or [],
                     "reason": ("Handel blokkert av integritetskontrollen" if not execution_integrity.get("ok", True) else ("Separate læringsposisjoner opprettet" if learning_buys and not ordinary_buys else ("Ingen kjøp opprettet" if not ordinary_buys else "Ordinære teoretiske porteføljekjøp opprettet"))),
+                    "decision_diagnostics": decision_diagnostics,
                 })
                 result["autonomy_learning_account"] = shared_learning
                 result["autonomy_cycle"] = {
@@ -201,3 +208,82 @@ def load_latest_chain() -> dict[str, Any]:
 
 def load_audit(limit: int = 1000) -> list[dict[str, Any]]:
     return read_events("autonomous_orchestrator/audit.jsonl", AUDIT_PATH, limit=limit)
+
+
+def _business_hours_since(value: str, now: datetime) -> float | None:
+    try:
+        start = datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+    if start >= now:
+        return 0.0
+    cursor = start.replace(minute=0, second=0, microsecond=0)
+    hours = 0.0
+    while cursor < now:
+        next_cursor = min(cursor + timedelta(hours=1), now)
+        if cursor.weekday() < 5:
+            hours += (next_cursor - cursor).total_seconds() / 3600.0
+        cursor = next_cursor
+    return round(hours, 2)
+
+
+def operational_health_snapshot(*, now: datetime | None = None, notify: bool = False) -> dict[str, Any]:
+    """Expose and warn on a missing production autonomy cycle."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    latest = load_latest_chain()
+    created_at = str(latest.get("completed_at") or latest.get("created_at") or "")
+    business_hours = _business_hours_since(created_at, current)
+    stale = current.weekday() < 5 and (business_hours is None or business_hours > 24.0)
+    market_stage = next((row for row in latest.get("stages") or [] if row.get("name") == "MARKET_SCAN"), {})
+    portfolio_stage = next((row for row in latest.get("stages") or [] if row.get("name") == "AUTONOMOUS_PORTFOLIO"), {})
+    try:
+        from market_intelligence import load_jobs, schedule_timeline
+        timelines = [schedule_timeline(job, current) for job in load_jobs() if job.enabled]
+        next_rows = [row for row in timelines if row.get("next_planned_utc")]
+        next_run = min((str(row["next_planned_utc"]) for row in next_rows), default="")
+    except Exception as exc:
+        next_run, timelines = "", []
+        schedule_error = f"{type(exc).__name__}: {str(exc)[:300]}"
+    else:
+        schedule_error = ""
+    try:
+        from autonomous_portfolio import TRADES_PATH, _read as _portfolio_read
+        trade_rows = _portfolio_read(TRADES_PATH, [])
+        buys = [row for row in trade_rows if isinstance(row, Mapping) and str(row.get("action") or "").upper() == "BUY"]
+        latest_buy = max((str(row.get("timestamp") or "") for row in buys), default="")
+        buy_business_hours = _business_hours_since(latest_buy, current) if latest_buy else None
+    except Exception:
+        latest_buy, buy_business_hours = "", None
+    previous = durable_read_json(HEALTH_KEY, HEALTH_PATH, {})
+    snapshot = {
+        "status": "STALE" if stale else ("NEVER_RUN" if not latest else "OK"),
+        "checked_at": current.isoformat(timespec="seconds"),
+        "last_cycle_at": created_at, "last_chain_id": latest.get("chain_id"),
+        "last_cycle_status": latest.get("status") or "ALDRI KJØRT",
+        "business_hours_since_cycle": business_hours,
+        "candidates_evaluated": int((market_stage.get("detail") or {}).get("candidates") or 0),
+        "portfolio_decisions": int((portfolio_stage.get("detail") or {}).get("decisions") or 0),
+        "last_buy_at": latest_buy,
+        "business_days_since_last_buy": round(buy_business_hours / 24.0, 1) if buy_business_hours is not None else None,
+        "learning_stage_status": next((row.get("status") for row in latest.get("stages") or [] if row.get("name") == "CONTROLLED_LEARNING"), "ALDRI KJØRT"),
+        "next_scheduled_cycle_at": next_run, "schedule_error": schedule_error,
+        "warning": "Ingen full autonomisyklus på over 24 børsdagstimer." if stale else "",
+    }
+    fingerprint = f"{snapshot['status']}|{current.date().isoformat()}"
+    if notify and stale and fingerprint != str(previous.get("notification_fingerprint") or ""):
+        try:
+            from notifier import send_pushover_alert
+            ok, detail = send_pushover_alert(
+                f"Siste fullførte syklus: {created_at or 'aldri'}\nNeste planlagte: {next_run or 'ukjent'}\nKontroller obligatoriske 08/14/22-rapporter.",
+                title="Autonomi har ikke kjørt på over 24 børsdagstimer",
+            )
+            snapshot["notification"] = {"attempted": True, "sent": bool(ok), "detail": str(detail or "")[:500]}
+            if ok:
+                snapshot["notification_fingerprint"] = fingerprint
+        except Exception as exc:
+            snapshot["notification"] = {"attempted": True, "sent": False, "detail": f"{type(exc).__name__}: {str(exc)[:420]}"}
+    else:
+        snapshot["notification"] = dict(previous.get("notification") or {})
+        snapshot["notification_fingerprint"] = str(previous.get("notification_fingerprint") or "")
+    durable_write_json(HEALTH_KEY, HEALTH_PATH, snapshot)
+    return snapshot

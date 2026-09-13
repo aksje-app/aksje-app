@@ -204,7 +204,7 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
                                       relative_strength_delta=_f(candidate.get("relative_strength_delta")) if candidate.get("relative_strength_delta") is not None else None,
                                       transaction_cost_pct=_f(portfolio.get("transaction_cost_pct"), 0.2),
                                       policy=active_policy)
-        sideways = exit_decision["reason_code"] in {"CAPITAL_STAGNATION", "CAPITAL_REPLACEMENT", "OPPORTUNITY_COST"}
+        sideways = exit_decision["reason_code"] in {"CAPITAL_STAGNATION", "CAPITAL_REPLACEMENT", "OPPORTUNITY_COST", "OPPORTUNITY_COST_CASH_EXIT"}
         weakened = bool(entry_score and score_change <= -active_policy.score_drop_review_points)
         label = {
             "SELL": "SELG",
@@ -212,7 +212,7 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "REPLACE_REVIEW": "VURDER UTSKIFTING",
             "CASH_REVIEW": "VURDER SALG TIL KONTANTER",
             "REVIEW": "KAPITALEFFEKTIVITETSVARSEL",
-        }.get(exit_decision["action"], "BEHOLD")
+        }.get(exit_decision["action"], "SELG TIL KONTANTER" if exit_decision["reason_code"] == "OPPORTUNITY_COST_CASH_EXIT" else "BEHOLD")
         evidence_row = _with_canonical_evidence(position, candidate)
         short_snapshot = normalize_short_snapshot(evidence_row)
         insider_snapshot = dict(evidence_row.get("insider_intelligence") or {})

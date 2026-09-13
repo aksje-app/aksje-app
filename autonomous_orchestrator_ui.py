@@ -8,7 +8,7 @@ from typing import Any
 
 import streamlit as st
 
-from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_audit, load_latest_chain
+from autonomous_orchestrator import AUDIT_PATH, LATEST_PATH, ROOT, RUNS_DIR, load_audit, load_latest_chain, operational_health_snapshot
 from market_intelligence import _load_report_archive, load_draft_job, load_jobs, normalize_markets, render_market_intelligence
 from manual_job_background import get_active_status, is_running, request_cancel, start_manual_job
 from services.storage_service import get_storage_service
@@ -202,6 +202,19 @@ def render_autonomous_orchestrator_control_center() -> None:
     c3.metric("Lagrede kjøringer", len(_load_report_archive()))
     latest = load_latest_chain()
     c4.metric("Siste kjedestatus", latest.get("status") or "ALDRI KJØRT")
+    health = operational_health_snapshot(notify=False)
+    h1, h2, h3, h4 = st.columns(4)
+    h1.metric("Autonomihelse", health.get("status") or "UKJENT")
+    h2.metric("Sist vurderte kandidater", int(health.get("candidates_evaluated") or 0))
+    h3.metric("Siste porteføljebeslutninger", int(health.get("portfolio_decisions") or 0))
+    h4.metric("Neste kjøring", local_display(health.get("next_scheduled_cycle_at"), "Europe/Oslo") if health.get("next_scheduled_cycle_at") else "Ukjent")
+    st.caption(
+        f"Siste kjøp: {local_display(health.get('last_buy_at'), 'Europe/Oslo') if health.get('last_buy_at') else 'ingen registrert'} · "
+        f"børsdager siden kjøp: {health.get('business_days_since_last_buy') if health.get('business_days_since_last_buy') is not None else '-'} · "
+        f"kontrollert læring: {health.get('learning_stage_status') or 'UKJENT'}"
+    )
+    if health.get("warning"):
+        st.error(str(health["warning"]))
 
     st.markdown("### ▶ Test eller kjør hele kjeden")
     draft = load_draft_job()

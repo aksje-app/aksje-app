@@ -520,6 +520,14 @@ def _run_once_locked() -> dict[str, Any]:
 
     _mem("scheduler:after_learning")
 
+    # Independent operational guard: report scheduling can succeed with zero
+    # due jobs, so explicitly detect a stale autonomous portfolio cycle.
+    try:
+        from autonomous_orchestrator import operational_health_snapshot
+        state["autonomy_operational_health"] = dict(operational_health_snapshot(notify=True) or {})
+    except Exception as exc:
+        state["autonomy_operational_health"] = {"status": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+
     # Repair delivery artifacts, but never let this maintenance step block the
     # actual schedule check.
     if _maintenance_due(previous, "report_repair", default_minutes=360):
@@ -617,6 +625,9 @@ def main() -> int:
         "currency_alerts": (state.get("currency_alerts") or {}).get("state"),
         "retired_module_cleanup": (state.get("retired_module_cleanup") or {}).get("state"),
         "learning_observations": (state.get("learning_observation_maintenance") or {}).get("status"),
+        "weekly_learning_report": (state.get("learning_observation_maintenance") or {}).get("weekly", {}).get("status"),
+        "weekly_learning_notification": (state.get("learning_observation_maintenance") or {}).get("weekly", {}).get("notification", {}).get("sent"),
+        "autonomy_health": (state.get("autonomy_operational_health") or {}).get("status"),
         "report_repair": (state.get("report_repair") or {}).get("state"),
         "report_revalidation": (state.get("report_revalidation") or {}).get("state"),
         "fresh_trend_monitor": (state.get("fresh_trend_monitor") or {}).get("state"),
