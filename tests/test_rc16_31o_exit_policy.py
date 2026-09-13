@@ -34,12 +34,12 @@ def test_score_exit_and_falling_rsi_are_distinct_exits():
     assert rsi["reason_code"] == "RSI_EXIT"
 
 
-def test_stagnation_only_becomes_replacement_with_named_superior_candidate():
+def test_stagnation_goes_to_cash_or_named_superior_replacement():
     review = evaluate_exit(entry_price=100, current_price=100.5, highest_price=102, entry_score=78, current_score=70,
                            holding_days=25, best_replacement_score=74)
     replace = evaluate_exit(entry_price=100, current_price=100.5, highest_price=102, entry_score=78, current_score=69,
-                            holding_days=25, best_replacement_score=76)
-    assert review["reason_code"] == "CAPITAL_STAGNATION"
+                            holding_days=25, best_replacement_score=76, replacement_ticker="NEW")
+    assert review["reason_code"] == "OPPORTUNITY_COST_CASH_EXIT"
     assert replace["reason_code"] == "CAPITAL_REPLACEMENT"
 
 
@@ -55,7 +55,7 @@ def test_long_flat_position_with_clearly_improving_score_is_protected():
     result = evaluate_exit(entry_price=100, current_price=100.7, highest_price=102,
                            entry_score=70, current_score=74, holding_days=31)
     assert result["action"] == "REVIEW"
-    assert result["reason_code"] == "CAPITAL_STAGNATION"
+    assert result["reason_code"] == "FLAT_POSITION_PROTECTED"
 
 
 def test_report_names_the_replacement_and_exposes_active_policy():
