@@ -1,4 +1,4 @@
-"""Super Portfolio intelligence v19.22.0 RC16.32c.
+"""Super Portfolio intelligence v19.22.0 RC16.32f.
 
 Isolated theoretical portfolio layer. Reuses completed Investment Pipeline data,
 never submits real orders and never changes the authoritative Autonomy chain.
@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 
-VERSION = "v19.22.0-rc16.32e"
+VERSION = "v19.22.0-rc16.32f"
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
 AUDIT_KEY = "super_portfolio/audit.jsonl"
@@ -282,8 +282,14 @@ class SuperPortfolioConfig:
     benchmark_ticker: str = "^STOXX"
     benchmark_label: str = "STOXX Europe 600"
     market_scopes: tuple[str, ...] = ("Norge", "Sverige", "Danmark", "Finland", "USA")
-    market_scan_limit_per_market: int = 25
-    market_candidates_per_market: int = 12
+    # RC16.32f: broad-first funnel. Stage 1 must see the full available
+    # investable universe before any shortlist is formed.
+    market_universe_limit_per_market: int = 500
+    # Deprecated RC16.32e constructor compatibility only; broad discovery no longer uses this cap.
+    market_scan_limit_per_market: int | None = None
+    market_coarse_shortlist_per_market: int = 100
+    market_deep_analysis_per_market: int = 50
+    market_candidates_per_market: int = 15
     market_refresh_hours: float = 12.0
 
 
@@ -351,6 +357,109 @@ def _market_pipeline_is_fresh(payload: Mapping[str, Any], cfg: "SuperPortfolioCo
         return False
 
 
+def _coarse_market_snapshot(tickers: Sequence[str], market: str) -> dict[str, dict[str, float]]:
+    """Return low-cost market metrics for the complete discovery universe.
+
+    The coarse pass intentionally uses batched close-price history only.  It is
+    much cheaper than full candidate enrichment and lets every symbol compete
+    before the expensive deep-analysis shortlist is formed.
+    """
+    clean = [str(t or "").strip().upper() for t in tickers if str(t or "").strip()]
+    if not clean:
+        return {}
+    try:
+        from learning_observation_engine import yfinance_series_loader
+        start = (_now_dt().date() - timedelta(days=230)).isoformat()
+        series_map = yfinance_series_loader(clean, start)
+    except Exception:
+        return {}
+
+    out: dict[str, dict[str, float]] = {}
+    for ticker in clean:
+        rows = list(series_map.get(ticker) or [])
+        closes = [_f(row.get("close")) for row in rows]
+        closes = [value for value in closes if value > 0]
+        if len(closes) < 22:
+            continue
+
+        def ret(days: int) -> float:
+            if len(closes) <= days or closes[-(days + 1)] <= 0:
+                return 0.0
+            return (closes[-1] / closes[-(days + 1)] - 1.0) * 100.0
+
+        daily: list[float] = []
+        for left, right in zip(closes[:-1], closes[1:]):
+            if left > 0:
+                daily.append(right / left - 1.0)
+        if daily:
+            mean = sum(daily) / len(daily)
+            variance = sum((value - mean) ** 2 for value in daily) / max(1, len(daily) - 1)
+            volatility = sqrt(max(0.0, variance)) * sqrt(252.0) * 100.0
+        else:
+            volatility = 0.0
+        out[ticker] = {
+            "last_price": closes[-1],
+            "return_20d": ret(20),
+            "return_60d": ret(60),
+            "volatility_pct": volatility,
+        }
+    return out
+
+
+def _coarse_rank_market_rows(rows: Sequence[Mapping[str, Any]], market: str, limit: int) -> list[dict[str, Any]]:
+    """Rank the whole available universe using cheap, auditable signals.
+
+    Existing Smart-Universe/fundamental hints are reused when present, while
+    batched price momentum guarantees bare fallback symbols are not excluded
+    merely because they were late in a static ticker list.
+    """
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in rows:
+        row = dict(raw or {})
+        ticker = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        row["ticker"] = ticker
+        unique.append(row)
+    snapshot = _coarse_market_snapshot([row["ticker"] for row in unique], market)
+
+    ranked: list[tuple[float, dict[str, Any]]] = []
+    for row in unique:
+        ticker = row["ticker"]
+        snap = dict(snapshot.get(ticker) or {})
+        r20 = _f(snap.get("return_20d"))
+        r60 = _f(snap.get("return_60d"))
+        vol = max(0.0, _f(snap.get("volatility_pct"), 35.0))
+        technical = max(0.0, min(100.0, 50.0 + 1.00 * r20 + 0.35 * r60 - 0.12 * vol))
+
+        existing = 50.0
+        for key in ("smart_score", "investment_score", "ai_score", "discovery_score", "score"):
+            if row.get(key) is not None:
+                existing = max(0.0, min(100.0, _f(row.get(key), 50.0)))
+                if key == "ai_score" and existing <= 10.0:
+                    existing *= 10.0
+                break
+        fundamental = max(0.0, min(100.0, _f(row.get("fundamental_score"), existing)))
+        quality = max(0.0, min(100.0, _f(row.get("data_quality_score", row.get("data_quality")), 50.0)))
+        risk = max(0.0, min(100.0, _f(row.get("risk_score"), 50.0)))
+        coarse = 0.55 * technical + 0.20 * existing + 0.10 * fundamental + 0.08 * quality + 0.07 * (100.0 - risk)
+
+        enriched = dict(row)
+        enriched.update({key: value for key, value in snap.items() if value is not None})
+        enriched["coarse_score"] = round(coarse, 4)
+        enriched["coarse_score_components"] = {
+            "technical": round(technical, 2), "existing": round(existing, 2),
+            "fundamental": round(fundamental, 2), "quality": round(quality, 2),
+            "risk": round(risk, 2),
+        }
+        ranked.append((coarse, enriched))
+
+    ranked.sort(key=lambda item: (item[0], str(item[1].get("ticker") or "")), reverse=True)
+    return [row for _, row in ranked[: max(1, int(limit))]]
+
+
 def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) -> dict[str, Any]:
     raw = dict(getattr(assessment, "raw", {}) or {})
     source = dict(source_row or {})
@@ -390,19 +499,25 @@ def build_super_portfolio_market_pipeline(
     candidates: list[dict[str, Any]] = []
     market_stats: list[dict[str, Any]] = []
     for market in tuple(config.market_scopes):
+        universe_limit = max(1, min(500, int(config.market_universe_limit_per_market)))
+        coarse_limit = max(1, min(universe_limit, int(config.market_coarse_shortlist_per_market)))
+        deep_limit = max(1, min(coarse_limit, int(config.market_deep_analysis_per_market)))
         pcfg = PipelineConfig(
             market_scope=str(market),
-            scan_limit=max(1, int(config.market_scan_limit_per_market)),
-            deep_analysis_count=max(1, int(config.market_scan_limit_per_market)),
+            scan_limit=universe_limit,
+            deep_analysis_count=deep_limit,
             proposal_count=0,
             evidence_analysis_count=1,
             use_research=False, use_backtest=False, use_portfolio_fit=True,
             use_learning_advisor=True, use_insider_intelligence=False, use_news_intelligence=False,
-            mission_id="SUPER_PORTFOLIO_MULTI_MARKET",
+            mission_id="SUPER_PORTFOLIO_BROAD_DISCOVERY",
             configuration_version=VERSION,
+            full_universe_scan=True,
         ).normalized()
         raw_rows, source_label = _load_candidate_rows_from_app(pcfg)
-        prepared = _prepare_candidate_rows(raw_rows, pcfg, force_refresh=force_refresh)
+        coarse_rows = _coarse_rank_market_rows(raw_rows, str(market), coarse_limit)
+        deep_rows = coarse_rows[:deep_limit]
+        prepared = _prepare_candidate_rows(deep_rows, pcfg, force_refresh=force_refresh)
         scored: list[tuple[float, dict[str, Any]]] = []
         errors = 0
         for row in prepared:
@@ -416,7 +531,15 @@ def build_super_portfolio_market_pipeline(
         scored.sort(key=lambda item: item[0], reverse=True)
         selected = [row for _, row in scored[: max(1, int(config.market_candidates_per_market))]]
         candidates.extend(selected)
-        market_stats.append({"market": market, "loaded": len(raw_rows), "prepared": len(prepared), "selected": len(selected), "errors": errors, "source": source_label})
+        market_stats.append({
+            "market": market,
+            "universe_loaded": len(raw_rows),
+            "coarse_shortlisted": len(coarse_rows),
+            "deep_analyzed": len(prepared),
+            "selected": len(selected),
+            "errors": errors,
+            "source": source_label,
+        })
 
     candidates.sort(key=lambda row: (_f(row.get("investment_score")), -_f(row.get("risk_score"))), reverse=True)
     payload = {
@@ -427,7 +550,12 @@ def build_super_portfolio_market_pipeline(
         "markets": list(config.market_scopes),
         "production_norway_only_ignored": True,
         "candidates": candidates,
-        "summary": {"candidates": len(candidates), "markets": market_stats},
+        "summary": {
+            "candidates": len(candidates),
+            "markets": market_stats,
+            "selection_funnel": "FULL_AVAILABLE_UNIVERSE -> COARSE_SHORTLIST -> DEEP_ANALYSIS -> GLOBAL_TOP",
+            "country_quotas": False,
+        },
     }
     write_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, payload)
     return payload
@@ -976,6 +1104,8 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"scheduler_auto_evaluation", "status":"DONE", "label":"Automatisk Shadow-vurdering på ny Super Portfolio market-feed"},
         {"key":"independent_multimarket_universe", "status":"DONE", "label":"Eget Super Portfolio-univers: Norge, Sverige, Danmark, Finland og USA"},
         {"key":"production_norway_isolation", "status":"DONE", "label":"PRODUCTION_NORWAY_ONLY påvirker ikke Super Portfolio og hovedkjeden forblir isolert"},
+        {"key":"broad_universe_first_pass", "status":"DONE", "label":"Bred første-pass ser hele tilgjengelige univers før shortlist"},
+        {"key":"coarse_to_deep_funnel", "status":"DONE", "label":"Ressurslett grovscore -> shortlist -> dyp analyse -> global Top-10 uten landkvoter"},
         {"key":"automatic_pushover", "status":"DONE", "label":"Automatisk Pushover ved reelle Shadow-endringer og stop-varsler"},
         {"key":"shareable_pdf", "status":"DONE", "label":"Publiserbar PDF med offentlig lenke"},
         {"key":"downloadable_pdf", "status":"DONE", "label":"PDF kan lastes ned direkte"},
