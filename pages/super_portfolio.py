@@ -1,4 +1,4 @@
-"""Streamlit renderer for Super Portfolio RC16.32d."""
+"""Streamlit renderer for Super Portfolio RC16.32g."""
 from __future__ import annotations
 
 
@@ -50,15 +50,45 @@ def render_super_portfolio(_legacy_context) -> None:
             f"🔗 Correlation {float(hc.get('correlation') or 0):.1f}"
         )
 
+    evaluation_running = bool(st.session_state.get("sp_evaluation_running", False))
+    notice = st.session_state.pop("sp_evaluation_notice", None)
+    error_notice = st.session_state.pop("sp_evaluation_error", None)
+    if notice:
+        st.success(notice)
+    if error_notice:
+        st.error(error_notice)
+
     a,b,c = st.columns(3)
-    if a.button("🧠 Vurder porteføljen nå", type="primary", width="stretch"):
-        with st.spinner("Analyserer kandidater, korrelasjon, stop-pressure og challengers..."):
+    evaluate_clicked = a.button(
+        "⏳ Jobber..." if evaluation_running else "🧠 Vurder porteføljen nå",
+        type="primary",
+        width="stretch",
+        disabled=evaluation_running,
+        key="sp_evaluate_portfolio_32g",
+    )
+    if evaluate_clicked and not evaluation_running:
+        st.session_state["sp_evaluation_running"] = True
+        st.session_state["sp_evaluation_requested"] = True
+        st.rerun()
+
+    if evaluation_running and st.session_state.get("sp_evaluation_requested", False):
+        progress = st.progress(5, text="Starter Super Portfolio-vurdering...")
+        try:
+            progress.progress(20, text="Henter kandidat- og markedsgrunnlag...")
+            progress.progress(40, text="Analyserer rangering, risiko og portefølje...")
             result = evaluate(persist=True, rebalance_policy="ANALYZE_ONLY")
-        st.success(
-            f"Vurdering ferdig: {len(result['changes'])} faktisk(e) Shadow-endring(er). "
-            f"Ordinær rebalansering: {'JA' if result.get('rebalance_due') else 'NEI'}."
-        )
-        st.session_state["sp_last_changes"] = result["changes"]
+            progress.progress(85, text="Oppdaterer challengers, stop-pressure og historikk...")
+            st.session_state["sp_last_changes"] = result["changes"]
+            progress.progress(100, text="Ferdig")
+            st.session_state["sp_evaluation_notice"] = (
+                f"Vurdering ferdig: {len(result['changes'])} faktisk(e) Shadow-endring(er). "
+                f"Ordinær rebalansering: {'JA' if result.get('rebalance_due') else 'NEI'}."
+            )
+        except Exception as exc:
+            st.session_state["sp_evaluation_error"] = f"Super Portfolio-vurdering feilet: {exc}"
+        finally:
+            st.session_state["sp_evaluation_running"] = False
+            st.session_state["sp_evaluation_requested"] = False
         st.rerun()
     if b.button("📄 Publiser delbar PDF", width="stretch"):
         report = publish_pdf_report(state)
@@ -135,6 +165,8 @@ def render_super_portfolio(_legacy_context) -> None:
     if st.button("🔄 Oppdater ressursstatus",key="sp_resource_refresh_32d"):
         state["resource_health"]=resource_health(); save_state(state); st.rerun()
 
+    advisory = state.get("ai_would_do_today") or []
+
     if positions:
         rows=[]
         for p in positions:
@@ -152,38 +184,87 @@ def render_super_portfolio(_legacy_context) -> None:
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
-        st.markdown("### 🧠 Hvorfor er aksjene med?")
-        for p in sorted(positions, key=lambda x: int(x.get("rank") or 999)):
-            reasons = p.get("why_here") or []
-            if reasons:
-                st.write(f"**{p.get('ticker')}** · " + " · ".join(str(x) for x in reasons))
+        info_row_1 = st.columns(3)
+        with info_row_1[0]:
+            with st.expander("🧠 Hvorfor er aksjene med?", expanded=False):
+                why_rows=[]
+                for p in sorted(positions, key=lambda x: int(x.get("rank") or 999)):
+                    reasons=p.get("why_here") or []
+                    why_rows.append({
+                        "Aksje":p.get("ticker"),
+                        "AI":round(float(p.get("portfolio_score_adjusted") or p.get("portfolio_score") or 0),1),
+                        "Risiko":round(float(p.get("risk_score") or 0),0),
+                        "Rank":f"#{p.get('rank','-')} {p.get('rank_arrow','→')}",
+                        "Forklaring":" · ".join(str(x) for x in reasons),
+                    })
+                st.dataframe(pd.DataFrame(why_rows), width="stretch", hide_index=True, height=280)
 
-        st.markdown("### 🕒 Data Freshness")
-        for p in sorted(positions,key=lambda x: float((x.get("data_freshness") or {}).get("age_hours") or 9999)):
-            fr=p.get("data_freshness") or {}
-            st.write(f"{fr.get('icon','⚪')} **{p.get('ticker')}** · {fr.get('status','-')} · alder {fr.get('age_hours','-')} timer")
+        with info_row_1[1]:
+            with st.expander("🕒 Data Freshness", expanded=False):
+                freshness_rows=[]
+                for p in sorted(positions,key=lambda x: float((x.get("data_freshness") or {}).get("age_hours") or 9999)):
+                    fr=p.get("data_freshness") or {}
+                    freshness_rows.append({
+                        "Aksje":p.get("ticker"),
+                        "Status":f"{fr.get('icon','⚪')} {fr.get('status','-')}",
+                        "Alder t":fr.get("age_hours","-"),
+                    })
+                st.dataframe(pd.DataFrame(freshness_rows), width="stretch", hide_index=True, height=280)
 
-        st.markdown("### 📅 Event Risk")
-        upcoming=[p for p in positions if (p.get("event_risk") or {}).get("status")=="UPCOMING"]
-        if upcoming:
-            for p in sorted(upcoming,key=lambda x: int((x.get("event_risk") or {}).get("days_until") or 9999)):
-                ev=p.get("event_risk") or {}
-                st.write(f"{ev.get('icon','⚪')} **{p.get('ticker')}** · {ev.get('date','-')} · {ev.get('days_until','-')} dager")
-        else:
-            st.caption("Ingen nærstående selskapsbegivenheter i tilgjengelige kandidatdata.")
+        with info_row_1[2]:
+            with st.expander("📅 Event Risk", expanded=False):
+                event_rows=[]
+                upcoming=[p for p in positions if (p.get("event_risk") or {}).get("status")=="UPCOMING"]
+                for p in sorted(upcoming,key=lambda x: int((x.get("event_risk") or {}).get("days_until") or 9999)):
+                    ev=p.get("event_risk") or {}
+                    event_rows.append({
+                        "Aksje":p.get("ticker"),
+                        "Dato":ev.get("date","-"),
+                        "Dager":ev.get("days_until","-"),
+                        "Status":f"{ev.get('icon','⚪')} {ev.get('status','-')}",
+                    })
+                if event_rows:
+                    st.dataframe(pd.DataFrame(event_rows), width="stretch", hide_index=True, height=280)
+                else:
+                    st.caption("Ingen nærstående selskapsbegivenheter i tilgjengelige kandidatdata.")
 
-        st.markdown("### 🛡️ Stop Pressure")
-        for p in sorted(positions,key=lambda x: float(x.get("distance_to_hard_stop_pct") or 999)):
-            st.write(
-                f"{p.get('stop_pressure_icon','')} **{p.get('ticker')}** · {p.get('stop_pressure','LOW')} {p.get('stop_direction_arrow','→')} · "
-                f"{float(p.get('distance_to_hard_stop_pct') or 0):.2f}% til hard stop · "
-                f"hard stop {float(p.get('hard_stop_drawdown_pct') or 0):.1f}% fra topp · "
-                f"Δ avstand {float(p.get('stop_distance_change_pct') or 0):+.2f} pp · P/L {float(p.get('pnl_pct') or 0):+.2f}%"
-            )
+        info_row_2 = st.columns(3)
+        with info_row_2[0]:
+            with st.expander("🛡️ Stop Pressure", expanded=False):
+                stop_rows=[]
+                for p in sorted(positions,key=lambda x: float(x.get("distance_to_hard_stop_pct") or 999)):
+                    stop_rows.append({
+                        "Aksje":p.get("ticker"),
+                        "Press":f"{p.get('stop_pressure_icon','')} {p.get('stop_pressure','LOW')} {p.get('stop_direction_arrow','→')}",
+                        "Til stop %":round(float(p.get("distance_to_hard_stop_pct") or 0),2),
+                        "P/L %":round(float(p.get("pnl_pct") or 0),2),
+                    })
+                st.dataframe(pd.DataFrame(stop_rows), width="stretch", hide_index=True, height=280)
 
-        movers = sorted(positions, key=lambda p: float(p.get("rank_velocity") or 0), reverse=True)
-        st.markdown("### 🚀 Ranking Velocity")
-        st.write(" · ".join(f"**{p.get('ticker')}** #{p.get('rank','-')} {p.get('rank_arrow','→')} ({float(p.get('rank_change') or 0):+g})" for p in movers[:8]))
+        with info_row_2[1]:
+            with st.expander("🚀 Ranking Velocity", expanded=False):
+                movers=sorted(positions, key=lambda p: float(p.get("rank_velocity") or 0), reverse=True)
+                velocity_rows=[{
+                    "Aksje":p.get("ticker"),
+                    "Rank":f"#{p.get('rank','-')} {p.get('rank_arrow','→')}",
+                    "Δ rank":float(p.get("rank_change") or 0),
+                } for p in movers[:12]]
+                st.dataframe(pd.DataFrame(velocity_rows), width="stretch", hide_index=True, height=280)
+
+        with info_row_2[2]:
+            with st.expander("💭 AI WOULD DO TODAY", expanded=False):
+                st.caption("Kun rådgivende Shadow-visning. Ingen ordinær handel utføres her.")
+                icons={"BUY":"🟢","ADD":"🔵","REDUCE":"🟠","SELL":"🔴"}
+                advisory_rows=[{
+                    "Handling":f"{icons.get(action.get('action'),'•')} {action.get('action')}",
+                    "Aksje":action.get("ticker"),
+                    "Fra %":round(float(action.get("from_pct") or 0),1),
+                    "Til %":round(float(action.get("to_pct") or 0),1),
+                } for action in advisory]
+                if advisory_rows:
+                    st.dataframe(pd.DataFrame(advisory_rows), width="stretch", hide_index=True, height=280)
+                else:
+                    st.caption("Ingen foreslåtte endringer akkurat nå.")
 
         with st.expander("👤 Manuell exit", expanded=False):
             ticker=st.selectbox("Aksje", [p.get("ticker") for p in positions], key="sp_manual_exit_ticker")
@@ -203,16 +284,6 @@ def render_super_portfolio(_legacy_context) -> None:
     if manual_shadow:
         with st.expander("👤 Manuelle exits som fortsatt følges i Shadow", expanded=False):
             st.dataframe(pd.DataFrame(manual_shadow), width="stretch", hide_index=True)
-
-    st.markdown("### 💭 AI WOULD DO TODAY")
-    st.caption("Kun rådgivende Shadow-visning – utfører ingen ordinær handel eller rebalansering før planlagt rebalanseringsdag. Hard stop kan likevel utløses umiddelbart.")
-    advisory = state.get("ai_would_do_today") or []
-    if advisory:
-        icons={"BUY":"🟢","ADD":"🔵","REDUCE":"🟠","SELL":"🔴"}
-        for action in advisory:
-            st.write(f"{icons.get(action.get('action'),'•')} **{action.get('action')} {action.get('ticker')}** · {float(action.get('from_pct') or 0):.1f}% → {float(action.get('to_pct') or 0):.1f}%")
-    else:
-        st.caption("Ingen foreslåtte endringer akkurat nå.")
 
     challengers=state.get("challengers") or []
     st.markdown("### ⚔️ Challengers")
