@@ -1,4 +1,4 @@
-"""Streamlit renderer for Super Portfolio RC16.32g."""
+"""Streamlit renderer for Super Portfolio RC16.32h."""
 from __future__ import annotations
 
 
@@ -8,7 +8,9 @@ def render_super_portfolio(_legacy_context) -> None:
     import pandas as pd
     from super_portfolio import (
         build_pdf,
+        build_diagnostic_zip,
         evaluate,
+        get_or_build_super_portfolio_market_pipeline,
         load_state,
         manual_exit,
         master_checklist,
@@ -72,17 +74,25 @@ def render_super_portfolio(_legacy_context) -> None:
         st.rerun()
 
     if evaluation_running and st.session_state.get("sp_evaluation_requested", False):
-        progress = st.progress(5, text="Starter Super Portfolio-vurdering...")
+        progress = st.progress(1, text="Starter fersk Super Portfolio-markedsskanning...")
         try:
-            progress.progress(20, text="Henter kandidat- og markedsgrunnlag...")
-            progress.progress(40, text="Analyserer rangering, risiko og portefølje...")
-            result = evaluate(persist=True, rebalance_policy="ANALYZE_ONLY")
-            progress.progress(85, text="Oppdaterer challengers, stop-pressure og historikk...")
+            def _progress_event(event):
+                pct = int(event.get("percent") or 0)
+                message = str(event.get("message") or event.get("stage") or "Jobber...")
+                progress.progress(max(1, min(92, pct)), text=message)
+
+            pipeline = get_or_build_super_portfolio_market_pipeline(force_refresh=True, progress_callback=_progress_event)
+            progress.progress(94, text="Bygger global rangering, target-portefølje og beslutningsspor...")
+            result = evaluate(pipeline=pipeline, persist=True, rebalance_policy="ANALYZE_ONLY")
+            progress.progress(98, text="Oppdaterer challengers, stop-pressure og diagnostikk...")
             st.session_state["sp_last_changes"] = result["changes"]
+            summary = dict((pipeline.get("summary") or {}))
+            market_rows = list(summary.get("markets") or [])
+            scan_text = " · ".join(f"{r.get('market')}: {r.get('universe_loaded',0)} lastet/{r.get('deep_analyzed',0)} dyp" for r in market_rows)
             progress.progress(100, text="Ferdig")
             st.session_state["sp_evaluation_notice"] = (
-                f"Vurdering ferdig: {len(result['changes'])} faktisk(e) Shadow-endring(er). "
-                f"Ordinær rebalansering: {'JA' if result.get('rebalance_due') else 'NEI'}."
+                f"Fersk markedsskanning ferdig. {scan_text}. "
+                f"{len(result['changes'])} faktisk(e) Shadow-endring(er); ordinær rebalansering: {'JA' if result.get('rebalance_due') else 'NEI'}."
             )
         except Exception as exc:
             st.session_state["sp_evaluation_error"] = f"Super Portfolio-vurdering feilet: {exc}"
@@ -284,6 +294,49 @@ def render_super_portfolio(_legacy_context) -> None:
     if manual_shadow:
         with st.expander("👤 Manuelle exits som fortsatt følges i Shadow", expanded=False):
             st.dataframe(pd.DataFrame(manual_shadow), width="stretch", hide_index=True)
+
+    st.markdown("### 🔎 Decision Trace / diagnose")
+    trace = dict(state.get("decision_trace") or {})
+    trace_rows = dict(trace.get("by_ticker") or {})
+    diagnostic_tickers = sorted(trace_rows)
+    if diagnostic_tickers:
+        diag_ticker = st.selectbox("Aksje for diagnose", diagnostic_tickers, key="sp_diagnostic_ticker_32h")
+        dc1, dc2 = st.columns(2)
+        if dc1.button("🔎 Diagnostiser valgt aksje", width="stretch", key="sp_run_diagnostic_32h"):
+            st.session_state["sp_diagnostic_selected_32h"] = diag_ticker
+        selected_diag = str(st.session_state.get("sp_diagnostic_selected_32h") or diag_ticker)
+        diag_row = dict(trace_rows.get(selected_diag) or {})
+        if diag_row:
+            alert_text = ", ".join(diag_row.get("alerts") or []) or "Ingen"
+            if "INCONSISTENT_DECISION" in (diag_row.get("alerts") or []):
+                st.error(f"🔴 INCONSISTENT DECISION: {selected_diag} · {diag_row.get('exclusion_reason') or '-'}")
+            elif diag_row.get("snapshot_mismatch"):
+                st.warning(f"🟠 Snapshot mismatch: {selected_diag}")
+            st.dataframe(pd.DataFrame([{
+                "Aksje": selected_diag,
+                "Posisjon run": diag_row.get("position_source_run_id"),
+                "Beslutning run": diag_row.get("decision_run_id"),
+                "I pipeline": diag_row.get("in_current_pipeline"),
+                "Eligible": diag_row.get("eligible"),
+                "Rank": diag_row.get("rank"),
+                "Score": diag_row.get("score"),
+                "Target": diag_row.get("target_selected"),
+                "Målvekt %": diag_row.get("target_weight_pct"),
+                "Handling": diag_row.get("action"),
+                "Eksklusjonsårsak": diag_row.get("exclusion_reason"),
+                "Varsler": alert_text,
+            }]), width="stretch", hide_index=True)
+        diagnostic_bytes = build_diagnostic_zip(state, ticker=diag_ticker)
+        dc2.download_button(
+            "📦 Last ned diagnose-ZIP",
+            data=diagnostic_bytes,
+            file_name=f"SuperPortfolio_Diagnose_{diag_ticker.replace('.', '_')}.zip",
+            mime="application/zip",
+            width="stretch",
+            key="sp_download_diagnostic_32h",
+        )
+    else:
+        st.caption("Diagnose blir tilgjengelig etter neste Super Portfolio-vurdering.")
 
     challengers=state.get("challengers") or []
     st.markdown("### ⚔️ Challengers")
