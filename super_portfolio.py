@@ -14,13 +14,15 @@ from typing import Any, Mapping, Sequence
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 
-VERSION = "v19.22.0-rc16.32d"
+VERSION = "v19.22.0-rc16.32e"
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
 AUDIT_KEY = "super_portfolio/audit.jsonl"
 AUDIT_PATH = runtime_log_path("super_portfolio_audit.jsonl")
 LATEST_PIPELINE_KEY = "investment_pipeline/latest_run.json"
 LATEST_PIPELINE_PATH = runtime_data_path("investment_pipeline", "latest_run.json")
+MARKET_PIPELINE_KEY = "super_portfolio/market_pipeline.json"
+MARKET_PIPELINE_PATH = runtime_data_path("super_portfolio", "market_pipeline.json")
 
 _RETURN_KEYS = (
     "return_1d", "return_3d", "return_5d", "return_10d", "return_20d",
@@ -279,6 +281,10 @@ class SuperPortfolioConfig:
     base_currency: str = "NOK"
     benchmark_ticker: str = "^STOXX"
     benchmark_label: str = "STOXX Europe 600"
+    market_scopes: tuple[str, ...] = ("Norge", "Sverige", "Danmark", "Finland", "USA")
+    market_scan_limit_per_market: int = 25
+    market_candidates_per_market: int = 12
+    market_refresh_hours: float = 12.0
 
 
 def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
@@ -324,6 +330,118 @@ def save_state(state: Mapping[str, Any]) -> dict[str, Any]:
 def load_latest_pipeline() -> dict[str, Any]:
     value = read_json(LATEST_PIPELINE_KEY, LATEST_PIPELINE_PATH, {})
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def load_latest_super_portfolio_market_pipeline() -> dict[str, Any]:
+    value = read_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, {})
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _market_pipeline_is_fresh(payload: Mapping[str, Any], cfg: "SuperPortfolioConfig", now: datetime) -> bool:
+    created = str(payload.get("created_at") or "")
+    if not created or not payload.get("candidates"):
+        return False
+    try:
+        observed = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        ref = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        return (ref - observed).total_seconds() < max(1.0, float(cfg.market_refresh_hours)) * 3600.0
+    except Exception:
+        return False
+
+
+def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) -> dict[str, Any]:
+    raw = dict(getattr(assessment, "raw", {}) or {})
+    source = dict(source_row or {})
+    keep = {
+        "last_price", "price", "price_timestamp", "data_timestamp", "updated_at", "captured_at", "timestamp",
+        "volatility_pct", "annual_volatility", "volatility", "currency", "earnings_date", "next_earnings_date",
+        "report_date", "next_report_date", "event_date", "return_1d", "return_3d", "return_5d", "return_10d",
+        "return_20d", "return_60d", "return_1m", "return_3m",
+    }
+    compact_raw = {key: raw.get(key, source.get(key)) for key in keep if raw.get(key, source.get(key)) is not None}
+    return {
+        "ticker": str(getattr(assessment, "ticker", source.get("ticker") or "")).upper(),
+        "market": str(getattr(assessment, "market", source.get("market") or "")),
+        "sector": str(getattr(assessment, "sector", source.get("sector") or source.get("industry") or "Ukjent")),
+        "investment_score": _f(getattr(assessment, "investment_score", 0.0)),
+        "risk_score": _f(getattr(assessment, "risk_score", 50.0), 50.0),
+        "data_quality_score": _f(getattr(assessment, "data_quality", 50.0), 50.0),
+        "price": _f(compact_raw.get("last_price"), _f(compact_raw.get("price"))),
+        "raw": compact_raw,
+        "source": "Super Portfolio independent market universe",
+    }
+
+
+def build_super_portfolio_market_pipeline(
+    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None, force_refresh: bool = False
+) -> dict[str, Any]:
+    """Build a bounded Norden+USA candidate feed independent of production Norway-only policy.
+
+    This deliberately does not mutate Investment Pipeline's canonical latest_run.json.
+    It uses the same local market enrichment and scoring primitives with expensive
+    evidence modules disabled, then stores only a compact candidate payload.
+    """
+    config = cfg or SuperPortfolioConfig()
+    now_dt = now or _now_dt()
+    from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, _prepare_candidate_rows, score_candidate
+
+    candidates: list[dict[str, Any]] = []
+    market_stats: list[dict[str, Any]] = []
+    for market in tuple(config.market_scopes):
+        pcfg = PipelineConfig(
+            market_scope=str(market),
+            scan_limit=max(1, int(config.market_scan_limit_per_market)),
+            deep_analysis_count=max(1, int(config.market_scan_limit_per_market)),
+            proposal_count=0,
+            evidence_analysis_count=1,
+            use_research=False, use_backtest=False, use_portfolio_fit=True,
+            use_learning_advisor=True, use_insider_intelligence=False, use_news_intelligence=False,
+            mission_id="SUPER_PORTFOLIO_MULTI_MARKET",
+            configuration_version=VERSION,
+        ).normalized()
+        raw_rows, source_label = _load_candidate_rows_from_app(pcfg)
+        prepared = _prepare_candidate_rows(raw_rows, pcfg, force_refresh=force_refresh)
+        scored: list[tuple[float, dict[str, Any]]] = []
+        errors = 0
+        for row in prepared:
+            try:
+                assessment = score_candidate(row, pcfg)
+                compact = _compact_market_candidate(assessment, row)
+                if compact["ticker"] and compact["price"] > 0:
+                    scored.append((_f(compact["investment_score"]), compact))
+            except Exception:
+                errors += 1
+        scored.sort(key=lambda item: item[0], reverse=True)
+        selected = [row for _, row in scored[: max(1, int(config.market_candidates_per_market))]]
+        candidates.extend(selected)
+        market_stats.append({"market": market, "loaded": len(raw_rows), "prepared": len(prepared), "selected": len(selected), "errors": errors, "source": source_label})
+
+    candidates.sort(key=lambda row: (_f(row.get("investment_score")), -_f(row.get("risk_score"))), reverse=True)
+    payload = {
+        "version": VERSION,
+        "run_id": f"SPM-{now_dt.strftime('%Y%m%d-%H%M%S')}",
+        "created_at": now_dt.isoformat(timespec="seconds"),
+        "market_scope": "Norden + USA",
+        "markets": list(config.market_scopes),
+        "production_norway_only_ignored": True,
+        "candidates": candidates,
+        "summary": {"candidates": len(candidates), "markets": market_stats},
+    }
+    write_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, payload)
+    return payload
+
+
+def get_or_build_super_portfolio_market_pipeline(
+    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None, force_refresh: bool = False
+) -> dict[str, Any]:
+    config = cfg or SuperPortfolioConfig()
+    now_dt = now or _now_dt()
+    cached = load_latest_super_portfolio_market_pipeline()
+    if not force_refresh and _market_pipeline_is_fresh(cached, config, now_dt):
+        return cached
+    return build_super_portfolio_market_pipeline(config, now=now_dt, force_refresh=force_refresh)
 
 
 def _normalized_candidate(source: Mapping[str, Any]) -> dict[str, Any]:
@@ -686,7 +804,7 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
 
 
 def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True, now: datetime | None = None, rebalance_policy: str = "FORCE") -> dict[str, Any]:
-    pipeline = dict(pipeline or load_latest_pipeline())
+    pipeline = dict(pipeline or get_or_build_super_portfolio_market_pipeline())
     state = load_state()
     now_dt = now or _now_dt()
     now_iso = now_dt.isoformat(timespec="seconds")
@@ -855,7 +973,9 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"ai_would_do_today", "status":"DONE", "label":"AI WOULD DO TODAY – rådgivende"},
         {"key":"why_here", "status":"DONE", "label":"Hvorfor aksjen er med / scoreforklaring"},
         {"key":"what_changed", "status":"DONE", "label":"Endringer lagres med reason/reason_code"},
-        {"key":"scheduler_auto_evaluation", "status":"DONE", "label":"Automatisk Shadow-vurdering på ny Investment Pipeline-kjøring"},
+        {"key":"scheduler_auto_evaluation", "status":"DONE", "label":"Automatisk Shadow-vurdering på ny Super Portfolio market-feed"},
+        {"key":"independent_multimarket_universe", "status":"DONE", "label":"Eget Super Portfolio-univers: Norge, Sverige, Danmark, Finland og USA"},
+        {"key":"production_norway_isolation", "status":"DONE", "label":"PRODUCTION_NORWAY_ONLY påvirker ikke Super Portfolio og hovedkjeden forblir isolert"},
         {"key":"automatic_pushover", "status":"DONE", "label":"Automatisk Pushover ved reelle Shadow-endringer og stop-varsler"},
         {"key":"shareable_pdf", "status":"DONE", "label":"Publiserbar PDF med offentlig lenke"},
         {"key":"downloadable_pdf", "status":"DONE", "label":"PDF kan lastes ned direkte"},
@@ -969,13 +1089,16 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
 
 
 def run_scheduled_shadow_cycle() -> dict[str, Any]:
-    """Evaluate only when Investment Pipeline produced a new run.
+    """Evaluate only when the independent Super Portfolio market feed produced a new run.
 
     Normal scheduled runs use AUTO policy: daily analysis/stop surveillance,
     weekly ordinary rebalancing, immediate hard-stop exits.
     """
     state = load_state()
-    pipeline = load_latest_pipeline()
+    config_data = state.get("config") if isinstance(state.get("config"), Mapping) else {}
+    allowed = set(SuperPortfolioConfig.__dataclass_fields__)
+    cfg = SuperPortfolioConfig(**{k: v for k, v in config_data.items() if k in allowed})
+    pipeline = get_or_build_super_portfolio_market_pipeline(cfg=cfg)
     source_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     if not source_id:
         return {"state": "NO_PIPELINE", "source_run_id": ""}
