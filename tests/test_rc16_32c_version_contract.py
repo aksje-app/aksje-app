@@ -1,7 +1,7 @@
 from app_version import APP_BUILD_LABEL, APP_VERSION, APP_VERSION_NAME, PREVIOUS_APP_VERSION, get_app_build_label, get_version_contract
 
 
-def test_current_release_is_canonical_runtime_version():
+def test_rc16_32c_is_canonical_runtime_version():
     assert APP_VERSION == "v19.22.0-rc16.32c"
     assert APP_BUILD_LABEL == APP_VERSION
     assert get_app_build_label() == APP_VERSION
