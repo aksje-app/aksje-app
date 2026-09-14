@@ -1921,6 +1921,71 @@ def render_dashboard2026_kpis_v18631() -> None:
     _dashboard2026_render_kpi_debug_v18645(snap)
 
 
+def render_super_portfolio_front_window_v1932c() -> None:
+    """Compact Super Portfolio status window for the front page.
+
+    This is deliberately a normal dashboard window, not a third market banner.
+    The two established banner surfaces remain the only banners on the front page.
+    """
+    try:
+        from super_portfolio import dashboard_summary, load_state
+        summary = dashboard_summary(load_state())
+    except Exception as exc:
+        st.caption(f"🌍 Super Portfolio-status er midlertidig utilgjengelig: {exc}")
+        return
+
+    def _open_super_portfolio_v1932c() -> None:
+        _apply_nav_target_v18658("autonomy")
+        st.session_state["autonomy_core_workspace_slug_v1882"] = "super_portfolio"
+        st.session_state["autonomy_core_workspace_v1880"] = "🌍 Super Portfolio"
+
+    positions = int(summary.get("positions") or 0)
+    health = dict(summary.get("health") or {})
+    mover = dict(summary.get("fastest_mover") or {})
+    challenger = dict(summary.get("challenger") or {})
+    stop = dict(summary.get("nearest_stop") or {})
+    last_change = dict(summary.get("last_change") or {})
+    advisory = dict(summary.get("advisory") or {})
+
+    with st.container(border=True):
+        top, action = st.columns([5, 1.5])
+        with top:
+            st.markdown("### 🌍 AI Super Portfolio")
+            st.caption("Shadow-portefølje · viktigste utviklinger akkurat nå")
+        with action:
+            st.button(
+                "🌍 Åpne Super Portfolio →",
+                key="front_open_super_portfolio_v1932c",
+                type="primary",
+                width="stretch",
+                on_click=_open_super_portfolio_v1932c,
+            )
+
+        if positions <= 0:
+            st.info("Ingen Super Portfolio er opprettet ennå. Første gyldige Investment Pipeline-kjøring vil bygge startporteføljen i Shadow.")
+            return
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("📈 Siden start", f"{float(summary.get('portfolio_return_pct') or 0):+.2f}%")
+        c2.metric("🧬 Health", f"{health.get('icon','⚪')} {float(health.get('score') or 0):.1f}/100")
+        c3.metric("Posisjoner", positions)
+        c4.metric("Modus", "SHADOW")
+
+        event_lines = []
+        if mover:
+            event_lines.append(f"🚀 **{mover.get('ticker')}** #{mover.get('rank','-')} {mover.get('rank_arrow','→')} (Δ {float(mover.get('rank_change') or 0):+g})")
+        if challenger:
+            event_lines.append(f"⚔️ **{challenger.get('ticker')}** challenger · score {float(challenger.get('portfolio_score_adjusted') or challenger.get('portfolio_score') or 0):.1f} {challenger.get('rank_arrow','→')}")
+        if stop:
+            event_lines.append(f"{stop.get('stop_pressure_icon','🟢')} **{stop.get('ticker')}** {stop.get('stop_pressure','LOW')} {stop.get('stop_direction_arrow','→')} · {float(stop.get('distance_to_hard_stop_pct') or 0):.1f}% til stop")
+        if last_change:
+            event_lines.append(f"🔄 Sist: **{last_change.get('action')} {last_change.get('ticker')}** {float(last_change.get('from_pct') or 0):.1f}% → {float(last_change.get('to_pct') or 0):.1f}%")
+        elif advisory:
+            event_lines.append(f"💭 AI i dag: **{advisory.get('action')} {advisory.get('ticker')}** {float(advisory.get('from_pct') or 0):.1f}% → {float(advisory.get('to_pct') or 0):.1f}%")
+        if event_lines:
+            st.markdown("  \n".join(event_lines[:5]))
+
+
 def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False, include_insider=True):
     """Cache rundt auto_rank_market. V15.8: når Auto-oppdater er AV, skal nye widgetvalg ikke starte tung rangering.
 
@@ -18967,6 +19032,8 @@ try:
     render_live_market_banner()
     render_special_watch_banner_surface_v18620()
     render_banner_main_controls()
+    # RC16.32c: ordinary dashboard window only; do not add a third banner.
+    render_super_portfolio_front_window_v1932c()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
     try:
         _active_panel_for_route_v19220_rc7 = str(_active_control_center_panel_v18598 or "")
