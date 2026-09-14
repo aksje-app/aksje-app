@@ -1,4 +1,4 @@
-"""Super Portfolio intelligence v19.22.0 RC16.32j.
+"""Super Portfolio intelligence v19.22.0 RC16.32k.
 
 Isolated theoretical portfolio layer. Reuses completed Investment Pipeline data,
 never submits real orders and never changes the authoritative Autonomy chain.
@@ -8,15 +8,19 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
+import hashlib
 import json
+import time
 import zipfile
 from math import isfinite, sqrt
 from typing import Any, Mapping, Sequence
 
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
+from super_portfolio_market_data import ScanCancelled
 
-VERSION = "v19.22.0-rc16.32j"
+VERSION = "v19.22.0-rc16.32k"
+# Durable background runtime; this line also invalidates old timestamp caches.
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
 AUDIT_KEY = "super_portfolio/audit.jsonl"
@@ -374,7 +378,10 @@ def _market_pipeline_is_fresh(payload: Mapping[str, Any], cfg: "SuperPortfolioCo
         return False
 
 
-def _coarse_market_snapshot(tickers: Sequence[str], market: str) -> dict[str, dict[str, float]]:
+def _coarse_market_snapshot(
+    tickers: Sequence[str], market: str, *, progress_callback: Any | None = None,
+    control_callback: Any | None = None, provider_health: dict[str, Any] | None = None,
+) -> dict[str, dict[str, float]]:
     """Return low-cost market metrics for the complete discovery universe.
 
     The coarse pass intentionally uses batched close-price history only.  It is
@@ -385,13 +392,20 @@ def _coarse_market_snapshot(tickers: Sequence[str], market: str) -> dict[str, di
     if not clean:
         return {}
     try:
-        from learning_observation_engine import yfinance_series_loader
         start = (_now_dt().date() - timedelta(days=230)).isoformat()
-        series_map: dict[str, Any] = {}
-        batch_size = 250
-        for offset in range(0, len(clean), batch_size):
-            batch = clean[offset: offset + batch_size]
-            series_map.update(yfinance_series_loader(batch, start) or {})
+        if progress_callback is not None or control_callback is not None or provider_health is not None:
+            from super_portfolio_market_data import load_price_series_bounded
+            series_map, health = load_price_series_bounded(
+                clean, start, progress_callback=progress_callback, control_callback=control_callback,
+            )
+            if provider_health is not None:
+                provider_health.update(health)
+        else:
+            from learning_observation_engine import yfinance_series_loader
+            series_map = {}
+            for offset in range(0, len(clean), 250):
+                batch = clean[offset: offset + 250]
+                series_map.update(yfinance_series_loader(batch, start) or {})
     except Exception:
         return {}
 
@@ -427,7 +441,11 @@ def _coarse_market_snapshot(tickers: Sequence[str], market: str) -> dict[str, di
     return out
 
 
-def _coarse_rank_market_rows(rows: Sequence[Mapping[str, Any]], market: str, limit: int) -> list[dict[str, Any]]:
+def _coarse_rank_market_rows(
+    rows: Sequence[Mapping[str, Any]], market: str, limit: int, *,
+    progress_callback: Any | None = None, control_callback: Any | None = None,
+    provider_health: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Rank the whole available universe using cheap, auditable signals.
 
     Existing Smart-Universe/fundamental hints are reused when present, while
@@ -444,7 +462,13 @@ def _coarse_rank_market_rows(rows: Sequence[Mapping[str, Any]], market: str, lim
         seen.add(ticker)
         row["ticker"] = ticker
         unique.append(row)
-    snapshot = _coarse_market_snapshot([row["ticker"] for row in unique], market)
+    if progress_callback is not None or control_callback is not None or provider_health is not None:
+        snapshot = _coarse_market_snapshot(
+            [row["ticker"] for row in unique], market, progress_callback=progress_callback,
+            control_callback=control_callback, provider_health=provider_health,
+        )
+    else:
+        snapshot = _coarse_market_snapshot([row["ticker"] for row in unique], market)
 
     ranked: list[tuple[float, dict[str, Any]]] = []
     for row in unique:
@@ -505,7 +529,10 @@ def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) ->
 
 
 def build_super_portfolio_market_pipeline(
-    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None, force_refresh: bool = False, progress_callback: Any | None = None
+    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None,
+    force_refresh: bool = False, progress_callback: Any | None = None,
+    control_callback: Any | None = None, checkpoint_callback: Any | None = None,
+    job_id: str = "",
 ) -> dict[str, Any]:
     """Build a bounded Norden+USA candidate feed independent of production Norway-only policy.
 
@@ -519,6 +546,7 @@ def build_super_portfolio_market_pipeline(
 
     candidates: list[dict[str, Any]] = []
     market_stats: list[dict[str, Any]] = []
+    provider_health: dict[str, dict[str, Any]] = {}
     markets = tuple(config.market_scopes)
 
     def emit(stage: str, percent: int, **extra: Any) -> None:
@@ -530,9 +558,35 @@ def build_super_portfolio_market_pipeline(
         except Exception:
             pass
 
+    def check_control() -> None:
+        action = str(control_callback() if control_callback else "RUN").upper()
+        if action == "STOP":
+            raise ScanCancelled("SP scan cancelled")
+        while action == "PAUSE":
+            emit("PAUSED", 0, message="Super Portfolio-skanningen er pauset")
+            time.sleep(5)
+            action = str(control_callback() if control_callback else "RUN").upper()
+            if action == "STOP":
+                raise ScanCancelled("SP scan cancelled")
+
+    def save_market_checkpoint(market: str, stats: Mapping[str, Any]) -> None:
+        if not checkpoint_callback:
+            return
+        checkpoint = {
+            "job_id": job_id, "market": market, "created_at": _now(),
+            "stats": dict(stats), "candidate_count": len(candidates),
+            "candidate_tickers": [str(row.get("ticker") or "") for row in candidates],
+        }
+        checkpoint["checksum"] = hashlib.sha256(
+            json.dumps(checkpoint, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        ).hexdigest()
+        checkpoint_callback(checkpoint)
+
+    check_control()
     emit("START", 1, markets=list(markets), message="Starter fersk markedsskanning")
     market_count = max(1, len(markets))
     for market_index, market in enumerate(markets):
+        check_control()
         base_pct = 3 + int((market_index / market_count) * 90)
         span_pct = max(1, int(90 / market_count))
         emit("MARKET_START", base_pct, market=market, message=f"{market}: laster investerbart univers")
@@ -554,6 +608,7 @@ def build_super_portfolio_market_pipeline(
             configuration_version=VERSION,
             full_universe_scan=True,
         ).normalized()
+        check_control()
         raw_rows, source_label = _load_candidate_rows_from_app(pcfg)
         if str(market) == "USA" and bool(config.us_broad_universe_enabled):
             try:
@@ -569,7 +624,17 @@ def build_super_portfolio_market_pipeline(
             except Exception:
                 pass
         emit("UNIVERSE_LOADED", base_pct + max(1, span_pct // 5), market=market, count=len(raw_rows), message=f"{market}: {len(raw_rows)} aksjer lastet")
-        coarse_rows = _coarse_rank_market_rows(raw_rows, str(market), coarse_limit)
+        health: dict[str, Any] = {}
+        def coarse_progress(event: Mapping[str, Any]) -> None:
+            completed = int(event.get("completed") or 0)
+            total = max(1, int(event.get("total") or 1))
+            pct = base_pct + max(1, int(span_pct * (0.20 + 0.20 * completed / total)))
+            emit("COARSE_PRICE", pct, market=market, **dict(event))
+        coarse_rows = _coarse_rank_market_rows(
+            raw_rows, str(market), coarse_limit, progress_callback=coarse_progress,
+            control_callback=control_callback, provider_health=health,
+        )
+        provider_health[str(market)] = health
         emit("COARSE_COMPLETE", base_pct + max(2, (span_pct * 2) // 5), market=market, count=len(coarse_rows), message=f"{market}: grovscan ferdig ({len(coarse_rows)})")
         deep_rows = coarse_rows[:deep_limit]
 
@@ -583,6 +648,7 @@ def build_super_portfolio_market_pipeline(
         scored: list[tuple[float, dict[str, Any]]] = []
         errors = 0
         for row in prepared:
+            check_control()
             try:
                 assessment = score_candidate(row, pcfg)
                 compact = _compact_market_candidate(assessment, row)
@@ -593,7 +659,7 @@ def build_super_portfolio_market_pipeline(
         scored.sort(key=lambda item: item[0], reverse=True)
         selected = [row for _, row in scored[: max(1, int(config.market_candidates_per_market))]]
         candidates.extend(selected)
-        market_stats.append({
+        market_stat = {
             "market": market,
             "universe_loaded": len(raw_rows),
             "coarse_shortlisted": len(coarse_rows),
@@ -601,18 +667,24 @@ def build_super_portfolio_market_pipeline(
             "selected": len(selected),
             "errors": errors,
             "source": source_label,
-        })
+        }
+        market_stats.append(market_stat)
+        save_market_checkpoint(str(market), market_stat)
         emit("MARKET_COMPLETE", base_pct + span_pct, market=market, selected=len(selected), errors=errors, message=f"{market}: ferdig, {len(selected)} finalister")
 
     candidates.sort(key=lambda row: (_f(row.get("investment_score")), -_f(row.get("risk_score"))), reverse=True)
-    payload = {
+    check_control()
+    payload: dict[str, Any] = {
         "version": VERSION,
         "run_id": f"SPM-{now_dt.strftime('%Y%m%d-%H%M%S')}",
+        "job_id": job_id,
         "created_at": now_dt.isoformat(timespec="seconds"),
         "market_scope": "Norden + USA",
         "markets": list(config.market_scopes),
         "production_norway_only_ignored": True,
         "candidates": candidates,
+        "provider_health": provider_health,
+        "degraded_markets": [name for name, health in provider_health.items() if health.get("failed_batches") or health.get("circuit_open")],
         "summary": {
             "candidates": len(candidates),
             "markets": market_stats,
@@ -620,8 +692,23 @@ def build_super_portfolio_market_pipeline(
             "country_quotas": False,
         },
     }
+    payload["outcome"] = "DEGRADED" if payload["degraded_markets"] else "COMPLETED"
+    checksum_body = dict(payload)
+    payload["payload_checksum"] = hashlib.sha256(
+        json.dumps(checksum_body, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
     write_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, payload)
-    emit("COMPLETE", 100, candidates=len(candidates), market_stats=market_stats, message=f"Markedsskanning ferdig: {len(candidates)} finalister")
+    if job_id:
+        stored = load_latest_super_portfolio_market_pipeline()
+        stored_checksum = str(stored.get("payload_checksum") or "")
+        verified = bool(stored.get("run_id") == payload["run_id"] and stored.get("job_id") == job_id and len(stored.get("candidates") or []) == len(candidates) and stored_checksum == payload["payload_checksum"])
+        payload["verification"] = {"ok": verified, "verified_at": _now(), "stored_checksum": stored_checksum}
+        write_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, payload)
+        if not verified:
+            raise RuntimeError("SP pipeline sluttverifisering feilet")
+        emit("VERIFIED", 100, candidates=len(candidates), market_stats=market_stats, message=f"Markedsskanning verifisert: {len(candidates)} finalister")
+    else:
+        emit("COMPLETE", 100, candidates=len(candidates), market_stats=market_stats, message=f"Markedsskanning ferdig: {len(candidates)} finalister")
     return payload
 
 
@@ -1772,7 +1859,7 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"event_risk", "status":"DONE", "label":"Event Risk for kommende resultat-/rapportdato når data finnes"},
         {"key":"decision_confidence", "status":"DONE", "label":"Decision Confidence basert på kvalitet, ferskhet, regime og signalenighet"},
         {"key":"horizontal_info_layout", "status":"DONE", "label":"Kompakte horisontale info-paneler med foldbare seksjoner og tabeller"},
-        {"key":"evaluation_progress_guard", "status":"DONE", "label":"Manuell vurderingsknapp låses under kjøring og viser progressbar"},
+        {"key":"evaluation_progress_guard", "status":"DONE", "label":"Global jobb-lås hindrer dobbeltkjøring og viser varig progressbar uten å blokkere UI"},
         {"key":"manual_force_refresh", "status":"DONE", "label":"Manuell vurdering tvinger fersk Norden+USA market-feed i stedet for 12-timers cache"},
         {"key":"decision_trace_diagnostic_zip", "status":"DONE", "label":"Per-aksje Decision Trace med eksklusjonsårsak, run-ID-er, inkonsistensvarsel og diagnose-ZIP"},
         {"key":"fresh_rebalance_gate", "status":"DONE", "label":"Ordinær Shadow-rebalansering krever fersk market-feed og samme decision run"},
@@ -1785,6 +1872,11 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"candidate_data_coverage_gate", "status":"DONE", "label":"Nye posisjoner krever tilstrekkelig per-aksje datadekning; incumbents tvangsselges ikke ved datagap"},
         {"key":"broad_us_universe", "status":"DONE", "label":"SP-spesifikt USA-univers kombinerer S&P 500, 400, 600 og Nasdaq-100 med deduplisering"},
         {"key":"ai_vs_shadow_separation", "status":"DONE", "label":"AI THINKS og SHADOW EXECUTED lagres og vises som to separate beslutningsnivåer"},
+        {"key":"durable_background_worker", "status":"DONE", "label":"Manuell SP-skann kjører i bakgrunnsworker og overlever Streamlit-reruns"},
+        {"key":"bounded_market_batches", "status":"DONE", "label":"Bred USA-skann bruker avgrensede batcher, timeout, minnevakt og circuit breaker"},
+        {"key":"pause_resume_stop", "status":"DONE", "label":"Pause, fortsett og stopp kontrolleres gjennom varig jobbtilstand"},
+        {"key":"checkpoint_recovery", "status":"DONE", "label":"Markedssjekkpunkter og stale-worker watchdog beskytter siste verifiserte resultat"},
+        {"key":"terminal_readback_verification", "status":"DONE", "label":"100 prosent krever lagret readback med korrekt jobb-ID, run-ID, antall og checksum"},
     ]
 
 

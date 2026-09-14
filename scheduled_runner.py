@@ -420,14 +420,13 @@ def _run_once_locked() -> dict[str, Any]:
 
     _mem("scheduler:after_report_test")
 
-    # RC16.32c: Super Portfolio is an isolated Shadow consumer of the latest
-    # completed Investment Pipeline run. It never sends real orders. The helper
-    # is idempotent per source run, performs daily analysis/stop surveillance
-    # and ordinary rebalancing only on the configured weekday.
+    # RC16.32k: Cron and web share one durable SP execution lease. A finite
+    # Render Cron must execute a due job itself before exiting; it must never
+    # leave an orphan subprocess. A live web-owned job is only observed here.
     try:
-        from super_portfolio import run_scheduled_shadow_cycle
+        from super_portfolio_jobs import run_or_resume_scheduled_job
         _mem("scheduler:super_portfolio:before")
-        state["super_portfolio"] = dict(run_scheduled_shadow_cycle() or {})
+        state["super_portfolio"] = dict(run_or_resume_scheduled_job() or {})
         _mem("scheduler:super_portfolio:after")
     except Exception as exc:
         state["super_portfolio"] = {"state": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}

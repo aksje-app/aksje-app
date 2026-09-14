@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32j"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32j Super Portfolio Intelligence Completion"
+APP_VERSION = "v19.22.0-rc16.32k"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32k Durable Super Portfolio Runtime"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32i"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32j"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32k: Durable Super Portfolio Runtime. Moves broad market scans out of Streamlit into one globally leased background worker, adds persisted five-second progress, pause/resume/stop controls, bounded market-data batches, checkpoints, stale-worker recovery, readback verification, shared Cron execution and a secret-free job diagnosis ZIP. Ranking and Shadow-only trading rules are unchanged.",
     "v19.22.0-rc16.32j: Super Portfolio Intelligence Completion. Adds consecutive fresh-run candidate persistence, regime-aware rebalance thresholds, per-stock entry data-coverage gating, an SP-specific broad USA universe built from S&P 500/400/600 plus Nasdaq-100, and explicit AI THINKS versus SHADOW EXECUTED state/UI separation while keeping hard stops immediate and real trading untouched.",
     "v19.22.0-rc16.32i: Super Portfolio Decision Safety. Ordinary Shadow rebalancing requires fresh same-run market data and sufficient decision confidence, Top-10 replacement hysteresis reduces churn, all actions carry explicit reason codes, before/after portfolio impact is persisted, and scheduled due-rebalances force a fresh SP market scan. Hard stops remain immediate.",
     "v19.22.0-rc16.32h: Super Portfolio Diagnostics. Manual evaluation now forces a fresh multi-market scan with live progress events and adds per-ticker Decision Trace plus downloadable diagnosis ZIP without changing trading rules.",
