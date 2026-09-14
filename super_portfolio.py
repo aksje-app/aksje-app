@@ -1119,6 +1119,8 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"turnover_costs", "status":"DONE", "label":"Turnover, estimert kurtasje/slippage og nettoavkastning"},
         {"key":"event_risk", "status":"DONE", "label":"Event Risk for kommende resultat-/rapportdato når data finnes"},
         {"key":"decision_confidence", "status":"DONE", "label":"Decision Confidence basert på kvalitet, ferskhet, regime og signalenighet"},
+        {"key":"horizontal_info_layout", "status":"DONE", "label":"Kompakte horisontale info-paneler med foldbare seksjoner og tabeller"},
+        {"key":"evaluation_progress_guard", "status":"DONE", "label":"Manuell vurderingsknapp låses under kjøring og viser progressbar"},
     ]
 
 

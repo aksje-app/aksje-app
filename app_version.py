@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32f"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32f Super Portfolio Broad Discovery"
+APP_VERSION = "v19.22.0-rc16.32g"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32g Super Portfolio UI Feedback"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32e"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32f"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,9 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32g: Super Portfolio UI Feedback. Replaces dense text blocks with two horizontal rows of collapsible table panels and adds a single-run guard plus visible progress bar for manual portfolio evaluation. No ranking or trading rules changed.",
+    "v19.22.0-rc16.32f: Super Portfolio Broad Discovery. Scans the full available market universe with a resource-light coarse pass before deep analysis and global Top-10 selection without country quotas.",
+    "v19.22.0-rc16.32e: Super Portfolio Multi-Market. Gives Super Portfolio an independent Norway, Sweden, Denmark, Finland and USA market scope while preserving the Norway-only production chain.",
     "v19.22.0-rc16.32d: Completes the Super Portfolio release gate with index/manual Aurora benchmarks, scenario Stress Radar, resource health, data freshness, turnover/cost controls, event risk and decision confidence.",
     "v19.22.0-rc16.32c: Super Portfolio Completion. Adds automatic Shadow scheduling, weekly rebalance policy with immediate dynamic stop exits, volatility/profit-aware trailing stops, manual-exit cooldown with Shadow follow-up, resource-light return-profile correlation, front-page Super Portfolio status window with direct navigation, downloadable/shareable PDF, visible history and a persistent master release checklist. Existing two front-page banners remain unchanged.",
     "v19.22.0-rc16.32b: Super Portfolio Intelligence. Adds soft sector/correlation penalties, ranking velocity, Portfolio Health, directional Stop Pressure and AI WOULD DO TODAY shadow recommendations while preserving the authoritative Autonomy/scanner chain.",
