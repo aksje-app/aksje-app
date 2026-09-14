@@ -111,6 +111,9 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
         render_autonomous_portfolio(view="autonomous")
     elif workspace == "Læringsportefølje":
         render_autonomous_portfolio(view="learning")
+    elif workspace == "🌍 Super Portfolio":
+        from pages.super_portfolio import render_super_portfolio
+        render_super_portfolio(_legacy_context)
     elif workspace == "Rapporter":
         from market_intelligence import render_market_intelligence
         render_market_intelligence()
