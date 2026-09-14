@@ -1,4 +1,4 @@
-"""Streamlit renderer for Super Portfolio RC16.32c."""
+"""Streamlit renderer for Super Portfolio RC16.32d."""
 from __future__ import annotations
 
 
@@ -14,6 +14,11 @@ def render_super_portfolio(_legacy_context) -> None:
         master_checklist,
         notify_changes,
         publish_pdf_report,
+        benchmark_summary,
+        refresh_index_benchmark,
+        resource_health,
+        save_state,
+        set_manual_aurora_benchmark,
     )
 
     st.markdown("## 🌍 AI Super Portfolio")
@@ -82,6 +87,54 @@ def render_super_portfolio(_legacy_context) -> None:
     else:
         d2.caption("Publiser PDF først for delbar lenke.")
 
+    st.markdown("### 📊 Benchmark")
+    bench = benchmark_summary(state, portfolio_return_pct=weighted_return)
+    b1,b2,b3 = st.columns(3)
+    idx = bench.get("index") or {}
+    aur = bench.get("aurora") or {}
+    b1.metric(str(idx.get("label") or "Indeks"), f"{float(idx.get('return_pct') or 0):+.2f}%", delta=f"Alpha {float(idx.get('alpha_pct') or 0):+.2f} pp" if idx.get("return_pct") is not None else None)
+    b2.metric(str(aur.get("label") or "Aurora"), f"{float(aur.get('return_pct') or 0):+.2f}%", delta=f"Alpha {float(aur.get('alpha_pct') or 0):+.2f} pp" if aur.get("return_pct") is not None else None)
+    confidence = state.get("decision_confidence") or {}
+    b3.metric("🧠 Decision Confidence", f"{confidence.get('icon','⚪')} {float(confidence.get('score') or 0):.1f}/100")
+    with st.expander("⚙️ Benchmark-innstillinger", expanded=False):
+        presets={"STOXX Europe 600":"^STOXX","S&P 500":"^GSPC","OMX Stockholm 30":"^OMX","Oslo All Share":"OSEAX.OL"}
+        current_cfg=dict(state.get("config") or {})
+        current_label=str(current_cfg.get("benchmark_label") or "STOXX Europe 600")
+        choice=st.selectbox("Automatisk indeks",list(presets),index=list(presets).index(current_label) if current_label in presets else 0,key="sp_benchmark_choice_32d")
+        cidx,caur=st.columns(2)
+        if cidx.button("🔄 Oppdater indeksbenchmark",width="stretch",key="sp_refresh_benchmark_32d"):
+            current_cfg["benchmark_ticker"]=presets[choice]; current_cfg["benchmark_label"]=choice
+            state["config"]=current_cfg; save_state(state); refresh_index_benchmark(state); st.rerun()
+        aurora_return=caur.number_input("Aurora siden start (%)",value=float(aur.get("return_pct") or 0.0),step=0.1,key="sp_aurora_return_32d")
+        if caur.button("💾 Lagre Aurora-benchmark",width="stretch",key="sp_save_aurora_32d"):
+            set_manual_aurora_benchmark(aurora_return,label="Aurora"); st.rerun()
+
+    st.markdown("### 🧯 Stress Radar")
+    stress=state.get("stress_radar") or []
+    if stress:
+        st.dataframe(pd.DataFrame([{"Scenario":f"{r.get('icon','')} {r.get('label','')}","Eksponering %":r.get("exposure_pct"),"Sjokk %":r.get("shock_pct"),"Estimert porteføljeeffekt %":r.get("estimated_portfolio_impact_pct")} for r in stress]),width="stretch",hide_index=True)
+    else:
+        st.caption("Stress Radar fylles når startporteføljen er opprettet.")
+
+    tc=state.get("turnover_costs") or {}
+    st.markdown("### 💸 Turnover & kostnader")
+    t1,t2,t3,t4=st.columns(4)
+    t1.metric("Turnover",f"{float(tc.get('turnover_pct') or 0):.2f}%")
+    t2.metric("Estimert kostnad",f"{float(tc.get('estimated_cost') or 0):,.0f}")
+    t3.metric("Brutto",f"{float(tc.get('gross_return_pct') or weighted_return):+.2f}%")
+    t4.metric("Etter kostnader",f"{float(tc.get('net_return_pct') or weighted_return):+.2f}%")
+
+    st.markdown("### 🖥️ Ressurser")
+    rh=state.get("resource_health") or {}
+    if not rh:
+        rh=resource_health()
+    r1,r2,r3=st.columns(3)
+    r1.metric("Status",f"{rh.get('icon','⚪')} {rh.get('status','-')}")
+    r2.metric("Memory / cgroup",f"{float(rh.get('memory_used_pct') or 0):.1f}%")
+    r3.metric("DB",f"{float(rh.get('db_used_pct') or 0):.1f}%")
+    if st.button("🔄 Oppdater ressursstatus",key="sp_resource_refresh_32d"):
+        state["resource_health"]=resource_health(); save_state(state); st.rerun()
+
     if positions:
         rows=[]
         for p in positions:
@@ -93,7 +146,9 @@ def render_super_portfolio(_legacy_context) -> None:
                 "Vekt %":p.get("target_weight_pct"),"Fra inn %":p.get("pnl_pct"),"Fra topp %":p.get("drawdown_from_peak_pct"),
                 "Til stop %":p.get("distance_to_hard_stop_pct"),"Stopkurs":p.get("hard_stop_price"),
                 "AI-score":score,"Rank":f"#{p.get('rank','-')} {p.get('rank_arrow','→')}","Δ rank":p.get("rank_change"),
-                "Sektorstraff":p.get("sector_penalty"),"Korr.straff":p.get("correlation_penalty"),"Risiko":p.get("risk_score")
+                "Sektorstraff":p.get("sector_penalty"),"Korr.straff":p.get("correlation_penalty"),"Risiko":p.get("risk_score"),
+                "🕒 Data Freshness":f"{(p.get('data_freshness') or {}).get('icon','⚪')} {(p.get('data_freshness') or {}).get('status','-')}",
+                "📅 Event Risk":f"{(p.get('event_risk') or {}).get('icon','⚪')} {(p.get('event_risk') or {}).get('date','-')}"
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
@@ -102,6 +157,20 @@ def render_super_portfolio(_legacy_context) -> None:
             reasons = p.get("why_here") or []
             if reasons:
                 st.write(f"**{p.get('ticker')}** · " + " · ".join(str(x) for x in reasons))
+
+        st.markdown("### 🕒 Data Freshness")
+        for p in sorted(positions,key=lambda x: float((x.get("data_freshness") or {}).get("age_hours") or 9999)):
+            fr=p.get("data_freshness") or {}
+            st.write(f"{fr.get('icon','⚪')} **{p.get('ticker')}** · {fr.get('status','-')} · alder {fr.get('age_hours','-')} timer")
+
+        st.markdown("### 📅 Event Risk")
+        upcoming=[p for p in positions if (p.get("event_risk") or {}).get("status")=="UPCOMING"]
+        if upcoming:
+            for p in sorted(upcoming,key=lambda x: int((x.get("event_risk") or {}).get("days_until") or 9999)):
+                ev=p.get("event_risk") or {}
+                st.write(f"{ev.get('icon','⚪')} **{p.get('ticker')}** · {ev.get('date','-')} · {ev.get('days_until','-')} dager")
+        else:
+            st.caption("Ingen nærstående selskapsbegivenheter i tilgjengelige kandidatdata.")
 
         st.markdown("### 🛡️ Stop Pressure")
         for p in sorted(positions,key=lambda x: float(x.get("distance_to_hard_stop_pct") or 999)):
