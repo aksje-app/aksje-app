@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.31ct"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.31ct Five-Day Capital Rotation and Learning Guard"
+APP_VERSION = "v19.22.0-rc16.32b"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32b Super Portfolio Intelligence"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.31cs"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32a"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,8 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32b: Super Portfolio Intelligence. Adds soft sector/correlation penalties, ranking velocity, Portfolio Health, directional Stop Pressure and AI WOULD DO TODAY shadow recommendations while preserving the authoritative Autonomy/scanner chain.",
+    "v19.22.0-rc16.32a: Super Portfolio Foundation. Adds the isolated shadow portfolio workspace, dynamic risk weighting, challengers, stop-distance states, history/snapshots, manual exits, Pushover change notifications and shareable PDF output.",
     "v19.22.0-rc16.31ct: Five-Day Capital Rotation and Learning Guard. Existing holdings are assessed immediately from their original purchase date; flat or weak positions may exit to cash after five business days unless score, momentum, breakout or a documented near-term event protects them. Adds five-day re-entry cooldown, explicit cash decisions, capital-cleanup summaries, per-business-day efficiency, combined Pushover receipts, controlled-learning progress/lifecycle, 24-hour learning guard, and a durable approval-bound parameter-integrity seal.",
     "v19.22.0-rc16.31cj: Rebuilds the temporary Jeep search for explicit same-site pagination, correct Brazil-wide Mobiauto routes, exact 2.2 diesel Webmotors routes, manual watched listings, persistent price history, previous/new price deltas, color-coded price alerts, equipment extraction and high-contrast result cards. Source failures remain explicit and search load stays bounded.",
     "v19.22.0-rc16.31ci: Expands the temporary Jeep Commander 2.2 monitor with a selectable dealer network, Localiza Seminovos and Seminovos.com.br sources, seller classification (private, ordinary dealer, authorized Jeep where explicitly documented), conservative cross-source vehicle deduplication, source-count disclosure, new-source alerts and visible per-source health.",
