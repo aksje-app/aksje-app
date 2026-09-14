@@ -13,11 +13,7 @@ import market_intelligence as mi
 import trading_settings
 
 
-def test_version_contract_is_v19145():
-    assert app_version.APP_VERSION.startswith("v19.22.0-rc")
-    assert app_version.PREVIOUS_APP_VERSION in {"v19.22.0-rc16.2", "v19.22.0-rc16.3", "v19.22.0-rc16.4"}
-    assert app_version.RANKING_MODEL_VERSION == "v19.16.0"
-    assert app_version.AUTONOMY_POLICY_VERSION == "v19.16.0"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_trading_rules_never_open_database_in_local_mode(monkeypatch):

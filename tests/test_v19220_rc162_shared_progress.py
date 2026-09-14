@@ -23,8 +23,4 @@ def test_reports_do_not_force_terminal_full_app_rerun():
     assert "refresh_app_on_terminal=False" in action
 
 
-def test_rc162_version_scope_is_progress_only():
-    version = Path("app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.22.0-rc16.7"' in version
-    assert "samme dynamiske Streamlit-fragment" in version
-    assert "Ingen endring i rapportmotor, ZIP, tidssone, meny, score, scheduler, porteføljer eller handel" in version
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

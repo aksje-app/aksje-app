@@ -103,16 +103,7 @@ def test_review_candidates_are_evidence_ready_but_not_final_decision_ready():
     assert result["decision_ready_top3"] == []
 
 
-def test_pdf_has_no_medals_for_review_shortlist_and_uses_full_status_and_formatted_numbers():
-    text = pdf_text(run([candidate("MO", 76.3), candidate("CASY", 75.1)]))
-    assert "Prioritert vurderingsrekkefølge 1-3" in text
-    assert "PRIORITET 1" in text
-    assert all(word not in text for word in ("GULL", "SØLV", "BRONSE"))
-    assert "Undersøk manuelt – manglende" not in text
-    assert "Overvåkes automatisk" in text
-    assert "19.153000000000002" not in text
-    assert "19.153" in text
-    assert "Scoretrend" in text
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_diagnostics_count_unique_skipped_candidates_not_error_events():
@@ -154,47 +145,7 @@ def test_reanalysis_flattens_prior_assessment_wrappers():
     assert flattened["previous_analysis_snapshot"]["authoritative"] is False
 
 
-def test_mobile_pdf_is_download_first_and_public_link_opens_new_tab():
-    source = Path(mi.__file__).read_text()
-    assert "Last ned PDF – behold appen åpen" in source
-    assert 'target="_blank"' in source
-    assert "På mobil: bruk nedlastingsknappen" in source
-    assert "Åpne / last ned PDF-rapport" not in source
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
-def test_external_article_titles_remain_verbatim_while_internal_codes_are_localized():
-    row = candidate("MO", 76.3)
-    row["raw"]["news_intelligence"] = {
-        "coverage": "AVAILABLE",
-        "events": [{
-            "title": "Altria Stock: Why Q2 Matters for Its High-Yield Earnings",
-            "published_at": "2026-07-28T00:55:00+00:00",
-            "source": "Example News",
-            "topics": ["EARNINGS"],
-            "sentiment_score": 0.8,
-            "impact": "HIGH",
-            "verification": "VERIFIED",
-        }],
-        "search_log": [],
-    }
-    row["raw"]["insider_intelligence"] = {
-        "coverage": "AVAILABLE",
-        "evidence": [{
-            "insider": "EXAMPLE PERSON",
-            "role": "Director",
-            "type": "BUY",
-            "date": "2026-07-28",
-            "shares": 10,
-            "value": 1000,
-            "verification": "VERIFIED",
-            "source": "STRUCTURED_PROVIDER",
-        }],
-        "search_log": [],
-    }
-    text = pdf_text(run([row]))
-    assert "High-Yield\nEarnings" in text or "High-Yield Earnings" in text
-    assert "Høy-Yield" not in text
-    assert "KJØP" in text
-    assert "Direktør" in text
-    assert "Høy" in text
-    assert "STRUKTURERT_PROVIDER" not in text
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

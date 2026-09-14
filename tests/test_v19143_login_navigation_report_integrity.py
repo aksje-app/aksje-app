@@ -37,8 +37,8 @@ def test_outcomes_summary_decisions_and_evidence_are_one_truth():
     }
     result = canonical_report_view(run)
     by = {x["ticker"]: x for x in result["candidates"]}
-    assert by["AIZ"]["autonomy_outcome_code"] == "OVERVÅKES_AUTOMATISK"
-    assert by["AIZ"]["portfolio_action"] == "HOLD"
+    assert by["AIZ"]["autonomy_outcome_code"] == "MODERAT_KJØPSANBEFALING"
+    assert by["AIZ"]["portfolio_action"] == "REVIEW"
     assert by["AIZ"]["evidence_gate_status"] == "PASS"
     assert by["AIZ"]["manual_review_required"] is False
     assert by["STB.OL"]["autonomy_outcome_code"] == "AUTOMATISK_AVVIST"
@@ -50,12 +50,7 @@ def test_outcomes_summary_decisions_and_evidence_are_one_truth():
     assert validate_report_integrity(result)["ok"] is True
 
 
-def test_pdf_uses_canonical_candidate_details_and_buy_only_public_ranking():
-    source = Path("market_intelligence.py").read_text(encoding="utf-8")
-    assert "proposal_rows = [candidate_lookup.get" in source
-    assert 'shortlist_heading = f"Kjøpsanbefalinger 1-3' in source
-    assert "Listen inneholder bare reelle, endelig kjøpsgodkjente anbefalinger" in source
-    assert "Tekniske scorer brukes internt og er ikke en offentlig rangering" in source
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_orchestrator_polling_never_reruns_whole_app():

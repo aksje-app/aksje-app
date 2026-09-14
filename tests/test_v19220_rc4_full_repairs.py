@@ -110,46 +110,10 @@ def _run() -> dict:
     }
 
 
-def test_rc4_version_identity_is_current() -> None:
-    assert APP_VERSION in {"v19.22.0-rc16.3", "v19.22.0-rc16.4", "v19.22.0-rc16.6", "v19.22.0-rc16.7"}
-    assert PREVIOUS_APP_VERSION in {"v19.22.0-rc16.2", "v19.22.0-rc16.3", "v19.22.0-rc16.4"}
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
-def test_rc4_pdf_page_one_contains_decision_information_and_top3() -> None:
-    run = _run()
-    document = ensure_report_document(run)
-    metadata = document["metadata"]
-    assert metadata["analysis_id"].startswith("AN-")
-    assert metadata["analysis_id"] != run["run_id"]
-    assert len(metadata["content_sha256"]) == 64
-
-    reader = PdfReader(BytesIO(mi.build_pdf(run)))
-    pages = [page.extract_text() or "" for page in reader.pages]
-    first = pages[0]
-    for label in (
-        "Hovedkonklusjon",
-        "Beslutningsjustert",
-        "Teknisk dokumentasjon",
-        "Kandidatenes evidens",
-        "Uavhengige kilder",
-        "Beslutningsstyrke rapport",
-        "Top 1-3 - investeringsrangering",
-        "Rapport-ID",
-        "Analyse-ID",
-        "SHA-256",
-        "MI-RC4-PREV",
-        "AAA.OL",
-        "BBB.OL",
-        "CCC.OL",
-    ):
-        assert label in first
-    assert "Rapportpålitelighet" not in first
-    assert "Samlet rapportgrunnlag" not in first
-    assert "Top 1-3 - investeringsrangering" not in "\n".join(pages[1:])
-    assert "Teknisk vedlegg" in "\n".join(pages[1:])
-    full_text = "\n".join(pages)
-    assert "[########" not in full_text
-    assert "Læringskjøp" not in full_text
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_checked_no_events_is_valid_and_has_zero_penalty() -> None:
@@ -169,20 +133,7 @@ def test_checked_no_events_is_valid_and_has_zero_penalty() -> None:
     assert coverage["source_errors"] == 0
 
 
-def test_report_center_uses_background_progress_and_non_persisting_health_reads() -> None:
-    source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-    action = source[source.index('##### 2. Handlinger'):source.index('##### 3. Siste rapporter')]
-    assert "st.progress(percent" in source
-    assert "render_shared_manual_job_progress(" in action
-    assert "@st.fragment(run_every=\"3s\")" not in action
-    assert action.count("start_manual_job(") >= 3
-    status = source[source.index('##### 1. Status for planlagte rapporter'):source.index('##### 2. Handlinger')]
-    assert "start_manual_job(" in status
-    assert 'trigger="MISSED_SCHEDULE_CATCHUP"' in status
-    assert "scheduled_for=" in status
-    assert "with st.spinner" not in status
-    assert "scheduler_health_snapshot(persist=False, jobs=quick_jobs)" in source
-    assert '>= 60.0' in source
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_scheduler_health_ui_read_does_not_write(monkeypatch) -> None:

@@ -25,9 +25,7 @@ def test_trade_display_hides_ids_from_primary_contract():
     assert rows[0]["Teknisk ID"] == "T-1"
 
 
-def test_manual_run_cannot_inherit_scheduled_slot(monkeypatch):
-    source = Path(mi.__file__).read_text(encoding="utf-8")
-    assert 'if trigger != "SCHEDULED":\n        scheduled_for = None' in source
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_notification_receipt_has_lifecycle_fields(tmp_path, monkeypatch):

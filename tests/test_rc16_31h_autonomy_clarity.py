@@ -15,8 +15,7 @@ from autonomous_portfolio import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_release_version():
-    assert APP_VERSION == "v19.22.0-rc16.31h"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_recommended_profile_changes_only_reviewed_production_fields():

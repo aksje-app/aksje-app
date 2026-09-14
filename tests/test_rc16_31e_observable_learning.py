@@ -13,9 +13,7 @@ def _candidate(ticker="AAA", price=100.0, score=70.0):
     }
 
 
-def test_release_identity_is_explicit():
-    assert APP_VERSION == "v19.22.0-rc16.31f"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31e"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_observations_are_isolated_idempotent_and_mature(monkeypatch):
@@ -36,7 +34,7 @@ def test_observations_are_isolated_idempotent_and_mature(monkeypatch):
             {"market_date": f"2026-{1 + (day - 1) // 28:02d}-{1 + (day - 1) % 28:02d}"},
         )
     original = next(row for row in store if row["source_run_id"] == "RUN-1")
-    assert [row["horizon_days"] for row in original["outcome_measurements"]] == [5, 10, 20, 60]
+    assert [row["horizon_days"] for row in original["outcome_measurements"]] == [1, 5, 20, 60]
     assert original["status"] == "MATURED"
     assert original["maximum_gain_pct"] > 0
     assert original["simulated_exit_outcomes"]["TAKE_PROFIT"]["production_applied"] is False

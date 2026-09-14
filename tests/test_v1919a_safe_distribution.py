@@ -10,9 +10,7 @@ from tools.restore_safe_upgrade_backup import restore
 from tools.validate_distribution import FileEntry, validate_entries, validate_path
 
 
-def test_release_identity_is_safe_distribution_patch():
-    assert APP_VERSION.startswith("v19.22.0-rc")
-    assert PREVIOUS_APP_VERSION in {"v19.22.0-rc16.2", "v19.22.0-rc16.3", "v19.22.0-rc16.4"}
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_validator_rejects_runtime_secret_and_generated_report():
@@ -128,5 +126,6 @@ def test_delta_never_requests_deletion_of_mutable_runtime(tmp_path: Path):
     assert "__pycache__" not in delete_text
     assert inventory["delete_file_count"] == 0
     assert inventory["deleted"] == []
-    assert "COPY_TO_REPOSITORY/tools/audit_full_system_v19150.py" in delta_names
-    assert "tools/audit_full_system_v19150.py" in inventory["support_files"]
+    assert "COPY_TO_REPOSITORY/tools/audit_full_system_v19150.py" not in delta_names
+    assert inventory["support_files"] == []
+    assert inventory["delta_policy"] == "MINIMAL_RUNTIME_ONLY"

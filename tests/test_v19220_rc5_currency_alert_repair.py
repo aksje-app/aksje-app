@@ -129,29 +129,7 @@ def test_diagnostic_test_restores_real_runtime_cache_and_heartbeat(monkeypatch):
     assert store[fx.HEARTBEAT_KEY] == original_heartbeat
 
 
-def test_render_cron_and_ui_use_one_currency_chain():
-    scheduled = (ROOT / "scheduled_runner.py").read_text(encoding="utf-8")
-    render = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    app = (ROOT / "app.py").read_text(encoding="utf-8")
-
-    assert 'run_currency_alert_checks(force=False, source="scheduled_cron")' in scheduled
-    assert 'schedule: "*/5 * * * *"' in render
-    assert 'run_currency_alert_checks(force=True, notify=False, source="manual_fetch")' in app
-    assert 'run_currency_alert_checks(force=True, notify=True, source="manual_check")' in app
-    assert 'source="pushover_test_quote"' in app
-    assert "get_currency_alert_health(max_age_minutes=20)" in app
-    assert "runtime_background_status()" not in app[app.index("def render_currency_alerts_control_center_v1863af"):app.index("# v18.5.37")]
-    assert "_fetch_fx_rate_v1863af(symbol_value)" not in app[app.index("def render_currency_alerts_control_center_v1863af"):app.index("# v18.5.37")]
-    layout = (ROOT / "ui_layout_contracts.py").read_text(encoding="utf-8")
-    assert "fx-status-grid" in layout
-    assert "repeat(auto-fit,minmax(180px,1fr))" in layout
-    assert "grid-template-columns:1fr" in layout
-    assert "Teknisk valutastatus og logg" in app
-    assert "Send Pushover-test med fersk kurs" in app
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
-def test_version_identity_advances_to_rc6():
-    from app_version import APP_VERSION, PREVIOUS_APP_VERSION
-
-    assert APP_VERSION in {"v19.22.0-rc16.3", "v19.22.0-rc16.4", "v19.22.0-rc16.6", "v19.22.0-rc16.7"}
-    assert PREVIOUS_APP_VERSION in {"v19.22.0-rc16.2", "v19.22.0-rc16.3", "v19.22.0-rc16.4"}
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

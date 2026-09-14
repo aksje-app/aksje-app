@@ -1,0 +1,27 @@
+RC16.31cl test receipt
+
+Final targeted regression command:
+PRODUCTION_NORWAY_ONLY=false python -m pytest -q
+  tests/test_v19220_rc1631ch_jeep_commander_monitor.py
+  tests/test_v19220_rc1631ck_dataforseo_jeep.py
+  tests/test_v19220_rc1631cl_scheduled_search_rest.py
+  tests/test_rc16_31ag_unified_scheduler.py
+  tests/test_rc16_31ar_live_cron_recovery.py
+  tests/test_rc16_31as_production_stabilization.py
+  tests/test_rc16_31bc_scanner_finalization.py
+
+Result: 65 passed in 1.42s
+
+Python compilation passed:
+jeep_commander_monitor.py
+market_hours.py
+scanner_worker.py
+fresh_trend_monitor.py
+paper_scanner_runtime.py
+cron_control.py
+scheduled_runner.py
+app.py
+app_version.py
+
+No live DataForSEO request or Pushover delivery was made from the development environment.
+Production proof remains explicitly unchecked in the acceptance document.

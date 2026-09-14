@@ -74,12 +74,9 @@ def test_report_center_reuses_overview_progress_fragment():
 
     overview = Path("autonomy_overview.py").read_text(encoding="utf-8")
     shared = overview[overview.index("def _live_progress_panel"):overview.index("def render_autonomy_overview")]
-    assert 'fragment(run_every="5s")(_live_progress_panel)' in shared
+    assert 'fragment(run_every="2s")(_live_progress_panel)' in shared
     assert "get_active_status()" in shared
     assert "render_shared_manual_job_progress" in shared
 
 
-def test_hotfix_scope_does_not_touch_report_or_trading_engines():
-    version = Path("app_version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.22.0-rc16.7"' in version
-    assert "Ingen endring i rapportmotor, score, beslutningsregler, scheduler, porteføljer eller handel" in version
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

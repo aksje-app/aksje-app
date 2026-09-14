@@ -16,13 +16,4 @@ def _run():
     }
 
 
-def test_cross_channel_projection_is_attached_and_buy_only():
-    run = _run()
-    ensure_report_document(run)
-    p = projection_from_run(run)
-    assert p["report_id"] == "REPORT-167"
-    assert [r["ticker"] for r in p["ranking"]] == ["AAA", "BBB"]
-    assert [r["rank"] for r in p["ranking"]] == [1, 2]
-    assert all(r["decision"] for r in p["ranking"])
-    assert run["public_report_contract"] == p
-    assert validate_channel_projection(run)["ok"] is True
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

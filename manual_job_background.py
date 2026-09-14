@@ -655,7 +655,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
         scheduler = load_unattended_state()
         scheduler = {key: scheduler.get(key) for key in (
             "state", "started_at", "completed_at", "process", "scheduler",
-            "scheduler_health", "report_test_mode", "paper_scanner", "error",
+            "scheduler_health", "report_test_mode", "fresh_trend_monitor", "paper_scanner", "error",
             "report_revalidation", "storage_retention", "learning_observation_maintenance",
         ) if key in scheduler}
     except Exception as exc:
@@ -789,7 +789,7 @@ def diagnostic_bundle(execution_id: str) -> tuple[bytes, str]:
     }
     sanitized["diagnostic_context"] = diagnostic_context
     readme = (
-        "Diagnosepakke for manuell bakgrunnskjøring.\n"
+        "Diagnosepakke for rapport- og bakgrunnskjøring.\n"
         "Pakken inneholder status, fremdrift, papirskannerens kontrollpunkt og minnebevis, "
         "samt avgrenset Autonomi-læringsbevis. "
         "API-nøkler, tokens, passord, miljøverdier, fulle rapporter og ordinær "

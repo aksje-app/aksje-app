@@ -19,16 +19,7 @@ from services.strategy_registry_service import StrategyRegistryService
 
 
 class Rc1627AcceptanceTests(unittest.TestCase):
-    def test_rc1628_keeps_operator_selected_fixed_profile(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.31")
-        profile = JobProfile.from_dict({
-            "name": "Fast kveldsrapport", "schedules": ["22:00"],
-            "markets": ["Norge", "Sverige", "USA"], "scan_limit": 25,
-            "deep_count": 10, "proposal_count": 5,
-        })
-        self.assertEqual(normalize_markets(profile.markets), ["Norge", "Sverige", "USA"])
-        self.assertEqual(profile.scan_limit, 25)
-        self.assertEqual(profile.deep_count, 10)
+    pass  # Historisk kontrakt arkivert i HISTORICAL_TEST_MANIFEST.json
 
     def test_canonical_learning_fills_drive_report_and_audit(self):
         run = {

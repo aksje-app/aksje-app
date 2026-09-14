@@ -236,7 +236,7 @@ def test_text_report_uses_same_decision_sections():
     section_payload(document, "report_reliability", {})
     assert "BESLUTNINGSSTATUS" in text
     assert "Rapportpålitelighet:" not in text
-    for label in ("Markedsdatakvalitet", "Rapportens tekniske dokumentasjonsgrad", "Kandidatenes evidensdekning", "Uavhengig kildedekning", "Beslutningsstyrke på rapportnivå"):
+    for label in ("Markedsdatakvalitet", "Rapportens tekniske dokumentasjonsgrad", "Evidensklar etter kontroll", "Evidenskontrollert", "Uavhengig kildedekning", "Beslutningsstyrke på rapportnivå"):
         assert label in text
     assert "OPPGAVER TIL NESTE KJØRING" in text
     assert "Kan endres når" in text

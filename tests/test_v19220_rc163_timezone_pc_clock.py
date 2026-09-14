@@ -8,12 +8,7 @@ from local_time import browser_clock_document
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_rc163_version_chain_and_protected_navigation_source():
-    assert APP_VERSION in {"v19.22.0-rc16.3", "v19.22.0-rc16.4", "v19.22.0-rc16.6", "v19.22.0-rc16.7"}
-    assert PREVIOUS_APP_VERSION in {"v19.22.0-rc16.2", "v19.22.0-rc16.3", "v19.22.0-rc16.4"}
-    source = (ROOT / "ui_sidebar_stable.py").read_text(encoding="utf-8")
-    assert "render_stable_sidebar_v18641" in source
-    assert "_sidebar_nav_set_v18650" in source
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_browser_clock_uses_pc_time_and_persisted_app_timezone():

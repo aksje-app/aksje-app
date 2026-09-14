@@ -1,0 +1,15 @@
+RC16.31cq test receipt
+
+66 relevant vehicle monitor, scheduling, DataForSEO, diagnostics and UI regression tests passed.
+Python compilation passed.
+
+Verified:
+- validation allowance is per test
+- monthly allowance remains independently enforced
+- two calls at USD 0.020 can run after USD 0.134 accumulated usage
+- Webmotors search pages are rejected as individual watched ads
+- individual Webmotors ad URLs remain accepted
+- selected 20,000/35,000 km limit reaches the canonical Webmotors URL
+- blocked, failed, not-run and true zero-result states are distinct
+
+Live marketplace coverage must be verified after Render deployment.

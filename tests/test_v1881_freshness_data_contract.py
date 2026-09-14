@@ -123,11 +123,4 @@ def test_autonomy_runtime_filters_invalid_candidates(monkeypatch):
     assert len(received["observed_candidates"]) == 2
 
 
-def test_release_and_reporting_include_contract():
-    version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v18.8.' in version
-    assert "v18.8.1: Freshness & Data Contract" in version
-    assert '"data_contract": data_contract_summary' in source
-    assert 'Paragraph("Freshness & Data Contract"' in source
-    assert '"Datagyldighet"' in source
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

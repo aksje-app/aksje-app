@@ -1,0 +1,17 @@
+RC16.31cm TESTKVITTERING
+Dato: 2026-09-12 UTC
+
+Målrettet DataForSEO, modulstyring og valgfri versjonslås:
+25 bestått, 0 feil.
+
+Python-kompilering:
+jeep_commander_monitor.py, runtime_identity.py, app_version.py,
+paper_scanner_runtime.py og scheduled_runner.py bestått.
+
+Bredere kontrollutvalg:
+29 bestått, 1 eldre ikke-relatert rapportteksttest feilet.
+12 bestått, 1 eldre ikke-relatert nedlastingsetikettest feilet.
+
+Produksjonsbevis gjenstår:
+Stille DataForSEO-test må gi minst én individuell annonse fra både OLX og
+Webmotors før automatisk DataForSEO-søk kan aktiveres.

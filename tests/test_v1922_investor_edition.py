@@ -54,11 +54,7 @@ def test_advanced_job_settings_are_collapsed_and_checkbox_groups_are_framed():
         assert label in settings_block
 
 
-def test_investor_edition_branding_and_version():
-    version = (ROOT / 'app_version.py').read_text(encoding='utf-8')
-    report = (ROOT / 'market_intelligence.py').read_text(encoding='utf-8')
-    assert 'APP_VERSION = "v19.22.0-rc16.7"' in version
-    assert 'Investor Edition' in report
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_distribution_tools_follow_canonical_release():

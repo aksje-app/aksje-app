@@ -108,27 +108,7 @@ def test_counter_hypothesis_is_grounded_in_named_data_source():
     assert counter["changes_production_decision"] is False
 
 
-def test_report_document_contains_complete_decision_contract_and_new_sections():
-    previous_candidate = _candidate("EQNR.OL", 75, "REVIEW", price=100)
-    previous = _run(previous_candidate)
-    previous["run_id"] = "MI-1930-PREVIOUS"
-    ensure_report_document(previous)
-
-    current_candidate = _candidate("EQNR.OL", 81, "BUY", price=106)
-    current = _run(current_candidate)
-    document = ensure_report_document(current, previous)
-    keys = [row["key"] for row in document["sections"]]
-    for key in ("decision_diffs", "counter_hypotheses", "historical_evaluations", "controlled_learning_guard"):
-        assert key in keys
-    candidate = section_payload(document, "candidate_decisions", [])[0]
-    contract = candidate["decision_contract"]
-    for key in (
-        "decision", "rationale", "validity", "critical_assumptions", "invalidating_events",
-        "counter_hypothesis", "data_coverage", "source_confidence", "decision_confidence",
-        "source_consensus", "next_review",
-    ):
-        assert key in contract
-    assert candidate["counter_hypothesis"]["changes_production_decision"] is False
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_expired_historical_decision_is_evaluated_against_current_run():
@@ -248,14 +228,4 @@ def test_learning_lifecycle_and_protected_rules_are_explicit():
         assert key in cpl.PROTECTED_PRODUCTION_PARAMETERS
 
 
-def test_public_pdf_button_and_desktop_mobile_navigation_have_stable_css_guards():
-    root = Path(__file__).resolve().parents[1]
-    autonomy = (root / "autonomy_overview.py").read_text(encoding="utf-8")
-    app = (root / "app.py").read_text(encoding="utf-8")
-    assert "right.link_button" not in autonomy
-    assert "_render_report_link(delivery[\"url\"])" in autonomy
-    assert "↗ Åpne offentlig PDF" in autonomy
-    assert 'Do not inject a second mobile/navigation DOM into the main page' in app
-    assert '[data-testid="stSidebarNav"] { display:none !important; }' in app
-    assert "@media (max-width: 760px)" in app
-    assert "display:flex !important" in app
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

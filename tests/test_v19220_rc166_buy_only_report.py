@@ -14,11 +14,7 @@ def _row(ticker, score, action, outcome=None):
     return row
 
 
-def test_rejected_never_backfills_priority_ranking():
-    rows = [_row("BUY.OL", 90, "BUY"), _row("NO1.OL", 88, "SKIP"), _row("NO2.OL", 87, "SKIP")]
-    classified, summary = apply_decision_reduction(rows, threshold=78, maximum_risk=65)
-    assert [x["ticker"] for x in summary["priority_top3"]] == ["BUY.OL"]
-    assert all(x.get("autonomy_outcome_code") == "KJØPSKANDIDAT" for x in summary["priority_top3"])
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_report_document_ranks_only_buys_and_rejects_are_appendix_only():

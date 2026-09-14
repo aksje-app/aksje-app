@@ -1,4 +1,4 @@
-"""Super Portfolio intelligence v19.22.0 RC16.32f.
+"""Super Portfolio intelligence v19.22.0 RC16.32j.
 
 Isolated theoretical portfolio layer. Reuses completed Investment Pipeline data,
 never submits real orders and never changes the authoritative Autonomy chain.
@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 
-VERSION = "v19.22.0-rc16.32h"
+VERSION = "v19.22.0-rc16.32j"
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
 AUDIT_KEY = "super_portfolio/audit.jsonl"
@@ -287,12 +287,22 @@ class SuperPortfolioConfig:
     # RC16.32f: broad-first funnel. Stage 1 must see the full available
     # investable universe before any shortlist is formed.
     market_universe_limit_per_market: int = 500
+    # RC16.32j: SP-specific broad USA discovery, independent of the app-wide S&P-500 scope.
+    us_broad_universe_enabled: bool = True
+    us_universe_limit: int = 1600
     # Deprecated RC16.32e constructor compatibility only; broad discovery no longer uses this cap.
     market_scan_limit_per_market: int | None = None
     market_coarse_shortlist_per_market: int = 100
     market_deep_analysis_per_market: int = 50
     market_candidates_per_market: int = 15
     market_refresh_hours: float = 12.0
+    # RC16.32i decision-safety thresholds.
+    max_rebalance_data_age_minutes: int = 60
+    min_rebalance_confidence: float = 65.0
+    replacement_rank_buffer: int = 2
+    replacement_score_margin: float = 2.0
+    candidate_persistence_runs: int = 2
+    min_entry_data_coverage: float = 70.0
 
 
 def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
@@ -319,6 +329,11 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
         "turnover_costs": {},
         "decision_confidence": {},
         "resource_health": {},
+        "candidate_persistence": {},
+        "entry_gate": {},
+        "regime_policy": {},
+        "ai_thinks": [],
+        "shadow_executed": [],
     }
 
 
@@ -372,7 +387,11 @@ def _coarse_market_snapshot(tickers: Sequence[str], market: str) -> dict[str, di
     try:
         from learning_observation_engine import yfinance_series_loader
         start = (_now_dt().date() - timedelta(days=230)).isoformat()
-        series_map = yfinance_series_loader(clean, start)
+        series_map: dict[str, Any] = {}
+        batch_size = 250
+        for offset in range(0, len(clean), batch_size):
+            batch = clean[offset: offset + batch_size]
+            series_map.update(yfinance_series_loader(batch, start) or {})
     except Exception:
         return {}
 
@@ -517,12 +536,15 @@ def build_super_portfolio_market_pipeline(
         base_pct = 3 + int((market_index / market_count) * 90)
         span_pct = max(1, int(90 / market_count))
         emit("MARKET_START", base_pct, market=market, message=f"{market}: laster investerbart univers")
-        universe_limit = max(1, min(500, int(config.market_universe_limit_per_market)))
+        if str(market) == "USA" and bool(config.us_broad_universe_enabled):
+            universe_limit = max(500, min(2000, int(config.us_universe_limit)))
+        else:
+            universe_limit = max(1, min(500, int(config.market_universe_limit_per_market)))
         coarse_limit = max(1, min(universe_limit, int(config.market_coarse_shortlist_per_market)))
         deep_limit = max(1, min(coarse_limit, int(config.market_deep_analysis_per_market)))
         pcfg = PipelineConfig(
             market_scope=str(market),
-            scan_limit=universe_limit,
+            scan_limit=min(500, universe_limit),
             deep_analysis_count=deep_limit,
             proposal_count=0,
             evidence_analysis_count=1,
@@ -533,6 +555,19 @@ def build_super_portfolio_market_pipeline(
             full_universe_scan=True,
         ).normalized()
         raw_rows, source_label = _load_candidate_rows_from_app(pcfg)
+        if str(market) == "USA" and bool(config.us_broad_universe_enabled):
+            try:
+                from stocks import get_us_broad_tickers
+                broad = list(get_us_broad_tickers(limit=universe_limit) or [])
+                by_ticker = {str((row or {}).get("ticker") or (row or {}).get("symbol") or "").upper(): dict(row or {}) for row in raw_rows}
+                for ticker in broad:
+                    key = str(ticker or "").upper()
+                    if key and key not in by_ticker:
+                        by_ticker[key] = {"ticker": key, "symbol": key, "market": "USA", "source": "SP_BROAD_US_UNIVERSE"}
+                raw_rows = list(by_ticker.values())[:universe_limit]
+                source_label = f"{source_label} + S&P500/400/600/Nasdaq100"
+            except Exception:
+                pass
         emit("UNIVERSE_LOADED", base_pct + max(1, span_pct // 5), market=market, count=len(raw_rows), message=f"{market}: {len(raw_rows)} aksjer lastet")
         coarse_rows = _coarse_rank_market_rows(raw_rows, str(market), coarse_limit)
         emit("COARSE_COMPLETE", base_pct + max(2, (span_pct * 2) // 5), market=market, count=len(coarse_rows), message=f"{market}: grovscan ferdig ({len(coarse_rows)})")
@@ -606,6 +641,134 @@ def get_or_build_super_portfolio_market_pipeline(
     return build_super_portfolio_market_pipeline(config, now=now_dt, force_refresh=force_refresh, progress_callback=progress_callback)
 
 
+def candidate_data_coverage(source: Mapping[str, Any]) -> dict[str, Any]:
+    """Auditable SP entry-data coverage score from fields already present in the candidate payload."""
+    row = dict(source or {})
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    checks = {
+        "price": (_candidate_price(row) > 0, 20.0),
+        "investment_score": (row.get("investment_score") is not None or row.get("portfolio_score") is not None, 15.0),
+        "risk_score": (row.get("risk_score") is not None, 10.0),
+        "quality_score": (row.get("data_quality_score") is not None or row.get("quality_score") is not None or row.get("data_quality") is not None, 10.0),
+        "volatility": (any(raw.get(k) is not None for k in ("volatility_pct", "annual_volatility", "volatility")), 15.0),
+        "returns": (any(raw.get(k) is not None for k in ("return_1d", "return_5d", "return_20d", "return_60d", "return_1m", "return_3m")), 15.0),
+        "sector": (str(row.get("sector") or row.get("industry") or "").strip().lower() not in {"", "ukjent", "unknown", "none"}, 10.0),
+        "market": (bool(str(row.get("market") or row.get("country") or "").strip()), 5.0),
+    }
+    score = sum(weight for ok, weight in checks.values() if ok)
+    missing = [name for name, (ok, _) in checks.items() if not ok]
+    return {"score": round(score, 1), "missing": missing, "components": {name: bool(ok) for name, (ok, _) in checks.items()}}
+
+
+def rebalance_regime_policy(pipeline: Mapping[str, Any], config: "SuperPortfolioConfig") -> dict[str, Any]:
+    """Translate explicit/derived market regime into conservative SP rebalance thresholds."""
+    raw_label = str(pipeline.get("market_regime") or pipeline.get("regime") or pipeline.get("regime_label") or "").upper()
+    fit = _f(pipeline.get("regime_fit_score"), 70.0)
+    if any(token in raw_label for token in ("STRESS", "RISK_OFF", "RISK-OFF", "BEAR", "HIGH_VOL")) or fit < 50:
+        bucket = "STRESSED"
+    elif any(token in raw_label for token in ("CALM", "LOW_VOL", "LOW-VOL")) or fit >= 85:
+        bucket = "CALM"
+    else:
+        bucket = "NORMAL"
+    base_runs = max(1, int(config.candidate_persistence_runs))
+    base_conf = float(config.min_rebalance_confidence)
+    base_margin = float(config.replacement_score_margin)
+    if bucket == "CALM":
+        required_runs, min_conf, margin = base_runs + 1, min(95.0, base_conf + 5.0), base_margin + 1.0
+    elif bucket == "STRESSED":
+        required_runs, min_conf, margin = max(1, base_runs - 1), max(50.0, base_conf - 5.0), max(0.5, base_margin - 1.0)
+    else:
+        required_runs, min_conf, margin = base_runs, base_conf, base_margin
+    return {
+        "regime": bucket,
+        "required_persistence_runs": int(required_runs),
+        "min_confidence": round(min_conf, 1),
+        "replacement_score_margin": round(margin, 2),
+    }
+
+
+def _candidate_entry_gates(
+    *, state: Mapping[str, Any], proposed_rows: Sequence[Mapping[str, Any]], ranked: Sequence[Mapping[str, Any]],
+    previous: Mapping[str, Mapping[str, Any]], pipeline: Mapping[str, Any], config: "SuperPortfolioConfig", now: datetime,
+    regime_policy: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Gate only NEW entrants; preserve incumbents when a challenger is not yet executable."""
+    rows = [dict(r) for r in proposed_rows]
+    if not previous:
+        gates = {}
+        for row in rows:
+            ticker = str(row.get("ticker") or "").upper()
+            cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
+            gates[ticker] = {"allowed": True, "reason_codes": [], "coverage": cov, "persistence_streak": 0, "required_persistence_runs": 0, "initial_portfolio": True}
+        return rows, gates, dict(state.get("candidate_persistence") or {})
+
+    run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
+    age = _pipeline_age_minutes(pipeline, now)
+    persistence = {str(k).upper(): dict(v) for k, v in (state.get("candidate_persistence") or {}).items()}
+    # Legacy/synthetic direct calls without a timestamp cannot prove consecutive
+    # fresh scans. Preserve pre-RC16.32j behavior instead of silently blocking them.
+    if age is None:
+        gates = {}
+        for row in rows:
+            ticker = str(row.get("ticker") or "").upper()
+            cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
+            gates[ticker] = {"allowed": True, "reason_codes": [], "coverage": cov, "legacy_freshness_unknown": True}
+        return rows, gates, persistence
+    fresh_run = bool(run_id) and age <= float(config.max_rebalance_data_age_minutes)
+    proposed_new = {str(row.get("ticker") or "").upper() for row in rows if str(row.get("ticker") or "").upper() not in previous}
+    if fresh_run:
+        for ticker, item in persistence.items():
+            if ticker not in proposed_new and str(item.get("last_run_id") or "") != run_id:
+                item["streak"] = 0
+                item["last_run_id"] = run_id
+    required = max(1, int(regime_policy.get("required_persistence_runs") or config.candidate_persistence_runs))
+    gates: dict[str, dict[str, Any]] = {}
+    allowed_rows: list[dict[str, Any]] = []
+    blocked_tickers: set[str] = set()
+
+    for row in rows:
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker in previous:
+            gates[ticker] = {"allowed": True, "reason_codes": [], "incumbent": True}
+            allowed_rows.append(row)
+            continue
+        item = dict(persistence.get(ticker) or {})
+        if fresh_run and str(item.get("last_run_id") or "") != run_id:
+            item["streak"] = int(item.get("streak") or 0) + 1
+            item["last_run_id"] = run_id
+            item["last_seen_at"] = now.isoformat(timespec="seconds")
+        persistence[ticker] = item
+        source = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
+        cov = candidate_data_coverage(source)
+        reasons = []
+        if _f(cov.get("score")) < float(config.min_entry_data_coverage):
+            reasons.append("DATA_COVERAGE_BLOCKED")
+        if int(item.get("streak") or 0) < required:
+            reasons.append("PERSISTENCE_GATE_BLOCKED")
+        allowed = not reasons
+        gates[ticker] = {
+            "allowed": allowed, "reason_codes": reasons, "coverage": cov,
+            "persistence_streak": int(item.get("streak") or 0), "required_persistence_runs": required,
+            "fresh_run": fresh_run, "regime": regime_policy.get("regime"),
+        }
+        if allowed:
+            allowed_rows.append(row)
+        else:
+            blocked_tickers.add(ticker)
+
+    if blocked_tickers:
+        selected_keys = {str(r.get("ticker") or "").upper() for r in allowed_rows}
+        target_n = max(1, int(config.target_positions))
+        for row in ranked:
+            ticker = str(row.get("ticker") or "").upper()
+            if len(allowed_rows) >= target_n:
+                break
+            if ticker in previous and ticker not in selected_keys:
+                allowed_rows.append(dict(row)); selected_keys.add(ticker)
+                gates.setdefault(ticker, {"allowed": True, "reason_codes": [], "incumbent": True, "retained_due_to_blocked_challenger": True})
+    return allowed_rows[: max(1, int(config.target_positions))], gates, persistence
+
+
 def _normalized_candidate(source: Mapping[str, Any]) -> dict[str, Any]:
     row = dict(source or {})
     ticker = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
@@ -625,6 +788,7 @@ def _normalized_candidate(source: Mapping[str, Any]) -> dict[str, Any]:
         "currency": _position_currency(row),
         "data_freshness": data_freshness(row),
         "event_risk": event_risk(row),
+        "data_coverage": candidate_data_coverage(row),
         "raw_candidate": row,
     }
 
@@ -919,6 +1083,9 @@ def build_decision_trace(*, state: Mapping[str, Any], pipeline: Mapping[str, Any
             "action": str(action.get("action") or "HOLD"),
             "action_from_pct": action.get("from_pct"),
             "action_to_pct": action.get("to_pct"),
+            "action_reason_code": action.get("reason_code"),
+            "action_reason": action.get("reason"),
+            "action_execution_status": action.get("execution_status"),
             "exclusion_reason": exclusion,
             "alerts": alerts,
         }
@@ -978,7 +1145,14 @@ def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str 
     return buf.getvalue()
 
 
-def ai_would_do_today(positions: Mapping[str, Mapping[str, Any]], target: Mapping[str, float], min_rebalance_pp: float = 1.0) -> list[dict[str, Any]]:
+def ai_would_do_today(
+    positions: Mapping[str, Mapping[str, Any]],
+    target: Mapping[str, float],
+    min_rebalance_pp: float = 1.0,
+    *,
+    selection_meta: Mapping[str, Mapping[str, Any]] | None = None,
+    decision_run_id: str = "",
+) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     current = {str(k): dict(v) for k, v in positions.items()}
     for ticker, target_weight in target.items():
@@ -988,14 +1162,229 @@ def ai_would_do_today(positions: Mapping[str, Mapping[str, Any]], target: Mappin
         if not old: action = "BUY"
         elif abs(delta) < min_rebalance_pp: continue
         else: action = "ADD" if delta > 0 else "REDUCE"
-        actions.append({"action": action, "ticker": str(ticker), "from_pct": round(old_weight,2), "to_pct": round(_f(target_weight),2), "delta_pct": round(delta,2), "advisory_only": True})
+        reason_code, reason = _advisory_reason(action, str(ticker), selection_meta)
+        actions.append({
+            "action": action, "ticker": str(ticker), "from_pct": round(old_weight,2),
+            "to_pct": round(_f(target_weight),2), "delta_pct": round(delta,2),
+            "advisory_only": True, "reason_code": reason_code, "reason": reason,
+            "decision_run_id": decision_run_id,
+        })
     for ticker, old in current.items():
         if ticker not in target:
             old_weight = _f(old.get("target_weight_pct"))
-            actions.append({"action": "SELL", "ticker": ticker, "from_pct": round(old_weight,2), "to_pct": 0.0, "delta_pct": round(-old_weight,2), "advisory_only": True})
+            reason_code, reason = _advisory_reason("SELL", ticker, selection_meta)
+            actions.append({
+                "action": "SELL", "ticker": ticker, "from_pct": round(old_weight,2),
+                "to_pct": 0.0, "delta_pct": round(-old_weight,2), "advisory_only": True,
+                "reason_code": reason_code, "reason": reason, "decision_run_id": decision_run_id,
+            })
     action_order = {"SELL": 0, "REDUCE": 1, "BUY": 2, "ADD": 3}
     actions.sort(key=lambda row: (action_order.get(row["action"], 9), -abs(_f(row.get("delta_pct"))), row["ticker"]))
     return actions
+
+
+def select_target_rows_with_hysteresis(
+    ranked: Sequence[Mapping[str, Any]],
+    previous: Mapping[str, Mapping[str, Any]],
+    config: SuperPortfolioConfig | None = None,
+    *, replacement_score_margin: float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Select target rows while preventing marginal rank-boundary churn.
+
+    Existing eligible holdings within ``replacement_rank_buffer`` places of the
+    target boundary are retained unless a newly entering challenger beats the
+    incumbent by at least ``replacement_score_margin`` adjusted-score points.
+    """
+    cfg = config or SuperPortfolioConfig()
+    margin_threshold = float(cfg.replacement_score_margin if replacement_score_margin is None else replacement_score_margin)
+    rows = [dict(row) for row in ranked]
+    target_n = max(1, int(cfg.target_positions))
+    selected = rows[:target_n]
+    previous_keys = {str(k).upper() for k in previous}
+    by_ticker = {str(row.get("ticker") or "").upper(): row for row in rows}
+    metadata: dict[str, dict[str, Any]] = {}
+
+    for row in selected:
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker in previous_keys:
+            metadata[ticker] = {"reason_code": "TARGET_SELECTED", "reason": "Fortsatt valgt i målporteføljen"}
+        else:
+            metadata[ticker] = {"reason_code": "NEW_TOP_CANDIDATE", "reason": "Ny kandidat i valgt Top-portefølje"}
+
+    boundary = target_n + max(0, int(cfg.replacement_rank_buffer))
+    incumbents = []
+    selected_keys = {str(row.get("ticker") or "").upper() for row in selected}
+    for ticker in previous_keys - selected_keys:
+        row = by_ticker.get(ticker)
+        if row and int(_f(row.get("rank"), 9999)) <= boundary:
+            incumbents.append(row)
+    incumbents.sort(key=lambda row: int(_f(row.get("rank"), 9999)))
+
+    for incumbent in incumbents:
+        incumbent_ticker = str(incumbent.get("ticker") or "").upper()
+        new_entries = [row for row in selected if str(row.get("ticker") or "").upper() not in previous_keys]
+        if not new_entries:
+            continue
+        challenger = min(new_entries, key=lambda row: _f(row.get("portfolio_score_adjusted"), _f(row.get("portfolio_score"))))
+        challenger_ticker = str(challenger.get("ticker") or "").upper()
+        incumbent_score = _f(incumbent.get("portfolio_score_adjusted"), _f(incumbent.get("portfolio_score")))
+        challenger_score = _f(challenger.get("portfolio_score_adjusted"), _f(challenger.get("portfolio_score")))
+        margin = challenger_score - incumbent_score
+        if margin < margin_threshold:
+            selected = [incumbent if str(row.get("ticker") or "").upper() == challenger_ticker else row for row in selected]
+            metadata[incumbent_ticker] = {
+                "reason_code": "HYSTERESIS_HOLD",
+                "reason": f"Beholdt: challenger-margin {margin:.2f} < {margin_threshold:.2f}",
+                "challenger": challenger_ticker,
+                "score_margin": round(margin, 2),
+            }
+            metadata[challenger_ticker] = {
+                "reason_code": "HYSTERESIS_BLOCKED_CHALLENGER",
+                "reason": f"Ikke sterk nok til å erstatte {incumbent_ticker}",
+                "incumbent": incumbent_ticker,
+                "score_margin": round(margin, 2),
+            }
+        else:
+            metadata[challenger_ticker] = {
+                "reason_code": "CHALLENGER_WIN",
+                "reason": f"Slår {incumbent_ticker} med {margin:.2f} scorepoeng",
+                "incumbent": incumbent_ticker,
+                "score_margin": round(margin, 2),
+            }
+            metadata[incumbent_ticker] = {
+                "reason_code": "CHALLENGER_WIN",
+                "reason": f"Erstattes av {challenger_ticker}, som leder med {margin:.2f} scorepoeng",
+                "challenger": challenger_ticker,
+                "score_margin": round(margin, 2),
+            }
+
+    selected.sort(key=lambda row: int(_f(row.get("rank"), 9999)))
+    for row in selected:
+        ticker = str(row.get("ticker") or "").upper()
+        metadata.setdefault(ticker, {"reason_code": "TARGET_SELECTED", "reason": "Valgt i målporteføljen"})
+    return selected[:target_n], metadata
+
+
+def _pipeline_age_minutes(pipeline: Mapping[str, Any], now: datetime) -> float | None:
+    created = str(pipeline.get("created_at") or "")
+    if not created:
+        return None
+    try:
+        observed = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        reference = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        return max(0.0, (reference - observed).total_seconds() / 60.0)
+    except Exception:
+        return None
+
+
+def build_rebalance_gate(
+    *,
+    pipeline: Mapping[str, Any],
+    selected_rows: Sequence[Mapping[str, Any]],
+    config: SuperPortfolioConfig,
+    now: datetime,
+    regime_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
+    age_minutes = _pipeline_age_minutes(pipeline, now)
+    # All production SP market feeds from RC16.32e+ carry created_at. Missing
+    # timestamps are tolerated only for legacy/synthetic direct-call compatibility.
+    freshness_known = age_minutes is not None
+    freshness_ok = bool(run_id) and (not freshness_known or age_minutes <= float(config.max_rebalance_data_age_minutes))
+    rows = [dict(row) for row in selected_rows]
+    avg_quality = sum(_f(row.get("quality_score"), _quality(row)) for row in rows) / len(rows) if rows else 0.0
+    scores = [_f(row.get("portfolio_score_adjusted"), _f(row.get("portfolio_score"))) for row in rows]
+    spread = (max(scores) - min(scores)) if len(scores) > 1 else 0.0
+    correlation_available = bool(rows) and all(str(row.get("correlation_source") or "UNAVAILABLE") != "UNAVAILABLE" for row in rows)
+    freshness_score = 100.0 if freshness_ok else 0.0
+    confidence = decision_confidence(
+        data_quality=avg_quality,
+        freshness_score=freshness_score,
+        regime_fit=_f(pipeline.get("regime_fit_score"), 70.0),
+        score_spread=spread,
+        correlation_available=correlation_available,
+    )
+    policy = dict(regime_policy or rebalance_regime_policy(pipeline, config))
+    effective_min_confidence = float(policy.get("min_confidence") or config.min_rebalance_confidence)
+    confidence_ok = _f(confidence.get("score")) >= effective_min_confidence
+    reasons: list[str] = []
+    if not freshness_ok:
+        reasons.append("FRESHNESS_GATE_BLOCKED")
+    if not confidence_ok:
+        reasons.append("CONFIDENCE_GATE_BLOCKED")
+    return {
+        "allowed": not reasons,
+        "reason_codes": reasons,
+        "decision_run_id": run_id,
+        "pipeline_age_minutes": None if age_minutes is None else round(age_minutes, 1),
+        "max_age_minutes": int(config.max_rebalance_data_age_minutes),
+        "freshness_known": freshness_known,
+        "confidence": confidence,
+        "min_confidence": effective_min_confidence,
+        "regime_policy": policy,
+    }
+
+
+def _advisory_reason(
+    action: str,
+    ticker: str,
+    selection_meta: Mapping[str, Mapping[str, Any]] | None,
+) -> tuple[str, str]:
+    meta = dict((selection_meta or {}).get(ticker) or {})
+    if action == "BUY":
+        code = str(meta.get("reason_code") or "NEW_TOP_CANDIDATE")
+        if code == "TARGET_SELECTED":
+            code = "NEW_TOP_CANDIDATE"
+        return code, str(meta.get("reason") or "Ny kandidat i valgt målportefølje")
+    if action == "ADD":
+        return "TARGET_WEIGHT_INCREASE", "Målvekten økes etter fersk rangering"
+    if action == "REDUCE":
+        return "TARGET_WEIGHT_DECREASE", "Målvekten reduseres etter fersk rangering"
+    if action == "SELL":
+        if str(meta.get("reason_code") or "") == "CHALLENGER_WIN":
+            return "CHALLENGER_WIN", str(meta.get("reason") or "Erstattet av sterkere challenger")
+        return "OUTSIDE_TARGET_TOP_N", "Ikke lenger valgt i målporteføljen"
+    return "TARGET_SELECTED", "Ingen ordinær endring"
+
+
+def build_rebalance_impact(
+    *,
+    previous: Mapping[str, Mapping[str, Any]],
+    selected_rows: Sequence[Mapping[str, Any]],
+    weights: Mapping[str, float],
+    advisory: Sequence[Mapping[str, Any]],
+    gate: Mapping[str, Any],
+    pipeline: Mapping[str, Any],
+    config: SuperPortfolioConfig,
+) -> dict[str, Any]:
+    before_rows = [dict(row) for row in previous.values()]
+    projected: list[dict[str, Any]] = []
+    for row in selected_rows:
+        ticker = str(row.get("ticker") or "")
+        projected_row = dict(row)
+        projected_row["target_weight_pct"] = _f(weights.get(ticker))
+        projected_row.setdefault("stop_status", "SAFE")
+        projected.append(projected_row)
+    before = portfolio_health(before_rows)
+    after = portfolio_health(projected)
+    turnover = sum(abs(_f(a.get("to_pct")) - _f(a.get("from_pct"))) for a in advisory)
+    before_components = dict(before.get("components") or {})
+    after_components = dict(after.get("components") or {})
+    return {
+        "decision_run_id": str(pipeline.get("run_id") or pipeline.get("report_id") or ""),
+        "health_before": before,
+        "health_after": after,
+        "health_delta": round(_f(after.get("score")) - _f(before.get("score")), 1),
+        "risk_before": _f(before_components.get("risk")),
+        "risk_after": _f(after_components.get("risk")),
+        "correlation_before": _f(before_components.get("correlation")),
+        "correlation_after": _f(after_components.get("correlation")),
+        "turnover_pct": round(turnover, 2),
+        "gate_allowed": bool(gate.get("allowed")),
+        "gate_reason_codes": list(gate.get("reason_codes") or []),
+    }
 
 
 def target_weights(ranked: Sequence[Mapping[str, Any]], config: SuperPortfolioConfig | None = None) -> dict[str, float]:
@@ -1111,32 +1500,105 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         row["why_here"] = _explanation_for(row)
     manual_shadow = [dict(row) for row in ranked_all if _cooldown_active(state, str(row.get("ticker") or ""), now_dt)]
     ranked = [row for row in ranked_all if not _cooldown_active(state, str(row.get("ticker") or ""), now_dt)]
-    weights = target_weights(ranked, cfg)
-    by_ticker = {str(row["ticker"]): row for row in ranked}
     previous = {str(k): dict(v) for k, v in (state.get("positions") or {}).items()}
-    advisory = ai_would_do_today(previous, weights, cfg.min_rebalance_pp)
-    decision_trace = build_decision_trace(state=state, pipeline=pipeline, ranked=ranked, target=weights, advisory=advisory, cfg=cfg, now=now_dt)
+
+    regime_policy = rebalance_regime_policy(pipeline, cfg)
+    ai_selected_rows, selection_meta = select_target_rows_with_hysteresis(
+        ranked, previous, cfg, replacement_score_margin=float(regime_policy.get("replacement_score_margin") or cfg.replacement_score_margin)
+    )
+    ai_weights = target_weights(ai_selected_rows, cfg)
+    selected_rows, entry_gate, candidate_persistence = _candidate_entry_gates(
+        state=state, proposed_rows=ai_selected_rows, ranked=ranked, previous=previous,
+        pipeline=pipeline, config=cfg, now=now_dt, regime_policy=regime_policy,
+    )
+    weights = target_weights(selected_rows, cfg)
+    by_ticker = {str(row["ticker"]): row for row in ranked}
+    decision_run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
+    advisory = ai_would_do_today(
+        previous,
+        ai_weights,
+        cfg.min_rebalance_pp,
+        selection_meta=selection_meta,
+        decision_run_id=decision_run_id,
+    )
+    rebalance_gate = build_rebalance_gate(
+        pipeline=pipeline, selected_rows=selected_rows, config=cfg, now=now_dt, regime_policy=regime_policy
+    )
     rebalance_due = _rebalance_due(state, now_dt, cfg, rebalance_policy)
+    ordinary_rebalance_allowed = bool(rebalance_due and rebalance_gate.get("allowed"))
+    for action in advisory:
+        ticker = str(action.get("ticker") or "")
+        individual_reasons = list((entry_gate.get(ticker) or {}).get("reason_codes") or [])
+        if action.get("action") == "SELL" and ticker in previous and ticker in weights:
+            individual_reasons.append("ENTRY_REPLACEMENT_BLOCKED")
+        action["execution_status"] = (
+            "BLOCKED" if individual_reasons else
+            ("EXECUTABLE" if ordinary_rebalance_allowed else ("BLOCKED" if rebalance_due else "ADVISORY_ONLY"))
+        )
+        action["gate_reason_codes"] = list(dict.fromkeys((list(rebalance_gate.get("reason_codes") or []) if rebalance_due else []) + individual_reasons))
+
+    decision_trace = build_decision_trace(
+        state=state, pipeline=pipeline, ranked=ranked, target=weights, advisory=advisory, cfg=cfg, now=now_dt
+    )
+    rebalance_impact = build_rebalance_impact(
+        previous=previous,
+        selected_rows=selected_rows,
+        weights=weights,
+        advisory=advisory,
+        gate=rebalance_gate,
+        pipeline=pipeline,
+        config=cfg,
+    )
+
     positions: dict[str, dict[str, Any]] = {}
     changes: list[dict[str, Any]] = []
+    advisory_by_ticker = {str(row.get("ticker") or ""): dict(row) for row in advisory}
 
-    if rebalance_due:
+    if ordinary_rebalance_allowed:
         for ticker, weight in weights.items():
             row = by_ticker[ticker]
             old = previous.get(ticker) or {}
             pos = _position_from_row(row, weight, old, now_iso, cfg, history)
+            if old and str(pos.get("stop_status")) == "STOP TRIGGERED":
+                changes.append({
+                    "action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")),
+                    "to_pct": 0.0, "reason_code": "HARD_STOP", "reason": "Dynamisk hard stop utløst",
+                    "decision_run_id": decision_run_id,
+                })
+                continue
             positions[ticker] = pos
             old_weight = _f(old.get("target_weight_pct"))
+            action_info = advisory_by_ticker.get(ticker) or {}
             if not old:
-                changes.append({"action": "BUY", "ticker": ticker, "from_pct": 0.0, "to_pct": weight, "reason_code": "INITIAL_OR_REBALANCE", "reason": "Ny Top-kandidat ved rebalansering"})
+                changes.append({
+                    "action": "BUY", "ticker": ticker, "from_pct": 0.0, "to_pct": weight,
+                    "reason_code": str(action_info.get("reason_code") or "NEW_TOP_CANDIDATE"),
+                    "reason": str(action_info.get("reason") or "Ny Top-kandidat ved rebalansering"),
+                    "decision_run_id": decision_run_id,
+                })
             elif abs(weight - old_weight) >= cfg.min_rebalance_pp:
-                changes.append({"action": "ADD" if weight > old_weight else "REDUCE", "ticker": ticker, "from_pct": old_weight, "to_pct": weight, "reason_code": "WEEKLY_REBALANCE", "reason": "Målvekt endret etter ny rangering"})
+                action = "ADD" if weight > old_weight else "REDUCE"
+                changes.append({
+                    "action": action, "ticker": ticker, "from_pct": old_weight, "to_pct": weight,
+                    "reason_code": str(action_info.get("reason_code") or ("TARGET_WEIGHT_INCREASE" if action == "ADD" else "TARGET_WEIGHT_DECREASE")),
+                    "reason": str(action_info.get("reason") or "Målvekt endret etter ny rangering"),
+                    "decision_run_id": decision_run_id,
+                })
         for ticker, old in previous.items():
             if ticker not in positions:
-                changes.append({"action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0, "reason_code": "WEEKLY_REBALANCE", "reason": "Ikke lenger i valgt Top-portefølje"})
+                if any(c.get("ticker") == ticker and c.get("reason_code") == "HARD_STOP" for c in changes):
+                    continue
+                action_info = advisory_by_ticker.get(ticker) or {}
+                changes.append({
+                    "action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0,
+                    "reason_code": str(action_info.get("reason_code") or "OUTSIDE_TARGET_TOP_N"),
+                    "reason": str(action_info.get("reason") or "Ikke lenger i valgt Top-portefølje"),
+                    "decision_run_id": decision_run_id,
+                })
         state["last_rebalance_date"] = now_dt.date().isoformat()
     else:
-        # Daily analysis updates price/score/stop intelligence but preserves target weights.
+        # Analysis-only, not-due, or blocked ordinary rebalance: preserve target
+        # weights, but always update stop intelligence and honor emergency stops.
         for ticker, old in previous.items():
             row = by_ticker.get(ticker)
             if row:
@@ -1145,13 +1607,20 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                 pos = dict(old)
                 pos.update(_stop_status(pos, cfg))
                 pressure = stop_pressure(pos, history, cfg)
-                pos.update({"stop_pressure": pressure["pressure"], "stop_pressure_icon": pressure["pressure_icon"], "stop_direction_arrow": pressure["direction_arrow"], "stop_distance_change_pct": pressure["distance_change_pct"]})
+                pos.update({
+                    "stop_pressure": pressure["pressure"], "stop_pressure_icon": pressure["pressure_icon"],
+                    "stop_direction_arrow": pressure["direction_arrow"], "stop_distance_change_pct": pressure["distance_change_pct"],
+                })
             if str(pos.get("stop_status")) == "STOP TRIGGERED":
-                changes.append({"action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0, "reason_code": "HARD_STOP", "reason": "Dynamisk hard stop utløst"})
+                changes.append({
+                    "action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0,
+                    "reason_code": "HARD_STOP", "reason": "Dynamisk hard stop utløst", "decision_run_id": decision_run_id,
+                })
                 continue
             positions[ticker] = pos
 
-    challengers = ranked[cfg.target_positions: cfg.target_positions + cfg.challenger_count]
+    selected_keys = {str(row.get("ticker") or "") for row in selected_rows}
+    challengers = [row for row in ranked if str(row.get("ticker") or "") not in selected_keys][: cfg.challenger_count]
     health = portfolio_health(list(positions.values()))
     position_rows = list(positions.values())
     weighted_return = 0.0
@@ -1160,25 +1629,26 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         weighted_return = sum(_f(p.get("pnl_pct")) * _f(p.get("target_weight_pct")) for p in position_rows) / total_weight
     turnover = turnover_cost_summary(changes, portfolio_value=_f(state.get("initial_cash"), cfg.start_cash), gross_return_pct=weighted_return, cost_bps=cfg.transaction_cost_bps)
     stress = stress_radar(position_rows)
-    freshness_scores = [_f((p.get("data_freshness") or {}).get("score")) for p in position_rows]
-    avg_freshness = sum(freshness_scores) / len(freshness_scores) if freshness_scores else 0.0
-    avg_quality = sum(_f(p.get("quality_score"), 50.0) for p in position_rows) / len(position_rows) if position_rows else 0.0
-    selected_scores = [_f(p.get("portfolio_score_adjusted"), _f(p.get("portfolio_score"))) for p in position_rows]
-    spread = (max(selected_scores) - min(selected_scores)) if len(selected_scores) > 1 else 0.0
-    regime_fit = _f(pipeline.get("regime_fit_score"), 70.0)
-    confidence = decision_confidence(data_quality=avg_quality, freshness_score=avg_freshness, regime_fit=regime_fit, score_spread=spread, correlation_available=all(str(p.get("correlation_source") or "UNAVAILABLE") != "UNAVAILABLE" for p in position_rows) if position_rows else False)
+    confidence = dict(rebalance_gate.get("confidence") or {})
     stop_alerts = _stop_alerts(previous, positions)
     ranking_snapshot = [{"ticker": row.get("ticker"), "rank": row.get("rank"), "score": row.get("portfolio_score_adjusted"), "rank_arrow": row.get("rank_arrow")} for row in ranked_all[: max(cfg.target_positions + cfg.challenger_count, 30)]]
     snapshot = {
         "at": now_iso,
-        "source_run_id": str(pipeline.get("run_id") or pipeline.get("report_id") or ""),
+        "source_run_id": decision_run_id,
         "positions": [{k: v for k, v in p.items() if k != "raw_candidate"} for p in positions.values()],
         "ranking": ranking_snapshot,
         "portfolio_health": health,
         "ai_would_do_today": advisory,
+        "ai_thinks": advisory,
+        "shadow_executed": changes,
+        "entry_gate": entry_gate,
+        "candidate_persistence": candidate_persistence,
+        "regime_policy": regime_policy,
         "changes": changes,
         "stop_alerts": stop_alerts,
         "rebalance_due": rebalance_due,
+        "rebalance_gate": rebalance_gate,
+        "rebalance_impact": rebalance_impact,
     }
     state.update({
         "positions": positions,
@@ -1186,6 +1656,11 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "source_run_id": snapshot["source_run_id"],
         "portfolio_health": health,
         "ai_would_do_today": advisory,
+        "ai_thinks": advisory,
+        "shadow_executed": changes,
+        "entry_gate": entry_gate,
+        "candidate_persistence": candidate_persistence,
+        "regime_policy": regime_policy,
         "last_changes": changes,
         "last_stop_alerts": stop_alerts,
         "manual_exit_shadow": [{"ticker": r.get("ticker"), "rank": r.get("rank"), "score": r.get("portfolio_score_adjusted"), "price": r.get("price"), "rank_arrow": r.get("rank_arrow")} for r in manual_shadow[:20]],
@@ -1193,15 +1668,27 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "turnover_costs": turnover,
         "decision_confidence": confidence,
         "decision_trace": decision_trace,
+        "rebalance_gate": rebalance_gate,
+        "rebalance_impact": rebalance_impact,
         "market_scan_summary": dict(pipeline.get("summary") or {}),
     })
     history.append(snapshot)
     state["history"] = history[-max(10, int(cfg.history_limit)):]
     if persist:
         save_state(state)
-        append_event(AUDIT_KEY, AUDIT_PATH, {"timestamp": now_iso, "event": "EVALUATE", "changes": changes, "stop_alerts": stop_alerts, "portfolio_health": health, "source_run_id": snapshot["source_run_id"], "rebalance_due": rebalance_due})
-    return {"state": state, "ranked": ranked, "changes": changes, "snapshot": snapshot, "portfolio_health": health, "ai_would_do_today": advisory, "stop_alerts": stop_alerts, "rebalance_due": rebalance_due, "stress_radar": stress, "turnover_costs": turnover, "decision_confidence": confidence, "decision_trace": decision_trace}
-
+        append_event(AUDIT_KEY, AUDIT_PATH, {
+            "timestamp": now_iso, "event": "EVALUATE", "changes": changes, "stop_alerts": stop_alerts,
+            "portfolio_health": health, "source_run_id": snapshot["source_run_id"], "rebalance_due": rebalance_due,
+            "rebalance_gate": rebalance_gate, "rebalance_impact": rebalance_impact,
+        })
+    return {
+        "state": state, "ranked": ranked, "changes": changes, "snapshot": snapshot, "portfolio_health": health,
+        "ai_would_do_today": advisory, "stop_alerts": stop_alerts, "rebalance_due": rebalance_due,
+        "stress_radar": stress, "turnover_costs": turnover, "decision_confidence": confidence,
+        "decision_trace": decision_trace, "rebalance_gate": rebalance_gate, "rebalance_impact": rebalance_impact,
+        "entry_gate": entry_gate, "candidate_persistence": candidate_persistence, "regime_policy": regime_policy,
+        "ai_thinks": advisory, "shadow_executed": changes,
+    }
 
 def manual_exit(ticker: str, note: str = "") -> dict[str, Any]:
     state = load_state(); positions = dict(state.get("positions") or {})
@@ -1288,6 +1775,16 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"evaluation_progress_guard", "status":"DONE", "label":"Manuell vurderingsknapp låses under kjøring og viser progressbar"},
         {"key":"manual_force_refresh", "status":"DONE", "label":"Manuell vurdering tvinger fersk Norden+USA market-feed i stedet for 12-timers cache"},
         {"key":"decision_trace_diagnostic_zip", "status":"DONE", "label":"Per-aksje Decision Trace med eksklusjonsårsak, run-ID-er, inkonsistensvarsel og diagnose-ZIP"},
+        {"key":"fresh_rebalance_gate", "status":"DONE", "label":"Ordinær Shadow-rebalansering krever fersk market-feed og samme decision run"},
+        {"key":"rebalance_confidence_gate", "status":"DONE", "label":"Ordinær rebalansering krever Decision Confidence over terskel"},
+        {"key":"replacement_hysteresis", "status":"DONE", "label":"Rank-buffer og scoremargin hindrer marginal Top-10 churn"},
+        {"key":"explicit_action_reasons", "status":"DONE", "label":"Alle AI-råd og faktiske endringer har reason_code og forklaring"},
+        {"key":"rebalance_before_after_impact", "status":"DONE", "label":"Før/etter Health, risk, correlation og turnover lagres per vurdering"},
+        {"key":"candidate_persistence", "status":"DONE", "label":"Nye challengers må bekreftes over flere ferske beslutningsruns før ordinær utskifting"},
+        {"key":"regime_aware_rebalance", "status":"DONE", "label":"CALM/NORMAL/STRESSED justerer persistence, confidence og challenger-margin"},
+        {"key":"candidate_data_coverage_gate", "status":"DONE", "label":"Nye posisjoner krever tilstrekkelig per-aksje datadekning; incumbents tvangsselges ikke ved datagap"},
+        {"key":"broad_us_universe", "status":"DONE", "label":"SP-spesifikt USA-univers kombinerer S&P 500, 400, 600 og Nasdaq-100 med deduplisering"},
+        {"key":"ai_vs_shadow_separation", "status":"DONE", "label":"AI THINKS og SHADOW EXECUTED lagres og vises som to separate beslutningsnivåer"},
     ]
 
 
@@ -1336,14 +1833,14 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     story.append(Spacer(1, 10)); story.append(Paragraph("Challengers", styles["Heading2"]))
     challenger_text = ", ".join(f"{r.get('ticker')} ({_f(r.get('portfolio_score_adjusted'), _f(r.get('portfolio_score'))):.1f}, {r.get('rank_arrow','→')})" for r in data.get("challengers") or []) or "Ingen"
     story.append(Paragraph(challenger_text, styles["Normal"])); story.append(Spacer(1, 8))
-    story.append(Paragraph("AI WOULD DO TODAY (advisory only)", styles["Heading2"]))
+    story.append(Paragraph("AI THINKS (advisory only)", styles["Heading2"]))
     actions = data.get("ai_would_do_today") or []
     if actions:
         for action in actions[:12]:
             story.append(Paragraph(f"{action.get('action')} {action.get('ticker')}: {_f(action.get('from_pct')):.1f}% → {_f(action.get('to_pct')):.1f}%", styles["Normal"]))
     else:
         story.append(Paragraph("Ingen foreslåtte endringer.", styles["Normal"]))
-    story.append(Spacer(1, 8)); story.append(Paragraph("Siste endringer", styles["Heading2"]))
+    story.append(Spacer(1, 8)); story.append(Paragraph("SHADOW EXECUTED", styles["Heading2"]))
     for change in list(data.get("last_changes") or [])[:12]:
         story.append(Paragraph(f"{change.get('action')} {change.get('ticker')}: {_f(change.get('from_pct')):.1f}% → {_f(change.get('to_pct')):.1f}% · {change.get('reason','')}", styles["Normal"]))
     doc.build(story)
@@ -1397,7 +1894,9 @@ def run_scheduled_shadow_cycle() -> dict[str, Any]:
     config_data = state.get("config") if isinstance(state.get("config"), Mapping) else {}
     allowed = set(SuperPortfolioConfig.__dataclass_fields__)
     cfg = SuperPortfolioConfig(**{k: v for k, v in config_data.items() if k in allowed})
-    pipeline = get_or_build_super_portfolio_market_pipeline(cfg=cfg)
+    now_dt = _now_dt()
+    force_fresh_for_rebalance = _rebalance_due(state, now_dt, cfg, "AUTO")
+    pipeline = get_or_build_super_portfolio_market_pipeline(cfg=cfg, force_refresh=force_fresh_for_rebalance)
     source_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     if not source_id:
         return {"state": "NO_PIPELINE", "source_run_id": ""}

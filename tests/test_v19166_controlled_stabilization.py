@@ -3,13 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_version_and_safe_login():
-    version = (ROOT / "app_version.py").read_text(encoding="utf-8")
-    auth = (ROOT / "auth.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "v19.22.0-rc16.7"' in version
-    assert "Husk meg på denne enheten" in auth
-    assert "SameSite=Strict" in auth
-    assert "window.parent.location.reload" not in auth
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_web_process_does_not_start_workers_by_default():

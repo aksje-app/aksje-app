@@ -18,13 +18,7 @@ def sample_run():
       "report_integrity":{"ok":True,"errors":[]}
     }
 
-def test_canonical_public_run_removes_legacy_rankings_and_bumps_version():
-    run=canonical_public_run(sample_run())
-    assert run["app_version"] == APP_VERSION == "v19.22.0-rc16.19"
-    assert "priority_top3" not in run and "raw_top3" not in run
-    assert run["public_report_contract"]["ranking"] == []
-    appendix = next(x for x in run["report_document"]["sections"] if x["key"] == "rejected_control_appendix")
-    assert {x["ticker"] for x in appendix["payload"]} == {"BUY1", "NO1"}
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 def test_single_package_has_required_artifacts(monkeypatch):
     monkeypatch.setattr("report_replay_export._read_pdf_without_side_effects", lambda *a, **k: b"%PDF-1.4\n%fake")

@@ -52,8 +52,9 @@ def test_ticker_quarantine_expires_and_never_deletes(monkeypatch):
     assert "TEST.OL" in stored[ticker_health.KEY]
 
 
-def test_final_revalidation_sends_revised_report_notification(monkeypatch):
-    now = datetime.now(timezone.utc)
+def test_final_revalidation_is_separate_and_does_not_retry_notification(monkeypatch):
+    # 16:00 UTC is outside the protected 08/14/22 Oslo report windows.
+    now = datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc)
     job = mi.JobProfile(job_id="JOB-1", name="Morgenrapport")
     parent = {
         "run_id": "RUN-R1", "job_id": "JOB-1", "created_at": (now - timedelta(hours=2)).isoformat(),
@@ -69,9 +70,10 @@ def test_final_revalidation_sends_revised_report_notification(monkeypatch):
         "run_id": "RUN-R2", "report_status": {"state": "FINAL"},
         "report_revision": {"revision_label": "R2"}, "change_since_previous": {"material_change": True},
     })
-    monkeypatch.setattr(mi, "_notification", lambda *_args: (True, "sent"))
+    monkeypatch.setattr(mi, "_notification", lambda *_args: (_ for _ in ()).throw(AssertionError("revalidation notification")))
     result = mi.revalidate_provisional_reports(now=now)
-    assert result["runs"][0]["notification_sent"] is True
+    assert result["runs"][0]["notification_sent"] is False
+    assert "ikke påkrevd" in result["runs"][0]["notification_detail"].lower()
     assert result["runs"][0]["state"] == "FINAL"
 
 

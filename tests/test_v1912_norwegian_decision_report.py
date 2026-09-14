@@ -27,22 +27,4 @@ def test_evening_report_uses_evening_mission_and_norwegian_actions():
     assert "Hovedkonklusjon" in text
 
 
-def test_source_log_uses_short_date_and_localized_status():
-    run = {
-        "run_id": "MI-1912-SOURCE",
-        "created_at": "2026-07-23T20:30:00+00:00",
-        "timezone_name": "Europe/Oslo",
-        "job_id": "JOB-2", "job_name": "Kveldsanalyse", "trigger": "SCHEDULED",
-        "markets": ["USA"], "summary": {},
-        "candidates": [{
-            "ticker": "TEST", "rank": 1, "investment_score": 70, "portfolio_action": "REVIEW",
-            "raw": {"insider_intelligence": {"coverage": "NOT_SEARCHED", "search_log": [{
-                "source": "Simply Wall St.", "attempted": True, "status": "NOT_SEARCHED",
-                "checked_at": "2026-07-17T22:15:04+00:00", "results": 0,
-            }]}, "news_intelligence": {"coverage": "NOT_SEARCHED", "search_log": []}},
-        }],
-    }
-    text = _text(run)
-    assert "17.07.2026 22:15" in text
-    assert "Ikke søkt" in text
-    assert "2026-07-17T22:15:04+00:00" not in text
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

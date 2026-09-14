@@ -20,19 +20,25 @@ RC_LABEL = "RC" + APP_VERSION.rsplit("-rc", 1)[1] if "-rc" in APP_VERSION else "
 MUTABLE_PARTS = {
     ".git", ".app_runtime", ".pytest_cache", ".render", ".yfinance_cache", "__pycache__", "build",
     "cache", "data", "dist", "htmlcov", "logs", "local_runtime", "runtime", "tmp",
-    "runtime_data", "storage", ".venv", "venv", "env",
+    "runtime_data", "storage", "output", ".venv", ".testenv", ".test-venv", "venv", "env",
 }
 FORBIDDEN_NAMES = {".env", "secrets.toml", "paper_portfolio.json", "app_users.json", "remember_tokens.json"}
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz"}
-DELTA_SUPPORT_FILES = {
-    "requirements.lock",
-    "tools/audit_full_system_v19150.py",
-    "tools/audit_evidence_search_v19220_rc10.py",
-    "tools/audit_navigation_rerun_v19220_rc14.py",
-    "tools/validate_distribution.py",
-    "tools/build_safe_distribution.py",
-    "tools/verify_dependency_lock.py",
-}
+DELTA_EXCLUDED_PREFIXES = ("tests/", "tools/")
+DELTA_EXCLUDED_NAMES = {"DISTRIBUTION_MANIFEST.json"}
+DELTA_EXCLUDED_SUFFIXES = {".md"}
+
+
+def required_runtime_delta_file(relative: str) -> bool:
+    """Keep DELTA deploy-only; QA, history and build artefacts belong in FULL."""
+    path = Path(relative)
+    if relative.startswith(DELTA_EXCLUDED_PREFIXES):
+        return False
+    if path.name.startswith("test_") and path.suffix.lower() == ".py":
+        return False
+    if path.name in DELTA_EXCLUDED_NAMES or path.suffix.lower() in DELTA_EXCLUDED_SUFFIXES:
+        return False
+    return True
 
 
 def sha256(path: Path) -> str:
@@ -139,23 +145,26 @@ def build(source: Path, baseline: Path, output: Path) -> dict:
     delta_stage = stage / "delta"
     copy_root = delta_stage / "COPY_TO_REPOSITORY"
     copy_root.mkdir(parents=True)
-    support_files = sorted(rel for rel in DELTA_SUPPORT_FILES if rel in source_files)
-    delta_copy_files = sorted(set(new + changed + support_files))
+    support_files: list[str] = []
+    delta_copy_files = sorted(rel for rel in set(new + changed) if required_runtime_delta_file(rel))
     for rel in delta_copy_files:
         path = source_files[rel]; dest = copy_root / rel; dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(path, dest)
     inventory = {
         "version": VERSION, "baseline": baseline.name,
-        "new": sorted(new), "changed": sorted(changed), "support_files": support_files, "deleted": delete_files,
-        "copy_file_count": len(delta_copy_files), "delete_file_count": len(delete_files),
+        "new": sorted(new), "changed": sorted(changed), "support_files": support_files,
+        "full_deleted": delete_files, "deleted": [], "delta_policy": "MINIMAL_RUNTIME_ONLY",
+        "copy_files": delta_copy_files,
+        "copy_file_count": len(delta_copy_files), "delete_file_count": 0,
     }
     (delta_stage / f"CHANGE_INVENTORY_{DOC_TAG}.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (delta_stage / "DELETE_FILES.txt").write_text("\n".join(delete_files) + ("\n" if delete_files else ""), encoding="utf-8")
+    (delta_stage / "DELETE_FILES.txt").write_text("", encoding="utf-8")
     (delta_stage / "README_APPLY_DELTA.md").write_text(
         f"# Bruk av {VERSION}-delta\n\n"
         f"1. Bruk repositorygrenen som er basert på {source.name} sin autoritative forgjenger.\n"
         "2. Kopier alt under `COPY_TO_REPOSITORY` til repositoryroten og erstatt eksisterende filer.\n"
-        "3. Slett hver bane i `DELETE_FILES.txt`. Baner under `.app_runtime` er mutable testdata og skal fjernes fra GitHub, ikke fra Render-disken.\n"
-        "4. Kontroller endringene, commit og push. Ikke marker produksjonsklar før Render-akseptansen er bestått.\n",
+        "3. `DELETE_FILES.txt` er med som sikkerhetskontroll og er tom i denne minimale runtime-deltaen.\n"
+        "4. Ikke kopier FULL-pakkens tester eller releasehistorikk inn i GitHub.\n"
+        "5. Kontroller endringene, commit og push. Ikke marker produksjonsklar før Render-akseptansen er bestått.\n",
         encoding="utf-8",
     )
 

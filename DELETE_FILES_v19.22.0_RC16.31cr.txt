@@ -1,0 +1,8 @@
+Files retired by RC16.31cr:
+
+jeep_commander_monitor.py
+
+The full ZIP does not contain this file. The delta ZIP contains a harmless
+compatibility tombstone at the same path so an overlay deployment cannot keep
+the former network/search implementation active. The application and scheduler
+have no route or import to this file.

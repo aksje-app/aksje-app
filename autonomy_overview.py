@@ -587,6 +587,17 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     with st.container(border=True):
         st.markdown("#### Pågående kjøring, fremdrift og avbryt")
         _render_live_progress(allow_quick_start=allow_quick_start)
+        if latest:
+            latest_entry = next(
+                (dict(row) for row in snapshot.get("archive") or []
+                 if str(row.get("run_id") or "") == str(latest.get("run_id") or "")),
+                {},
+            )
+            render_report_file_center(
+                st, latest, latest_entry, key=f"autonomy_unified_{latest.get('run_id') or 'latest'}",
+                execution_id=str(status.get("execution_id") or latest.get("background_execution_id") or ""),
+                include_complete_zip=True,
+            )
         # Never present an older successful run as part of a new running or
         # failed job.  The worker exposes the result run_id only after the
         # current execution has completed and persistence is verified.
@@ -607,19 +618,6 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                 st.error("Full Autonomy Execution er ufullstendig: " + ", ".join(full_execution.get("failed_stages") or []))
             with st.expander("Vis alle 13 Autonomi-trinn", expanded=False):
                 st.dataframe(pd.DataFrame([{ "#": x.get("number"), "Trinn": x.get("label"), "Status": x.get("status") } for x in full_execution.get("stages") or []]), width="stretch", hide_index=True)
-            if full_execution.get("self_contained"):
-                st.markdown("##### Ferdig rapport")
-                current_entry = next(
-                    (dict(row) for row in snapshot.get("archive") or []
-                     if str(row.get("run_id") or "") == current_result_id),
-                    {},
-                )
-                render_report_file_center(
-                    st, latest, current_entry,
-                    key=f"autonomy_completed_{current_result_id}",
-                    execution_id=str(status.get("execution_id") or latest.get("background_execution_id") or ""),
-                    include_complete_zip=True,
-                )
         parallel = dict(snapshot.get("parallel_validation") or {})
         if parallel:
             comparison = dict(parallel.get("comparison") or {})
@@ -780,12 +778,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
                     f"<div class='ar-row'><span class='ar-label'>Rapport-ID</span><span class='ar-value'>{report.get('run_id') or '-'}</span></div>"
                     "</div>", unsafe_allow_html=True,
                 )
-                report_run = load_archived_run(report) or snapshot.get("latest_run") or {}
-                _render_report_delivery(
-                    report_run,
-                    report,
-                    key=f"autonomy_latest_{report.get('run_id') or 'none'}",
-                )
+                st.caption("Nedlastingene ligger samlet rett under Utkast/pågående kjøring ovenfor.")
             else:
                 st.info("Ingen rapport er lagret.")
 

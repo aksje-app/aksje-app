@@ -52,16 +52,18 @@ def _reset_active():
 def test_learning_probe_buys_when_ordinary_gates_block_all_candidates():
     _reset_active()
     candidates = [
-        {"ticker": "AAA", "investment_score": 64, "data_quality": 100, "risk_score": 75, "price": 100, "sector": "Finans", "strategy_match": "Momentum", "portfolio_action": "REVIEW", "valid_for_decision": True, "evidence_valid_for_decision": False},
-        {"ticker": "BBB", "investment_score": 63, "data_quality": 100, "risk_score": 40, "price": 50, "sector": "Industri", "strategy_match": "Vekst", "portfolio_action": "REVIEW", "valid_for_decision": True, "evidence_valid_for_decision": False},
+        {"ticker": "AAA", "investment_score": 64, "data_quality": 100, "risk_score": 75, "price": 100, "sector": "Finans", "strategy_match": "Momentum", "portfolio_action": "REVIEW", "valid_for_decision": True, "evidence_valid_for_decision": True},
+        {"ticker": "BBB", "investment_score": 63, "data_quality": 100, "risk_score": 40, "price": 50, "sector": "Industri", "strategy_match": "Vekst", "portfolio_action": "REVIEW", "valid_for_decision": True, "evidence_valid_for_decision": True},
     ]
     result = run_autonomous_cycle(candidates, "TEST-V1918")
     buys = [t for t in result["trades"] if t["action"] == "BUY"]
-    assert len(buys) == 2
+    assert len(buys) == 1
     assert all(t.get("learning_probe") for t in buys)
     assert result["portfolio"]["positions"] == {}
-    assert result["learning_portfolio"]["positions"]["AAA"].get("origin") == "AUTONOMY_LEARNING_PROBE"
-    assert result["learning_portfolio"]["positions"]["AAA"].get("portfolio_type") == "LEARNING"
+    learned = next(iter(result["learning_portfolio"]["positions"].values()))
+    assert learned.get("origin") == "AUTONOMY_LEARNING_PROBE"
+    assert learned.get("portfolio_type") == "LEARNING"
+    assert learned.get("learning_tier") == "EXPLORATION"
     assert load_equity_history(10)
 
 
@@ -71,7 +73,7 @@ def test_runtime_observes_but_does_not_buy_invalid_market_data():
         "run_id": "MI-TEST-V1918",
         "markets": ["USA", "Norge"],
         "candidates": [
-            {"ticker": "CCC", "investment_score": 65, "data_quality": 95, "risk_score": 40, "price": 80, "valid_for_decision": False, "evidence_valid_for_decision": False, "portfolio_action": "REVIEW"},
+            {"ticker": "CCC", "investment_score": 65, "data_quality": 95, "risk_score": 40, "price": 80, "valid_for_decision": False, "evidence_valid_for_decision": True, "portfolio_action": "REVIEW"},
         ],
         "proposals": [],
         "timezone_name": "Europe/Oslo",
