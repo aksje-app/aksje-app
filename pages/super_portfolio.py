@@ -1,4 +1,4 @@
-"""Streamlit renderer for Super Portfolio RC16.32j."""
+"""Streamlit renderer for Super Portfolio RC16.32k."""
 from __future__ import annotations
 
 
@@ -9,8 +9,6 @@ def render_super_portfolio(_legacy_context) -> None:
     from super_portfolio import (
         build_pdf,
         build_diagnostic_zip,
-        evaluate,
-        get_or_build_super_portfolio_market_pipeline,
         load_state,
         manual_exit,
         master_checklist,
@@ -21,6 +19,10 @@ def render_super_portfolio(_legacy_context) -> None:
         resource_health,
         save_state,
         set_manual_aurora_benchmark,
+    )
+    from super_portfolio_jobs import (
+        ACTIVE_STATES, diagnostic_zip as job_diagnostic_zip, get_job,
+        recover_stale_job, request_control, start_job,
     )
 
     st.markdown("## 🌍 AI Super Portfolio")
@@ -52,7 +54,9 @@ def render_super_portfolio(_legacy_context) -> None:
             f"🔗 Correlation {float(hc.get('correlation') or 0):.1f}"
         )
 
-    evaluation_running = bool(st.session_state.get("sp_evaluation_running", False))
+    recover_stale_job()
+    current_job = get_job()
+    evaluation_running = str(current_job.get("state") or "") in ACTIVE_STATES
     notice = st.session_state.pop("sp_evaluation_notice", None)
     error_notice = st.session_state.pop("sp_evaluation_error", None)
     if notice:
@@ -69,37 +73,60 @@ def render_super_portfolio(_legacy_context) -> None:
         key="sp_evaluate_portfolio_32g",
     )
     if evaluate_clicked and not evaluation_running:
-        st.session_state["sp_evaluation_running"] = True
-        st.session_state["sp_evaluation_requested"] = True
-        st.rerun()
-
-    if evaluation_running and st.session_state.get("sp_evaluation_requested", False):
-        progress = st.progress(1, text="Starter fersk Super Portfolio-markedsskanning...")
         try:
-            def _progress_event(event):
-                pct = int(event.get("percent") or 0)
-                message = str(event.get("message") or event.get("stage") or "Jobber...")
-                progress.progress(max(1, min(92, pct)), text=message)
-
-            pipeline = get_or_build_super_portfolio_market_pipeline(force_refresh=True, progress_callback=_progress_event)
-            progress.progress(94, text="Bygger global rangering, target-portefølje og beslutningsspor...")
-            result = evaluate(pipeline=pipeline, persist=True, rebalance_policy="ANALYZE_ONLY")
-            progress.progress(98, text="Oppdaterer challengers, stop-pressure og diagnostikk...")
-            st.session_state["sp_last_changes"] = result["changes"]
-            summary = dict((pipeline.get("summary") or {}))
-            market_rows = list(summary.get("markets") or [])
-            scan_text = " · ".join(f"{r.get('market')}: {r.get('universe_loaded',0)} lastet/{r.get('deep_analyzed',0)} dyp" for r in market_rows)
-            progress.progress(100, text="Ferdig")
+            started = start_job("MANUAL", True)
             st.session_state["sp_evaluation_notice"] = (
-                f"Fersk markedsskanning ferdig. {scan_text}. "
-                f"{len(result['changes'])} faktisk(e) Shadow-endring(er); ordinær rebalansering: {'JA' if result.get('rebalance_due') else 'NEI'}."
+                f"Super Portfolio-jobb startet: {started.get('job_id')}. "
+                "Du kan bruke resten av programmet mens den arbeider."
             )
         except Exception as exc:
-            st.session_state["sp_evaluation_error"] = f"Super Portfolio-vurdering feilet: {exc}"
-        finally:
-            st.session_state["sp_evaluation_running"] = False
-            st.session_state["sp_evaluation_requested"] = False
+            st.session_state["sp_evaluation_error"] = f"Kunne ikke starte Super Portfolio-jobben: {exc}"
         st.rerun()
+
+    def _render_sp_job_progress() -> None:
+        job = get_job()
+        if not job:
+            st.caption("Ingen Super Portfolio-jobb er registrert ennå.")
+            return
+        state_name = str(job.get("state") or "UKJENT")
+        percent = max(0, min(100, int(job.get("percent") or 0)))
+        st.progress(percent, text=str(job.get("message") or state_name))
+        j1, j2, j3, j4 = st.columns(4)
+        j1.metric("Aktiv jobb-ID", str(job.get("job_id") or "-"))
+        j2.metric("Tilstand", state_name)
+        j3.metric("Fase / marked", f"{job.get('phase') or '-'} · {job.get('market') or '-'}")
+        units = f"{int(job.get('completed') or 0)}/{int(job.get('total') or 0)}"
+        j4.metric("Fremdrift", f"{percent}% · {units}")
+        st.caption(
+            f"Siste fremdrift: {job.get('last_progress_at') or '-'} · "
+            f"Heartbeat: {job.get('heartbeat_at') or '-'} · "
+            f"Siste verifiserte scan: {job.get('latest_successful_run_id') or '-'}"
+        )
+        if state_name in ACTIVE_STATES:
+            pause_col, resume_col, stop_col = st.columns(3)
+            if pause_col.button("⏸ Pause", disabled=state_name in {"PAUSE_REQUESTED", "PAUSED", "STOP_REQUESTED"}, width="stretch", key="sp_pause_job_32k"):
+                request_control("PAUSE", str(job.get("job_id") or ""))
+            if resume_col.button("▶ Fortsett", disabled=state_name not in {"PAUSE_REQUESTED", "PAUSED"}, width="stretch", key="sp_resume_job_32k"):
+                request_control("RESUME", str(job.get("job_id") or ""))
+            if stop_col.button("⏹ Stopp", disabled=state_name == "STOP_REQUESTED", width="stretch", key="sp_stop_job_32k"):
+                request_control("STOP", str(job.get("job_id") or ""))
+        elif state_name in {"FAILED", "INTERRUPTED"}:
+            st.error(f"{job.get('message') or state_name}: {job.get('error') or job.get('failure_type') or '-'}")
+        elif state_name == "CANCELLED":
+            st.warning("Jobben ble stoppet. Forrige verifiserte portefølje er beholdt.")
+        else:
+            st.success(f"Jobben er {state_name.lower()} og sluttresultatet er verifisert.")
+        st.download_button(
+            "⬇️ Last ned SP jobbdiagnose", data=job_diagnostic_zip(str(job.get("job_id") or "")),
+            file_name=f"SP_jobdiagnose_{job.get('job_id') or 'latest'}.zip",
+            mime="application/zip", width="stretch", key="sp_job_diagnostic_32k",
+        )
+
+    fragment = getattr(st, "fragment", None)
+    if callable(fragment):
+        fragment(run_every="5s")(_render_sp_job_progress)()
+    else:
+        _render_sp_job_progress()
     if b.button("📄 Publiser delbar PDF", width="stretch"):
         report = publish_pdf_report(state)
         if report.get("report_url"):
