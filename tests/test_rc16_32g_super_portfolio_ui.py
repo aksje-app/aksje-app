@@ -5,9 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / 'pages' / 'super_portfolio.py'
 
 
-def test_version_contract_is_rc16_32g():
-    assert app_version.APP_VERSION == 'v19.22.0-rc16.32g'
-    assert app_version.PREVIOUS_APP_VERSION == 'v19.22.0-rc16.32f'
+def test_rc16_32g_remains_in_changelog_after_later_releases():
+    assert any(str(row).startswith('v19.22.0-rc16.32g:') for row in app_version.CHANGELOG)
 
 
 def test_manual_evaluation_button_has_single_run_guard_and_progress_bar():
