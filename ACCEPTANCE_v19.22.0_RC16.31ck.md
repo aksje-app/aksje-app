@@ -1,0 +1,26 @@
+# Akseptanse RC16.31ck
+
+- [x] DataForSEO er isolert til Jeep Commander 2.2-modulen.
+- [x] API-login og API-passord leses bare fra Render-hemmeligheter.
+- [x] OLX og Webmotors får separate, målrettede site-søk.
+- [x] Bare individuelle annonselenker behandles som biler.
+- [x] Årsparene 2025/2026 og 2026/2027 kan gjenkjennes av eksisterende årstolkning.
+- [x] Manglende pris, kilometer, modellår eller geografi kan ikke bli et gyldig treff.
+- [x] Stille validering krever minst én individuell URL fra både OLX og Webmotors.
+- [x] Validering sender null Pushover-varsler.
+- [x] Automatisk DataForSEO-bruk er låst før bestått validering.
+- [x] Første automatiske API-kjøring lager en stille baseline.
+- [x] Nye funn og senere prisfall bruker eksisterende historikk og fargesymboler.
+- [x] Søkeindeksens fravær kan ikke utløse falskt «borte/solgt».
+- [x] 30 og 60 minutter er eneste tillatte intervaller; standard er 60.
+- [x] Testkostnad og månedskostnad har separate harde sperrer.
+- [x] Faktisk rapportert API-kostnad lagres når den finnes.
+- [x] Ingen API-kall skjer når modulen er deaktivert, utløpt, ikke forfalt eller ikke godkjent.
+- [x] Kildestatus skiller direkte markedsplass fra `SEARCH_INDEX`.
+- [x] Render-oppsettet inneholder hemmelige variabler for både web og scheduler.
+- [x] Målrettet regresjon: 37/37 tester bestått.
+- [x] Python-kompilering bestått for modul, app, scheduler og versjon.
+- [ ] Virkelig OLX-treff bekreftet etter deploy.
+- [ ] Virkelig Webmotors-treff bekreftet etter deploy.
+- [ ] Første produksjonsbaseline visuelt kontrollert uten Pushover.
+- [ ] Ett senere ekte nytt funn eller prisfall kontrollert ende-til-ende i Pushover.

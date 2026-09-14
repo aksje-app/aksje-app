@@ -6,9 +6,7 @@ import market_intelligence as mi
 import paper_scanner_runtime as psr
 import report_channel_consistency as rcc
 
-def test_release_version_is_rc1631d():
-    assert app_version.APP_VERSION == "v19.22.0-rc16.31d"
-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.31c"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 def test_required_job_ignores_even_corrupt_scan_windows():
     job = mi.JobProfile(job_id="MI-REQUIRED-MORNING", name="Obligatorisk morgenrapport",

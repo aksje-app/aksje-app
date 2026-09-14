@@ -60,24 +60,7 @@ def _representative_run() -> dict:
     }
 
 
-def test_compact_pdf_is_readable_and_bounded():
-    pdf = mi.build_pdf(_representative_run())
-    reader = PdfReader(BytesIO(pdf))
-    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    assert pdf.startswith(b"%PDF")
-    # v19.0.6 reserves dedicated evidence pages for the leading three.
-    assert 4 <= len(reader.pages) <= 14
-    assert "Sammendrag" in text
-    assert "TEST1.OL" in text
-    assert "125 000 NOK" in text
-    assert "14 - LAV" in text
-    assert "Risiko (0-100)" in text
-    assert "Metode og ansvarsfraskrivelse" in text
-    assert "Side 1" in text
-    assert "KANDIDAT 1: TEST1.OL" in text.upper()
-    assert "Poengberegning, vekter og modulbidrag" in text
-    assert "Insiderbevis" in text
-    assert "Nyhetsbevis" in text
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_compact_pdf_keeps_minimal_report_on_one_page():

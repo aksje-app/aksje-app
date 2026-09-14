@@ -64,11 +64,18 @@ def test_legacy_naive_cron_timestamp_is_normalized_to_utc():
     assert parsed.utcoffset().total_seconds() == 0
 
 
-def test_runtime_identity_detects_expected_version_mismatch(monkeypatch):
+def test_runtime_identity_ignores_stale_optional_version_pin(monkeypatch):
     monkeypatch.setenv("EXPECTED_APP_VERSION", "v0-wrong")
+    monkeypatch.delenv("ENFORCE_EXPECTED_APP_VERSION", raising=False)
     ok, reason = runtime_identity.validate_expected_runtime()
-    assert ok is False
-    assert runtime_identity.APP_VERSION in reason
+    assert ok is True and "ignoreres" in reason
+
+
+def test_runtime_identity_blocks_stale_explicit_emergency_pin(monkeypatch):
+    monkeypatch.setenv("EXPECTED_APP_VERSION", "v0-wrong")
+    monkeypatch.setenv("ENFORCE_EXPECTED_APP_VERSION", "true")
+    ok, reason = runtime_identity.validate_expected_runtime()
+    assert ok is False and runtime_identity.APP_VERSION in reason and "låsen er aktiv" in reason
 
 
 def test_headless_and_diagnostic_runtime_contracts_are_present():

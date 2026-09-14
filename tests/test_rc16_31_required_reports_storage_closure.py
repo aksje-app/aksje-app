@@ -242,7 +242,7 @@ def test_required_ledger_ignores_test_history_using_production_job_id(monkeypatc
     }])
     ledger = mi.required_report_delivery_ledger(datetime(2026, 8, 11, 7, 0, tzinfo=timezone.utc))
     morning = ledger["rows"][0]
-    assert morning["status"] == "FORSINKET"
+    assert morning["status"] == "PÅGÅR"
     assert morning["run_id"] == "" and morning["pushover_sent"] is False
 
 

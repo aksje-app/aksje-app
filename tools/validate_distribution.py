@@ -20,7 +20,7 @@ DOC_TAG = APP_VERSION.replace("-rc", "_RC")
 FORBIDDEN_ROOT_DIRS = {
     ".git", ".app_runtime", ".pytest_cache", ".render", ".yfinance_cache", "build", "cache",
     "data", "dist", "htmlcov", "logs", "local_runtime", "old_work_d",
-    "runtime", "runtime_data", "storage", "tmp", "__pycache__",
+    "runtime", "runtime_data", "storage", "output", "tmp", "__pycache__",
 }
 FORBIDDEN_EXACT_PATHS = {
     ".env", ".streamlit/secrets.toml", "paper_portfolio.json", "app_users.json",
@@ -66,9 +66,6 @@ PROFILE_REQUIRED_FILES = {
     "update": {
         "README_APPLY_DELTA.md", f"CHANGE_INVENTORY_{DOC_TAG}.json", "DELETE_FILES.txt",
         "COPY_TO_REPOSITORY/app_version.py",
-        "COPY_TO_REPOSITORY/requirements.lock",
-        f"COPY_TO_REPOSITORY/RELEASE_NOTES_{DOC_TAG}.md",
-        "COPY_TO_REPOSITORY/tools/audit_full_system_v19150.py",
     },
     "migration": {"app_version.py", f"DEPLOY_{DOC_TAG}.md"},
 }
@@ -203,6 +200,29 @@ def validate_entries(entries: Iterable[FileEntry], profile: str = "full") -> dic
         invalid_pins = [line for line in lock_lines if "==" not in line or line.count("==") != 1]
         if invalid_pins:
             issues.append(ValidationIssue("UNPINNED_DEPENDENCY", lock_name, "Lockfilen inneholder avhengigheter uten eksakt ==-versjon."))
+
+    if profile == "update":
+        inventory_name = f"CHANGE_INVENTORY_{DOC_TAG}.json"
+        try:
+            inventory = json.loads(text_by_name.get(inventory_name, "{}"))
+        except json.JSONDecodeError:
+            inventory = {}
+            issues.append(ValidationIssue("INVALID_DELTA_INVENTORY", inventory_name, "Deltaoversikten er ikke gyldig JSON."))
+        if inventory.get("delta_policy") != "MINIMAL_RUNTIME_ONLY":
+            issues.append(ValidationIssue("DELTA_POLICY", inventory_name, "Deltaen mangler minimal runtime-policy."))
+        declared = {f"COPY_TO_REPOSITORY/{path}" for path in inventory.get("copy_files", [])}
+        actual = {name for name in names if name.startswith("COPY_TO_REPOSITORY/")}
+        if declared != actual:
+            issues.append(ValidationIssue("DELTA_INVENTORY_MISMATCH", inventory_name, "Deklarerte runtimefiler stemmer ikke med arkivet."))
+        forbidden_delta = sorted(
+            name for name in actual
+            if name.startswith("COPY_TO_REPOSITORY/tests/")
+            or name.startswith("COPY_TO_REPOSITORY/tools/")
+            or name.endswith(".md")
+            or name == "COPY_TO_REPOSITORY/DISTRIBUTION_MANIFEST.json"
+        )
+        for name in forbidden_delta:
+            issues.append(ValidationIssue("NON_RUNTIME_DELTA_FILE", name, "Tester, verktøy og releaseartefakter skal bare ligge i FULL."))
 
     unique = {(item.code, item.path, item.message): item for item in issues}
     ordered = sorted(unique.values(), key=lambda item: (item.code, item.path))

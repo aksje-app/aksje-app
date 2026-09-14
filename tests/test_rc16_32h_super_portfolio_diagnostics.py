@@ -111,8 +111,7 @@ def test_ui_forces_refresh_and_exposes_diagnostic_zip():
     assert "📦 Last ned diagnose-ZIP" in source
 
 
-def test_version_contract_is_rc16_32h():
+def test_rc16_32h_remains_immediate_previous_release_after_version_bump():
     import app_version
-    assert app_version.APP_VERSION == "v19.22.0-rc16.32h"
-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.32g"
-    assert sp.VERSION == "v19.22.0-rc16.32h"
+    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.32h"
+    assert sp.VERSION == app_version.APP_VERSION

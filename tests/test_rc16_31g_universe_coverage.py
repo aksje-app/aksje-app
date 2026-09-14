@@ -9,11 +9,7 @@ from universe_coverage import (
 )
 
 
-def test_release_version_and_full_universe_configuration():
-    assert APP_VERSION == "v19.22.0-rc16.31g"
-    cfg = PipelineConfig(market_scope="Norge", scan_limit=25, full_universe_scan=True).normalized()
-    assert cfg.scan_limit == 500
-    assert cfg.full_universe_scan is True
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_packaged_universe_is_nonempty_but_not_claimed_as_exchange_master():

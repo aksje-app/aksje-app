@@ -303,6 +303,76 @@ def get_sp500_tickers(limit=150):
     """Henter S&P 500 automatisk fra Wikipedia. Fallback hvis nettet feiler."""
     return list(_get_sp500_tickers_cached(int(limit or 150)))
 
+
+def _fetch_wikipedia_symbols(url, columns, limit):
+    """Fetch a constituent table without making broad-US discovery depend on one index."""
+    if pd is None or requests is None:
+        return tuple()
+    try:
+        response = requests.get(url, timeout=6, headers={"User-Agent": "smart-ai-trading-app/1.0"})
+        response.raise_for_status()
+        for frame in pd.read_html(StringIO(response.text)):
+            for column in columns:
+                if column in frame.columns:
+                    values = frame[column].astype(str).str.strip().str.replace(".", "-", regex=False).tolist()
+                    clean = []
+                    seen = set()
+                    for value in values:
+                        value = str(value or "").strip().upper()
+                        if value and value != "NAN" and value not in seen:
+                            seen.add(value); clean.append(value)
+                    if clean:
+                        return tuple(clean[: int(limit or len(clean))])
+    except Exception:
+        pass
+    return tuple()
+
+
+@lru_cache(maxsize=4)
+def _get_sp400_tickers_cached(limit=400):
+    return _fetch_wikipedia_symbols(
+        "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
+        ("Symbol", "Ticker symbol", "Ticker"), limit,
+    )
+
+
+@lru_cache(maxsize=4)
+def _get_sp600_tickers_cached(limit=600):
+    return _fetch_wikipedia_symbols(
+        "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies",
+        ("Symbol", "Ticker symbol", "Ticker"), limit,
+    )
+
+
+@lru_cache(maxsize=4)
+def _get_nasdaq100_tickers_cached(limit=100):
+    return _fetch_wikipedia_symbols(
+        "https://en.wikipedia.org/wiki/Nasdaq-100",
+        ("Ticker", "Symbol", "Ticker symbol"), limit,
+    )
+
+
+def get_us_broad_tickers(limit=1600):
+    """SP-oriented broad US universe: S&P 500 + 400 + 600 + Nasdaq-100, deduplicated."""
+    requested = max(1, int(limit or 1600))
+    sources = (
+        _get_sp500_tickers_cached(500),
+        _get_sp400_tickers_cached(400),
+        _get_sp600_tickers_cached(600),
+        _get_nasdaq100_tickers_cached(100),
+    )
+    out, seen = [], set()
+    for source in sources:
+        for ticker in source:
+            key = str(ticker or "").strip().upper().replace(".", "-")
+            if key and key not in seen:
+                seen.add(key); out.append(key)
+                if len(out) >= requested:
+                    return out
+    if not out:
+        out = list(US_FALLBACK)
+    return out[:requested]
+
 def get_norwegian_instruments(limit=None, force_refresh=False):
     """Authoritative Oslo equity master when Euronext is reachable.
 

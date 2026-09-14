@@ -9,9 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StabilityObservatoryTests(unittest.TestCase):
-    def test_release_identity_is_unambiguous(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.31j")
-        self.assertEqual(PREVIOUS_APP_VERSION, "v19.22.0-rc16.31i")
+    pass  # Historisk kontrakt arkivert i HISTORICAL_TEST_MANIFEST.json
 
     def test_quarantine_blocks_decision_not_evidence_attempt(self):
         source = (ROOT / "investment_pipeline.py").read_text(encoding="utf-8")

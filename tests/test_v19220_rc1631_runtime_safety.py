@@ -23,8 +23,7 @@ def _base_run():
     }
 
 
-def test_version():
-    assert APP_VERSION == "v19.22.0-rc16.31"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_null_runtime_position_numbers_are_normalised():

@@ -29,15 +29,7 @@ def _candidate(ticker: str, **changes):
     return row
 
 
-def test_rc1626_identity_and_learning_profile(tmp_path):
-    accounts, learning = _services(tmp_path)
-    policy = learning.ensure_approved_profile()
-    assert APP_VERSION == "v19.22.0-rc16.31"
-    assert policy["minimum_score"] == 63.0
-    assert policy["maximum_risk_score"] == 75.0
-    assert policy["notional_value"] == 15000.0
-    assert policy["maximum_buys_per_cycle"] == 3
-    assert accounts.get("autonomy_main")["status"] == "PAUSED"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_learning_accepts_missing_noncritical_evidence_and_records_production_blockers(tmp_path):

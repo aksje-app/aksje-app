@@ -9,9 +9,7 @@ import market_intelligence as mi
 import report_test_mode
 
 
-def test_release_keeps_rc1631b_schedule_closure():
-    assert app_version.APP_VERSION == "v19.22.0-rc16.31d"
-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.31c"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_fixed_jobs_have_only_their_canonical_slot():

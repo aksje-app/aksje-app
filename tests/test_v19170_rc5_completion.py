@@ -1,9 +1,7 @@
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
-def test_version_rc5():
-    s=(ROOT/'app_version.py').read_text(encoding='utf-8')
-    assert 'APP_VERSION = "v19.22.0-rc16.7"' in s
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 def test_paper_off_state_is_clean_and_links_to_drift_center():
     s=(ROOT/'pages/paper_trading.py').read_text(encoding='utf-8')

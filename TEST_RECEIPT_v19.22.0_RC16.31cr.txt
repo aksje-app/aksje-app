@@ -1,0 +1,10 @@
+RC16.31cr test receipt
+
+Verified by compilation, source-route audit and isolated cleanup simulation:
+- no Jeep menu route
+- no scheduler import or execution of the vehicle monitor
+- only temporary/jeep_commander_22/config.json and state.json are deleted
+- cleanup is idempotent through a versioned migration marker
+- full distribution excludes jeep_commander_monitor.py
+- delta overwrites an existing module with a network-free tombstone
+- no investment namespace is selected for deletion

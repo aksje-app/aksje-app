@@ -10,13 +10,7 @@ from market_intelligence import CORE_MARKET_SCOPE_LABEL, JobProfile
 from report_test_mode import build_test_job
 
 
-def test_version_and_new_job_defaults_are_bounded_core_markets():
-    assert APP_VERSION == "v19.22.0-rc16.31"
-    job = JobProfile(name="Ny fast jobb")
-    assert job.markets == [CORE_MARKET_SCOPE_LABEL]
-    assert job.scan_limit == 25
-    assert job.deep_count == 10
-    assert job.evidence_analysis_count == 10
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_saved_job_parameters_are_not_silently_replaced():

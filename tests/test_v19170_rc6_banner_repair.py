@@ -6,8 +6,7 @@ UI = (ROOT / 'ui' / 'live_market_banner.py').read_text(encoding='utf-8')
 VERSION = (ROOT / 'app_version.py').read_text(encoding='utf-8')
 
 
-def test_rc6_version():
-    assert 'APP_VERSION = "v19.22.0-rc16.7"' in VERSION
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_provider_aliases_and_wrong_suffixes_are_normalised():

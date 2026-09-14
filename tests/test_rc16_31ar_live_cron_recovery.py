@@ -71,7 +71,8 @@ def test_checkpoint_survives_changed_dynamic_watchlist(monkeypatch):
     sw._run_once_impl(force=True, check_currency_alerts=False)
     assert checkpoints[-1]["scan_run_id"] == "PAPER-SCAN-EXISTING"
     assert checkpoints[-1]["next_index"] == 2
-    assert checkpoints[-1]["tickers"] == ["AAPL", "MSFT", "NVDA", "TSLA"]
+    # A resumed cycle is immutable and bounded; TSLA belongs to the next run.
+    assert checkpoints[-1]["tickers"] == ["AAPL", "MSFT", "NVDA"]
 
 
 def test_invalid_fund_name_is_never_used_as_scanner_ticker(monkeypatch):
@@ -128,6 +129,6 @@ def test_partial_checkpoint_is_visible_but_not_a_cron_failure(monkeypatch):
     assert scheduled_runner.main() == 0
 
 
-def test_render_cron_matches_configured_fifteen_minute_interval():
+def test_render_cron_matches_configured_five_minute_interval():
     source = Path("render.yaml").read_text(encoding="utf-8")
-    assert 'schedule: "*/15 * * * *"' in source
+    assert 'schedule: "*/5 * * * *"' in source

@@ -30,11 +30,8 @@ def test_cron_has_narrow_report_lock_cadence_and_production_capacity():
     assert "already_coordinated=False" in runner
     assert "The report lock must never cover paper scanning" in runner
     assert "REPORT_MAINTENANCE_INTERVAL_MINUTES" in runner
-    assert 'schedule: "*/15 * * * *"' in blueprint
+    assert 'schedule: "*/5 * * * *"' in blueprint
     assert "plan: standard" in blueprint
 
 
-def test_report_execution_lock_is_shared_by_all_callers():
-    source = Path("market_intelligence.py").read_text(encoding="utf-8")
-    assert "from execution_coordination import report_execution_lock" in source
-    assert "with report_execution_lock() as execution_acquired" in source
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

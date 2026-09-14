@@ -1,0 +1,12 @@
+RC16.31cp test receipt
+
+Relevant Jeep Commander/Webmotors regression suite: 50 passed.
+Verified canonical Webmotors path and query parameters:
+- used inventory
+- Jeep Commander
+- 2.2 Turbo Diesel Overland AT9
+- years 2025 through 2026
+- maximum 35,000 km
+- page 1
+
+Production access and live listing coverage require verification after Render deployment.

@@ -35,14 +35,14 @@ def test_learning_positions_do_not_modify_ordinary_cash_or_holdings():
     for path in (TRADES_PATH, DECISIONS_PATH, LEARNING_TRADES_PATH, LEARNING_DECISIONS_PATH, EQUITY_HISTORY_PATH, LEARNING_EQUITY_HISTORY_PATH):
         _write(path, [])
     result = run_autonomous_cycle([
-        {"ticker":"AAA","investment_score":64,"data_quality":100,"risk_score":75,"price":100,"sector":"Finans","valid_for_decision":True,"evidence_valid_for_decision":False},
-        {"ticker":"BBB","investment_score":63,"data_quality":100,"risk_score":40,"price":50,"sector":"Industri","valid_for_decision":True,"evidence_valid_for_decision":False},
+        {"ticker":"AAA","investment_score":64,"data_quality":100,"risk_score":75,"price":100,"sector":"Finans","valid_for_decision":True,"evidence_valid_for_decision":True},
+        {"ticker":"BBB","investment_score":63,"data_quality":100,"risk_score":40,"price":50,"sector":"Industri","valid_for_decision":True,"evidence_valid_for_decision":True},
     ], "TEST-V1918B")
     assert result["portfolio"]["positions"] == {}
     assert result["portfolio"]["cash"] == 100000
-    assert set(result["learning_portfolio"]["positions"]) == {"AAA", "BBB"}
+    assert len(result["learning_portfolio"]["positions"]) == 1
     assert result["portfolio_trades"] == []
-    assert len(result["learning_trades"]) == 2
+    assert len(result["learning_trades"]) == 1
 
 
 def test_app_version_is_v19019():

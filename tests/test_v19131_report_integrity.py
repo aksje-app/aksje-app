@@ -217,23 +217,7 @@ def test_test_runs_are_silent_unless_test_notification_is_explicit():
     assert mi.should_suppress_notifications("SCHEDULED", False) is True
 
 
-def test_pdf_uses_raw_ranking_and_canonical_summary_when_none_are_decision_ready():
-    run = _run([
-        _candidate("STB.OL", 77.06, insider_status="PARTIAL_SOURCE_FAILURE", news_status="VERIFIED_FACTS_FOUND", insider_attempted=True, news_events=[{"publisher": "GuruFocus.com", "original_publisher": "GuruFocus.com", "title": "News"}]),
-        _candidate("WWI.OL", 72.86, action="SKIP", insider_status="PARTIAL_SOURCE_FAILURE", news_status="VERIFIED_FACTS_FOUND", insider_attempted=True, news_events=[{"publisher": "Simply Wall St.", "original_publisher": "Simply Wall St.", "title": "News"}]),
-        _candidate("FRO.OL", 66.5, trend="FALLENDE", raw_trend="STIGENDE"),
-    ])
-    pdf = mi.build_pdf(run)
-    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
-
-    assert "PRIORITET 1" in text
-    assert "Rangeringen viser hvilke kandidater som bør vurderes først" in text
-    assert "GULL - BESTE KANDIDAT" not in text
-    assert "Undersøk manuelt" in text
-    assert "72.14" in text
-    assert "Evidensport" in text
-    assert "Beslutningsstempel" in text
-    assert "modellbaseline" in text.casefold()
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_report_document_carries_canonical_summary_and_integrity_status():

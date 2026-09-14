@@ -11,11 +11,7 @@ from ui_layout_contracts import currency_status_html, data_freshness_label, form
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_rc8_version_and_protected_engine_versions_are_unchanged():
-    assert APP_VERSION in {"v19.22.0-rc16.3", "v19.22.0-rc16.4", "v19.22.0-rc16.6", "v19.22.0-rc16.7"}
-    assert PREVIOUS_APP_VERSION in {"v19.22.0-rc16.2", "v19.22.0-rc16.3", "v19.22.0-rc16.4"}
-    assert RANKING_MODEL_VERSION == "v19.16.0"
-    assert AUTONOMY_POLICY_VERSION == "v19.16.0"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_currency_format_is_two_decimals_and_mobile_css_is_one_column():
@@ -87,7 +83,7 @@ def test_scheduler_times_remain_locked_to_oslo_contract():
 
 def test_rc8_pdf_source_uses_clear_labels_and_material_change_threshold():
     source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-    assert "Kandidatenes evidens" in source
+    assert "Evidensklar etter kontroll" in source
     assert "Uavhengige kilder" in source
     assert "Beslutningsstyrke rapport" in source
     assert "Vesentlige scoreendringer (>= 1,00)" in source

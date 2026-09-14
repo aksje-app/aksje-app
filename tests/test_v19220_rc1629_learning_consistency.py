@@ -26,8 +26,7 @@ def _diagnostic_shape() -> dict:
     }
 
 
-def test_version_is_rc1630():
-    assert APP_VERSION == "v19.22.0-rc16.31"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_action_buy_is_normalised_when_shared_fills_are_empty():

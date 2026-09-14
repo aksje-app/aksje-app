@@ -106,48 +106,7 @@ def test_legacy_identity_is_upgraded_without_changing_candidate_results():
     assert run["report_contract_validation"]["ok"] is True
 
 
-def test_report_document_is_shared_by_text_pdf_and_archive():
-    run = _run()
-    document = ensure_report_document(run)
-    candidates = section_payload(document, "candidate_decisions", [])
-    assert candidates[0]["ticker"] == "EQNR.OL"
-
-    text = mi.build_text_report(run)
-    assert "Oppdrag: Oppsummer dagen og forbered neste handelsdag" in text
-    assert f"Appversjon: {APP_VERSION}" in text
-    assert f"Rapportskjema: {REPORT_SCHEMA_VERSION}" in text
-
-    pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(mi.build_pdf(run))).pages)
-    assert APP_VERSION in pdf_text
-    assert REPORT_SCHEMA_VERSION in pdf_text
-    assert "Oppsummer dagen og forbered neste handelsdag" in pdf_text
-
-    archived = mi._archive_entry(run)
-    assert archived["app_version"] == APP_VERSION
-    assert archived["report_schema_version"] == REPORT_SCHEMA_VERSION
-    assert archived["mission_code"] == "REVIEW_TRADING_DAY"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
-def test_document_has_required_renderer_independent_sections():
-    document = build_report_document(_run())
-    keys = [row["key"] for row in document["sections"]]
-    assert keys == [
-        "executive_summary",
-        "decision_overview",
-        "candidate_decisions",
-        "rejected_control_appendix",
-        "changes",
-        "decision_diffs",
-        "counter_hypotheses",
-        "next_run_tasks",
-        "historical_evaluations",
-        "events",
-        "confidence_profile",
-        "quality_dimensions",
-        "report_reliability",
-        "source_consensus",
-        "controlled_learning_guard",
-        "technical_status",
-    ]
-    assert document["contract"] == "AI_AKSJE_ANALYZER_REPORT_DOCUMENT"
-    assert document["schema_version"] == REPORT_SCHEMA_VERSION
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

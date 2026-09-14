@@ -52,8 +52,9 @@ def test_pdf_shows_review_order_without_fabricating_buys():
     assert "Prioritert vurderingsrekkefølge 1-3" in first
     assert all(ticker in first for ticker in ("AMGN", "APA", "ANET"))
     assert "Kjøpsgodkjent" in first
-    assert "0 kjøpskandidat(er)" in first
-    assert "ikke en kjøpsanbefaling" in first
+    assert "0 strengt kjøpsgodkjent(e)" in first
+    assert "0 moderat kjøpsanbefalt(e)" in first
+    assert "øvrige rader er videre vurdering" in first
     assert not any((page.strip().startswith("Vurderinger utløper") and len(page.splitlines()) < 8) for page in pages)
 
 

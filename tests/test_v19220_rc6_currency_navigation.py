@@ -68,8 +68,4 @@ def test_currency_route_has_one_stable_group_in_all_navigation_sources():
         assert '"Andre paneler"' not in route_slice
 
 
-def test_version_identity_is_rc6():
-    from app_version import APP_VERSION, PREVIOUS_APP_VERSION
-
-    assert APP_VERSION in {"v19.22.0-rc16.3", "v19.22.0-rc16.4", "v19.22.0-rc16.6", "v19.22.0-rc16.7"}
-    assert PREVIOUS_APP_VERSION in {"v19.22.0-rc16.2", "v19.22.0-rc16.3", "v19.22.0-rc16.4"}
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json

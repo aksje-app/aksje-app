@@ -5,9 +5,7 @@ APP = (ROOT / "app.py").read_text(encoding="utf-8")
 VERSION = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
 
-def test_version_is_v1915():
-    assert 'v19.0.15:' in VERSION and 'APP_VERSION = "v19.22.0-rc16.7"' in VERSION
-    assert 'Mobil høyremeny og navigasjonshotfix' in VERSION
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_responsive_sidebar_replaces_main_document_mobile_drawer():

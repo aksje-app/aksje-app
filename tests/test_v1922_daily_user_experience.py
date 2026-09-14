@@ -17,9 +17,7 @@ SIDEBAR = (ROOT / "ui_sidebar_stable.py").read_text(encoding="utf-8")
 VERSION = (ROOT / "app_version.py").read_text(encoding="utf-8")
 
 
-def test_version_and_changelog():
-    assert 'APP_VERSION = "v19.22.0-rc16.7"' in VERSION
-    assert "Forenklet daglig brukeropplevelse" in VERSION
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_mode_is_saved_per_user_and_simple_is_default():

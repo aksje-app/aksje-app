@@ -69,11 +69,12 @@ def test_historical_inventory_is_complete_and_no_longer_active_xfail_debt():
     }
     conftest = (ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
     assert "pytest.mark.xfail" not in conftest
-    assert "pytest_deselected" in conftest
+    assert "pytest_deselected" not in conftest
+    assert "pytest_collection_modifyitems" not in conftest
 
 
 def test_one_canonical_release_identity_replaces_old_literal_version_tests():
-    assert APP_VERSION == "v19.22.0-rc16.31ar"
+    assert APP_VERSION == "v19.22.0-rc16.31bd"
     tag = APP_VERSION.replace("-rc", "_RC")
     assert (ROOT / f"RELEASE_NOTES_{tag}.md").is_file()
     assert (ROOT / f"VALIDATION_REPORT_{tag}.md").is_file()

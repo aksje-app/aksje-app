@@ -1,4 +1,4 @@
-"""Streamlit renderer for Super Portfolio RC16.32h."""
+"""Streamlit renderer for Super Portfolio RC16.32j."""
 from __future__ import annotations
 
 
@@ -149,6 +149,64 @@ def render_super_portfolio(_legacy_context) -> None:
         if caur.button("💾 Lagre Aurora-benchmark",width="stretch",key="sp_save_aurora_32d"):
             set_manual_aurora_benchmark(aurora_return,label="Aurora"); st.rerun()
 
+    st.markdown("### 🛡️ Rebalance Gate")
+    gate = state.get("rebalance_gate") or {}
+    impact = state.get("rebalance_impact") or {}
+    g1,g2,g3,g4 = st.columns(4)
+    gate_allowed = bool(gate.get("allowed"))
+    g1.metric("Status", "🟢 ÅPEN" if gate_allowed else "🔴 BLOKKERT")
+    g2.metric("Feed-alder", f"{float(gate.get('pipeline_age_minutes') or 0):.0f} min" if gate.get('pipeline_age_minutes') is not None else "-")
+    gate_conf = gate.get("confidence") or {}
+    g3.metric("Confidence", f"{gate_conf.get('icon','⚪')} {float(gate_conf.get('score') or 0):.1f}/100")
+    g4.metric("Decision run", str(gate.get("decision_run_id") or "-")[-18:])
+    gate_reasons = list(gate.get("reason_codes") or [])
+    if gate_reasons:
+        st.warning(" · ".join(gate_reasons))
+    else:
+        st.caption("Ordinær Shadow-rebalansering kan bare utføres når market-feed og beslutningsgrunnlag består freshness- og confidence-gatene.")
+
+    with st.expander("🎛️ Regime Policy", expanded=False):
+        regime = state.get("regime_policy") or gate.get("regime_policy") or {}
+        rp1,rp2,rp3,rp4 = st.columns(4)
+        rp1.metric("Regime", regime.get("regime") or "NORMAL")
+        rp2.metric("Persistence", f"{int(regime.get('required_persistence_runs') or 0)} runs")
+        rp3.metric("Min confidence", f"{float(regime.get('min_confidence') or 0):.1f}")
+        rp4.metric("Challenger-margin", f"{float(regime.get('replacement_score_margin') or 0):.1f}")
+
+    with st.expander("🎯 Candidate Entry Gate", expanded=False):
+        entry_gate = state.get("entry_gate") or {}
+        gate_rows=[]
+        for ticker, row in entry_gate.items():
+            coverage=row.get("coverage") or {}
+            gate_rows.append({
+                "Aksje":ticker,
+                "Tillatt":"🟢 JA" if row.get("allowed") else "🔴 NEI",
+                "Coverage %":coverage.get("score","-"),
+                "Persistence":f"{row.get('persistence_streak','-')}/{row.get('required_persistence_runs','-')}",
+                "Regime":row.get("regime") or "-",
+                "Blokkering":" · ".join(row.get("reason_codes") or []) or "-",
+            })
+        if gate_rows:
+            st.dataframe(pd.DataFrame(gate_rows), width="stretch", hide_index=True, height=260)
+        else:
+            st.caption("Ingen nye challengers har vært gjennom entry-gaten i siste beslutningsrunde.")
+
+    st.markdown("### 📊 Før / etter rebalansering")
+    if impact:
+        before = impact.get("health_before") or {}
+        after = impact.get("health_after") or {}
+        i1,i2,i3,i4 = st.columns(4)
+        i1.metric("Health før", f"{float(before.get('score') or 0):.1f}")
+        i2.metric("Health etter", f"{float(after.get('score') or 0):.1f}", delta=f"{float(impact.get('health_delta') or 0):+.1f}")
+        i3.metric("Risk før → etter", f"{float(impact.get('risk_before') or 0):.1f} → {float(impact.get('risk_after') or 0):.1f}")
+        i4.metric("Foreslått turnover", f"{float(impact.get('turnover_pct') or 0):.1f}%")
+        st.caption(
+            f"Correlation {float(impact.get('correlation_before') or 0):.1f} → {float(impact.get('correlation_after') or 0):.1f} · "
+            f"Run {impact.get('decision_run_id') or '-'}"
+        )
+    else:
+        st.caption("Før/etter-impact fylles ved neste SP-vurdering.")
+
     st.markdown("### 🧯 Stress Radar")
     stress=state.get("stress_radar") or []
     if stress:
@@ -263,18 +321,37 @@ def render_super_portfolio(_legacy_context) -> None:
 
         with info_row_2[2]:
             with st.expander("💭 AI WOULD DO TODAY", expanded=False):
-                st.caption("Kun rådgivende Shadow-visning. Ingen ordinær handel utføres her.")
+                st.caption("🧠 AI THINKS — hva AI ønsker å gjøre nå. Dette er rådgivende og er ikke det samme som utførte Shadow-endringer.")
                 icons={"BUY":"🟢","ADD":"🔵","REDUCE":"🟠","SELL":"🔴"}
                 advisory_rows=[{
                     "Handling":f"{icons.get(action.get('action'),'•')} {action.get('action')}",
                     "Aksje":action.get("ticker"),
                     "Fra %":round(float(action.get("from_pct") or 0),1),
                     "Til %":round(float(action.get("to_pct") or 0),1),
+                    "Status":action.get("execution_status") or "ADVISORY_ONLY",
+                    "Årsak":action.get("reason") or "-",
+                    "Kode":action.get("reason_code") or "-",
                 } for action in advisory]
                 if advisory_rows:
                     st.dataframe(pd.DataFrame(advisory_rows), width="stretch", hide_index=True, height=280)
                 else:
                     st.caption("Ingen foreslåtte endringer akkurat nå.")
+
+        with st.expander("✅ SHADOW EXECUTED", expanded=False):
+            st.caption("Kun handlinger som faktisk ble gjennomført i Shadow-porteføljen i siste beslutningsrunde.")
+            executed = state.get("shadow_executed") or state.get("last_changes") or []
+            executed_rows=[{
+                "Handling":f"{icons.get(action.get('action'),'•')} {action.get('action')}",
+                "Aksje":action.get("ticker"),
+                "Fra %":round(float(action.get("from_pct") or 0),1),
+                "Til %":round(float(action.get("to_pct") or 0),1),
+                "Årsak":action.get("reason") or "-",
+                "Kode":action.get("reason_code") or "-",
+            } for action in executed]
+            if executed_rows:
+                st.dataframe(pd.DataFrame(executed_rows), width="stretch", hide_index=True, height=260)
+            else:
+                st.caption("Ingen faktiske Shadow-endringer i siste beslutningsrunde.")
 
         with st.expander("👤 Manuell exit", expanded=False):
             ticker=st.selectbox("Aksje", [p.get("ticker") for p in positions], key="sp_manual_exit_ticker")

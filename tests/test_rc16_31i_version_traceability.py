@@ -20,13 +20,7 @@ def _services(tmp_path):
     return repositories, registry, accounts
 
 
-def test_canonical_component_versions_match_runtime_modules():
-    import controlled_parameter_learning
-    import operational_telemetry
-
-    assert APP_VERSION == "v19.22.0-rc16.31i"
-    assert controlled_parameter_learning.VERSION == CONTROLLED_LEARNING_POLICY_VERSION == "v19.3.1"
-    assert operational_telemetry.COMPONENT_VERSION == OPERATIONS_TELEMETRY_VERSION == "v19.2.0"
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_default_autonomy_binding_and_account_migrate_without_history_rewrite(tmp_path):

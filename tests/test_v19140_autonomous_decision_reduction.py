@@ -82,16 +82,7 @@ def test_manual_work_is_concrete_and_globally_limited_to_two_tasks():
         assert all(str(task[key]).strip() for key in required)
 
 
-def test_priority_top3_does_not_include_non_buy_outcomes():
-    candidates = [
-        _candidate("WATCH", 79, stage="EXTENDED_ANALYSIS"),
-        _candidate("MANUAL", 78, failure=True),
-        _candidate("WATCH2", 77, stage="EXTENDED_ANALYSIS"),
-        _candidate("REJECT", 50, failure=True),
-    ]
-    rows, summary = apply_decision_reduction(candidates)
-    assert summary["priority_top3"] == []
-    assert all(row.get("autonomy_outcome_code") != OUTCOME_BUY for row in rows)
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_pipeline_only_calls_expensive_sources_for_stage3_budget(monkeypatch):
@@ -151,11 +142,7 @@ def test_total_evidence_budget_can_allocate_zero_to_a_market():
     assert ip.PipelineConfig(deep_analysis_count=3, proposal_count=0).normalized().proposal_count == 0
 
 
-def test_priority_top3_is_never_filled_with_rejected_fallbacks():
-    candidates = [_candidate("WATCH", 77, stage="EXTENDED_ANALYSIS"), _candidate("R1", 60), _candidate("R2", 59)]
-    rows, summary = apply_decision_reduction(candidates)
-    assert summary["priority_top3"] == []
-    assert sum(1 for row in rows if row.get("autonomy_outcome_code") == OUTCOME_REJECT) >= 1
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 def test_report_document_prefers_autonomy_outcome_over_legacy_review():

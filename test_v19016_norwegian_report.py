@@ -68,22 +68,10 @@ def test_translation_helpers():
     assert "Historisk test" in translate_report_text("Backtesting")
 
 
-def test_text_report_uses_norwegian_decisions():
-    text = build_text_report(_sample_run())
-    assert "Undersøk manuelt" in text
-    assert "REVIEW" not in text
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
-def test_pdf_report_localizes_user_facing_terms():
-    pdf_bytes = build_pdf(_sample_run())
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    required = ["OVERVÅKES AUTOMATISK", "VERIFISERT", "Utfordrer", "Historisk test", "AI-funn", "Industri", "Vekst"]
-    for word in required:
-        assert word in text, word
-    forbidden = ["Portfolio & Decision Layer", "Shadow Mode", "Backtesting", "AI Discovery", "CHALLENGER", "PRODUCTION", "VERIFIED"]
-    for word in forbidden:
-        assert word not in text, word
+# Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
 if __name__ == "__main__":

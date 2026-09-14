@@ -1,0 +1,19 @@
+RC16.31co TESTKVITTERING
+Dato: 2026-09-12 UTC
+
+Målrettet testsamling: 33 bestått, 0 feil.
+
+Kontrollert:
+- 120-minutters standardintervall
+- nattpause 00:00–07:00 Fortaleza
+- USD 12 månedsgrense
+- USD 0,020 reserve per API-kall
+- ny kostnadskontroll mellom markedsplassene
+- engangsmigrering og bevaring av egne valg
+- målrettede Webmotors- og OLX-spørringer
+- OLX numerisk annonse-ID
+- diagnosevisning og hemmelighetsfri ZIP
+- separat Webmotors/OLX-feilisolasjon
+
+Python-kompilering bestått for jeep_commander_monitor.py,
+app_version.py og runtime_identity.py.

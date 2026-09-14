@@ -1,0 +1,17 @@
+RC16.31cn TESTKVITTERING
+Dato: 2026-09-12 UTC
+
+Målrettet testsamling:
+27 bestått, 0 feil.
+
+Kontrollert:
+- forkastelsesårsaker
+- sporing av alle organiske resultater
+- separat OLX/Webmotors-behandling
+- sikker diagnose-ZIP
+- eksplisitt test mot lekkasje av DataForSEO-login og passord
+- UI-kontrakt for diagnosevisning og nedlasting
+- valgfri EXPECTED_APP_VERSION-lås
+
+Python-kompilering:
+jeep_commander_monitor.py, app_version.py og runtime_identity.py bestått.
