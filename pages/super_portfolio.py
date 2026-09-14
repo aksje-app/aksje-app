@@ -1,5 +1,16 @@
-"""Streamlit renderer for Super Portfolio RC16.32k."""
+"""Streamlit renderer for Super Portfolio RC16.32l."""
 from __future__ import annotations
+
+
+def _terminal_job_needs_app_refresh(job, refreshed_run_id: str) -> bool:
+    """Return true once when a verified background result is newer than the page."""
+    state_name = str((job or {}).get("state") or "").upper()
+    successful_run_id = str((job or {}).get("latest_successful_run_id") or "")
+    return bool(
+        state_name in {"COMPLETED", "DEGRADED"}
+        and successful_run_id
+        and successful_run_id != str(refreshed_run_id or "")
+    )
 
 
 def render_super_portfolio(_legacy_context) -> None:
@@ -88,6 +99,12 @@ def render_super_portfolio(_legacy_context) -> None:
         if not job:
             st.caption("Ingen Super Portfolio-jobb er registrert ennå.")
             return
+        successful_run_id = str(job.get("latest_successful_run_id") or "")
+        refreshed_run_id = str(st.session_state.get("sp_refreshed_run_id") or "")
+        if _terminal_job_needs_app_refresh(job, refreshed_run_id):
+            st.session_state["sp_refreshed_run_id"] = successful_run_id
+            st.rerun(scope="app")
+            return
         state_name = str(job.get("state") or "UKJENT")
         percent = max(0, min(100, int(job.get("percent") or 0)))
         st.progress(percent, text=str(job.get("message") or state_name))
@@ -115,7 +132,10 @@ def render_super_portfolio(_legacy_context) -> None:
         elif state_name == "CANCELLED":
             st.warning("Jobben ble stoppet. Forrige verifiserte portefølje er beholdt.")
         else:
-            st.success(f"Jobben er {state_name.lower()} og sluttresultatet er verifisert.")
+            st.success(
+                f"Jobben er {state_name.lower()} og sluttresultatet er verifisert. "
+                f"{int(job.get('applied_changes') or 0)} godkjente Shadow-endring(er) ble anvendt."
+            )
         st.download_button(
             "⬇️ Last ned SP jobbdiagnose", data=job_diagnostic_zip(str(job.get("job_id") or "")),
             file_name=f"SP_jobdiagnose_{job.get('job_id') or 'latest'}.zip",
