@@ -1,4 +1,4 @@
-"""Super Portfolio intelligence v19.22.0 RC16.32k.
+"""Super Portfolio intelligence v19.22.0 RC16.32l.
 
 Isolated theoretical portfolio layer. Reuses completed Investment Pipeline data,
 never submits real orders and never changes the authoritative Autonomy chain.
@@ -19,7 +19,7 @@ from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 from super_portfolio_market_data import ScanCancelled
 
-VERSION = "v19.22.0-rc16.32k"
+VERSION = "v19.22.0-rc16.32l"
 # Durable background runtime; this line also invalidates old timestamp caches.
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
@@ -1888,7 +1888,8 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     from reportlab.lib import colors
     data = dict(state or load_state())
     out = BytesIO(); doc = SimpleDocTemplate(out, pagesize=A4, rightMargin=12*mm, leftMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
-    styles = getSampleStyleSheet(); story = [Paragraph("AI Super Portfolio", styles["Title"]), Paragraph(f"{VERSION} · Shadow mode · {data.get('updated_at','-')}", styles["Normal"]), Spacer(1, 8)]
+    run_id = str(data.get("source_run_id") or "-")
+    styles = getSampleStyleSheet(); story = [Paragraph("AI Super Portfolio", styles["Title"]), Paragraph(f"{VERSION} · Shadow mode · {data.get('updated_at','-')} · Decision run {run_id}", styles["Normal"]), Spacer(1, 8)]
     health = data.get("portfolio_health") if isinstance(data.get("portfolio_health"), Mapping) else {}
     if health:
         story.append(Paragraph(f"Portfolio Health: {health.get('icon','')} {_f(health.get('score')):.1f}/100 · {health.get('label','-')}", styles["Heading2"]))
@@ -1976,7 +1977,9 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
     return normalize_notification_result(response)
 
 
-def run_scheduled_shadow_cycle() -> dict[str, Any]:
+def run_scheduled_shadow_cycle(
+    pipeline: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Evaluate only when the independent Super Portfolio market feed produced a new run.
 
     Normal scheduled runs use AUTO policy: daily analysis/stop surveillance,
@@ -1988,7 +1991,13 @@ def run_scheduled_shadow_cycle() -> dict[str, Any]:
     cfg = SuperPortfolioConfig(**{k: v for k, v in config_data.items() if k in allowed})
     now_dt = _now_dt()
     force_fresh_for_rebalance = _rebalance_due(state, now_dt, cfg, "AUTO")
-    pipeline = get_or_build_super_portfolio_market_pipeline(cfg=cfg, force_refresh=force_fresh_for_rebalance)
+    if pipeline is None:
+        pipeline = get_or_build_super_portfolio_market_pipeline(
+            cfg=cfg,
+            force_refresh=force_fresh_for_rebalance,
+        )
+    else:
+        pipeline = dict(pipeline)
     source_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     if not source_id:
         return {"state": "NO_PIPELINE", "source_run_id": ""}

@@ -19,7 +19,7 @@ from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 
 
-VERSION = "v19.22.0-rc16.32k"
+VERSION = "v19.22.0-rc16.32l"
 ACTIVE_STATES = {"QUEUED", "STARTING", "RUNNING", "PAUSE_REQUESTED", "PAUSED", "STOP_REQUESTED"}
 TERMINAL_STATES = {"CANCELLED", "COMPLETED", "DEGRADED", "FAILED", "INTERRUPTED"}
 JOB_KEY = "super_portfolio/job_status.json"

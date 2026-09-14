@@ -27,10 +27,16 @@ def _evaluate_pipeline(pipeline: Mapping[str, Any], trigger: str) -> dict[str, A
         from super_portfolio import run_scheduled_shadow_cycle
         return dict(run_scheduled_shadow_cycle(pipeline=pipeline) or {})
     from super_portfolio import evaluate
-    return dict(evaluate(pipeline=pipeline, persist=True, rebalance_policy="ANALYZE_ONLY") or {})
+    return dict(evaluate(pipeline=pipeline, persist=True, rebalance_policy="FORCE") or {})
 
 
-def publish_verified_result(job_id: str, execution_token: str, pipeline: Mapping[str, Any]) -> dict[str, Any]:
+def publish_verified_result(
+    job_id: str,
+    execution_token: str,
+    pipeline: Mapping[str, Any],
+    *,
+    applied_changes: int = 0,
+) -> dict[str, Any]:
     current = jobs.get_job(job_id)
     jobs._require_worker(current, job_id, execution_token)
     verification = pipeline.get("verification") if isinstance(pipeline.get("verification"), Mapping) else {}
@@ -40,7 +46,9 @@ def publish_verified_result(job_id: str, execution_token: str, pipeline: Mapping
     terminal = "DEGRADED" if outcome == "DEGRADED" else "COMPLETED"
     return jobs.update_job(
         job_id, execution_token, state=terminal, outcome=terminal,
-        phase="VERIFIED", percent=100, message="SP-vurderingen er ferdig og verifisert",
+        phase="VERIFIED", percent=100,
+        message=f"SP-vurderingen er ferdig: {int(applied_changes)} godkjente Shadow-endring(er) anvendt",
+        applied_changes=int(applied_changes),
         final_pipeline_run_id=str(pipeline.get("run_id") or ""), error="",
     )
 
@@ -93,7 +101,13 @@ def run_claimed_job(job_id: str, execution_token: str) -> dict[str, Any]:
                 "message": "Bygger rangering og porteføljebeslutninger",
             })
             result = _evaluate_pipeline(pipeline, trigger)
-            terminal = publish_verified_result(job_id, execution_token, pipeline)
+            applied_changes = len(result.get("changes") or [])
+            terminal = publish_verified_result(
+                job_id,
+                execution_token,
+                pipeline,
+                applied_changes=applied_changes,
+            )
             return {**terminal, "changes": len(result.get("changes") or [])}
     except Exception as exc:
         if type(exc).__name__ in {"ScanCancelled", "SupersededWorker"}:
