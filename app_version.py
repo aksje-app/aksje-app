@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32c"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32c Super Portfolio Completion"
+APP_VERSION = "v19.22.0-rc16.32d"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32d Super Portfolio Completion Plus"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32b"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32c"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32d: Completes the Super Portfolio release gate with index/manual Aurora benchmarks, scenario Stress Radar, resource health, data freshness, turnover/cost controls, event risk and decision confidence.",
     "v19.22.0-rc16.32c: Super Portfolio Completion. Adds automatic Shadow scheduling, weekly rebalance policy with immediate dynamic stop exits, volatility/profit-aware trailing stops, manual-exit cooldown with Shadow follow-up, resource-light return-profile correlation, front-page Super Portfolio status window with direct navigation, downloadable/shareable PDF, visible history and a persistent master release checklist. Existing two front-page banners remain unchanged.",
     "v19.22.0-rc16.32b: Super Portfolio Intelligence. Adds soft sector/correlation penalties, ranking velocity, Portfolio Health, directional Stop Pressure and AI WOULD DO TODAY shadow recommendations while preserving the authoritative Autonomy/scanner chain.",
     "v19.22.0-rc16.32a: Super Portfolio Foundation. Adds the isolated shadow portfolio workspace, dynamic risk weighting, challengers, stop-distance states, history/snapshots, manual exits, Pushover change notifications and shareable PDF output.",

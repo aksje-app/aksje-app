@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 
-VERSION = "v19.22.0-rc16.32c"
+VERSION = "v19.22.0-rc16.32d"
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
 AUDIT_KEY = "super_portfolio/audit.jsonl"
@@ -85,6 +85,176 @@ def _volatility(row: Mapping[str, Any], default: float = 30.0) -> float:
     return default
 
 
+def _memory_snapshot() -> dict[str, Any]:
+    try:
+        from runtime_memory import memory_snapshot
+        return dict(memory_snapshot() or {})
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _storage_usage_report() -> dict[str, Any]:
+    try:
+        from services.storage_service import get_storage_service
+        return dict(get_storage_service().storage_usage_report() or {})
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _timestamp_from_row(row: Mapping[str, Any]) -> str:
+    raw = row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    for key in ("price_timestamp", "data_timestamp", "updated_at", "captured_at", "timestamp"):
+        value = row.get(key) or raw.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def data_freshness(row: Mapping[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
+    observed_raw = _timestamp_from_row(row)
+    if not observed_raw:
+        return {"status":"DATA GAP","icon":"🔴","score":0.0,"age_hours":None,"observed_at":""}
+    try:
+        observed = datetime.fromisoformat(observed_raw.replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        reference = now or _now_dt()
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        hours=max(0.0,(reference-observed).total_seconds()/3600.0)
+        if hours <= 24: status,icon,score="FRESH","🟢",100.0
+        elif hours <= 72: status,icon,score="AGING","🟡",80.0
+        elif hours <= 168: status,icon,score="STALE","🟠",50.0
+        else: status,icon,score="STALE","🔴",20.0
+        return {"status":status,"icon":icon,"score":score,"age_hours":round(hours,1),"observed_at":observed.isoformat(timespec="seconds")}
+    except Exception:
+        return {"status":"DATA GAP","icon":"🔴","score":0.0,"age_hours":None,"observed_at":observed_raw}
+
+
+def _event_date(row: Mapping[str, Any]) -> str:
+    raw = row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    for key in ("earnings_date","next_earnings_date","report_date","next_report_date","event_date"):
+        value=row.get(key) or raw.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def event_risk(row: Mapping[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
+    value=_event_date(row)
+    if not value:
+        return {"status":"NONE","icon":"⚪","date":"","days_until":None}
+    try:
+        parsed=datetime.fromisoformat(value[:10]).date()
+        ref=(now or _now_dt()).date()
+        days=(parsed-ref).days
+        if days < 0: return {"status":"PAST","icon":"⚪","date":value[:10],"days_until":days}
+        if days <= 2: icon="🟠"
+        elif days <= 7: icon="🟡"
+        else: icon="🟢"
+        return {"status":"UPCOMING","icon":icon,"date":value[:10],"days_until":days}
+    except Exception:
+        return {"status":"UNKNOWN","icon":"🟡","date":value,"days_until":None}
+
+
+def decision_confidence(*, data_quality: float, freshness_score: float, regime_fit: float = 70.0, score_spread: float = 10.0, correlation_available: bool = True) -> dict[str, Any]:
+    agreement=max(0.0,min(100.0,100.0-_f(score_spread)*2.0))
+    corr=100.0 if correlation_available else 55.0
+    score=max(0.0,min(100.0,0.30*_f(data_quality)+0.25*_f(freshness_score)+0.20*_f(regime_fit)+0.15*agreement+0.10*corr))
+    if score>=80: icon,label="🟢","HIGH"
+    elif score>=65: icon,label="🟡","MEDIUM"
+    elif score>=50: icon,label="🟠","LOW"
+    else: icon,label="🔴","VERY LOW"
+    return {"score":round(score,1),"icon":icon,"label":label,"components":{"data_quality":round(_f(data_quality),1),"freshness":round(_f(freshness_score),1),"regime_fit":round(_f(regime_fit),1),"agreement":round(agreement,1),"correlation":corr}}
+
+
+def turnover_cost_summary(changes: Sequence[Mapping[str, Any]], *, portfolio_value: float, gross_return_pct: float = 0.0, cost_bps: float = 10.0) -> dict[str, Any]:
+    turnover=sum(abs(_f(c.get("to_pct"))-_f(c.get("from_pct"))) for c in changes)
+    traded_value=max(0.0,_f(portfolio_value))*turnover/100.0
+    cost=traded_value*max(0.0,_f(cost_bps))/10000.0
+    cost_pct=(cost/max(1.0,_f(portfolio_value)))*100.0
+    return {"turnover_pct":round(turnover,2),"traded_value":round(traded_value,2),"estimated_cost":round(cost,2),"cost_bps":round(_f(cost_bps),2),"cost_pct":round(cost_pct,4),"gross_return_pct":round(_f(gross_return_pct),4),"net_return_pct":round(_f(gross_return_pct)-cost_pct,4)}
+
+
+def _position_currency(row: Mapping[str, Any]) -> str:
+    raw=row.get("raw_candidate") if isinstance(row.get("raw_candidate"),Mapping) else row.get("raw") if isinstance(row.get("raw"),Mapping) else {}
+    value=row.get("currency") or raw.get("currency")
+    if value: return str(value).upper()
+    market=str(row.get("market") or "").upper()
+    return {"USA":"USD","US":"USD","NORWAY":"NOK","NORGE":"NOK","SWEDEN":"SEK","SVERIGE":"SEK","DENMARK":"DKK","DANMARK":"DKK","FINLAND":"EUR","BRAZIL":"BRL","BRASIL":"BRL"}.get(market,"")
+
+
+def stress_radar(positions: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows=list(positions)
+    scenarios=[
+        ("usa_-10","🇺🇸 USA −10%",-10.0,lambda p:"USA" in str(p.get("market") or "").upper() or str(p.get("market") or "").upper()=="US"),
+        ("nordics_-10","🌍 Norden −10%",-10.0,lambda p:any(x in str(p.get("market") or "").upper() for x in ("NORWAY","NORGE","SWEDEN","SVERIGE","DENMARK","DANMARK","FINLAND"))),
+        ("shipping_-30","🚢 Shipping −30%",-30.0,lambda p:any(x in str(p.get("sector") or "").upper() for x in ("SHIPPING","MARITIME","TRANSPORT"))),
+        ("energy_-20","🛢️ Energi/offshore −20%",-20.0,lambda p:any(x in str(p.get("sector") or "").upper() for x in ("ENERGY","OFFSHORE","OIL","GAS"))),
+        ("tech_-15","💻 Teknologi −15%",-15.0,lambda p:"TECH" in str(p.get("sector") or "").upper()),
+        ("usd_-10","💵 USD/NOK −10%",-10.0,lambda p:_position_currency(p)=="USD"),
+    ]
+    out=[]
+    for key,label,shock,predicate in scenarios:
+        exposure=sum(_f(p.get("target_weight_pct")) for p in rows if predicate(p))
+        impact=exposure*shock/100.0
+        severity=abs(impact)
+        icon="🔴" if severity>=12 else "🟠" if severity>=7 else "🟡" if severity>=3 else "🟢"
+        out.append({"key":key,"label":label,"shock_pct":shock,"exposure_pct":round(exposure,1),"estimated_portfolio_impact_pct":round(impact,2),"icon":icon})
+    return out
+
+
+def benchmark_summary(state: Mapping[str, Any], *, portfolio_return_pct: float) -> dict[str, Any]:
+    bench=state.get("benchmark") if isinstance(state.get("benchmark"),Mapping) else {}
+    result={}
+    for key in ("index","aurora"):
+        row=dict(bench.get(key) or {}) if isinstance(bench.get(key),Mapping) else {}
+        if row and row.get("return_pct") is not None:
+            row["alpha_pct"]=round(_f(portfolio_return_pct)-_f(row.get("return_pct")),2)
+        result[key]=row
+    return result
+
+
+def set_manual_aurora_benchmark(return_pct: float, *, label: str = "Aurora") -> dict[str, Any]:
+    state=load_state(); bench=dict(state.get("benchmark") or {})
+    bench["aurora"]={"label":str(label or "Aurora"),"return_pct":round(_f(return_pct),4),"status":"MANUAL","updated_at":_now()}
+    state["benchmark"]=bench; save_state(state)
+    return bench["aurora"]
+
+
+def refresh_index_benchmark(state: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    data=dict(state or load_state()); cfg=dict(data.get("config") or {})
+    ticker=str(cfg.get("benchmark_ticker") or "^STOXX"); label=str(cfg.get("benchmark_label") or ticker)
+    positions=list((data.get("positions") or {}).values())
+    dates=[str(p.get("entry_date") or "")[:10] for p in positions if p.get("entry_date")]
+    start=min(dates) if dates else str(data.get("created_at") or "")[:10]
+    row={"ticker":ticker,"label":label,"return_pct":None,"status":"UNAVAILABLE","updated_at":_now()}
+    try:
+        import yfinance as yf
+        hist=yf.download(ticker,start=start,progress=False,auto_adjust=False,threads=False)
+        close=hist["Close"] if "Close" in hist else None
+        if close is not None and len(close)>=2:
+            first=float(close.iloc[0].iloc[0] if hasattr(close.iloc[0],"iloc") else close.iloc[0])
+            last=float(close.iloc[-1].iloc[0] if hasattr(close.iloc[-1],"iloc") else close.iloc[-1])
+            if first>0:
+                row.update({"return_pct":round((last/first-1.0)*100.0,4),"status":"AVAILABLE","start_date":start,"last_price":round(last,6)})
+    except Exception as exc:
+        row["error"]=f"{type(exc).__name__}: {exc}"[:240]
+    bench=dict(data.get("benchmark") or {}); bench["index"]=row; data["benchmark"]=bench; save_state(data)
+    return row
+
+
+def resource_health() -> dict[str, Any]:
+    mem=_memory_snapshot(); db=_storage_usage_report()
+    mem_pct=_f(mem.get("cgroup_memory_used_pct")); db_pct=_f(db.get("capacity_pct"))
+    pressure=max(mem_pct,db_pct)
+    if pressure>=92: status,icon="CRITICAL","🔴"
+    elif pressure>=80: status,icon="WARNING","🟠"
+    elif pressure>=70: status,icon="WATCH","🟡"
+    else: status,icon="OK","🟢"
+    return {"status":status,"icon":icon,"memory_used_pct":round(mem_pct,1),"rss_mb":_f(mem.get("process_rss_mb")),"cgroup_mb":_f(mem.get("cgroup_memory_current_mb")),"memory_limit_mb":_f(mem.get("cgroup_memory_limit_mb")),"db_used_pct":round(db_pct,1),"db_bytes":int(_f(db.get("database_bytes"))),"db_capacity_bytes":int(_f(db.get("capacity_bytes"))),"memory":mem,"database":db,"updated_at":_now()}
+
+
 @dataclass(frozen=True)
 class SuperPortfolioConfig:
     target_positions: int = 10
@@ -105,6 +275,10 @@ class SuperPortfolioConfig:
     manual_exit_cooldown_days: int = 10
     auto_pushover: bool = True
     history_limit: int = 180
+    transaction_cost_bps: float = 10.0
+    base_currency: str = "NOK"
+    benchmark_ticker: str = "^STOXX"
+    benchmark_label: str = "STOXX Europe 600"
 
 
 def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
@@ -126,6 +300,11 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
         "last_changes": [],
         "manual_exit_cooldown": {},
         "manual_exit_shadow": [],
+        "benchmark": {},
+        "stress_radar": [],
+        "turnover_costs": {},
+        "decision_confidence": {},
+        "resource_health": {},
     }
 
 
@@ -163,6 +342,9 @@ def _normalized_candidate(source: Mapping[str, Any]) -> dict[str, Any]:
         "quality_score": quality,
         "portfolio_score": round(portfolio_score, 4),
         "volatility_pct": _volatility(row),
+        "currency": _position_currency(row),
+        "data_freshness": data_freshness(row),
+        "event_risk": event_risk(row),
         "raw_candidate": row,
     }
 
@@ -458,6 +640,7 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "max_portfolio_correlation": row.get("max_portfolio_correlation", 0.0), "correlation_source": row.get("correlation_source", "UNAVAILABLE"),
         "rank": row.get("rank"), "rank_change": row.get("rank_change", 0), "rank_velocity": row.get("rank_velocity", 0.0), "rank_arrow": row.get("rank_arrow", "→"),
         "risk_score": row.get("risk_score"), "quality_score": row.get("quality_score"), "volatility_pct": row.get("volatility_pct"),
+        "currency": row.get("currency"), "data_freshness": dict(row.get("data_freshness") or {}), "event_risk": dict(row.get("event_risk") or {}),
         "why_here": list(row.get("why_here") or []),
     }
     pos.update(_stop_status(pos, cfg))
@@ -561,6 +744,20 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
 
     challengers = ranked[cfg.target_positions: cfg.target_positions + cfg.challenger_count]
     health = portfolio_health(list(positions.values()))
+    position_rows = list(positions.values())
+    weighted_return = 0.0
+    total_weight = sum(_f(p.get("target_weight_pct")) for p in position_rows)
+    if total_weight > 0:
+        weighted_return = sum(_f(p.get("pnl_pct")) * _f(p.get("target_weight_pct")) for p in position_rows) / total_weight
+    turnover = turnover_cost_summary(changes, portfolio_value=_f(state.get("initial_cash"), cfg.start_cash), gross_return_pct=weighted_return, cost_bps=cfg.transaction_cost_bps)
+    stress = stress_radar(position_rows)
+    freshness_scores = [_f((p.get("data_freshness") or {}).get("score")) for p in position_rows]
+    avg_freshness = sum(freshness_scores) / len(freshness_scores) if freshness_scores else 0.0
+    avg_quality = sum(_f(p.get("quality_score"), 50.0) for p in position_rows) / len(position_rows) if position_rows else 0.0
+    selected_scores = [_f(p.get("portfolio_score_adjusted"), _f(p.get("portfolio_score"))) for p in position_rows]
+    spread = (max(selected_scores) - min(selected_scores)) if len(selected_scores) > 1 else 0.0
+    regime_fit = _f(pipeline.get("regime_fit_score"), 70.0)
+    confidence = decision_confidence(data_quality=avg_quality, freshness_score=avg_freshness, regime_fit=regime_fit, score_spread=spread, correlation_available=all(str(p.get("correlation_source") or "UNAVAILABLE") != "UNAVAILABLE" for p in position_rows) if position_rows else False)
     stop_alerts = _stop_alerts(previous, positions)
     ranking_snapshot = [{"ticker": row.get("ticker"), "rank": row.get("rank"), "score": row.get("portfolio_score_adjusted"), "rank_arrow": row.get("rank_arrow")} for row in ranked_all[: max(cfg.target_positions + cfg.challenger_count, 30)]]
     snapshot = {
@@ -583,13 +780,16 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "last_changes": changes,
         "last_stop_alerts": stop_alerts,
         "manual_exit_shadow": [{"ticker": r.get("ticker"), "rank": r.get("rank"), "score": r.get("portfolio_score_adjusted"), "price": r.get("price"), "rank_arrow": r.get("rank_arrow")} for r in manual_shadow[:20]],
+        "stress_radar": stress,
+        "turnover_costs": turnover,
+        "decision_confidence": confidence,
     })
     history.append(snapshot)
     state["history"] = history[-max(10, int(cfg.history_limit)):]
     if persist:
         save_state(state)
         append_event(AUDIT_KEY, AUDIT_PATH, {"timestamp": now_iso, "event": "EVALUATE", "changes": changes, "stop_alerts": stop_alerts, "portfolio_health": health, "source_run_id": snapshot["source_run_id"], "rebalance_due": rebalance_due})
-    return {"state": state, "ranked": ranked, "changes": changes, "snapshot": snapshot, "portfolio_health": health, "ai_would_do_today": advisory, "stop_alerts": stop_alerts, "rebalance_due": rebalance_due}
+    return {"state": state, "ranked": ranked, "changes": changes, "snapshot": snapshot, "portfolio_health": health, "ai_would_do_today": advisory, "stop_alerts": stop_alerts, "rebalance_due": rebalance_due, "stress_radar": stress, "turnover_costs": turnover, "decision_confidence": confidence}
 
 
 def manual_exit(ticker: str, note: str = "") -> dict[str, Any]:
@@ -662,9 +862,13 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"front_page_window", "status":"DONE", "label":"Kompakt Super Portfolio-vindu på forsiden med direkteknapp"},
         {"key":"two_banner_contract", "status":"DONE", "label":"Ingen tredje banner – eksisterende to bannere beholdes"},
         {"key":"master_release_gate", "status":"DONE", "label":"Master-checkliste vises i modulen og følger release"},
-        {"key":"benchmark", "status":"PARTIAL", "label":"Intern avkastning klar; ekstern Aurora/indeks-feed ikke koblet"},
-        {"key":"stress_radar", "status":"PARTIAL", "label":"Konsentrasjons-/stopprisk synlig; scenario-basert Stress Radar gjenstår"},
-        {"key":"system_resource_panel", "status":"PARTIAL", "label":"Eksisterende OOM breadcrumbs brukes; eget Super Portfolio resource-panel gjenstår"},
+        {"key":"external_benchmark", "status":"DONE", "label":"Automatisk indeksbenchmark + valgfri manuell Aurora-benchmark"},
+        {"key":"stress_radar", "status":"DONE", "label":"Scenario-basert Stress Radar for marked, sektor og valuta"},
+        {"key":"resource_panel", "status":"DONE", "label":"Eget resource-panel for memory/cgroup og DB-kapasitet"},
+        {"key":"data_freshness", "status":"DONE", "label":"Data Freshness / datakvalitet med FRESH/AGING/STALE/DATA GAP"},
+        {"key":"turnover_costs", "status":"DONE", "label":"Turnover, estimert kurtasje/slippage og nettoavkastning"},
+        {"key":"event_risk", "status":"DONE", "label":"Event Risk for kommende resultat-/rapportdato når data finnes"},
+        {"key":"decision_confidence", "status":"DONE", "label":"Decision Confidence basert på kvalitet, ferskhet, regime og signalenighet"},
     ]
 
 
@@ -687,7 +891,30 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
         rows.append([p.get("ticker"), f"{_f(p.get('target_weight_pct')):.2f}%", f"{_f(p.get('pnl_pct')):+.2f}%", f"{_f(p.get('portfolio_score_adjusted'), _f(p.get('portfolio_score'))):.1f}", f"#{p.get('rank','-')} {p.get('rank_arrow','→')}", f"{p.get('stop_icon','')} {p.get('stop_status','')}", f"{p.get('stop_pressure_icon','')} {p.get('stop_pressure','-')} {p.get('stop_direction_arrow','→')}"])
     table = Table(rows, repeatRows=1, colWidths=[24*mm, 21*mm, 23*mm, 20*mm, 25*mm, 36*mm, 42*mm])
     table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey),("GRID",(0,0),(-1,-1),0.25,colors.grey),("FONTSIZE",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"MIDDLE")]))
-    story.append(table); story.append(Spacer(1, 10)); story.append(Paragraph("Challengers", styles["Heading2"]))
+    story.append(table); story.append(Spacer(1, 10))
+    summary = dashboard_summary(data)
+    bench = benchmark_summary(data, portfolio_return_pct=_f(summary.get("portfolio_return_pct")))
+    story.append(Paragraph("Benchmark", styles["Heading2"]))
+    for key in ("index", "aurora"):
+        row = bench.get(key) or {}
+        if row:
+            story.append(Paragraph(f"{row.get('label', key)}: {_f(row.get('return_pct')):+.2f}% · alpha {_f(row.get('alpha_pct')):+.2f} pp · {row.get('status','-')}", styles["Normal"]))
+    if not any(bench.get(k) for k in ("index","aurora")):
+        story.append(Paragraph("Ingen ekstern benchmark lagret.", styles["Normal"]))
+    story.append(Spacer(1, 6)); story.append(Paragraph("Decision Confidence", styles["Heading2"]))
+    conf = data.get("decision_confidence") if isinstance(data.get("decision_confidence"), Mapping) else {}
+    story.append(Paragraph(f"{conf.get('icon','')} {_f(conf.get('score')):.1f}/100 · {conf.get('label','-')}", styles["Normal"]))
+    story.append(Spacer(1, 6)); story.append(Paragraph("Turnover & costs", styles["Heading2"]))
+    tc = data.get("turnover_costs") if isinstance(data.get("turnover_costs"), Mapping) else {}
+    story.append(Paragraph(f"Turnover {_f(tc.get('turnover_pct')):.2f}% · estimated cost {_f(tc.get('estimated_cost')):.2f} · net return {_f(tc.get('net_return_pct')):+.2f}%", styles["Normal"]))
+    story.append(Spacer(1, 6)); story.append(Paragraph("Stress Radar", styles["Heading2"]))
+    stress = data.get("stress_radar") or []
+    if stress:
+        for row in stress[:8]:
+            story.append(Paragraph(f"{row.get('label')}: exposure {_f(row.get('exposure_pct')):.1f}% · estimated impact {_f(row.get('estimated_portfolio_impact_pct')):+.2f}%", styles["Normal"]))
+    else:
+        story.append(Paragraph("Ingen stress-scenarier tilgjengelig.", styles["Normal"]))
+    story.append(Spacer(1, 10)); story.append(Paragraph("Challengers", styles["Heading2"]))
     challenger_text = ", ".join(f"{r.get('ticker')} ({_f(r.get('portfolio_score_adjusted'), _f(r.get('portfolio_score'))):.1f}, {r.get('rank_arrow','→')})" for r in data.get("challengers") or []) or "Ingen"
     story.append(Paragraph(challenger_text, styles["Normal"])); story.append(Spacer(1, 8))
     story.append(Paragraph("AI WOULD DO TODAY (advisory only)", styles["Heading2"]))
@@ -757,6 +984,11 @@ def run_scheduled_shadow_cycle() -> dict[str, Any]:
     result = evaluate(pipeline=pipeline, persist=True, rebalance_policy="AUTO")
     new_state = dict(result.get("state") or load_state())
     new_state["last_scheduled_source_run_id"] = source_id
+    index_row = refresh_index_benchmark(new_state)
+    benchmark = dict(new_state.get("benchmark") or {})
+    benchmark["index"] = index_row
+    new_state["benchmark"] = benchmark
+    new_state["resource_health"] = resource_health()
     notification = {"changes": "NOT_SENT", "stops": "NOT_SENT"}
     cfg = dict(new_state.get("config") or {})
     if bool(cfg.get("auto_pushover", True)):
