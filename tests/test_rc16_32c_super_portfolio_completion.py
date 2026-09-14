@@ -119,7 +119,7 @@ def test_scheduled_shadow_cycle_skips_same_pipeline_and_notifies_changes(monkeyp
     state["last_scheduled_source_run_id"] = "OLD"
     pipeline = {"run_id":"NEW", "candidates":[_candidate("AAA",95), _candidate("BBB",90)]}
     monkeypatch.setattr(sp, "load_state", lambda: state)
-    monkeypatch.setattr(sp, "load_latest_pipeline", lambda: pipeline)
+    monkeypatch.setattr(sp, "get_or_build_super_portfolio_market_pipeline", lambda **kwargs: pipeline)
     monkeypatch.setattr(sp, "evaluate", lambda **kwargs: {"state": {**state, "source_run_id":"NEW"}, "changes":[{"action":"BUY","ticker":"AAA","from_pct":0,"to_pct":50}], "stop_alerts":[]})
     sent = []
     monkeypatch.setattr(sp, "notify_changes", lambda changes, state=None: (sent.append(changes) or True, "ok"))

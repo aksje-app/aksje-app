@@ -81,7 +81,7 @@ def test_scheduled_cycle_refreshes_index_benchmark(monkeypatch):
     state=sp.default_state(); state['last_scheduled_source_run_id']='OLD'
     pipeline={'run_id':'NEW','candidates':[]}
     monkeypatch.setattr(sp,'load_state',lambda:state)
-    monkeypatch.setattr(sp,'load_latest_pipeline',lambda:pipeline)
+    monkeypatch.setattr(sp,'get_or_build_super_portfolio_market_pipeline',lambda **kwargs:pipeline)
     monkeypatch.setattr(sp,'evaluate',lambda **kwargs:{'state':{**state,'positions':{}},'changes':[],'stop_alerts':[],'rebalance_due':False})
     refreshed=[]
     monkeypatch.setattr(sp,'refresh_index_benchmark',lambda state=None: refreshed.append(True) or {'status':'AVAILABLE','return_pct':1.0})
