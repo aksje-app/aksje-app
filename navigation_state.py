@@ -49,6 +49,7 @@ AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7 = {
     "reports": "Rapporter",
     "orchestrator": "Orkestrering og tidsplan",
     "autonomous_portfolio": "Autonom portefølje",
+    "super_portfolio": "🌍 Super Portfolio",
     "learning_portfolio": "Læringsportefølje",
     "architecture": "Ekspertkontroll",
     "operations": "Varsler og drift",
