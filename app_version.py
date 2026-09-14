@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32g"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32g Super Portfolio UI Feedback"
+APP_VERSION = "v19.22.0-rc16.32h"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32h Super Portfolio Diagnostics"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32f"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32g"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32h: Super Portfolio Diagnostics. Manual evaluation now forces a fresh multi-market scan with live progress events and adds per-ticker Decision Trace plus downloadable diagnosis ZIP without changing trading rules.",
     "v19.22.0-rc16.32g: Super Portfolio UI Feedback. Replaces dense text blocks with two horizontal rows of collapsible table panels and adds a single-run guard plus visible progress bar for manual portfolio evaluation. No ranking or trading rules changed.",
     "v19.22.0-rc16.32f: Super Portfolio Broad Discovery. Scans the full available market universe with a resource-light coarse pass before deep analysis and global Top-10 selection without country quotas.",
     "v19.22.0-rc16.32e: Super Portfolio Multi-Market. Gives Super Portfolio an independent Norway, Sweden, Denmark, Finland and USA market scope while preserving the Norway-only production chain.",

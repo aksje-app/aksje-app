@@ -8,13 +8,15 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
+import json
+import zipfile
 from math import isfinite, sqrt
 from typing import Any, Mapping, Sequence
 
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 
-VERSION = "v19.22.0-rc16.32f"
+VERSION = "v19.22.0-rc16.32h"
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
 AUDIT_KEY = "super_portfolio/audit.jsonl"
@@ -484,7 +486,7 @@ def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) ->
 
 
 def build_super_portfolio_market_pipeline(
-    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None, force_refresh: bool = False
+    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None, force_refresh: bool = False, progress_callback: Any | None = None
 ) -> dict[str, Any]:
     """Build a bounded Norden+USA candidate feed independent of production Norway-only policy.
 
@@ -498,7 +500,23 @@ def build_super_portfolio_market_pipeline(
 
     candidates: list[dict[str, Any]] = []
     market_stats: list[dict[str, Any]] = []
-    for market in tuple(config.market_scopes):
+    markets = tuple(config.market_scopes)
+
+    def emit(stage: str, percent: int, **extra: Any) -> None:
+        if not progress_callback:
+            return
+        payload = {"stage": stage, "percent": max(0, min(100, int(percent))), **extra}
+        try:
+            progress_callback(payload)
+        except Exception:
+            pass
+
+    emit("START", 1, markets=list(markets), message="Starter fersk markedsskanning")
+    market_count = max(1, len(markets))
+    for market_index, market in enumerate(markets):
+        base_pct = 3 + int((market_index / market_count) * 90)
+        span_pct = max(1, int(90 / market_count))
+        emit("MARKET_START", base_pct, market=market, message=f"{market}: laster investerbart univers")
         universe_limit = max(1, min(500, int(config.market_universe_limit_per_market)))
         coarse_limit = max(1, min(universe_limit, int(config.market_coarse_shortlist_per_market)))
         deep_limit = max(1, min(coarse_limit, int(config.market_deep_analysis_per_market)))
@@ -515,9 +533,18 @@ def build_super_portfolio_market_pipeline(
             full_universe_scan=True,
         ).normalized()
         raw_rows, source_label = _load_candidate_rows_from_app(pcfg)
+        emit("UNIVERSE_LOADED", base_pct + max(1, span_pct // 5), market=market, count=len(raw_rows), message=f"{market}: {len(raw_rows)} aksjer lastet")
         coarse_rows = _coarse_rank_market_rows(raw_rows, str(market), coarse_limit)
+        emit("COARSE_COMPLETE", base_pct + max(2, (span_pct * 2) // 5), market=market, count=len(coarse_rows), message=f"{market}: grovscan ferdig ({len(coarse_rows)})")
         deep_rows = coarse_rows[:deep_limit]
-        prepared = _prepare_candidate_rows(deep_rows, pcfg, force_refresh=force_refresh)
+
+        def deep_progress(completed: int, total: int, ticker: str) -> None:
+            frac = (completed / max(1, total))
+            pct = base_pct + max(3, int(span_pct * (0.45 + 0.35 * frac)))
+            emit("DEEP_PROGRESS", pct, market=market, completed=completed, total=total, ticker=ticker, message=f"{market}: dypanalyse {completed}/{total} {ticker}")
+
+        prepared = _prepare_candidate_rows(deep_rows, pcfg, progress_callback=deep_progress, force_refresh=force_refresh)
+        emit("DEEP_COMPLETE", base_pct + max(4, int(span_pct * 0.82)), market=market, count=len(prepared), message=f"{market}: dypanalyse ferdig ({len(prepared)})")
         scored: list[tuple[float, dict[str, Any]]] = []
         errors = 0
         for row in prepared:
@@ -540,6 +567,7 @@ def build_super_portfolio_market_pipeline(
             "errors": errors,
             "source": source_label,
         })
+        emit("MARKET_COMPLETE", base_pct + span_pct, market=market, selected=len(selected), errors=errors, message=f"{market}: ferdig, {len(selected)} finalister")
 
     candidates.sort(key=lambda row: (_f(row.get("investment_score")), -_f(row.get("risk_score"))), reverse=True)
     payload = {
@@ -558,18 +586,24 @@ def build_super_portfolio_market_pipeline(
         },
     }
     write_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, payload)
+    emit("COMPLETE", 100, candidates=len(candidates), market_stats=market_stats, message=f"Markedsskanning ferdig: {len(candidates)} finalister")
     return payload
 
 
 def get_or_build_super_portfolio_market_pipeline(
-    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None, force_refresh: bool = False
+    cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None, force_refresh: bool = False, progress_callback: Any | None = None
 ) -> dict[str, Any]:
     config = cfg or SuperPortfolioConfig()
     now_dt = now or _now_dt()
     cached = load_latest_super_portfolio_market_pipeline()
     if not force_refresh and _market_pipeline_is_fresh(cached, config, now_dt):
+        if progress_callback:
+            try:
+                progress_callback({"stage":"CACHE_HIT","percent":100,"message":"Bruker fersk market-feed cache"})
+            except Exception:
+                pass
         return cached
-    return build_super_portfolio_market_pipeline(config, now=now_dt, force_refresh=force_refresh)
+    return build_super_portfolio_market_pipeline(config, now=now_dt, force_refresh=force_refresh, progress_callback=progress_callback)
 
 
 def _normalized_candidate(source: Mapping[str, Any]) -> dict[str, Any]:
@@ -816,6 +850,134 @@ def portfolio_health(positions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {"score": round(score, 1), "icon": icon, "label": label, "components": {"quality": round(quality,1), "risk": round(risk,1), "diversification": round(diversification,1), "stop_safety": round(stop_safety,1), "correlation": round(correlation,1)}}
 
 
+def build_decision_trace(*, state: Mapping[str, Any], pipeline: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]], target: Mapping[str, float], advisory: Sequence[Mapping[str, Any]], cfg: "SuperPortfolioConfig" | None = None, now: datetime | None = None) -> dict[str, Any]:
+    """Explain exactly why each current/new ticker did or did not enter the target portfolio."""
+    config = cfg or SuperPortfolioConfig()
+    reference = now or _now_dt()
+    decision_run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
+    position_run_id = str(state.get("source_run_id") or "")
+    candidates = list(pipeline.get("candidates") or pipeline.get("proposals") or [])
+    candidate_map = {str(c.get("ticker") or c.get("symbol") or "").strip().upper(): c for c in candidates if str(c.get("ticker") or c.get("symbol") or "").strip()}
+    ranked_map = {str(r.get("ticker") or "").strip().upper(): dict(r) for r in ranked}
+    positions = {str(k).strip().upper(): dict(v) for k, v in (state.get("positions") or {}).items()}
+    actions = {str(a.get("ticker") or "").strip().upper(): dict(a) for a in advisory}
+    target_map = {str(k).strip().upper(): _f(v) for k, v in target.items()}
+    tickers = sorted(set(candidate_map) | set(ranked_map) | set(positions) | set(actions) | set(target_map))
+    result: dict[str, Any] = {}
+    for ticker in tickers:
+        raw = candidate_map.get(ticker)
+        ranked_row = ranked_map.get(ticker) or {}
+        old = positions.get(ticker) or {}
+        action = actions.get(ticker) or {}
+        current_position = bool(old)
+        in_pipeline = raw is not None
+        eligible = ticker in ranked_map
+        selected = ticker in target_map
+        exclusion = "SELECTED_TARGET" if selected else ""
+        if not selected:
+            if not in_pipeline:
+                exclusion = "NOT_IN_CURRENT_PIPELINE"
+            elif _cooldown_active(state, ticker, reference):
+                exclusion = "MANUAL_EXIT_COOLDOWN"
+            else:
+                normalized = _normalized_candidate(raw or {})
+                if _f(normalized.get("price")) <= 0:
+                    exclusion = "NO_VALID_PRICE"
+                elif _f(normalized.get("investment_score")) < _f(config.minimum_score):
+                    exclusion = "SCORE_BELOW_MINIMUM"
+                elif _f(normalized.get("risk_score"), 50.0) > _f(config.maximum_risk):
+                    exclusion = "RISK_ABOVE_MAXIMUM"
+                elif eligible:
+                    exclusion = "OUTSIDE_TARGET_TOP_N"
+                else:
+                    exclusion = "FILTERED_UNKNOWN"
+        snapshot_mismatch = bool(current_position and position_run_id and decision_run_id and position_run_id != decision_run_id)
+        alerts: list[str] = []
+        if str(action.get("action") or "") == "SELL" and current_position:
+            old_rank = int(_f(old.get("rank"), 9999))
+            if exclusion in {"NOT_IN_CURRENT_PIPELINE", "FILTERED_UNKNOWN"} or (old_rank <= int(config.target_positions) and not selected):
+                alerts.append("INCONSISTENT_DECISION")
+            if snapshot_mismatch:
+                alerts.append("SNAPSHOT_MISMATCH")
+        result[ticker] = {
+            "ticker": ticker,
+            "current_position": current_position,
+            "current_weight_pct": round(_f(old.get("target_weight_pct")), 2),
+            "position_rank": old.get("rank"),
+            "position_score": old.get("portfolio_score_adjusted", old.get("portfolio_score")),
+            "position_source_run_id": position_run_id,
+            "decision_run_id": decision_run_id,
+            "snapshot_mismatch": snapshot_mismatch,
+            "in_current_pipeline": in_pipeline,
+            "eligible": eligible,
+            "rank": ranked_row.get("rank"),
+            "score": ranked_row.get("portfolio_score_adjusted", ranked_row.get("portfolio_score")),
+            "risk_score": ranked_row.get("risk_score") if ranked_row else (_risk(raw or {}) if raw else None),
+            "price": ranked_row.get("price") if ranked_row else (_candidate_price(raw or {}) if raw else None),
+            "target_selected": selected,
+            "target_weight_pct": round(_f(target_map.get(ticker)), 2),
+            "action": str(action.get("action") or "HOLD"),
+            "action_from_pct": action.get("from_pct"),
+            "action_to_pct": action.get("to_pct"),
+            "exclusion_reason": exclusion,
+            "alerts": alerts,
+        }
+    return {
+        "created_at": reference.isoformat(timespec="seconds"),
+        "position_source_run_id": position_run_id,
+        "decision_run_id": decision_run_id,
+        "pipeline_candidate_count": len(candidates),
+        "ranked_count": len(ranked),
+        "target_count": len(target_map),
+        "by_ticker": result,
+        "alerts": [
+            {"ticker": t, "alerts": row["alerts"], "exclusion_reason": row["exclusion_reason"]}
+            for t, row in result.items() if row["alerts"]
+        ],
+    }
+
+
+def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str | None = None) -> bytes:
+    data = dict(state or load_state())
+    trace = dict(data.get("decision_trace") or {})
+    by_ticker = dict(trace.get("by_ticker") or {})
+    key = str(ticker or "").strip().upper()
+    selected = dict(by_ticker.get(key) or {}) if key else {}
+    summary = {
+        "version": VERSION,
+        "generated_at": _now(),
+        "state_source_run_id": data.get("source_run_id"),
+        "decision_run_id": trace.get("decision_run_id"),
+        "position_source_run_id": trace.get("position_source_run_id"),
+        "market_scan_summary": data.get("market_scan_summary") or {},
+        "portfolio_health": data.get("portfolio_health") or {},
+        "decision_confidence": data.get("decision_confidence") or {},
+    }
+    alert_text = ", ".join(selected.get("alerts") or []) or "NONE"
+    readme = [
+        "SUPER PORTFOLIO DIAGNOSE",
+        f"Version: {VERSION}",
+        f"Decision run: {trace.get('decision_run_id') or '-'}",
+        f"Position run: {trace.get('position_source_run_id') or '-'}",
+        f"Selected ticker: {key or 'ALL'}",
+    ]
+    if key:
+        readme += [
+            f"Action: {selected.get('action','-')}",
+            f"Target selected: {selected.get('target_selected','-')}",
+            f"Exclusion reason: {selected.get('exclusion_reason','-')}",
+            f"Alerts: {alert_text}",
+        ]
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("README.txt", "\n".join(readme) + "\n")
+        zf.writestr("decision_trace.json", json.dumps(trace, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("selected_ticker.json", json.dumps(selected, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("state_summary.json", json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("ai_would_do_today.json", json.dumps(data.get("ai_would_do_today") or [], ensure_ascii=False, indent=2, default=str))
+    return buf.getvalue()
+
+
 def ai_would_do_today(positions: Mapping[str, Mapping[str, Any]], target: Mapping[str, float], min_rebalance_pp: float = 1.0) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     current = {str(k): dict(v) for k, v in positions.items()}
@@ -953,6 +1115,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     by_ticker = {str(row["ticker"]): row for row in ranked}
     previous = {str(k): dict(v) for k, v in (state.get("positions") or {}).items()}
     advisory = ai_would_do_today(previous, weights, cfg.min_rebalance_pp)
+    decision_trace = build_decision_trace(state=state, pipeline=pipeline, ranked=ranked, target=weights, advisory=advisory, cfg=cfg, now=now_dt)
     rebalance_due = _rebalance_due(state, now_dt, cfg, rebalance_policy)
     positions: dict[str, dict[str, Any]] = {}
     changes: list[dict[str, Any]] = []
@@ -1029,13 +1192,15 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "stress_radar": stress,
         "turnover_costs": turnover,
         "decision_confidence": confidence,
+        "decision_trace": decision_trace,
+        "market_scan_summary": dict(pipeline.get("summary") or {}),
     })
     history.append(snapshot)
     state["history"] = history[-max(10, int(cfg.history_limit)):]
     if persist:
         save_state(state)
         append_event(AUDIT_KEY, AUDIT_PATH, {"timestamp": now_iso, "event": "EVALUATE", "changes": changes, "stop_alerts": stop_alerts, "portfolio_health": health, "source_run_id": snapshot["source_run_id"], "rebalance_due": rebalance_due})
-    return {"state": state, "ranked": ranked, "changes": changes, "snapshot": snapshot, "portfolio_health": health, "ai_would_do_today": advisory, "stop_alerts": stop_alerts, "rebalance_due": rebalance_due, "stress_radar": stress, "turnover_costs": turnover, "decision_confidence": confidence}
+    return {"state": state, "ranked": ranked, "changes": changes, "snapshot": snapshot, "portfolio_health": health, "ai_would_do_today": advisory, "stop_alerts": stop_alerts, "rebalance_due": rebalance_due, "stress_radar": stress, "turnover_costs": turnover, "decision_confidence": confidence, "decision_trace": decision_trace}
 
 
 def manual_exit(ticker: str, note: str = "") -> dict[str, Any]:
@@ -1121,6 +1286,8 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"decision_confidence", "status":"DONE", "label":"Decision Confidence basert på kvalitet, ferskhet, regime og signalenighet"},
         {"key":"horizontal_info_layout", "status":"DONE", "label":"Kompakte horisontale info-paneler med foldbare seksjoner og tabeller"},
         {"key":"evaluation_progress_guard", "status":"DONE", "label":"Manuell vurderingsknapp låses under kjøring og viser progressbar"},
+        {"key":"manual_force_refresh", "status":"DONE", "label":"Manuell vurdering tvinger fersk Norden+USA market-feed i stedet for 12-timers cache"},
+        {"key":"decision_trace_diagnostic_zip", "status":"DONE", "label":"Per-aksje Decision Trace med eksklusjonsårsak, run-ID-er, inkonsistensvarsel og diagnose-ZIP"},
     ]
 
 
