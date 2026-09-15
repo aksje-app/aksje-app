@@ -84,6 +84,9 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-overline,.aa-next-event span,.aa-overview-metric span{{display:block;color:#84a0b7;font-size:.7rem;font-weight:900;letter-spacing:.09em;text-transform:uppercase}}
 .aa-next-event{{padding:.85rem 1rem;border:1px solid rgba(214,179,106,.35);border-radius:14px;background:rgba(6,17,31,.55)}} .aa-next-event strong,.aa-next-event small{{display:block}} .aa-next-event strong{{margin:.18rem 0;color:#f3d58e;font-size:1rem}} .aa-next-event small{{color:#9fb0c0}}
 .aa-overview-metric{{min-height:108px;padding:.85rem 1rem;margin:0 0 1rem;border:1px solid rgba(143,167,189,.24);border-radius:15px;background:linear-gradient(145deg,rgba(12,29,47,.95),rgba(7,20,34,.95))}} .aa-overview-metric strong{{display:block;margin:.25rem 0;color:#f4f8fc;font-size:1.45rem}} .aa-overview-metric small{{color:#91a4b7}}
+.st-key-aa_overview_reports button,.st-key-aa_overview_portfolio button,.st-key-aa_overview_market button,.st-key-aa_overview_operations button{{width:100%!important;min-height:42px!important;margin:0 0 .38rem!important;border-radius:11px!important;justify-content:flex-start!important;padding:.55rem .8rem!important;font-weight:850!important}}
+.st-key-aa_overview_reports button{{justify-content:center!important;box-shadow:0 8px 24px rgba(14,165,233,.18)!important}}
+.st-key-aa_overview_portfolio,.st-key-aa_overview_market,.st-key-aa_overview_operations{{width:100%!important}}
 .aa-section-title{{margin:.4rem 0 .7rem!important;color:#eaf2f9!important;font-size:1rem!important;letter-spacing:.01em}}
 .aa-attention-card{{display:grid;grid-template-columns:12px 1fr;gap:.65rem;align-items:start;padding:.8rem .9rem;margin:0 0 .55rem;border:1px solid rgba(143,167,189,.22);border-radius:13px;background:rgba(10,25,42,.76)}} .aa-attention-card strong{{color:#eef5fb}} .aa-attention-card p{{margin:.15rem 0 0;color:#9eafbf;font-size:.85rem;line-height:1.4}} .aa-attention-dot{{width:9px;height:9px;margin-top:.32rem;border-radius:50%;background:#5aa7ff;box-shadow:0 0 0 4px rgba(90,167,255,.1)}}
 .aa-attention-card.tone-danger .aa-attention-dot{{background:#ef4444}} .aa-attention-card.tone-warning .aa-attention-dot{{background:#d6b36a}} .aa-attention-card.tone-success .aa-attention-dot{{background:#45c7ad}}
@@ -105,7 +108,7 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-kpi-delta{{font-size:.76rem;color:#cbd5e1;margin-top:.12rem;}}
 @media (max-width:1100px){{.aa-ui-status-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}
 @media (max-width:760px){{.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}.aa-mobile-nav{{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:999;left:0;right:0;bottom:0;padding:.3rem .25rem calc(.3rem + env(safe-area-inset-bottom));background:#071524;border-top:1px solid {t.border}}}.aa-shell{{padding-bottom:74px}}}}
-@media (max-width:760px){{.aa-overview-hero{{grid-template-columns:1fr;padding:1rem}}.aa-next-event{{margin-top:.2rem}}.aa-overview-metric{{min-height:88px}}}}
+@media (max-width:760px){{.aa-overview-hero{{grid-template-columns:1fr;padding:1rem}}.aa-next-event{{margin-top:.2rem}}.aa-overview-metric{{min-height:88px}}.st-key-aa_overview_reports button,.st-key-aa_overview_portfolio button,.st-key-aa_overview_market button,.st-key-aa_overview_operations button{{min-height:46px!important}}}}
 @media (prefers-reduced-motion:reduce){{.aa-shell *{{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}}}
 </style>
         """,
