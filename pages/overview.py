@@ -37,6 +37,8 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
     else:
         total, since_start, cash_pct = None, None, None
     confidence = state.get("decision_confidence") if isinstance(state.get("decision_confidence"), Mapping) else {}
+    health = state.get("portfolio_health") if isinstance(state.get("portfolio_health"), Mapping) else {}
+    health_components = health.get("components") if isinstance(health.get("components"), Mapping) else {}
     decisions = []
     for change in list(state.get("last_changes") or [])[:3]:
         if not isinstance(change, Mapping):
@@ -58,7 +60,7 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
             history_returns.append(round(sum(_number(row.get("pnl_pct") or row.get("return_pct")) * _number(row.get("target_weight_pct") or row.get("weight_pct")) for row in rows) / weight, 4))
     if since_start is not None and (not history_returns or history_returns[-1] != since_start):
         history_returns.append(since_start)
-    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "decisions": decisions, "history_returns": history_returns[-12:]}
+    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "health_components": dict(health_components), "decisions": decisions, "history_returns": history_returns[-12:]}
 
 
 def _sparkline_svg(values: Iterable[Any]) -> str:
@@ -157,6 +159,12 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     def fmt_pct(value):
         return f"{float(value):+.2f} %".replace(".", ",") if value is not None else "Ikke tilgjengelig"
     confidence = portfolio.get("confidence")
+    components = dict(portfolio.get("health_components") or {})
+    component_rows = []
+    for label, key in (("Kvalitet", "quality"), ("Risiko", "risk"), ("Diversifisering", "diversification"), ("Stoppsikkerhet", "stop_safety")):
+        if components.get(key) is not None:
+            component_rows.append(f'<div><span>{label}</span><strong>{_number(components.get(key)):.0f}</strong></div>')
+    component_html = "".join(component_rows) or '<p class="aa-confidence-empty">Detaljmål beregnes ved neste porteføljevurdering.</p>'
     local_hour = datetime.now(ZoneInfo("Europe/Oslo")).hour
     greeting = "God morgen" if local_hour < 12 else "God ettermiddag" if local_hour < 18 else "God kveld"
     chart = _sparkline_svg(portfolio.get("history_returns") or [])
@@ -170,7 +178,7 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     )
     st_module.markdown(f'''<section class="aa-portfolio-command">
       <article class="aa-portfolio-value"><span>SUPER PORTEFØLJE</span><strong>{escape(fmt_money(portfolio.get('value')))}</strong><b>{escape(fmt_pct(portfolio.get('return_pct')))} <small>siden start</small></b>{chart}</article>
-      <article class="aa-confidence"><span>BESLUTNINGSRO</span><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small></article>
+      <article class="aa-confidence"><span>BESLUTNINGSRO</span><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small><div class="aa-confidence-components">{component_html}</div></article>
     </section>
     <section class="aa-portfolio-facts"><div><strong>{portfolio.get('positions', 0)}</strong><span>POSISJONER</span></div><div><strong>{escape(fmt_pct(portfolio.get('cash_pct')).replace('+',''))}</strong><span>KONTANTER</span></div><div><strong>{escape(str((model.get('next_event') or {}).get('value') or '–'))}</strong><span>NESTE RAPPORT</span></div></section>''', unsafe_allow_html=True)
     left, right = st_module.columns([1.65, 1])
