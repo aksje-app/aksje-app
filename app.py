@@ -9563,7 +9563,7 @@ _apply_mobile_nav_query_v18646()
 _ab_route = canonical_shell_route(st.session_state.get("active_nav_target_v18674c") or "overview")
 if use_v2_shell():
     inject_design_system(st, module=_ab_route)
-    render_shell(st, _ab_route, {"label": "AI klar"})
+    render_shell(st, _ab_route, {})
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 render_sidebar_clock_v19220_rc163(st)
 
