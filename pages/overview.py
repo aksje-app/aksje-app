@@ -16,10 +16,26 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
     state = dict(state or {})
     positions = [dict(row) for row in (state.get("positions") or {}).values() if isinstance(row, Mapping)]
     cash = _number(state.get("cash"))
-    market_value = sum(_number(row.get("quantity") or row.get("shares")) * _number(row.get("last_price") or row.get("current_price") or row.get("average_price") or row.get("entry_price")) for row in positions)
-    total = cash + market_value
     initial = _number(state.get("initial_cash"))
-    since_start = round(((total / initial) - 1) * 100, 4) if initial > 0 and total > 0 else None
+    target_weight = sum(_number(row.get("target_weight_pct") or row.get("weight_pct")) for row in positions)
+    weighted_return = (
+        sum(_number(row.get("pnl_pct") or row.get("return_pct")) * _number(row.get("target_weight_pct") or row.get("weight_pct")) for row in positions) / target_weight
+        if target_weight > 0 else None
+    )
+    priced_positions = [row for row in positions if _number(row.get("quantity") or row.get("shares")) > 0 and _number(row.get("last_price") or row.get("current_price")) > 0]
+    market_value = sum(_number(row.get("quantity") or row.get("shares")) * _number(row.get("last_price") or row.get("current_price")) for row in priced_positions)
+    if positions and target_weight > 0 and initial > 0:
+        since_start = round(float(weighted_return or 0), 4)
+        total = initial * (1 + since_start / 100)
+        cash_pct = max(0.0, min(100.0, 100.0 - target_weight))
+    elif not positions and initial > 0:
+        total, since_start, cash_pct = cash or initial, 0.0, 100.0
+    elif len(priced_positions) == len(positions) and positions and cash + market_value > 0:
+        total = cash + market_value
+        since_start = round(((total / initial) - 1) * 100, 4) if initial > 0 else None
+        cash_pct = cash / total * 100
+    else:
+        total, since_start, cash_pct = None, None, None
     confidence = state.get("decision_confidence") if isinstance(state.get("decision_confidence"), Mapping) else {}
     decisions = []
     for change in list(state.get("last_changes") or [])[:3]:
@@ -32,7 +48,7 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
             "score": change.get("score") or change.get("confidence"),
             "return_pct": change.get("pnl_pct") or change.get("return_pct"),
         })
-    return {"value": total if total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": (cash / total * 100) if total > 0 else None, "confidence": confidence.get("score"), "decisions": decisions}
+    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "decisions": decisions}
 
 
 def _next_report_time(now: datetime | None = None) -> str:
