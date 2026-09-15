@@ -79,6 +79,14 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-page-state.tone-danger{{border-color:{t.danger}}}
 .aa-shell button,.aa-shell a[role="button"]{{min-height:44px}}
 .aa-shell :focus-visible{{outline:3px solid var(--aa-focus)!important;outline-offset:2px!important}}
+.aa-overview-hero{{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(240px,.7fr);gap:1rem;align-items:center;padding:1.25rem 1.35rem;margin:.35rem 0 1rem;border:1px solid rgba(143,167,189,.28);border-radius:20px;background:linear-gradient(125deg,rgba(11,31,49,.96),rgba(8,48,52,.82));box-shadow:0 20px 60px rgba(0,0,0,.2)}}
+.aa-overview-hero h1{{margin:.15rem 0;font-size:clamp(1.65rem,2.6vw,2.65rem);line-height:1.08;color:#f7fbff}} .aa-overview-hero p{{margin:.35rem 0 0;color:#a9bac9;font-size:1rem}}
+.aa-overline,.aa-next-event span,.aa-overview-metric span{{display:block;color:#84a0b7;font-size:.7rem;font-weight:900;letter-spacing:.09em;text-transform:uppercase}}
+.aa-next-event{{padding:.85rem 1rem;border:1px solid rgba(214,179,106,.35);border-radius:14px;background:rgba(6,17,31,.55)}} .aa-next-event strong,.aa-next-event small{{display:block}} .aa-next-event strong{{margin:.18rem 0;color:#f3d58e;font-size:1rem}} .aa-next-event small{{color:#9fb0c0}}
+.aa-overview-metric{{min-height:108px;padding:.85rem 1rem;margin:0 0 1rem;border:1px solid rgba(143,167,189,.24);border-radius:15px;background:linear-gradient(145deg,rgba(12,29,47,.95),rgba(7,20,34,.95))}} .aa-overview-metric strong{{display:block;margin:.25rem 0;color:#f4f8fc;font-size:1.45rem}} .aa-overview-metric small{{color:#91a4b7}}
+.aa-section-title{{margin:.4rem 0 .7rem!important;color:#eaf2f9!important;font-size:1rem!important;letter-spacing:.01em}}
+.aa-attention-card{{display:grid;grid-template-columns:12px 1fr;gap:.65rem;align-items:start;padding:.8rem .9rem;margin:0 0 .55rem;border:1px solid rgba(143,167,189,.22);border-radius:13px;background:rgba(10,25,42,.76)}} .aa-attention-card strong{{color:#eef5fb}} .aa-attention-card p{{margin:.15rem 0 0;color:#9eafbf;font-size:.85rem;line-height:1.4}} .aa-attention-dot{{width:9px;height:9px;margin-top:.32rem;border-radius:50%;background:#5aa7ff;box-shadow:0 0 0 4px rgba(90,167,255,.1)}}
+.aa-attention-card.tone-danger .aa-attention-dot{{background:#ef4444}} .aa-attention-card.tone-warning .aa-attention-dot{{background:#d6b36a}} .aa-attention-card.tone-success .aa-attention-dot{{background:#45c7ad}}
 .aa-ui-page-header{{margin:.15rem 0 .75rem;padding:.05rem 0;}}
 .aa-ui-page-title{{font-size:1.34rem;font-weight:900;line-height:1.18;color:{t.text_primary};}}
 .aa-ui-page-subtitle{{margin-top:.2rem;color:{t.text_muted};font-size:.9rem;line-height:1.35;}}
@@ -97,6 +105,7 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-kpi-delta{{font-size:.76rem;color:#cbd5e1;margin-top:.12rem;}}
 @media (max-width:1100px){{.aa-ui-status-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}
 @media (max-width:760px){{.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}.aa-mobile-nav{{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:999;left:0;right:0;bottom:0;padding:.3rem .25rem calc(.3rem + env(safe-area-inset-bottom));background:#071524;border-top:1px solid {t.border}}}.aa-shell{{padding-bottom:74px}}}}
+@media (max-width:760px){{.aa-overview-hero{{grid-template-columns:1fr;padding:1rem}}.aa-next-event{{margin-top:.2rem}}.aa-overview-metric{{min-height:88px}}}}
 @media (prefers-reduced-motion:reduce){{.aa-shell *{{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}}}
 </style>
         """,

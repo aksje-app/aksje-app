@@ -9567,6 +9567,24 @@ if use_v2_shell():
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 render_sidebar_clock_v19220_rc163(st)
 
+# A+B Overview is a true replacement page. It reads only persisted state and
+# exits before the legacy dashboard/control-center surface can render below it.
+if use_v2_shell() and str(st.session_state.get("active_nav_target_v18674c") or "dashboard").strip().lower() in {"", "dashboard"}:
+    try:
+        from market_intelligence import _load_report_archive
+        _ab_archive = _load_report_archive()
+    except Exception:
+        _ab_archive = []
+    try:
+        from autonomi_core.configuration.registry import status as _ab_registry_status
+        _ab_pending = int((_ab_registry_status() or {}).get("pending_approvals") or 0)
+    except Exception:
+        _ab_pending = 0
+    from pages.overview import render_ab_overview
+    _ab_overview_model = build_overview_page(_ab_archive, pending_approvals=_ab_pending, scheduler_ok=True)
+    render_ab_overview(st, _ab_overview_model, navigate=_apply_nav_target_v18658)
+    st.stop()
+
 # v19.17.0 RC2: Driftssenter is a dedicated page, independent from AI Kontrollsenter.
 _active_nav_v19170rc2 = str(
     # RC4: a fresh user/menu target must win over the previously active page.
