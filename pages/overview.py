@@ -96,6 +96,12 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     attention = list(model.get("attention_items") or [])
     metrics = list(model.get("metrics") or [])
     portfolio = dict(model.get("portfolio") or {})
+    if portfolio.get("value") is None:
+        try:
+            from super_portfolio import load_state
+            portfolio = _portfolio_summary(load_state())
+        except Exception:
+            pass
     def fmt_money(value):
         return f"{float(value):,.0f} kr".replace(",", " ") if value is not None else "Ikke tilgjengelig"
     def fmt_pct(value):
