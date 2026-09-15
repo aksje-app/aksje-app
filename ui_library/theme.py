@@ -73,9 +73,9 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-decision-card,.aa-ui-metric-card,.aa-ui-timeline-step,.aa-ui-ambient{{border:1px solid {t.border};border-radius:14px;background:rgba(11,27,45,.86);padding:.8rem;min-width:0;}}
 .aa-ui-decision-action{{font-size:.72rem;font-weight:900;letter-spacing:.08em;color:var(--aa-accent);}} .aa-ui-decision-ticker{{font-size:1.08rem;font-weight:900;}}
 .aa-ui-timeline{{display:grid;gap:.55rem}} .aa-ui-timeline-step{{border-left:4px solid var(--aa-accent)}}
-.aa-mobile-nav,.aa-desktop-nav{{display:none}}
+.aa-mobile-nav{{display:none}} .aa-desktop-nav{{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:.3rem;margin:.25rem 0 1rem;padding:.35rem;border:1px solid rgba(111,145,175,.34);border-radius:16px;background:rgba(11,25,41,.88);box-shadow:0 12px 34px rgba(0,0,0,.16)}}
 .aa-ui-nav-link{{display:flex;align-items:center;justify-content:center;min-height:44px;padding:.3rem;color:var(--aa-text)!important;text-decoration:none!important;font-size:.72rem;font-weight:800;border-radius:9px;}}
-.aa-ui-nav-link[aria-current="page"]{{background:var(--aa-accent-soft);box-shadow:inset 0 0 0 1px var(--aa-accent);}}
+.aa-ui-nav-link{{position:relative;color:#91a4b7!important;letter-spacing:.025em}} .aa-ui-nav-link:hover{{color:#edf4fb!important;background:rgba(143,167,189,.08)}} .aa-ui-nav-link[aria-current="page"]{{color:#f2d17f!important;background:rgba(214,179,106,.08);box-shadow:none}} .aa-ui-nav-link[aria-current="page"]:after{{content:"";position:absolute;left:22%;right:22%;bottom:2px;height:3px;border-radius:3px;background:#d6b36a}}
 .aa-ui-page-state.tone-danger{{border-color:{t.danger}}}
 .aa-shell button,.aa-shell a[role="button"]{{min-height:44px}}
 .aa-shell :focus-visible{{outline:3px solid var(--aa-focus)!important;outline-offset:2px!important}}
@@ -116,7 +116,7 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-kpi-value{{font-size:1.13rem;color:{t.text_primary};font-weight:900;line-height:1.15;}}
 .aa-ui-kpi-delta{{font-size:.76rem;color:#cbd5e1;margin-top:.12rem;}}
 @media (max-width:1100px){{.aa-ui-status-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}
-@media (max-width:760px){{.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}.aa-mobile-nav{{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:999;left:0;right:0;bottom:0;padding:.3rem .25rem calc(.3rem + env(safe-area-inset-bottom));background:#071524;border-top:1px solid {t.border}}}.aa-shell{{padding-bottom:74px}}}}
+@media (max-width:760px){{.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}.aa-desktop-nav{{display:none}}.aa-mobile-nav{{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:999;left:0;right:0;bottom:0;padding:.3rem .25rem calc(.3rem + env(safe-area-inset-bottom));background:#071524;border-top:1px solid {t.border}}}.aa-shell{{padding-bottom:74px}}}}
 @media (max-width:760px){{.aa-overview-hero,.aa-portfolio-command{{grid-template-columns:1fr;padding:1rem}}.aa-overview-hero{{padding:1.35rem}}.aa-system-chip{{justify-self:start}}.aa-next-event{{margin-top:.2rem}}.aa-overview-metric{{min-height:88px}}.aa-portfolio-command{{padding:0}}.aa-portfolio-command>article{{min-height:190px}}.aa-portfolio-value>strong{{margin-top:1rem;font-size:2.15rem}}.aa-portfolio-facts{{grid-template-columns:1fr}}.aa-portfolio-facts>div{{border-right:0;border-bottom:1px solid rgba(111,145,175,.24)}}.aa-portfolio-facts strong{{font-size:1.15rem}}.aa-decision-row{{grid-template-columns:1fr auto}}.aa-decision-row>span{{grid-column:1/-1}}.st-key-aa_overview_reports button,.st-key-aa_overview_portfolio button,.st-key-aa_overview_market button,.st-key-aa_overview_operations button{{min-height:46px!important}}}}
 @media (prefers-reduced-motion:reduce){{.aa-shell *{{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}}}
 </style>
