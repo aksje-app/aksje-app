@@ -15,6 +15,10 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     from autonomi_core.runtime.orchestrator import runtime_manifest
 
     manifest = runtime_manifest()
+    from ui_library.components import hero_status, metric_cards
+    from ui_library.theme import inject_design_system
+    inject_design_system(st, module="autonomy")
+    hero_status(st, title="Autonomi", body="Siste syklus, neste hendelse og beslutningsgrunnlag.", module="autonomy")
     st.markdown("## 🧠 Autonomi")
     st.caption(
         "Autonomi er programmets styringslag. Markedsdata, analyse, rangering, "

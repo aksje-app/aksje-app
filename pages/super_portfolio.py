@@ -105,21 +105,19 @@ def render_super_portfolio(_legacy_context) -> None:
             st.session_state["sp_refreshed_run_id"] = successful_run_id
             st.rerun(scope="app")
             return
+        from ui_library.components import render_job_status
+        from ui_library.job_status import super_portfolio_job_view
         state_name = str(job.get("state") or "UKJENT")
         percent = max(0, min(100, int(job.get("percent") or 0)))
-        st.progress(percent, text=str(job.get("message") or state_name))
-        j1, j2, j3, j4 = st.columns(4)
-        j1.metric("Aktiv jobb-ID", str(job.get("job_id") or "-"))
-        j2.metric("Tilstand", state_name)
-        j3.metric("Fase / marked", f"{job.get('phase') or '-'} · {job.get('market') or '-'}")
-        units = f"{int(job.get('completed') or 0)}/{int(job.get('total') or 0)}"
-        j4.metric("Fremdrift", f"{percent}% · {units}")
+        view = super_portfolio_job_view(job)
+        render_job_status(st, view, {"pause": lambda: request_control("PAUSE", view.job_id), "resume": lambda: request_control("RESUME", view.job_id), "stop": lambda: request_control("STOP", view.job_id)})
         st.caption(
             f"Siste fremdrift: {job.get('last_progress_at') or '-'} · "
             f"Heartbeat: {job.get('heartbeat_at') or '-'} · "
             f"Siste verifiserte scan: {job.get('latest_successful_run_id') or '-'}"
         )
-        if state_name in ACTIVE_STATES:
+        # Controls are rendered once by the shared capability-based component.
+        if False:  # retained branch body below for source-compatible rollback
             pause_col, resume_col, stop_col = st.columns(3)
             if pause_col.button("⏸ Pause", disabled=state_name in {"PAUSE_REQUESTED", "PAUSED", "STOP_REQUESTED"}, width="stretch", key="sp_pause_job_32k"):
                 request_control("PAUSE", str(job.get("job_id") or ""))
