@@ -67,13 +67,18 @@ def _sparkline_svg(values: Iterable[Any]) -> str:
         return '<div class="aa-chart-empty">Avkastningshistorikk kommer etter flere kjøringer</div>'
     low, high = min(points), max(points)
     spread = high - low or 1.0
-    coords = []
+    coords: list[tuple[float, float]] = []
     for index, value in enumerate(points):
         x = 8 + index * (484 / max(1, len(points) - 1))
-        y = 78 - ((value - low) / spread) * 58
-        coords.append(f"{x:.1f},{y:.1f}")
-    circles = "".join(f'<circle cx="{pair.split(",")[0]}" cy="{pair.split(",")[1]}" r="3"/>' for pair in coords)
-    return f'<svg class="aa-return-chart" viewBox="0 0 500 92" role="img" aria-label="Avkastningsutvikling"><polyline points="{" ".join(coords)}"/>{circles}</svg>'
+        y = 72 - ((value - low) / spread) * 48
+        coords.append((x, y))
+    curve = f"M {coords[0][0]:.1f} {coords[0][1]:.1f}"
+    for previous, current in zip(coords, coords[1:]):
+        middle = (previous[0] + current[0]) / 2
+        curve += f" C {middle:.1f} {previous[1]:.1f}, {middle:.1f} {current[1]:.1f}, {current[0]:.1f} {current[1]:.1f}"
+    area = f"{curve} L {coords[-1][0]:.1f} 84 L {coords[0][0]:.1f} 84 Z"
+    last_x, last_y = coords[-1]
+    return f'''<div class="aa-chart-wrap"><span>UTVIKLING</span><svg class="aa-return-chart" width="100%" height="92" viewBox="0 0 500 92" preserveAspectRatio="none" role="img" aria-label="Avkastningsutvikling"><defs><linearGradient id="aaReturnFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#55d5ba" stop-opacity=".24"/><stop offset="1" stop-color="#55d5ba" stop-opacity="0"/></linearGradient></defs><line class="aa-chart-baseline" x1="8" y1="72" x2="492" y2="72"/><path class="aa-chart-area" d="{area}"/><path class="aa-chart-line" d="{curve}"/><circle class="aa-chart-end" cx="{last_x:.1f}" cy="{last_y:.1f}" r="4"/></svg></div>'''
 
 
 def _next_report_time(now: datetime | None = None) -> str:
