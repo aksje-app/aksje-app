@@ -48,7 +48,32 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
             "score": change.get("score") or change.get("confidence"),
             "return_pct": change.get("pnl_pct") or change.get("return_pct"),
         })
-    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "decisions": decisions}
+    history_returns = []
+    for snapshot in list(state.get("history") or [])[-12:]:
+        if not isinstance(snapshot, Mapping):
+            continue
+        rows = [row for row in list(snapshot.get("positions") or []) if isinstance(row, Mapping)]
+        weight = sum(_number(row.get("target_weight_pct") or row.get("weight_pct")) for row in rows)
+        if weight > 0:
+            history_returns.append(round(sum(_number(row.get("pnl_pct") or row.get("return_pct")) * _number(row.get("target_weight_pct") or row.get("weight_pct")) for row in rows) / weight, 4))
+    if since_start is not None and (not history_returns or history_returns[-1] != since_start):
+        history_returns.append(since_start)
+    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "decisions": decisions, "history_returns": history_returns[-12:]}
+
+
+def _sparkline_svg(values: Iterable[Any]) -> str:
+    points = [_number(value) for value in values]
+    if len(points) < 2:
+        return '<div class="aa-chart-empty">Avkastningshistorikk kommer etter flere kjøringer</div>'
+    low, high = min(points), max(points)
+    spread = high - low or 1.0
+    coords = []
+    for index, value in enumerate(points):
+        x = 8 + index * (484 / max(1, len(points) - 1))
+        y = 78 - ((value - low) / spread) * 58
+        coords.append(f"{x:.1f},{y:.1f}")
+    circles = "".join(f'<circle cx="{pair.split(",")[0]}" cy="{pair.split(",")[1]}" r="3"/>' for pair in coords)
+    return f'<svg class="aa-return-chart" viewBox="0 0 500 92" role="img" aria-label="Avkastningsutvikling"><polyline points="{" ".join(coords)}"/>{circles}</svg>'
 
 
 def _next_report_time(now: datetime | None = None) -> str:
@@ -110,7 +135,6 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     from html import escape
     hero = model.get("hero") or {}
     attention = list(model.get("attention_items") or [])
-    metrics = list(model.get("metrics") or [])
     portfolio = dict(model.get("portfolio") or {})
     if portfolio.get("value") is None:
         try:
@@ -123,22 +147,20 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     def fmt_pct(value):
         return f"{float(value):+.2f} %".replace(".", ",") if value is not None else "Ikke tilgjengelig"
     confidence = portfolio.get("confidence")
+    local_hour = datetime.now(ZoneInfo("Europe/Oslo")).hour
+    greeting = "God morgen" if local_hour < 12 else "God ettermiddag" if local_hour < 18 else "God kveld"
+    chart = _sparkline_svg(portfolio.get("history_returns") or [])
     st_module.markdown(
         f'''<main class="aa-overview-v2" aria-label="Oversikt">
         <section class="aa-overview-hero tone-{escape(str(hero.get('tone') or 'neutral'))}">
-          <div><span class="aa-overline">BESLUTNINGSOVERSIKT</span><h1>{escape(str(hero.get('title') or 'Oversikt'))}</h1>
-          <p>{escape(str(hero.get('body') or ''))}</p></div>
-          <div class="aa-next-event"><span>NESTE HENDELSE</span><strong>{escape(str((model.get('next_event') or {}).get('label') or '-'))}</strong><small>{escape(str((model.get('next_event') or {}).get('value') or ''))}</small></div>
+          <div><span class="aa-overline">INVESTOR INTELLIGENCE</span><h1>{greeting}</h1>
+          <p>{'Systemet har oppgaver som bør vurderes.' if attention else 'Systemet er oppdatert. Ingen kritiske oppgaver er registrert.'}</p><b class="aa-market-pill">OSLO · NESTE RAPPORT {escape(str((model.get('next_event') or {}).get('value') or '–'))}</b></div>
+          <div class="aa-system-chip"><i></i>{'SYSTEMET ER KLART' if str(hero.get('tone')) == 'success' else 'KREVER OPPMERKSOMHET'}</div>
         </section></main>''', unsafe_allow_html=True,
     )
-    cols = st_module.columns(max(1, min(4, len(metrics))))
-    for index, metric in enumerate(metrics):
-        with cols[index % len(cols)]:
-            st_module.markdown(f'''<article class="aa-overview-metric tone-{escape(str(metric.get('tone') or 'neutral'))}"><span>{escape(str(metric.get('label') or ''))}</span><strong>{escape(str(metric.get('value') or '-'))}</strong><small>{escape(str(metric.get('delta') or ''))}</small></article>''', unsafe_allow_html=True)
     st_module.markdown(f'''<section class="aa-portfolio-command">
-      <article class="aa-portfolio-value"><span>SUPER PORTEFØLJE</span><strong>{escape(fmt_money(portfolio.get('value')))}</strong><b>{escape(fmt_pct(portfolio.get('return_pct')))} <small>siden start</small></b><div class="aa-return-line" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+      <article class="aa-portfolio-value"><span>SUPER PORTEFØLJE</span><strong>{escape(fmt_money(portfolio.get('value')))}</strong><b>{escape(fmt_pct(portfolio.get('return_pct')))} <small>siden start</small></b>{chart}</article>
       <article class="aa-confidence"><span>BESLUTNINGSRO</span><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small></article>
-      <div class="aa-aurora" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     </section>
     <section class="aa-portfolio-facts"><div><strong>{portfolio.get('positions', 0)}</strong><span>POSISJONER</span></div><div><strong>{escape(fmt_pct(portfolio.get('cash_pct')).replace('+',''))}</strong><span>KONTANTER</span></div><div><strong>{escape(str((model.get('next_event') or {}).get('value') or '–'))}</strong><span>NESTE RAPPORT</span></div></section>''', unsafe_allow_html=True)
     left, right = st_module.columns([1.65, 1])
