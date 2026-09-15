@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from collections.abc import Callable, Sequence
 
 
 def render_table(
@@ -31,3 +32,8 @@ def render_table(
         st_module.dataframe(data, **kwargs)
     except Exception:
         st_module.write(data)
+
+def responsive_records(st_module, rows: Sequence[Any], *, mobile_card: Callable[[Any], str], key: str | None = None) -> None:
+    cards="".join(f'<article class="aa-ui-mobile-record">{mobile_card(row)}</article>' for row in rows)
+    st_module.markdown(f'<div class="aa-ui-mobile-records">{cards}</div>',unsafe_allow_html=True)
+    render_table(st_module,rows,key=key)

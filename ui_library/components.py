@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from .theme import UI_TOKENS
+from .models import ActionView, DecisionView, JobStatusView, MetricView, PageStateView, TimelineStepView
 
 
 def _esc(value: Any) -> str:
@@ -112,3 +113,52 @@ def action_row(st_module, actions: Sequence[Mapping[str, Any]], columns: int | N
                 )
             )
     return clicked
+
+def hero_status(st_module, *, title: str, body: str = "", module: str = "overview", tone: str = "neutral") -> None:
+    st_module.markdown(f'<section class="aa-ui-hero aa-module-{_esc(module)} tone-{_esc(tone)}"><h1>{_esc(title)}</h1><p>{_esc(body)}</p></section>', unsafe_allow_html=True)
+
+def metric_cards(st_module, metrics: Sequence[Mapping[str, Any] | MetricView]) -> None:
+    cards=[]
+    for item in metrics:
+        view=item if isinstance(item,MetricView) else MetricView(str(item.get("label") or ""),str(item.get("value") or "-"),str(item.get("delta") or ""),str(item.get("tone") or "neutral"))
+        cards.append(f'<article class="aa-ui-metric-card tone-{_esc(view.tone)}"><div class="aa-ui-kpi-label">{_esc(view.label)}</div><div class="aa-ui-kpi-value">{_esc(view.value)}</div><div class="aa-ui-kpi-delta">{_esc(view.delta)}</div></article>')
+    st_module.markdown(f'<div class="aa-ui-metric-grid">{"".join(cards)}</div>',unsafe_allow_html=True)
+
+def decision_cards(st_module, rows: Sequence[Mapping[str, Any] | DecisionView]) -> None:
+    views=[row if isinstance(row,DecisionView) else DecisionView.from_mapping(row) for row in rows]
+    cards=[f'<article class="aa-ui-decision-card tone-{_esc(v.tone)}" aria-label="{_esc(v.action)} {_esc(v.ticker)}"><div class="aa-ui-decision-action">{_esc(v.action)}</div><div class="aa-ui-decision-ticker">{_esc(v.ticker)}</div><p>{_esc(v.reason)}</p></article>' for v in views]
+    st_module.markdown(f'<div class="aa-ui-decision-grid">{"".join(cards)}</div>',unsafe_allow_html=True)
+
+def timeline(st_module, rows: Sequence[TimelineStepView]) -> None:
+    items=[]
+    for v in rows:
+        details=" · ".join(f"{_esc(k)}: {_esc(val)}" for k,val in v.details.items())
+        items.append(f'<article class="aa-ui-timeline-step tone-{_esc(v.tone)}"><b>{_esc(v.label)}</b> <span>{_esc(v.status)}</span><div>{_esc(v.scheduled_at)}</div><small>{details}</small></article>')
+    st_module.markdown(f'<div class="aa-ui-timeline">{"".join(items)}</div>',unsafe_allow_html=True)
+
+def page_state(st_module, view: PageStateView) -> None:
+    tone={"ERROR":"danger","BLOCKED":"danger","STALE":"warning","PARTIAL":"warning","READY":"success"}.get(view.state,"neutral")
+    st_module.markdown(f'<section class="aa-ui-page-state aa-ui-ambient tone-{tone}" role="status"><b>{_esc(view.state)}</b><p>{_esc(view.message)}</p><small>{_esc(view.code)}</small></section>',unsafe_allow_html=True)
+
+def ambient_panel(st_module, title: str, body: str, *, module: str = "overview") -> None:
+    st_module.markdown(f'<aside class="aa-ui-ambient aa-module-{_esc(module)}"><b>{_esc(title)}</b><p>{_esc(body)}</p></aside>',unsafe_allow_html=True)
+
+def action_bar(st_module, actions: Sequence[Mapping[str, Any] | ActionView]) -> dict[str,bool]:
+    normalized=[]
+    for a in actions:
+        if isinstance(a,ActionView): normalized.append({"id":a.action_id,"label":a.label,"disabled":a.disabled,"help":a.help_text,"type":"primary" if a.tone in {"success","portfolio","market"} else "secondary"})
+        else: normalized.append(a)
+    return action_row(st_module,normalized)
+
+def render_job_status(st_module, view: JobStatusView, controls: Mapping[str, Callable[[], Any]] | None = None) -> str | None:
+    percent=max(0,min(100,int(view.percent or 0)))
+    st_module.progress(percent,text=view.message or view.label or view.state)
+    metric_cards(st_module,[{"label":"Jobb-ID","value":view.job_id or "-"},{"label":"Tilstand","value":view.state},{"label":"Fase","value":view.phase or "-"},{"label":"Fremdrift","value":f"{percent}%"}])
+    controls=controls or {}; selected=None
+    specs=(("pause","Pause",view.can_pause),("resume","Fortsett",view.can_resume),("stop","Stopp",view.can_stop))
+    if any(enabled and key in controls for key,_,enabled in specs):
+        cols=st_module.columns(3)
+        for col,(key,label,enabled) in zip(cols,specs):
+            if enabled and key in controls and col.button(label,key=f"aa_job_{key}_{view.job_id}",width="stretch"):
+                controls[key](); selected=key
+    return selected
