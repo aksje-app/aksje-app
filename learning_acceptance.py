@@ -9,14 +9,62 @@ from typing import Any, Mapping
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
 from app_version import APP_VERSION
+import json
+import os
+from pathlib import Path
 
 STATE_KEY = "controlled_learning/acceptance_latest.json"
 STATE_PATH = runtime_data_path("controlled_learning", "acceptance_latest.json")
 SCHEMA_VERSION = "1.0"
+PARAMETER_PROPOSALS_KEY = "controlled_learning/parameter_proposals.json"
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+def _proposal_path() -> Path:
+    root = os.getenv("APP_RUNTIME_DIR")
+    return Path(root) / "controlled_learning" / "parameter_proposals.json" if root else runtime_data_path("controlled_learning", "parameter_proposals.json")
+
+def _load_proposals() -> dict[str, Any]:
+    path = _proposal_path()
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+def _persist_proposal_decision(proposal_id: str, user_id: str, state: str) -> dict[str, Any]:
+    """Persist an idempotent, auditable decision without changing tracked defaults."""
+    proposal_id = str(proposal_id or "").strip()
+    if not proposal_id:
+        raise ValueError("proposal_id is required")
+    actor = str(user_id or "unknown").strip() or "unknown"
+    document = _load_proposals()
+    proposals = document.setdefault("proposals", {})
+    existing = dict(proposals.get(proposal_id) or {})
+    if str(existing.get("state") or "").upper() in {"ACCEPTED", "REJECTED"}:
+        return existing
+    at = _now()
+    version = int(document.get("configuration_version") or 0) + 1
+    result = {**existing, "proposal_id": proposal_id, "state": state, "configuration_version": version, "application_version": APP_VERSION}
+    if state == "ACCEPTED":
+        result.update({"accepted_by": actor, "accepted_at": at})
+    else:
+        result.update({"rejected_by": actor, "rejected_at": at})
+    proposals[proposal_id] = result
+    document.update({"configuration_version": version, "updated_at": at})
+    path = _proposal_path(); path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    temporary.replace(path)
+    return result
+
+def accept_parameter_proposal(proposal_id: str, user_id: str) -> dict[str, Any]:
+    return _persist_proposal_decision(proposal_id, user_id, "ACCEPTED")
+
+def reject_parameter_proposal(proposal_id: str, user_id: str) -> dict[str, Any]:
+    return _persist_proposal_decision(proposal_id, user_id, "REJECTED")
 
 
 def _rows(value: Any) -> list[dict[str, Any]]:

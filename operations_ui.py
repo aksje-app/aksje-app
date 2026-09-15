@@ -13,6 +13,11 @@ def render_operations_trace_panel() -> None:
     import streamlit as st
     from operational_telemetry import list_operational_errors, list_run_traces, source_health_snapshot
     from news_source_registry import SOURCE_REGISTRY
+    from ui_library.components import hero_status
+    from ui_library.theme import inject_design_system
+
+    inject_design_system(st, module="operations")
+    hero_status(st, title="Drift og diagnostikk", body="Konsekvensbasert status med tekniske detaljer samlet under.", module="operations")
 
     st.markdown("#### Sporbar drift")
     st.caption("Kildehelse, stabile feilkoder og hele kjøringsforløpet. Panelet starter ingen nye markedskall.")

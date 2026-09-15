@@ -62,6 +62,9 @@ from alert_state import reset_alert_state
 from pages.overview import build_overview_page
 from ui.candidate_cards import build_candidate_card
 from ui.global_styles import inject_foundation_styles_v1950, inject_final_density_styles_v1950
+from ui_library.theme import inject_design_system
+from ui_library.shell import canonical_shell_route, render_shell, use_v2_shell
+AB_PRIMARY_ROUTES = ("overview", "portfolio", "market", "autonomy", "reports", "operations")
 # Compatibility audit anchor; implemented in ui/global_styles.py: [data-testid="stSidebarNav"] { display:none !important; }
 from market_hours import open_markets, market_status_lines, market_statuses
 from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, canonical_market_scope_label, expand_market_scope, market_scope_options
@@ -9557,6 +9560,10 @@ def _apply_mobile_nav_query_v18646() -> None:
 
 consume_global_navigation_route_v19220_rc14(st)
 _apply_mobile_nav_query_v18646()
+_ab_route = canonical_shell_route(st.session_state.get("active_nav_target_v18674c") or "overview")
+if use_v2_shell():
+    inject_design_system(st, module=_ab_route)
+    render_shell(st, _ab_route, {"label": "AI klar"})
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)
 render_sidebar_clock_v19220_rc163(st)
 

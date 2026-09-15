@@ -69,6 +69,11 @@ REPORT_SURFACE_SLUG_BY_LABEL_V19220_RC1631T = {
     label: slug for slug, label in REPORT_SURFACE_LABEL_BY_SLUG_V19220_RC1631T.items()
 }
 
+def canonical_shell_route(value: Any) -> str:
+    """Normalize legacy top-level routes to the A+B shell contract."""
+    from ui_library.shell import canonical_shell_route as _canonical
+    return _canonical(str(value or ""))
+
 
 def canonical_nav_for_panel_v19220_rc7(group: Any = "", panel: Any = "", fallback: Any = "control_center") -> str:
     """Return the single canonical route for a visible control-center panel."""
