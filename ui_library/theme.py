@@ -73,7 +73,9 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-decision-card,.aa-ui-metric-card,.aa-ui-timeline-step,.aa-ui-ambient{{border:1px solid {t.border};border-radius:14px;background:rgba(11,27,45,.86);padding:.8rem;min-width:0;}}
 .aa-ui-decision-action{{font-size:.72rem;font-weight:900;letter-spacing:.08em;color:var(--aa-accent);}} .aa-ui-decision-ticker{{font-size:1.08rem;font-weight:900;}}
 .aa-ui-timeline{{display:grid;gap:.55rem}} .aa-ui-timeline-step{{border-left:4px solid var(--aa-accent)}}
-.aa-mobile-nav{{display:none}} .aa-desktop-nav{{display:flex;gap:.4rem;flex-wrap:wrap}}
+.aa-mobile-nav,.aa-desktop-nav{{display:none}}
+.aa-ui-nav-link{{display:flex;align-items:center;justify-content:center;min-height:44px;padding:.3rem;color:var(--aa-text)!important;text-decoration:none!important;font-size:.72rem;font-weight:800;border-radius:9px;}}
+.aa-ui-nav-link[aria-current="page"]{{background:var(--aa-accent-soft);box-shadow:inset 0 0 0 1px var(--aa-accent);}}
 .aa-ui-page-state.tone-danger{{border-color:{t.danger}}}
 .aa-shell button,.aa-shell a[role="button"]{{min-height:44px}}
 .aa-shell :focus-visible{{outline:3px solid var(--aa-focus)!important;outline-offset:2px!important}}
@@ -94,7 +96,7 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-kpi-value{{font-size:1.13rem;color:{t.text_primary};font-weight:900;line-height:1.15;}}
 .aa-ui-kpi-delta{{font-size:.76rem;color:#cbd5e1;margin-top:.12rem;}}
 @media (max-width:1100px){{.aa-ui-status-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}
-@media (max-width:760px){{.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}.aa-desktop-nav{{display:none}}.aa-mobile-nav{{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:999;left:0;right:0;bottom:0;padding:.3rem .25rem calc(.3rem + env(safe-area-inset-bottom));background:#071524;border-top:1px solid {t.border}}}.aa-shell{{padding-bottom:74px}}}}
+@media (max-width:760px){{.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}.aa-mobile-nav{{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:999;left:0;right:0;bottom:0;padding:.3rem .25rem calc(.3rem + env(safe-area-inset-bottom));background:#071524;border-top:1px solid {t.border}}}.aa-shell{{padding-bottom:74px}}}}
 @media (prefers-reduced-motion:reduce){{.aa-shell *{{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}}}
 </style>
         """,

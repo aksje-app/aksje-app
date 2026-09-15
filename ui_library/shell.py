@@ -13,6 +13,7 @@ class ShellRoute:
 DESKTOP_ROUTES=(ShellRoute("overview","Oversikt","overview"),ShellRoute("portfolio","Porteføljer","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("autonomy","Autonomi","autonomy"),ShellRoute("reports","Rapporter","reports"),ShellRoute("operations","Drift","operations"))
 MOBILE_ROUTES=(ShellRoute("overview","Oversikt","overview"),ShellRoute("portfolio","Portefølje","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("alerts","Varsler","operations"),ShellRoute("more","Mer","overview"))
 _ALIASES={"paper":"portfolio","paper_trading":"portfolio","super_portfolio":"portfolio","long_engine":"market","analysis":"market","top_picks":"market","control_center":"overview","system":"operations","jobs":"operations","approvals":"autonomy"}
+_LEGACY_TARGETS={"overview":"dashboard","portfolio":"portfolio","market":"long_engine","autonomy":"autonomy","reports":"reports","operations":"operations","alerts":"alerts","more":"system"}
 
 def canonical_shell_route(value: str) -> str:
     slug=str(value or "overview").strip().lower().replace("-","_")
@@ -27,8 +28,11 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
         links=[]
         for item in routes:
             active=' aria-current="page"' if item.slug==current else ""
-            links.append(f'<a href="?aa_nav={item.slug}" class="aa-ui-nav-link aa-module-{item.module}"{active}>{item.label}</a>')
+            target=_LEGACY_TARGETS[item.slug]
+            links.append(f'<a href="?aa_nav={target}" class="aa-ui-nav-link aa-module-{item.module}"{active}>{item.label}</a>')
         return f'<nav class="{css}" aria-label="Hovednavigasjon">{"".join(links)}</nav>'
-    chip=str(status.get("label") or status.get("state") or "Klar")
-    st_module.markdown(f'<div class="aa-shell aa-module-{current}">{nav_html(DESKTOP_ROUTES,"aa-desktop-nav")}<span class="aa-ui-shell-status">{chip}</span>{nav_html(MOBILE_ROUTES,"aa-mobile-nav")}</div>',unsafe_allow_html=True)
+    # Desktop navigation remains owned by the proven fixed sidebar. Rendering
+    # a second row here caused conflicting route state and a blank workspace.
+    # The A+B shell supplies only the compact mobile destination bar.
+    st_module.markdown(nav_html(MOBILE_ROUTES,"aa-mobile-nav"),unsafe_allow_html=True)
     return current
