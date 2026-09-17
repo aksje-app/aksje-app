@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from market_universe import production_market_scopes
 
-ALLOWED_PRODUCTION_MARKETS = {"NORGE", "SVERIGE", "USA"}
+
+ALLOWED_PRODUCTION_MARKETS = {market.upper() for market in production_market_scopes()}
 
 
 def assess_production_readiness(run: Mapping[str, Any]) -> dict[str, Any]:
