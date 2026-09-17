@@ -20,6 +20,13 @@ def canonical_shell_route(value: str) -> str:
     return _ALIASES.get(slug,slug if slug in {r.slug for r in DESKTOP_ROUTES}|{"alerts","more"} else "overview")
 
 def use_v2_shell() -> bool:
+    # Aurora is the production shell after PR #15. The old rollout flag may
+    # still exist as ``0`` on long-lived Render services, which previously
+    # made production silently fall back to the legacy dashboard even though
+    # main contained the new UI. Keep the flag outside production for local
+    # rollback/testing, but make the deployed UI deterministic.
+    if os.getenv("APP_ENVIRONMENT", "").strip().lower() == "production":
+        return True
     return os.getenv("AA_UI_SHELL_V2","1").strip().lower() not in {"0","false","no","off"}
 
 def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) -> str:
