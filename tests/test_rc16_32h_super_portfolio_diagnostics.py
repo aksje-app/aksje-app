@@ -33,7 +33,8 @@ def test_decision_trace_explains_position_missing_from_new_target():
     assert vei["exclusion_reason"] == "NOT_IN_CURRENT_PIPELINE"
     assert vei["position_source_run_id"] == "OLD-RUN"
     assert vei["decision_run_id"] == "NEW-RUN"
-    assert vei["snapshot_mismatch"] is True
+    assert vei["snapshot_mismatch"] is False
+    assert vei["position_precedes_decision"] is True
     assert "INCONSISTENT_DECISION" in vei["alerts"]
 
 
