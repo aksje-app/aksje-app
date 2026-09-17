@@ -31,8 +31,6 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
             target=_LEGACY_TARGETS[item.slug]
             links.append(f'<a href="?aa_nav={target}" class="aa-ui-nav-link aa-module-{item.module}"{active}>{item.label}</a>')
         return f'<nav class="{css}" aria-label="Hovednavigasjon">{"".join(links)}</nav>'
-    # Desktop navigation remains owned by the proven fixed sidebar. Rendering
-    # a second row here caused conflicting route state and a blank workspace.
-    # The A+B shell supplies only the compact mobile destination bar.
+    st_module.markdown(nav_html(DESKTOP_ROUTES,"aa-desktop-nav"),unsafe_allow_html=True)
     st_module.markdown(nav_html(MOBILE_ROUTES,"aa-mobile-nav"),unsafe_allow_html=True)
     return current
