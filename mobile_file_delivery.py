@@ -27,15 +27,26 @@ def render_mobile_file_delivery(
     safe_name = escape(str(filename or "nedlasting"), quote=True)
     safe_label = escape(str(label or "Last ned"))
     safe_return = escape(str(return_url or "/"), quote=True)
+    landing_url = "public_file_token=" in str(url or "") or "public_report_token=" in str(url or "")
+    if landing_url:
+        secondary_action = (
+            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" '
+            'style="display:block;text-align:center;padding:.65rem;border:1px solid #38bdf8;border-radius:.5rem;'
+            'color:inherit;text-decoration:none;font-weight:700">Åpne nedlastingsside</a>'
+        )
+    else:
+        secondary_action = (
+            f'<a href="{safe_url}" download="{safe_name}" target="_blank" rel="noopener noreferrer" '
+            'style="display:block;text-align:center;padding:.65rem;border:1px solid #38bdf8;border-radius:.5rem;'
+            'color:inherit;text-decoration:none;font-weight:700">Last ned fil</a>'
+        )
     st.markdown(
         '<div data-testid="mobile-file-delivery" style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem;margin:.35rem 0">'
         f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" '
         'style="grid-column:1/-1;display:block;text-align:center;padding:.75rem;border-radius:.55rem;'
         'background:#0284c7;color:white;text-decoration:none;font-weight:800">'
         f'{safe_label}</a>'
-        f'<a href="{safe_url}" download="{safe_name}" target="_blank" rel="noopener noreferrer" '
-        'style="display:block;text-align:center;padding:.65rem;border:1px solid #38bdf8;border-radius:.5rem;'
-        'color:inherit;text-decoration:none;font-weight:700">Last ned fil</a>'
+        + secondary_action +
         f'<a href="{safe_return}" target="_self" '
         'style="display:block;text-align:center;padding:.65rem;border:1px solid #2dd4bf;border-radius:.5rem;'
         'color:inherit;text-decoration:none;font-weight:700">← Tilbake til programmet</a>'
@@ -56,15 +67,29 @@ def render_mobile_file_delivery(
         # never receives two identical keys in one render pass.
         identity = "|".join((str(key), str(instance_key), str(url), str(filename)))
         fallback_key = f"{key}_{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:12]}_fallback"
-        with st.expander("Reserve: direkte nedlasting", expanded=False):
+        download_context = (
+            _VisibleDownloadContext() if landing_url
+            else st.expander("Reserve: direkte nedlasting", expanded=False)
+        )
+        with download_context:
             st.download_button(
-                "Last ned direkte",
+                "Last ned korrekt fil direkte" if landing_url else "Last ned direkte",
                 data=bytes(data),
                 file_name=str(filename or "nedlasting"),
                 mime=str(mime or "application/octet-stream"),
                 key=fallback_key,
                 width="stretch",
             )
+
+
+class _VisibleDownloadContext:
+    """No-op context used when the native download must stay visible."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
 
 
 __all__ = ["render_mobile_file_delivery"]
