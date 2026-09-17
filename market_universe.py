@@ -16,6 +16,39 @@ CORE_MARKET_SCOPES: List[str] = ["Norge", "Sverige", "USA"]
 EXTENDED_NORDIC_MARKET_SCOPES: List[str] = ["Danmark", "Finland"]
 NORDIC_MARKET_SCOPES: List[str] = ["Norge", "Sverige", "Finland", "Danmark"]
 
+# One authoritative activation contract used by automated production paths.
+# Extended Nordic markets may be observed and measured, but cannot influence
+# production portfolios or automated trades until explicitly promoted.
+MARKET_ACTIVATION_LEVELS = {
+    "Norge": "PRODUCTION",
+    "Sverige": "PRODUCTION",
+    "USA": "PRODUCTION",
+    "Danmark": "SHADOW",
+    "Finland": "SHADOW",
+    "Brasil": "OFF",
+}
+
+
+def markets_at_level(level: str) -> List[str]:
+    wanted = str(level or "").strip().upper()
+    return [market for market, current in MARKET_ACTIVATION_LEVELS.items() if current == wanted]
+
+
+def production_market_scopes() -> List[str]:
+    return markets_at_level("PRODUCTION")
+
+
+def shadow_market_scopes() -> List[str]:
+    return markets_at_level("SHADOW")
+
+
+def market_activation_level(market: object) -> str:
+    value = str(market or "").strip()
+    for canonical, level in MARKET_ACTIVATION_LEVELS.items():
+        if value.upper() == canonical.upper():
+            return level
+    return "OFF"
+
 # RC9: labels are contracts, not marketing names.  The exact countries are
 # visible anywhere a user selects a market profile.
 CORE_MARKET_SCOPE_LABEL = "Norge + Sverige + USA"
