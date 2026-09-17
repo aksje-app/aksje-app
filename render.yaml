@@ -13,6 +13,8 @@ services:
         value: "true"
       - key: APP_ENVIRONMENT
         value: "production"
+      - key: AA_UI_SHELL_V2
+        value: "1"
       - key: AUTH_STORAGE_MODE
         value: "auto"
       - key: AUTH_DATABASE_URL
