@@ -4,7 +4,16 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 from cron_control import should_run_background_scan, mark_background_scan_started
 from currency_alert_service import run_currency_alert_checks
 
-AUTOMATED_SCANNER_MARKETS = (("NORGE",) if str(os.getenv("PRODUCTION_NORWAY_ONLY", "true") or "true").strip().lower() in {"1", "true", "yes", "on"} else ("USA", "NORGE", "SVERIGE"))
+from market_universe import production_market_scopes
+
+# The shared policy is authoritative.  The legacy Norway-only switch remains
+# available solely as an explicit emergency brake; it is no longer the default.
+_PRODUCTION_MARKETS = tuple(market.upper() for market in production_market_scopes())
+AUTOMATED_SCANNER_MARKETS = (
+    ("NORGE",)
+    if str(os.getenv("PRODUCTION_NORWAY_ONLY", "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
+    else _PRODUCTION_MARKETS
+)
 
 
 def _open_automated_markets():
