@@ -18,6 +18,7 @@ from typing import Any, Mapping, Sequence
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 from super_portfolio_market_data import ScanCancelled
+from market_universe import production_market_scopes, shadow_market_scopes, market_activation_level
 
 VERSION = "v19.22.0-rc16.32l"
 # Durable background runtime; this line also invalidates old timestamp caches.
@@ -288,6 +289,8 @@ class SuperPortfolioConfig:
     benchmark_ticker: str = "^STOXX"
     benchmark_label: str = "STOXX Europe 600"
     market_scopes: tuple[str, ...] = ("Norge", "Sverige", "Danmark", "Finland", "USA")
+    production_market_scopes: tuple[str, ...] = tuple(production_market_scopes())
+    shadow_market_scopes: tuple[str, ...] = tuple(shadow_market_scopes())
     # RC16.32f: broad-first funnel. Stage 1 must see the full available
     # investable universe before any shortlist is formed.
     market_universe_limit_per_market: int = 500
@@ -1142,7 +1145,14 @@ def build_decision_trace(*, state: Mapping[str, Any], pipeline: Mapping[str, Any
                     exclusion = "OUTSIDE_TARGET_TOP_N"
                 else:
                     exclusion = "FILTERED_UNKNOWN"
-        snapshot_mismatch = bool(current_position and position_run_id and decision_run_id and position_run_id != decision_run_id)
+        # Positions normally originate in the preceding decision run. Different
+        # run IDs therefore describe lineage, not corruption. Only an explicit
+        # failed snapshot-integrity contract is a mismatch.
+        snapshot_contract = state.get("snapshot_integrity") if isinstance(state.get("snapshot_integrity"), Mapping) else {}
+        snapshot_mismatch = snapshot_contract.get("ok") is False
+        position_precedes_decision = bool(
+            current_position and position_run_id and decision_run_id and position_run_id != decision_run_id
+        )
         alerts: list[str] = []
         if str(action.get("action") or "") == "SELL" and current_position:
             old_rank = int(_f(old.get("rank"), 9999))
@@ -1150,6 +1160,8 @@ def build_decision_trace(*, state: Mapping[str, Any], pipeline: Mapping[str, Any
                 alerts.append("INCONSISTENT_DECISION")
             if snapshot_mismatch:
                 alerts.append("SNAPSHOT_MISMATCH")
+        if selected and str(action.get("action") or "").upper() == "SELL":
+            alerts.append("TARGET_ACTION_CONTRADICTION")
         result[ticker] = {
             "ticker": ticker,
             "current_position": current_position,
@@ -1159,6 +1171,7 @@ def build_decision_trace(*, state: Mapping[str, Any], pipeline: Mapping[str, Any
             "position_source_run_id": position_run_id,
             "decision_run_id": decision_run_id,
             "snapshot_mismatch": snapshot_mismatch,
+            "position_precedes_decision": position_precedes_decision,
             "in_current_pipeline": in_pipeline,
             "eligible": eligible,
             "rank": ranked_row.get("rank"),
@@ -1546,12 +1559,12 @@ def _explanation_for(row: Mapping[str, Any]) -> list[str]:
 
 
 def _rebalance_due(state: Mapping[str, Any], now: datetime, cfg: SuperPortfolioConfig, policy: str) -> bool:
+    if str(policy).upper() == "ANALYZE_ONLY":
+        return False
     if not state.get("positions"):
         return True
     if str(policy).upper() == "FORCE":
         return True
-    if str(policy).upper() == "ANALYZE_ONLY":
-        return False
     if now.weekday() != int(cfg.rebalance_weekday):
         return False
     return str(state.get("last_rebalance_date") or "") != now.date().isoformat()
@@ -1578,7 +1591,17 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     allowed = set(SuperPortfolioConfig.__dataclass_fields__)
     cfg = SuperPortfolioConfig(**{k: v for k, v in config_data.items() if k in allowed})
     candidates = list(pipeline.get("candidates") or pipeline.get("proposals") or [])
-    base_ranked = attach_return_profile_correlations(rank_candidates(candidates, cfg))
+    production_markets = {str(value).strip().upper() for value in cfg.production_market_scopes}
+    production_candidates = [
+        row for row in candidates
+        if market_activation_level(row.get("market") or row.get("country")) == "PRODUCTION"
+        and str(row.get("market") or row.get("country") or "").strip().upper() in production_markets
+    ]
+    shadow_candidates = [
+        row for row in candidates
+        if market_activation_level(row.get("market") or row.get("country")) == "SHADOW"
+    ]
+    base_ranked = attach_return_profile_correlations(rank_candidates(production_candidates, cfg))
     ranked_all = apply_concentration_penalties(base_ranked, cfg)
     history = list(state.get("history") or [])
     for index, row in enumerate(ranked_all, start=1):
@@ -1601,13 +1624,34 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     weights = target_weights(selected_rows, cfg)
     by_ticker = {str(row["ticker"]): row for row in ranked}
     decision_run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
-    advisory = ai_would_do_today(
+    preliminary_advisory = ai_would_do_today(
         previous,
         ai_weights,
         cfg.min_rebalance_pp,
         selection_meta=selection_meta,
         decision_run_id=decision_run_id,
     )
+    advisory: list[dict[str, Any]] = []
+    for proposed in preliminary_advisory:
+        action = dict(proposed)
+        ticker = str(action.get("ticker") or "")
+        # A blocked replacement can preserve an incumbent in the executable
+        # target. Never publish SELL for that same selected ticker. Challenger
+        # BUY rows remain visible and are marked BLOCKED by their entry gate.
+        if str(action.get("action") or "").upper() == "SELL" and ticker in weights:
+            old_weight = _f((previous.get(ticker) or {}).get("target_weight_pct"))
+            target_weight = _f(weights.get(ticker))
+            if abs(target_weight - old_weight) < cfg.min_rebalance_pp:
+                continue
+            replacement_action = "ADD" if target_weight > old_weight else "REDUCE"
+            action.update({
+                "action": replacement_action,
+                "to_pct": target_weight,
+                "delta_pct": round(target_weight - old_weight, 2),
+                "reason_code": "ENTRY_REPLACEMENT_BLOCKED",
+                "reason": "Eksisterende posisjon beholdes fordi inngangsporten blokkerte erstatteren",
+            })
+        advisory.append(action)
     rebalance_gate = build_rebalance_gate(
         pipeline=pipeline, selected_rows=selected_rows, config=cfg, now=now_dt, regime_policy=regime_policy
     )
@@ -1727,6 +1771,11 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "portfolio_health": health,
         "ai_would_do_today": advisory,
         "ai_thinks": advisory,
+        "market_activation": {
+            "production": list(cfg.production_market_scopes),
+            "shadow": list(cfg.shadow_market_scopes),
+            "shadow_candidate_count": len(shadow_candidates),
+        },
         "shadow_executed": changes,
         "entry_gate": entry_gate,
         "candidate_persistence": candidate_persistence,
@@ -1744,6 +1793,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "portfolio_health": health,
         "ai_would_do_today": advisory,
         "ai_thinks": advisory,
+        "market_activation": snapshot["market_activation"],
         "shadow_executed": changes,
         "entry_gate": entry_gate,
         "candidate_persistence": candidate_persistence,
