@@ -34,8 +34,8 @@ def test_mobile_fallback_keys_are_panel_scoped():
         def __exit__(self, *_): return False
 
     class FakeStreamlit:
-        def __init__(self): self.keys = []
-        def markdown(self, *_, **__): pass
+        def __init__(self): self.keys = []; self.html = []
+        def markdown(self, value, **__): self.html.append(value)
         def caption(self, *_): pass
         def code(self, *_, **__): pass
         def expander(self, *_, **__): return Context()
@@ -47,6 +47,32 @@ def test_mobile_fallback_keys_are_panel_scoped():
     render_mobile_file_delivery(st, **common, instance_key="latest")
     render_mobile_file_delivery(st, **common, instance_key="archive_RUN")
     assert len(set(st.keys)) == 2
+
+
+def test_token_landing_url_is_never_downloaded_as_fake_json():
+    from mobile_file_delivery import render_mobile_file_delivery
+
+    class FakeStreamlit:
+        def __init__(self): self.html = []; self.labels = []
+        def markdown(self, value, **_): self.html.append(value)
+        def caption(self, *_): pass
+        def code(self, *_ , **__): pass
+        def download_button(self, label, **_): self.labels.append(label)
+
+    st = FakeStreamlit()
+    render_mobile_file_delivery(
+        st,
+        url="https://aksje-app.onrender.com/?public_file_token=TOKEN",
+        filename="learning.json",
+        label="Åpne læringsrapport JSON",
+        mime="application/json",
+        data=b"{}",
+        key="learning_json",
+    )
+    html = "".join(st.html)
+    assert 'download="learning.json"' not in html
+    assert "Åpne nedlastingsside" in html
+    assert st.labels == ["Last ned korrekt fil direkte"]
 
 
 def test_storage_retention_is_dry_run_by_default(monkeypatch):

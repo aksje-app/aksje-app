@@ -151,6 +151,10 @@ class VerifiedExportClosureTests(unittest.TestCase):
         self.assertIn("on_click=_start_replay_export_callback_v19220_rc1616", panel)
         self.assertIn("started = start_export()", panel)
         self.assertIn("_replay_export_start_fragment_v19220_rc1616", panel)
+        self.assertIn(
+            "_replay_export_start_fragment_v19220_rc1616 = _replay_export_start_body_v19220_rc1616",
+            panel,
+        )
         self.assertNotIn("st.form_submit_button", panel)
         self.assertIn('fragment(run_every="3s")', panel)
         start_block = panel[:panel.index("def _replay_export_status_body_v19220_rc1615")]

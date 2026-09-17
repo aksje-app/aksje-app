@@ -3909,6 +3909,52 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                 "Markeder merket «eksisterende» inngår ikke i den aktive kandidatskanningen.", styles["Small"],
             ),
         ]
+
+    # Keep the compact investor PDF and the canonical JSON contract aligned.
+    # The semantic delivery gate validates documented signals for the public
+    # Top 3. Those values previously existed only in the optional technical
+    # appendix, so an otherwise complete investor PDF was rejected before
+    # storage and Pushover delivery.
+    public_projection = (
+        run.get("public_report_contract")
+        if isinstance(run.get("public_report_contract"), Mapping) else {}
+    )
+    public_priority_tickers = [
+        str(row.get("ticker") or "").strip().upper()
+        for row in list(public_projection.get("ranking") or [])[:3]
+        if isinstance(row, Mapping) and str(row.get("ticker") or "").strip()
+    ]
+    candidate_by_ticker = {
+        str(row.get("ticker") or "").strip().upper(): row
+        for row in compact_candidates
+        if str(row.get("ticker") or "").strip()
+    }
+    documented_signal_rows = [["Ticker", "Dokumentert innsidersignal", "Dokumentert nyhetssignal"]]
+    for ticker in public_priority_tickers:
+        candidate = candidate_by_ticker.get(ticker, {})
+        raw = candidate.get("raw") if isinstance(candidate.get("raw"), Mapping) else {}
+        insider_signal = str(raw.get("insider_signal") or "INGEN DATA")
+        news_signal = str(raw.get("news_sentiment") or "INGEN DATA")
+        documented_signal_rows.append([
+            _rawp(ticker, "Tiny"),
+            _rawp(insider_signal, "Tiny"),
+            _rawp(news_signal, "Tiny"),
+        ])
+    if len(documented_signal_rows) > 1:
+        documented_signal_table = Table(
+            documented_signal_rows,
+            repeatRows=1,
+            colWidths=[27*mm, 76*mm, 81*mm],
+        )
+        documented_signal_table.setStyle(_table_style(5.2, padding=1.2))
+        decision_story += [
+            Paragraph("Dokumenterte signaler for offentlig kjøpsrangering", styles["Subsection"]),
+            documented_signal_table,
+            Paragraph(
+                "Signalene kommer fra rapportens kanoniske kandidatdata og gjelder den offentlige Top 3-listen.",
+                styles["Small"],
+            ),
+        ]
     portfolio_rows = [["Ticker · børs · land", "Antall", "Inngang", "Nå", "Kostpris", "Markedsverdi", "Vekt %"]]
     for row in list(decision_portfolio.get("positions") or []):
         portfolio_rows.append([
@@ -4825,7 +4871,21 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         story += [Paragraph("Analyse avbrutt – utilstrekkelige data", styles["Section"]),
                   Paragraph("Alle tilgjengelige live-hentinger feilet. Rangering, medaljer, anbefalinger og teoretisk portefølje er derfor deaktivert for denne kjøringen.", styles["BodyCompact"])]
     elif candidates:
-        final_candidates = list(run.get("final_decision_top3") or run.get("decision_ready_top3") or [])
+        public_contract = (
+            run.get("public_report_contract")
+            if isinstance(run.get("public_report_contract"), Mapping) else {}
+        )
+        # The PDF and the semantic gate must consume the same canonical public
+        # ranking. Some completed runs legitimately omit the convenience
+        # ``final_decision_top3`` fields while still carrying the authoritative
+        # public projection. Falling back to an empty list produced a PDF
+        # without the documented candidate signals and rejected the report.
+        final_candidates = list(
+            run.get("final_decision_top3")
+            or run.get("decision_ready_top3")
+            or public_contract.get("ranking")
+            or []
+        )
         raw_candidates = []
         priority_candidates = list(final_candidates)
         # Priority rows are compact in persisted JSON. Hydrate them from the one
@@ -4961,7 +5021,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
                 ["Autonomiutfall", _p(candidate.get("autonomy_outcome_label") or decision_label_text), "Automatisk neste steg", _p(candidate.get("automatic_next_action") or "-")],
             ], colWidths=[34*mm, 50*mm, 42*mm, 42*mm])
             readiness_table.setStyle(_table_style(6.4, header=False, padding=2.2))
-            story += [Paragraph("Beslutningsstempel", styles["Section"]), readiness_table]
+            documented_signal_table = Table([
+                ["Dokumentert innsidersignal", _p(str(raw.get("insider_signal") or "INGEN DATA"))],
+                ["Dokumentert nyhetssignal", _p(str(raw.get("news_sentiment") or "INGEN DATA"))],
+            ], colWidths=[58*mm, 110*mm])
+            documented_signal_table.setStyle(_table_style(6.4, header=False, padding=2.2))
+            story += [
+                Paragraph("Beslutningsstempel", styles["Section"]), readiness_table,
+                Paragraph("Dokumenterte modulsignaler", styles["Subsection"]), documented_signal_table,
+            ]
             profile = candidate.get("confidence_profile") if isinstance(candidate.get("confidence_profile"), Mapping) else {}
             confidence = round(float(candidate.get("decision_confidence") or profile.get("decision_confidence") or 0), 1)
             confidence_label = "Høy" if confidence >= 80 else "Middels" if confidence >= 60 else "Lav"
@@ -7624,9 +7692,11 @@ def _replay_export_status_body_v19220_rc1615() -> None:
 
 
 try:
-    _replay_export_start_fragment_v19220_rc1616 = _st_fragment_rc161.fragment(
-        _replay_export_start_body_v19220_rc1616
-    )
+    # The action control must belong to the ordinary page render. A button
+    # inside a nested fragment/tab can be replaced by the polling fragment
+    # before Streamlit executes its callback, which makes a real click appear
+    # to do nothing in production. Only the read-only status surface polls.
+    _replay_export_start_fragment_v19220_rc1616 = _replay_export_start_body_v19220_rc1616
     _replay_export_status_fragment_v19220_rc16 = _st_fragment_rc161.fragment(run_every="3s")(
         _replay_export_status_body_v19220_rc1615
     )

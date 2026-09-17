@@ -146,3 +146,31 @@ def test_reprocessed_report_stamps_one_current_version_in_json_and_pdf():
     assert result["source_version_contract"]["app_version"] == "v19.14.2"
     assert validate_report_integrity(result)["ok"] is True
     assert validate_pdf_semantics(build_pdf(result), result)["ok"] is True
+
+
+def test_investor_pdf_contains_canonical_documented_signals():
+    from market_intelligence import build_main_pdf
+    from pypdf import PdfReader
+    from io import BytesIO
+
+    candidate = _candidate("BWLPG.OL", 82.0, "BUY")
+    candidate["raw"]["insider_signal"] = "DOKUMENTERT_INNSIDER_BWLPG"
+    candidate["raw"]["news_sentiment"] = "DOKUMENTERT_NEWS_BWLPG"
+    candidate["portfolio_action"] = "BUY"
+    payload = {
+        "created_at": "2026-09-17T08:00:00+02:00",
+        "run_id": "MI-SIGNAL-PDF",
+        "summary": {"scanned": 1, "proposals": 1},
+        "candidates": [candidate],
+        "proposals": [candidate],
+        "portfolio_decisions": {"portfolio_context": {"active": True}, "decisions": [
+            {"ticker": "BWLPG.OL", "action": "BUY", "reason": "Bestod portene"},
+        ]},
+    }
+    result = canonical_report_view(payload)
+    pdf = build_main_pdf(result)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "DOKUMENTERT_INNSIDER_BWLPG" in text
+    assert "DOKUMENTERT_NEWS_BWLPG" in text
+    assert validate_pdf_semantics(pdf, result)["ok"] is True
