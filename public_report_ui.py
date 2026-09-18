@@ -4,6 +4,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+import os
 
 
 _RETURN_NAV_TARGETS = {
@@ -20,6 +21,18 @@ def _safe_return_nav(value: str) -> str:
 
 def _report_return_href(value: str) -> str:
     return "/?" + urlencode({"aa_nav": _safe_return_nav(value)})
+
+
+def _absolute_report_return_url(value: str) -> str:
+    """Build the same-origin absolute URL required by mobile PDF viewers."""
+    nav = _safe_return_nav(value)
+    for candidate in (os.getenv("RENDER_EXTERNAL_URL"), os.getenv("REPORT_PUBLIC_BASE_URL")):
+        parsed = urlsplit(str(candidate or "").strip())
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return urlunsplit((parsed.scheme, parsed.netloc, "/", urlencode({"aa_nav": nav}), ""))
+    # Production's canonical origin is also the documented fallback used by
+    # report delivery when Render does not expose its service URL locally.
+    return "https://aksje-app.onrender.com/?" + urlencode({"aa_nav": nav})
 
 
 def with_report_return(url: str, return_to: str) -> str:
@@ -47,7 +60,18 @@ def _hydrate_static_pdf(token: str, report: dict) -> tuple[Path, str]:
     target = PUBLIC_REPORT_DIR / f"public_report_{safe_token}.pdf"
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix(".pdf.tmp")
-    temporary.write_bytes(bytes(report["data"]))
+    from pdf_mobile_return import add_pdf_return_links
+
+    try:
+        stamped = add_pdf_return_links(
+            bytes(report["data"]),
+            return_url=_absolute_report_return_url(str(report.get("_return_to") or "reports")),
+        )
+    except Exception:
+        # Keep legacy or minimally valid archived PDFs readable.  Newly
+        # generated application PDFs are covered by the PDF regression test.
+        stamped = bytes(report["data"])
+    temporary.write_bytes(stamped)
     temporary.replace(target)
     return target, f"/app/static/reports/{quote(target.name)}"
 
@@ -92,7 +116,8 @@ def _report_landing_actions(static_url: str, *, return_href: str = "/?aa_nav=rep
 
 
 def render_public_report(st) -> bool:
-    return_href = _report_return_href(str(st.query_params.get("return_to") or "reports"))
+    return_to = str(st.query_params.get("return_to") or "reports")
+    return_href = _report_return_href(return_to)
     file_token=str(st.query_params.get("public_file_token") or "").strip()
     if file_token:
         from public_report_store import load_public_file
@@ -114,7 +139,9 @@ def render_public_report(st) -> bool:
     if not report:
         st.error("Rapportlenken er ugyldig eller utløpt.")
         st.stop()
-    _, static_url = _hydrate_static_pdf(token, report)
+    report = {**report, "_return_to": return_to}
+    target, static_url = _hydrate_static_pdf(token, report)
+    mobile_pdf = target.read_bytes()
     st.markdown("### 📄 Rapporten er klar")
     st.caption(f"Rapport-ID: {report.get('report_id') or '-'}")
     st.info("Rapporten vises på denne siden. Bruk «Tilbake til programmet» over rapporten for å gå direkte tilbake.")
@@ -127,7 +154,7 @@ def render_public_report(st) -> bool:
     render_mobile_file_delivery(
         st, url=static_url, filename=str(report.get("filename") or "rapport.pdf"),
         label="Åpne PDF for nedlasting eller deling", mime="application/pdf",
-        data=bytes(report["data"]), key=f"public_pdf_{token}",
+        data=mobile_pdf, key=f"public_pdf_{token}",
     )
     st.markdown(_report_landing_actions(static_url, return_href=return_href), unsafe_allow_html=True)
     return True
