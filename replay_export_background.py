@@ -154,6 +154,18 @@ def _parse_date(value: str | None, *, end: bool = False) -> datetime | None:
 def _run_export(execution_id: str, filters: Mapping[str, Any]) -> None:
     watchdog_stop = threading.Event()
 
+    with _LOCK:
+        current = _read_status()
+        if str(current.get("execution_id") or "") == execution_id:
+            current.update({
+                "state": "RUNNING",
+                "stage": "STARTER",
+                "message": "Eksportarbeideren har startet",
+                "worker_started_at": _now(),
+                "worker_heartbeat_at": _now(),
+            })
+            _write_status(current)
+
     def watchdog() -> None:
         while not watchdog_stop.wait(WATCHDOG_INTERVAL_SECONDS):
             with _LOCK:
@@ -283,6 +295,8 @@ def start_export(*, date_from: str = "", date_to: str = "", versions: Sequence[s
             "stage": "KØ",
             "current_file": "",
             "created_at": _now(),
+            "start_acknowledged_at": _now(),
+            "worker_started_at": "",
             "worker_heartbeat_at": _now(),
             "filters": filters,
             "file_path": "",

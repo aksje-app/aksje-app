@@ -201,6 +201,106 @@ def record_report_failure(run_id: str, report_path: Path | None, exc: BaseExcept
     return payload
 
 
+def notify_report_failure(
+    job: "JobProfile",
+    run: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Send one durable Pushover alert for an undeliverable report.
+
+    A failed report never receives a public-report link: the notification is a
+    delivery alarm, not a way around the PDF/JSON integrity gate. The durable
+    receipt also prevents a retry or a second scheduler layer from sending the
+    same alarm twice.
+    """
+    run_id = str(run.get("run_id") or context.get("run_id") or "").strip()
+    receipt_key = f"FAILURE:{run_id}" if run_id else ""
+    receipts = _read(REPORT_NOTIFICATION_RECEIPTS_PATH, {})
+    receipts = dict(receipts) if isinstance(receipts, Mapping) else {}
+    previous = dict(receipts.get(receipt_key) or {}) if receipt_key else {}
+    if previous.get("sent") is True:
+        return previous
+
+    suppressed = bool(run.get("suppress_notifications"))
+    enabled = bool(getattr(job, "notify_pushover", False))
+    attempted = bool(enabled and not suppressed)
+    sent = False
+    detail = ""
+    skipped_reason = ""
+    identity = resolve_report_identity(run)
+    if suppressed:
+        detail = "Test uten varsling: feilvarsel til Pushover ble ikke sendt"
+        skipped_reason = "SUPPRESSED_TEST"
+    elif not enabled:
+        detail = "Pushover er deaktivert for jobben"
+        skipped_reason = "JOB_DISABLED"
+    else:
+        try:
+            from notifier import send_pushover_alert
+            from runtime_identity import runtime_label
+
+            timezone_name = str(run.get("timezone_name") or getattr(job, "timezone_name", DEFAULT_TIMEZONE))
+            planned = str(run.get("scheduled_for") or "")
+            planned_text = local_display(planned, timezone_name) if planned else "Ikke planlagt"
+            error_type = str(context.get("error_type") or "Ukjent feil")
+            error_text = str(context.get("error") or "Ukjent rapportfeil")
+            diagnostic = Path(str(context.get("diagnostic_path") or "")).name or "ikke lagret"
+            lines = [
+                "❌ MANGLENDE FAST RAPPORT",
+                f"Obligatorisk rapport: {identity.get('label') or job.name}",
+                f"Planlagt: {planned_text}",
+                "Status: Ikke levert",
+                "PDF: ikke bekreftet",
+                "Lagring: ikke bekreftet",
+                f"Feil: {error_type}: {error_text}",
+                f"Diagnose: {diagnostic}",
+                f"Programversjon: {APP_VERSION}",
+                f"Kjøretid: {runtime_label('report_scheduler')}",
+                f"Jobb: {deduplicated_display_name(job.name)}",
+                f"Rapport-ID: {run_id or '-'}",
+            ]
+            sent, response = send_pushover_alert(
+                "\n".join(lines),
+                title=f"❌ Manglende rapport · {identity.get('label') or job.name}",
+            )
+            sent = bool(sent)
+            detail = str(response or ("Sendt" if sent else "Pushover avviste feilvarselet"))
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+
+    now_iso = _now_iso()
+    receipt = {
+        "notification_id": f"REPORT-{run_id}-FAILURE-PUSHOVER",
+        "kind": "REPORT_FAILURE",
+        "sent": sent,
+        "attempted": attempted,
+        "at": now_iso,
+        "attempted_at": now_iso if attempted else "",
+        "sent_at": now_iso if sent else "",
+        "status": "SENT" if sent else ("FAILED" if attempted else "SKIPPED"),
+        "channel": "PUSHOVER",
+        "run_id": run_id,
+        "job_id": job.job_id,
+        "job_name": job.name,
+        "report_type": identity.get("type"),
+        "report_label": identity.get("label"),
+        "scheduled_for": str(run.get("scheduled_for") or ""),
+        "detail": detail,
+        "skipped_reason": skipped_reason,
+        "report_url": "",
+        "error_type": str(context.get("error_type") or ""),
+        "diagnostic_path": str(context.get("diagnostic_path") or ""),
+    }
+    if receipt_key:
+        receipts[receipt_key] = receipt
+        _write(REPORT_NOTIFICATION_RECEIPTS_PATH, dict(list(receipts.items())[-1000:]))
+    try:
+        _audit("REPORT_FAILURE_NOTIFICATION_SENT" if sent else "REPORT_FAILURE_NOTIFICATION_NOT_SENT", receipt)
+    except Exception:
+        pass
+    return receipt
+
+
 def should_suppress_notifications(trigger: str, send_notifications: bool) -> bool:
     """Fail closed for test runs unless a test notification is explicit.
 
@@ -6761,6 +6861,18 @@ def _run_job_impl(
     except Exception as exc:
         context = record_report_failure(run_id, report_path_hint, exc, stage="REPORT")
         try:
+            failure_notification = notify_report_failure(job, run, context)
+            context["failure_notification"] = failure_notification
+        except Exception as notification_exc:
+            # The original report failure remains authoritative even if the
+            # emergency notification path itself is unavailable.
+            context["failure_notification"] = {
+                "attempted": True,
+                "sent": False,
+                "status": "FAILED",
+                "detail": f"{type(notification_exc).__name__}: {notification_exc}",
+            }
+        try:
             emit(
                 "REPORT", 0, 3,
                 f"Rapportfeil: {context.get('error_type')}: {context.get('error')}",
@@ -7311,6 +7423,11 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
                 "status": job.last_status, "planned_at": planned_at,
             })
         except Exception as exc:
+            failure_context = dict(getattr(exc, "context", {}) or {})
+            failure_notification = (
+                failure_context.get("failure_notification")
+                if isinstance(failure_context.get("failure_notification"), Mapping) else {}
+            )
             job.last_failed_at = _now_iso()
             job.last_status = "FEIL"
             upsert_job(job)
@@ -7318,8 +7435,10 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
                 "job_id": job.job_id, "job_name": job.name, "type": "Planlagt",
                 "planned_at": planned_at, "started_at": job.last_attempted_at,
                 "completed_at": job.last_failed_at, "status": "Feil",
-                "error": str(exc)[:1000], "pdf": False, "pushover_attempted": False,
-                "pushover_sent": False,
+                "error": str(exc)[:1000], "pdf": False,
+                "pushover_attempted": bool(failure_notification.get("attempted")),
+                "pushover_sent": bool(failure_notification.get("sent")),
+                "pushover_detail": str(failure_notification.get("detail") or ""),
             })
             _audit("SCHEDULED_RUN_FAILED", {
                 "job_id": job.job_id, "job_name": job.name, "error": str(exc)[:1000],
@@ -7332,6 +7451,7 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
                 "scheduler_result": "FAILED", "job_id": job.job_id,
                 "job_name": job.name, "planned_at": planned_at,
                 "error": str(exc)[:1000],
+                "failure_notification": dict(failure_notification),
             })
             continue
     scheduler_health_snapshot(now)
