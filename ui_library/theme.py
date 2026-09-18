@@ -116,7 +116,31 @@ def inject_design_system(st_module, module: str = "overview") -> None:
 .aa-ui-kpi-value{{font-size:1.13rem;color:{t.text_primary};font-weight:900;line-height:1.15;}}
 .aa-ui-kpi-delta{{font-size:.76rem;color:#cbd5e1;margin-top:.12rem;}}
 @media (max-width:1100px){{.aa-ui-status-grid{{grid-template-columns:repeat(2,minmax(0,1fr));}}}}
-@media (max-width:760px){{.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}.aa-desktop-nav{{display:none}}.aa-mobile-nav{{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:999;left:0;right:0;bottom:0;padding:.3rem .25rem calc(.3rem + env(safe-area-inset-bottom));background:#071524;border-top:1px solid {t.border}}}.aa-shell{{padding-bottom:74px}}}}
+@media (max-width:760px){{
+html body section[data-testid="stSidebar"],
+html body [data-testid="collapsedControl"],
+html body [data-testid="stSidebarCollapsedControl"],
+html body button[title*="sidebar" i],
+html body button[aria-label*="sidebar" i]{{display:none!important;visibility:hidden!important;pointer-events:none!important;width:0!important;height:0!important;}}
+.aa-ui-decision-grid,.aa-ui-metric-grid,.aa-ui-status-grid{{grid-template-columns:1fr}}
+.aa-desktop-nav{{display:none!important}}
+html body .aa-mobile-nav{{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed!important;z-index:2147483000!important;left:0!important;right:0!important;bottom:0!important;min-height:68px;padding:.35rem .3rem calc(.35rem + env(safe-area-inset-bottom))!important;background:rgba(3,12,25,.985)!important;border-top:1px solid rgba(56,189,248,.48)!important;box-shadow:0 -12px 34px rgba(0,0,0,.58)!important;pointer-events:auto!important;opacity:1!important;visibility:visible!important}}
+html body .aa-mobile-nav .aa-ui-nav-link{{display:flex!important;flex-direction:column!important;gap:.18rem!important;align-items:center!important;justify-content:center!important;min-width:0!important;min-height:54px!important;margin:0 .1rem!important;padding:.28rem .12rem!important;color:#dcecff!important;-webkit-text-fill-color:#dcecff!important;background:rgba(11,31,52,.72)!important;border:1px solid rgba(96,165,250,.22)!important;border-radius:12px!important;pointer-events:auto!important;opacity:1!important;visibility:visible!important;font-size:.66rem!important;line-height:1!important;font-weight:900!important;text-decoration:none!important}}
+html body .aa-mobile-nav .aa-ui-nav-link[aria-current="page"]{{color:#f2d17f!important;-webkit-text-fill-color:#f2d17f!important;background:rgba(214,179,106,.12)!important;border-color:rgba(214,179,106,.48)!important}}
+.aa-mobile-nav .aa-nav-icon{{display:block;font-size:1rem;line-height:1;color:inherit!important;-webkit-text-fill-color:inherit!important}}
+.aa-mobile-nav .aa-mobile-more{{display:block!important;min-width:0!important;margin:0!important;padding:0!important;pointer-events:auto!important}}
+.aa-mobile-nav .aa-mobile-more>summary{{list-style:none!important;cursor:pointer!important}}
+.aa-mobile-nav .aa-mobile-more>summary::-webkit-details-marker{{display:none!important}}
+.aa-mobile-nav .aa-mobile-more[open]::before{{content:"";position:fixed;z-index:2147482980;inset:0 0 calc(68px + env(safe-area-inset-bottom)) 0;background:rgba(2,6,23,.76);backdrop-filter:blur(4px)}}
+.aa-mobile-more-panel{{position:fixed;z-index:2147482990;left:.55rem;right:.55rem;bottom:calc(74px + env(safe-area-inset-bottom));max-height:min(68vh,540px);overflow-y:auto;padding:.8rem;border:1px solid rgba(56,189,248,.5);border-radius:20px;background:linear-gradient(180deg,#0d2034,#06111f);box-shadow:0 20px 55px rgba(0,0,0,.68)}}
+.aa-mobile-more-panel header{{padding:.25rem .2rem .7rem}}
+.aa-mobile-more-panel header strong,.aa-mobile-more-panel header small{{display:block;color:#edf4fb!important;-webkit-text-fill-color:#edf4fb!important}}
+.aa-mobile-more-panel header strong{{font-size:1rem}}.aa-mobile-more-panel header small{{margin-top:.18rem;color:#9fb2c5!important;-webkit-text-fill-color:#9fb2c5!important;font-size:.72rem}}
+.aa-mobile-more-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}}
+.aa-mobile-more-grid .aa-ui-nav-link{{min-height:64px!important;margin:0!important;background:rgba(15,40,65,.92)!important}}
+html body .stApp .block-container{{padding-bottom:calc(6rem + env(safe-area-inset-bottom))!important}}
+.aa-shell{{padding-bottom:calc(78px + env(safe-area-inset-bottom))}}
+}}
 @media (max-width:760px){{.aa-overview-hero,.aa-portfolio-command{{grid-template-columns:1fr;padding:1rem}}.aa-overview-hero{{padding:1.35rem}}.aa-system-chip{{justify-self:start}}.aa-next-event{{margin-top:.2rem}}.aa-overview-metric{{min-height:88px}}.aa-portfolio-command{{padding:0}}.aa-portfolio-command>article{{min-height:0}}.aa-portfolio-value{{min-height:260px!important}}.aa-confidence{{min-height:210px!important}}.aa-portfolio-value>strong{{margin-top:1rem;font-size:2.15rem}}.aa-chart-wrap{{left:1rem;right:1rem;bottom:.65rem}}.aa-portfolio-facts{{grid-template-columns:1fr}}.aa-portfolio-facts>div{{border-right:0;border-bottom:1px solid rgba(111,145,175,.24)}}.aa-portfolio-facts strong{{font-size:1.15rem}}.aa-decision-row{{grid-template-columns:1fr auto}}.aa-decision-row>span{{grid-column:1/-1}}.st-key-aa_overview_reports button,.st-key-aa_overview_portfolio button,.st-key-aa_overview_market button,.st-key-aa_overview_operations button{{min-height:46px!important}}}}
 @media (prefers-reduced-motion:reduce){{.aa-shell *{{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}}}
 </style>

@@ -12,8 +12,19 @@ class ShellRoute:
 
 DESKTOP_ROUTES=(ShellRoute("overview","Oversikt","overview"),ShellRoute("portfolio","Porteføljer","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("autonomy","Autonomi","autonomy"),ShellRoute("reports","Rapporter","reports"),ShellRoute("operations","Drift","operations"))
 MOBILE_ROUTES=(ShellRoute("overview","Oversikt","overview"),ShellRoute("portfolio","Portefølje","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("alerts","Varsler","operations"),ShellRoute("more","Mer","overview"))
-_ALIASES={"paper":"portfolio","paper_trading":"portfolio","super_portfolio":"portfolio","long_engine":"market","analysis":"market","top_picks":"market","control_center":"overview","system":"operations","jobs":"operations","approvals":"autonomy"}
-_LEGACY_TARGETS={"overview":"dashboard","portfolio":"portfolio","market":"long_engine","autonomy":"autonomy","reports":"reports","operations":"operations","alerts":"alerts","more":"system"}
+MORE_ROUTES=(
+    ShellRoute("autonomy","Autonomi","autonomy"),
+    ShellRoute("reports","Rapporter","reports"),
+    ShellRoute("jobs","Jobber/planlegger","operations"),
+    ShellRoute("approvals","Godkjenninger","autonomy"),
+    ShellRoute("paper","Paper Trading","portfolio"),
+    ShellRoute("fx_alerts","Valuta","market"),
+    ShellRoute("operations","Drift","operations"),
+    ShellRoute("settings","Innstillinger","operations"),
+)
+_ALIASES={"paper":"portfolio","paper_trading":"portfolio","super_portfolio":"portfolio","long_engine":"market","analysis":"market","top_picks":"market","control_center":"overview","system":"operations","settings":"operations","jobs":"operations","approvals":"autonomy","fx_alerts":"market","drift_center":"operations"}
+_LEGACY_TARGETS={"overview":"dashboard","portfolio":"portfolio","market":"long_engine","autonomy":"autonomy","reports":"reports","operations":"drift_center","alerts":"alerts","more":"system","jobs":"jobs","approvals":"approvals","paper":"paper_trading","fx_alerts":"fx_alerts","settings":"system"}
+_NAV_ICONS={"overview":"⌂","portfolio":"▣","market":"⌁","alerts":"!","more":"•••","autonomy":"◈","reports":"▤","jobs":"◷","approvals":"✓","paper":"◇","fx_alerts":"¤","operations":"⚙","settings":"⚙"}
 
 def canonical_shell_route(value: str) -> str:
     slug=str(value or "overview").strip().lower().replace("-","_")
@@ -31,13 +42,34 @@ def use_v2_shell() -> bool:
 
 def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) -> str:
     current=canonical_shell_route(route); status=status or {}
+    def nav_link(item: ShellRoute, *, mobile: bool = False) -> str:
+        active=' aria-current="page"' if item.slug==current else ""
+        target=_LEGACY_TARGETS[item.slug]
+        icon=(f'<span class="aa-nav-icon" aria-hidden="true">{_NAV_ICONS.get(item.slug, "•")}</span>' if mobile else "")
+        return f'<a href="?aa_nav={target}" class="aa-ui-nav-link aa-module-{item.module}"{active}>{icon}<span>{item.label}</span></a>'
     def nav_html(routes,css):
         links=[]
         for item in routes:
-            active=' aria-current="page"' if item.slug==current else ""
-            target=_LEGACY_TARGETS[item.slug]
-            links.append(f'<a href="?aa_nav={target}" class="aa-ui-nav-link aa-module-{item.module}"{active}>{item.label}</a>')
+            links.append(nav_link(item))
         return f'<nav class="{css}" aria-label="Hovednavigasjon">{"".join(links)}</nav>'
+    def mobile_nav_html() -> str:
+        primary=[]
+        for item in MOBILE_ROUTES:
+            if item.slug != "more":
+                primary.append(nav_link(item, mobile=True))
+                continue
+            more_active = current in {"autonomy", "reports", "operations"}
+            active = ' aria-current="page"' if more_active else ""
+            more_links="".join(nav_link(extra, mobile=True) for extra in MORE_ROUTES)
+            primary.append(
+                '<details class="aa-mobile-more">'
+                f'<summary class="aa-ui-nav-link"{active}>'
+                f'<span class="aa-nav-icon" aria-hidden="true">{_NAV_ICONS["more"]}</span><span>Mer</span></summary>'
+                '<div class="aa-mobile-more-panel" role="dialog" aria-label="Flere programområder">'
+                '<header><strong>Flere områder</strong><small>Velg området du vil åpne</small></header>'
+                f'<div class="aa-mobile-more-grid">{more_links}</div></div></details>'
+            )
+        return f'<nav class="aa-mobile-nav" aria-label="Mobil hovednavigasjon">{"".join(primary)}</nav>'
     st_module.markdown(nav_html(DESKTOP_ROUTES,"aa-desktop-nav"),unsafe_allow_html=True)
-    st_module.markdown(nav_html(MOBILE_ROUTES,"aa-mobile-nav"),unsafe_allow_html=True)
+    st_module.markdown(mobile_nav_html(),unsafe_allow_html=True)
     return current

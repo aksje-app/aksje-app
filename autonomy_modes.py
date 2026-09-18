@@ -156,9 +156,10 @@ def render_simple_mode() -> None:
     report_url = str(latest_report.get("report_url") or "").strip()
     report_actions = st.columns(2)
     if report_url.startswith(("https://", "http://")):
+        from public_report_ui import with_report_return
         report_actions[0].link_button(
-            "📄 Åpne siste rapport", report_url, width="stretch",
-            help="Åpner siste tilgjengelige PDF-rapport i en ny fane.",
+            "📄 Åpne siste rapport", with_report_return(report_url, "autonomy"), width="stretch",
+            help="Åpner siste tilgjengelige rapport med fast retur til Autonomi.",
         )
     else:
         report_actions[0].button(

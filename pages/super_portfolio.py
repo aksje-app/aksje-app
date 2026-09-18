@@ -168,7 +168,8 @@ def render_super_portfolio(_legacy_context) -> None:
         key="sp_download_pdf_rc1632c",
     )
     if report_url:
-        d2.link_button("🔗 Åpne / del publisert PDF", report_url, width="stretch")
+        from public_report_ui import with_report_return
+        d2.link_button("🔗 Åpne / del publisert PDF", with_report_return(report_url, "portfolio"), width="stretch")
     else:
         d2.caption("Publiser PDF først for delbar lenke.")
 
