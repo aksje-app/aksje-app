@@ -447,6 +447,15 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["report_delivery_retry"] = {"state": "FAILED", "error": str(exc)[:500]}
 
+    # A Paper trade is never repeated here. Only a previously persisted BUY/SELL
+    # notification receipt is retried, with the notifier's durable fingerprint
+    # preventing duplicate delivery after an uncertain network response.
+    try:
+        from notifier import retry_pending_trade_notifications
+        state["paper_trade_notification_retry"] = dict(retry_pending_trade_notifications(limit=10) or {})
+    except Exception as exc:
+        state["paper_trade_notification_retry"] = {"state": "FAILED", "error": str(exc)[:500]}
+
     # Required-report accounting is independent of report generation. It can
     # warn about a missing report even when the report pipeline itself failed.
     try:

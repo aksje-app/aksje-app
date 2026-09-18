@@ -15,8 +15,9 @@ from typing import Any, Mapping, Sequence
 
 from durable_runtime import read_json, write_json
 from storage_architecture import runtime_data_path
+from app_version import APP_VERSION
 
-VERSION = "v19.22.0-rc16.31cg"
+VERSION = APP_VERSION
 STATE_KEY = "fresh_trend/monitor_state.json"
 STATE_PATH = runtime_data_path("fresh_trend", "monitor_state.json")
 INTERVAL_MINUTES = 15
@@ -74,6 +75,11 @@ def _business_days(start: date, end: date, market: str = "NORGE") -> int:
             days += 1
         cursor += timedelta(days=1)
     return days
+
+
+def _completed_signal_sessions(follow_up_session: int) -> int:
+    """Completed exchange-to-exchange intervals after the discovery session."""
+    return max(0, int(follow_up_session or 0) - 1)
 
 
 def _explicit_signal_id(receipt: Mapping[str, Any]) -> str:
@@ -397,6 +403,15 @@ def _fmt_signed(value: Any, decimals: int = 2, suffix: str = "") -> str:
     return "-" if number is None else f"{number:+.{decimals}f}{suffix}"
 
 
+def _release_label() -> str:
+    try:
+        from runtime_identity import current_runtime_identity
+        identity = current_runtime_identity("fresh_trend_monitor")
+        return f"{VERSION} · commit {identity.get('commit_short')}"
+    except Exception:
+        return VERSION
+
+
 def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     raw_path = [round(float(x), 1) for x in row.get("score_path", [])]
     compact_path = [value for index, value in enumerate(raw_path) if index == 0 or value != raw_path[index - 1]]
@@ -427,6 +442,9 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     def horizon(days: str) -> str:
         item = horizons.get(days) if isinstance(horizons.get(days), Mapping) else {}
         return f"{days}d {_fmt_signed(item.get('amount'),2,' kr')}/{_fmt_signed(item.get('pct'),2,'%')}"
+    initial_price = _f(row.get("initial_price"))
+    signal_amount = (price - initial_price) if price is not None and initial_price not in (None, 0) else None
+    signal_pct = ((price / initial_price - 1.0) * 100.0) if price is not None and initial_price not in (None, 0) else None
     volume = _f(row.get("volume_ratio_20")); volume_delta = _f(changes.get("volume_ratio_delta"))
     volume_text = f"{volume:.2f}x av 20d dagsnitt" if volume is not None else "mangler"
     if volume_delta is not None: volume_text += f" ({volume_delta:+.2f}x siden sist)"
@@ -465,18 +483,23 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     body = (f"Oppsettstatus: {row.get('status')}\n"
             f"Retning nå: {direction.get('icon','⚫❓')} {direction.get('label','UKJENT')} ({direction.get('score','-')}) · datadekning {direction.get('data_coverage', direction.get('confidence',0))}%\n"
             f"Handling: {action}\n"
-            f"{identity} · {exchange} · {country}\nOppfølging børsdag {row.get('follow_up_session','-')}/{FOLLOW_UP_SESSIONS} · signalalder {fs.get('trend_age_sessions', row.get('trend_age_sessions','-'))} økter\n"
+            f"{identity} · {exchange} · {country}\nFresh Trend-oppfølging: dag {row.get('follow_up_session','-')} av {FOLLOW_UP_SESSIONS} børsdager · signalalder {fs.get('trend_age_sessions', row.get('trend_age_sessions','-'))} økter\n"
             + (f"Kurs {price:.2f}" if price is not None else "Kurs -"))
     body += f" · {since_label} {_fmt_signed(changes.get('scan_price_amount'),2,' kr')}/{_fmt_signed(changes.get('scan_price_pct'),2,'%')}\n"
-    body += f"{horizon('1')} · {horizon('3')} · {horizon('5')}\nScore {path} · sist {float(c.get('Score delta') or 0):+.1f}\n"
+    body += f"Historisk kursutvikling bakover: {horizon('1')} · {horizon('3')} · {horizon('5')}\n"
+    body += f"Utvikling siden signalstart: {_fmt_signed(signal_amount,2,' kr')}/{_fmt_signed(signal_pct,2,'%')}\n"
+    if row.get("follow_up_complete"):
+        body += f"Sluttstatus etter {FOLLOW_UP_SESSIONS} observerte børsdager: {row.get('status','UKJENT')}\n"
+    body += f"Score {path} · sist {float(c.get('Score delta') or 0):+.1f}\n"
     body += f"Conf {float(c.get('Confirmation') or 0):.0f} ({float(cd.get('Confirmation') or 0):+.0f}) · Vel {float(c.get('Velocity') or 0):.0f} ({float(cd.get('Velocity') or 0):+.0f}) · Risk {float(c.get('Risk') or 0):.0f} ({', '.join(risk_reasons) or 'ingen tillegg'})\n"
     volume_basis = str(row.get("volume_comparison_basis") or "dagsvolum mot ferdige 20d-dager; ikke tidsjustert")
     body += f"Volum {volume_text} · basis {volume_basis}\nRS 5d {rs_text}\n{level_text} · {retest.get('label')}\n"
     body += f"Hovedstatus: {row.get('status_reason') or '-'}\nBakgrunnssignal: {'; '.join(signals[:2]) or fs.get('label') or '-'}\n"
     observed = freshness.get('observed_timestamp') or '-'
-    body += f"+ {drivers}\n− {brakes}\nData: {freshness.get('status','UKJENT')} · hentet {freshness.get('fetched_at') or freshness.get('timestamp') or '-'} · bar {observed} · {age_text}\n{VERSION}"
+    release_label = _release_label()
+    body += f"+ {drivers}\n− {brakes}\nData: {freshness.get('status','UKJENT')} · hentet {freshness.get('fetched_at') or freshness.get('timestamp') or '-'} · bar {observed} · {age_text}\n{release_label}"
     from notifier import fit_pushover_message
-    body = fit_pushover_message(body, required_tail=f"Data: {freshness.get('status','UKJENT')} · {age_text}\n{VERSION}")
+    body = fit_pushover_message(body, required_tail=f"Data: {freshness.get('status','UKJENT')} · {age_text}\n{release_label}")
     return title, body
 
 
@@ -519,8 +542,10 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
         else:
             scores = list(previous.get("score_path") or [])[-7:] + [comp["Fresh Score"]]
         status_reason = (str(previous.get("status_reason") or "") if unchanged_snapshot else "") or _status_reason(status, receipt, comp)
+        previous_session = int(previous.get("follow_up_session") or 0)
         row = {**dict(receipt), "monitor_version": VERSION, "first_seen_at": first,
                "last_scan_at": now.isoformat(timespec="seconds"), "follow_up_session": session,
+               "follow_up_complete": session >= FOLLOW_UP_SESSIONS,
                "components": comp, "score_path": scores[-8:], "status": status, "emoji": emoji,
                "status_reason": status_reason,
                "recovery_confirmation_count": recovery_count,
@@ -565,8 +590,11 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
         outcomes = list(previous.get("signal_outcomes") or [])
         measured_days = {int(item.get("horizon_days") or 0) for item in outcomes if isinstance(item, Mapping)}
         current_price = _f(receipt.get("last_price"))
+        # Day 1 is the registration session, not a completed one-day outcome.
+        # Only completed sessions after signal discovery may mature an outcome.
+        elapsed_sessions = _completed_signal_sessions(session)
         for horizon in (1, 3, 5):
-            if session >= horizon and horizon not in measured_days and initial_price and current_price:
+            if elapsed_sessions >= horizon and horizon not in measured_days and initial_price and current_price:
                 outcomes.append({
                     "horizon_days": horizon, "measured_at": now.isoformat(timespec="seconds"),
                     "entry_price": round(initial_price, 4), "price": round(current_price, 4),
@@ -575,7 +603,11 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
                 })
         row["signal_outcomes"] = outcomes
         previous_status = str(previous.get("status") or "")
-        meaningful = data_valid and not invariant_errors and (not unchanged_snapshot) and (not previous_status or status != previous_status or abs(comp["Score delta"]) >= 10)
+        terminal_transition = session >= FOLLOW_UP_SESSIONS and previous_session < FOLLOW_UP_SESSIONS
+        meaningful = data_valid and not invariant_errors and (
+            terminal_transition
+            or ((not unchanged_snapshot) and (not previous_status or status != previous_status or abs(comp["Score delta"]) >= 10))
+        )
         if meaningful:
             title, body = _message(row); event = {"ticker": ticker, "status": status, "title": title, "message": body, "sent": False}
             if notify:

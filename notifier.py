@@ -4,6 +4,7 @@ from settings_store import load_settings
 import os
 import requests
 import hashlib
+import threading
 from datetime import datetime, timezone
 from storage_architecture import runtime_data_path, runtime_log_path
 from durable_runtime import append_event, read_events, read_json, write_json
@@ -23,11 +24,25 @@ PUSHOVER_DEDUPE_KEY = "notifications/pushover_dedupe.json"
 PUSHOVER_DEDUPE_PATH = runtime_data_path("notifications", "pushover_dedupe.json")
 PUSHOVER_MESSAGE_LIMIT = 1024
 PUSHOVER_TITLE_LIMIT = 250
+TRADE_NOTIFICATION_KEY = "notifications/paper_trade_receipts.json"
+TRADE_NOTIFICATION_PATH = runtime_data_path("notifications", "paper_trade_receipts.json")
+_TRADE_NOTIFICATION_LOCK = threading.RLock()
+_TRADE_NOTIFICATION_MAX_ATTEMPTS = 5
 
 
 def _trim_text(value, limit):
     text = str(value or "")
     return text if len(text) <= int(limit) else text[:max(0, int(limit) - 1)].rstrip() + "…"
+
+
+def _runtime_release_label() -> str:
+    try:
+        from runtime_identity import current_runtime_identity
+        identity = current_runtime_identity("notifier")
+        return f"{identity.get('version')} · commit {identity.get('commit_short')}"
+    except Exception:
+        from app_version import APP_VERSION
+        return APP_VERSION
 
 
 def fit_pushover_message(message, *, required_tail="", limit=PUSHOVER_MESSAGE_LIMIT):
@@ -100,6 +115,106 @@ def _log_delivery(title, success, detail, *, has_url=False):
 
 def pushover_audit(limit=500):
     return read_events("notifications/pushover_audit.jsonl", PUSHOVER_AUDIT_PATH, limit=int(limit))
+
+
+def _trade_receipt_store() -> dict:
+    value = read_json(TRADE_NOTIFICATION_KEY, TRADE_NOTIFICATION_PATH, {})
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def trade_notification_receipts(limit=100) -> list[dict]:
+    """Return newest durable Paper BUY/SELL delivery receipts."""
+    rows = [dict(row) for row in _trade_receipt_store().values() if isinstance(row, dict)]
+    rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+    return rows[:max(1, int(limit or 100))]
+
+
+def trade_notification_health() -> dict:
+    rows = trade_notification_receipts(limit=500)
+    unresolved = [row for row in rows if str(row.get("status") or "") in {"PENDING", "FAILED", "DISABLED"}]
+    return {
+        "status": "DEGRADED" if unresolved else "OK",
+        "total": len(rows),
+        "unresolved": len(unresolved),
+        "failed": sum(1 for row in unresolved if row.get("status") == "FAILED"),
+        "disabled": sum(1 for row in unresolved if row.get("status") == "DISABLED"),
+        "latest_unresolved": unresolved[:10],
+    }
+
+
+def _delivery_status(ok: bool, detail: str) -> str:
+    text = str(detail or "").lower()
+    if ok and "duplicate" in text:
+        return "DUPLICATE"
+    if ok:
+        return "SENT"
+    if "disabled" in text or "deaktiv" in text:
+        return "DISABLED"
+    return "FAILED"
+
+
+def _attempt_trade_notification(trade_id: str, payload: dict) -> tuple[bool, str]:
+    response = notify_trade(**payload)
+    ok, detail = normalize_notification_result(response)
+    with _TRADE_NOTIFICATION_LOCK:
+        store = _trade_receipt_store()
+        current = dict(store.get(trade_id) or {})
+        current.update({
+            "trade_id": trade_id,
+            "status": _delivery_status(ok, detail),
+            "attempts": int(current.get("attempts") or 0) + 1,
+            "last_attempt_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "detail": str(detail or "HTTP 200"),
+        })
+        store[trade_id] = current
+        write_json(TRADE_NOTIFICATION_KEY, TRADE_NOTIFICATION_PATH, store)
+    return ok, detail
+
+
+def queue_trade_notification(trade_id: str, **payload) -> tuple[bool, str]:
+    """Persist a trade notification before delivery; retry never repeats the trade."""
+    trade_id = str(trade_id or "").strip()
+    if not trade_id:
+        return False, "missing trade_id"
+    safe_payload = dict(payload)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _TRADE_NOTIFICATION_LOCK:
+        store = _trade_receipt_store()
+        existing = dict(store.get(trade_id) or {})
+        if existing.get("status") in {"SENT", "DUPLICATE"}:
+            return True, str(existing.get("detail") or "already delivered")
+        store[trade_id] = {
+            **existing,
+            "trade_id": trade_id,
+            "trade_type": str(safe_payload.get("trade_type") or "").upper(),
+            "ticker": str(safe_payload.get("ticker") or "").upper(),
+            "status": "PENDING",
+            "attempts": int(existing.get("attempts") or 0),
+            "created_at": existing.get("created_at") or now,
+            "updated_at": now,
+            "payload": safe_payload,
+        }
+        write_json(TRADE_NOTIFICATION_KEY, TRADE_NOTIFICATION_PATH, store)
+    return _attempt_trade_notification(trade_id, safe_payload)
+
+
+def retry_pending_trade_notifications(limit=10) -> dict:
+    """Retry delivery only. It never invokes or repeats BUY/SELL execution."""
+    rows = trade_notification_receipts(limit=500)
+    candidates = [
+        row for row in reversed(rows)
+        if str(row.get("status") or "") in {"PENDING", "FAILED", "DISABLED"}
+        and int(row.get("attempts") or 0) < _TRADE_NOTIFICATION_MAX_ATTEMPTS
+        and isinstance(row.get("payload"), dict)
+    ][:max(1, int(limit or 10))]
+    sent = failed = 0
+    for row in candidates:
+        ok, _detail = _attempt_trade_notification(str(row.get("trade_id") or ""), dict(row.get("payload") or {}))
+        sent += int(bool(ok))
+        failed += int(not ok)
+    health = trade_notification_health()
+    return {"state": "COMPLETED", "attempted": len(candidates), "sent": sent, "failed": failed, **health}
 
 
 def pushover_enabled():
@@ -241,10 +356,14 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
     pnl_amount = details.get("pnl_amount", details.get("pnl"))
     if pnl_amount is not None and trade_type == "SELL":
         lines.append(f"Resultat: {float(pnl_amount):+,.2f} kr / {float(pnl_pct or 0):+.2f}%")
-    if details.get("holding_days") is not None:
+    if details.get("holding_time_known") is False:
+        lines.append("Eiertid: ukjent – kjøpstidspunkt mangler")
+    elif details.get("holding_days") is not None:
         lines.append(f"Eiertid: {int(details.get('holding_days') or 0)} børsdager")
     entry_score, exit_score = details.get("entry_score"), details.get("exit_score")
-    if entry_score is not None or exit_score is not None:
+    if trade_type == "BUY" and entry_score is not None:
+        lines.append(f"Score ved kjøp: {float(entry_score):.1f}")
+    elif entry_score is not None or exit_score is not None:
         lines.append(f"Score: {float(entry_score or 0):.1f} → {float(exit_score or 0):.1f}")
     score_path = [float(value) for value in (details.get("score_path") or []) if value is not None]
     if score_path:
@@ -256,5 +375,9 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
         lines.append("Medvirkende: " + "; ".join(str(x) for x in details.get("contributing_reasons")[:2]))
     if details.get("replacement_ticker"):
         lines.append(f"Erstatter: {details.get('replacement_ticker')} · score {float(details.get('replacement_score') or 0):.1f}")
+    industry = str(details.get("industry") or details.get("sector") or "").strip()
+    if industry:
+        lines.append(f"Bransje: {industry}")
+    lines.append(f"Program: {_runtime_release_label()}")
 
     return send_pushover_alert("\n".join(lines), title=title)
