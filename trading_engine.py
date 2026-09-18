@@ -1,8 +1,9 @@
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Mapping
+import uuid
 from signal_engine import score_signal
-from notifier import notify_trade
+from notifier import queue_trade_notification
 from trading_settings import load_rules
 from ui_trust import explain_blocked_action
 from services.strategy_binding import stamp_strategy_metadata, strategy_metadata
@@ -237,24 +238,12 @@ def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, c
     Feil i Pushover skal aldri stoppe selve handelen.
     """
     try:
-        parts = [
-            f"{trade_type.upper()}: {ticker}",
-            f"Pris: {float(price):.2f}",
-        ]
-
-        if shares is not None:
-            parts.append(f"Antall: {float(shares):.4f}")
-        if amount is not None:
-            parts.append(f"Beløp: {float(amount):.2f}")
-        if confidence is not None:
-            parts.append(f"Confidence: {int(confidence)}%")
-        if reason:
-            parts.append(f"Årsak: {reason}")
-
-        return notify_trade(
-            trade_type,
-            ticker,
-            price,
+        trade_id = str(details.pop("trade_id", "") or uuid.uuid4().hex)
+        return queue_trade_notification(
+            trade_id,
+            trade_type=trade_type,
+            ticker=ticker,
+            price=price,
             amount=amount,
             shares=shares,
             confidence=confidence,
@@ -263,7 +252,7 @@ def notify_executed_trade(trade_type, ticker, price, shares=None, amount=None, c
         )
     except Exception as e:
         print(f"notify_executed_trade failed: {e}")
-        return False
+        return False, str(e)
 
 
 TRADE_CONTEXT_KEYS = (
@@ -368,6 +357,28 @@ def _parse_trade_time_v18660(value):
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
     except Exception:
         return None
+
+
+def _holding_period(pos: Mapping[str, Any], ticker: str, now: datetime | None = None) -> tuple[int | None, bool]:
+    """Return completed exchange sessions and whether the entry time is known."""
+    opened = _parse_trade_time_v18660((pos or {}).get("opened_at") or (pos or {}).get("entry_time"))
+    if opened is None:
+        return None, False
+    end = (now or datetime.now()).date()
+    start = opened.date()
+    if end < start:
+        return None, False
+    try:
+        from market_hours import MARKETS, mcal, ticker_market
+        market = ticker_market(str(ticker or ""))
+        cfg = MARKETS.get(market)
+        if cfg and mcal is not None:
+            observed = len(mcal.get_calendar(cfg["calendar"]).schedule(start_date=start, end_date=end))
+            return max(0, int(observed) - 1), True
+    except Exception:
+        pass
+    observed = sum(1 for offset in range((end - start).days + 1) if (start + timedelta(days=offset)).weekday() < 5)
+    return max(0, observed - 1), True
 
 
 def _automatic_signal_fresh_v1931ay(trade_context, rules, now=None):
@@ -605,6 +616,9 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "market": trade_ctx.get("market", existing_pos.get("market", "")),
             "sector": trade_ctx.get("sector", existing_pos.get("sector", "")),
             "industry": trade_ctx.get("industry", existing_pos.get("industry", "")),
+            "exchange": trade_ctx.get("exchange", existing_pos.get("exchange", "")),
+            "entry_score": existing_pos.get("entry_score") if existing_pos.get("entry_score") is not None else trade_ctx.get("current_score"),
+            "score_path": list(existing_pos.get("score_path") or trade_ctx.get("score_path") or []),
         })
         order_kind = "paper_add_to_position"
         result_label = "PAPER-TILLEGGSKJØP"
@@ -619,13 +633,18 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "target_price": float(target_price or 0), "initial_risk_amount": float(initial_risk_amount or 0),
             "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
             "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
+            "exchange": trade_ctx.get("exchange", ""),
+            "entry_score": trade_ctx.get("current_score"),
+            "score_path": list(trade_ctx.get("score_path") or []),
         }
         order_kind = "paper"
         result_label = "PAPER-KJØP"
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) - amount, 2)
+    trade_id = uuid.uuid4().hex
     add_trade(portfolio, {
         "type":"BUY", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
         "amount":round(amount,2), "confidence":int(confidence or 0), "reason":reason,
+        "trade_id": trade_id, "entry_score": trade_ctx.get("current_score"),
         "order_kind":order_kind, "asset_type": "Aksje",
         "manual_override": manual_override_state,
         "manual_override_note": _manual_override_note(manual_override_state),
@@ -635,7 +654,12 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     after = build_paper_state_snapshot(portfolio, rules=rules)
     audit_state_transition("paper_buy_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "confidence": int(confidence or 0), "reason": reason, "manual_override": manual_override_state, "add_to_existing": is_add_to_position})
     record_paper_trade("BUY", ticker=ticker, run_id=gate.run_id)
-    notify_executed_trade("BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason)
+    notify_executed_trade(
+        "BUY", ticker, price, shares=shares, amount=amount, confidence=confidence, reason=reason,
+        trade_id=trade_id, entry_score=trade_ctx.get("current_score"), score_path=list(trade_ctx.get("score_path") or []),
+        exchange=trade_ctx.get("exchange"), country=trade_ctx.get("country"), market=trade_ctx.get("market"),
+        sector=trade_ctx.get("sector"), industry=trade_ctx.get("industry"),
+    )
     return True, f"{result_label} {ticker} @ {price:.2f}"
 
 
@@ -688,6 +712,8 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         portfolio["positions"][ticker] = pos
     else:
         del portfolio["positions"][ticker]
+    trade_id = uuid.uuid4().hex
+    holding_days, holding_time_known = _holding_period(pos, ticker)
     add_trade(portfolio, {
         "type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
         "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0),
@@ -702,33 +728,23 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         "sell_pct": round((shares / total_shares * 100.0) if total_shares else 100.0, 2),
         "remaining_shares": round(remaining_shares, 6),
         "asset_type": pos.get("asset_type", "Aksje"),
+        "trade_id": trade_id, "holding_days": holding_days, "holding_time_known": holding_time_known,
         **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
     })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_sell_executed", before, after, {"ticker": ticker, "price": round(price, 4), "amount": round(amount, 2), "pnl_pct": round(pnl_pct, 2), "reason": reason})
     record_paper_trade("SELL", ticker=ticker, run_id=gate.run_id)
-    try:
-        opened = _parse_trade_time_v18660(pos.get("opened_at") or pos.get("entry_time"))
-        if opened:
-            start_date, end_date = opened.date(), datetime.now().date()
-            holding_days = sum(
-                1 for offset in range(max(0, (end_date - start_date).days) + 1)
-                if (start_date + timedelta(days=offset)).weekday() < 5
-            ) - 1
-            holding_days = max(0, holding_days)
-        else:
-            holding_days = 0
-    except Exception:
-        holding_days = 0
     notify_executed_trade(
         "SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason,
         pnl_pct=pnl_pct, pnl_amount=(price-entry)*shares, entry_price=entry, exit_price=price,
-        holding_days=holding_days, entry_score=pos.get("entry_score"), exit_score=trade_ctx.get("current_score"),
+        trade_id=trade_id, holding_days=holding_days, holding_time_known=holding_time_known,
+        entry_score=pos.get("entry_score"), exit_score=trade_ctx.get("current_score"),
         score_path=list(trade_ctx.get("score_path") or pos.get("score_path") or []),
         primary_sell_reason=trade_ctx.get("trade_explanation") or reason,
         contributing_reasons=list(trade_ctx.get("contributing_reasons") or []),
         replacement_ticker=trade_ctx.get("replacement_ticker"), replacement_score=trade_ctx.get("replacement_score"),
         exchange=trade_ctx.get("exchange"), country=trade_ctx.get("country"), market=trade_ctx.get("market"),
+        sector=trade_ctx.get("sector"), industry=trade_ctx.get("industry"),
     )
     return True, f"PAPER-SALG {ticker} @ {price:.2f} ({pnl_pct:.2f}%)" + (f" - {shares:.4f} solgt, {remaining_shares:.4f} gjenstår" if is_partial else "")
 
@@ -1011,6 +1027,7 @@ def paper_buy_instrument(
         }
 
     portfolio["cash"] = round(cash - amount, 2)
+    trade_id = uuid.uuid4().hex
     add_trade(portfolio, {
         "type": "BUY",
         "ticker": symbol,
@@ -1026,11 +1043,12 @@ def paper_buy_instrument(
         "currency": currency,
         "nav_date": nav_date,
         "order_kind": "amount_buy",
+        "trade_id": trade_id,
     })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_instrument_buy_executed", before, after, {"symbol": symbol, "asset_type": asset_type, "amount": round(amount, 2), "price": round(price, 6), "currency": currency, "purchase_mode": purchase_mode})
     record_paper_trade("BUY", ticker=symbol, run_id=gate.run_id)
-    notify_executed_trade("BUY", symbol, price, shares=units, amount=amount, confidence=confidence, reason=reason)
+    notify_executed_trade("BUY", symbol, price, shares=units, amount=amount, confidence=confidence, reason=reason, trade_id=trade_id)
     return True, f"KJØP {asset_type} {symbol}: {amount:.2f} {currency} @ {price:.4f}"
 
 
@@ -1090,6 +1108,8 @@ def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper
         pos["nav_date"] = nav_date or pos.get("nav_date", "")
         portfolio["positions"][symbol] = pos
 
+    trade_id = uuid.uuid4().hex
+    holding_days, holding_time_known = _holding_period(pos, symbol)
     add_trade(portfolio, {
         "type": "SELL",
         "ticker": symbol,
@@ -1103,11 +1123,17 @@ def paper_sell_instrument(symbol, price, sell_amount=None, reason="Manuelt paper
         "currency": currency or pos.get("currency", ""),
         "nav_date": nav_date or pos.get("nav_date", ""),
         "order_kind": "amount_sell" if not close_all else "sell_all",
+        "trade_id": trade_id,
+        "holding_days": holding_days,
+        "holding_time_known": holding_time_known,
     })
     after = build_paper_state_snapshot(portfolio)
     audit_state_transition("paper_instrument_sell_executed", before, after, {"symbol": symbol, "amount": round(amount, 2), "price": round(price, 6), "pnl_pct": round(pnl_pct, 2), "close_all": close_all})
     record_paper_trade("SELL", ticker=symbol, run_id=gate.run_id)
-    notify_executed_trade("SELL", symbol, price, shares=units_to_sell, amount=amount, confidence=pos.get("confidence"), reason=reason)
+    notify_executed_trade(
+        "SELL", symbol, price, shares=units_to_sell, amount=amount, confidence=pos.get("confidence"), reason=reason,
+        trade_id=trade_id, holding_days=holding_days, holding_time_known=holding_time_known,
+    )
     suffix = "alt" if close_all else f"{amount:.2f} {currency}"
     return True, f"SALG {symbol}: {suffix} @ {price:.4f} ({pnl_pct:.2f}%)"
 

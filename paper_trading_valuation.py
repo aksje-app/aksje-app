@@ -357,12 +357,19 @@ def paper_trade_rows(trades: Any, limit: int = 50) -> List[Dict[str, Any]]:
 
 def paper_trade_display_rows(trades: Any, limit: int = 50) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
+    try:
+        from notifier import trade_notification_receipts
+        notification_by_trade = {str(row.get("trade_id") or ""): row for row in trade_notification_receipts(limit=500)}
+    except Exception:
+        notification_by_trade = {}
     for row in paper_trade_rows(trades, limit=limit):
         trade_type = str(row.get("type") or "")
+        notification = notification_by_trade.get(str(row.get("trade_id") or ""), {})
         out.append({
             "Tid": row.get("time", ""),
             "Status": "Historisk",
             "Type": trade_type,
+            "Varsling": notification.get("status") or ("Ukjent (eldre handel)" if not row.get("trade_id") else "PENDING"),
             "Ticker": row.get("ticker", ""),
             "Navn": row.get("name", ""),
             "Land": row.get("land", ""),

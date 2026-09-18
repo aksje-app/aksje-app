@@ -410,6 +410,31 @@ def render_paper_trading_dashboard(_legacy_context):
 
     if active_paper_tab_slug == "varsler":
         st.markdown("### 🔔 Varsler")
+        try:
+            from notifier import trade_notification_health, trade_notification_receipts
+            delivery_health = trade_notification_health()
+            if delivery_health.get("unresolved"):
+                st.error(
+                    f"{int(delivery_health.get('unresolved') or 0)} handelsvarsel er ikke bekreftet levert. "
+                    "Handelen er utført; scheduler prøver bare varslingen på nytt."
+                )
+            else:
+                st.success("Alle registrerte Paper BUY/SELL-varsler er bekreftet eller duplikatsikret.")
+            receipt_rows = []
+            for receipt in trade_notification_receipts(limit=20):
+                receipt_rows.append({
+                    "Tid": receipt.get("last_attempt_at") or receipt.get("created_at") or "",
+                    "Handel": receipt.get("trade_type") or "",
+                    "Ticker": receipt.get("ticker") or "",
+                    "Levering": receipt.get("status") or "",
+                    "Forsøk": receipt.get("attempts") or 0,
+                    "Detalj": receipt.get("detail") or "",
+                })
+            if receipt_rows:
+                with st.expander("Leveringskvitteringer for Paper-handler", expanded=bool(delivery_health.get("unresolved"))):
+                    st.dataframe(pd.DataFrame(receipt_rows), width="stretch", hide_index=True)
+        except Exception as exc:
+            st.warning(f"Leveringsstatus for handelsvarsler er midlertidig utilgjengelig: {exc}")
         _render_paper_trailing_stop_alerts_v18674d(portfolio, latest_prices, position_rows=paper_position_rows_cache, rules=_paper_rules)
         st.divider()
         render_paper_alert_control_workspace_v18611()

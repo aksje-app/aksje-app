@@ -19,8 +19,9 @@ from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
 from super_portfolio_market_data import ScanCancelled
 from market_universe import production_market_scopes, shadow_market_scopes, market_activation_level
+from app_version import APP_VERSION
 
-VERSION = "v19.22.0-rc16.32l"
+VERSION = APP_VERSION
 # Durable background runtime; this line also invalidates old timestamp caches.
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
@@ -1930,26 +1931,61 @@ def master_checklist() -> list[dict[str, str]]:
     ]
 
 
+def _weight_change_text(change: Mapping[str, Any]) -> str:
+    action = str(change.get("action") or "VURDER").upper()
+    ticker = str(change.get("ticker") or "-")
+    before, after = _f(change.get("from_pct")), _f(change.get("to_pct"))
+    if action in {"BUY", "KJØP"} and before <= 0 and after > 0:
+        return f"BUY {ticker}: Ny posisjon · målvekt {after:.1f}%"
+    if action in {"SELL", "SELG", "EXIT"} and after <= 0:
+        return f"SELL {ticker}: Avslutter posisjon · {before:.1f}% → 0%"
+    return f"{action} {ticker}: Endrer målvekt {before:.1f}% → {after:.1f}%"
+
+
 def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     from reportlab.lib import colors
     data = dict(state or load_state())
     out = BytesIO(); doc = SimpleDocTemplate(out, pagesize=A4, rightMargin=12*mm, leftMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
     run_id = str(data.get("source_run_id") or "-")
-    styles = getSampleStyleSheet(); story = [Paragraph("AI Super Portfolio", styles["Title"]), Paragraph(f"{VERSION} · Shadow mode · {data.get('updated_at','-')} · Decision run {run_id}", styles["Normal"]), Spacer(1, 8)]
+    styles = getSampleStyleSheet()
+    table_cell_style = ParagraphStyle(
+        "PortfolioTableCell",
+        parent=styles["Normal"],
+        fontSize=6.5,
+        leading=7.5,
+        spaceAfter=0,
+        spaceBefore=0,
+    )
+    story = [Paragraph("AI Super Portfolio", styles["Title"]), Paragraph(f"{VERSION} · Shadow mode · {data.get('updated_at','-')} · Decision run {run_id}", styles["Normal"]), Spacer(1, 8)]
     health = data.get("portfolio_health") if isinstance(data.get("portfolio_health"), Mapping) else {}
     if health:
         story.append(Paragraph(f"Portfolio Health: {health.get('icon','')} {_f(health.get('score')):.1f}/100 · {health.get('label','-')}", styles["Heading2"]))
         components = health.get("components") if isinstance(health.get("components"), Mapping) else {}
         story.append(Paragraph(" · ".join(f"{k}: {_f(v):.1f}" for k, v in components.items()), styles["Normal"])); story.append(Spacer(1, 6))
-    rows = [["Aksje", "Vekt", "Fra inn", "AI", "Rank", "Stop", "Press"]]
+    rows = [["Aksje", "Land / børs", "Bransje", "Vekt", "Fra inn", "AI", "Rank", "Stop", "Press"]]
     for p in (data.get("positions") or {}).values():
-        rows.append([p.get("ticker"), f"{_f(p.get('target_weight_pct')):.2f}%", f"{_f(p.get('pnl_pct')):+.2f}%", f"{_f(p.get('portfolio_score_adjusted'), _f(p.get('portfolio_score'))):.1f}", f"#{p.get('rank','-')} {p.get('rank_arrow','→')}", f"{p.get('stop_icon','')} {p.get('stop_status','')}", f"{p.get('stop_pressure_icon','')} {p.get('stop_pressure','-')} {p.get('stop_direction_arrow','→')}"])
-    table = Table(rows, repeatRows=1, colWidths=[24*mm, 21*mm, 23*mm, 20*mm, 25*mm, 36*mm, 42*mm])
-    table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey),("GRID",(0,0),(-1,-1),0.25,colors.grey),("FONTSIZE",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"MIDDLE")]))
+        try:
+            from security_metadata import infer_security_listing, resolve_security_metadata
+            metadata = resolve_security_metadata(str(p.get("ticker") or ""), p)
+            listing = infer_security_listing(str(p.get("ticker") or ""), metadata)
+        except Exception:
+            metadata, listing = {}, {}
+        country = str(p.get("country") or listing.get("country") or p.get("market") or "-")
+        exchange = str(p.get("exchange") or p.get("exchange_name") or listing.get("exchange") or "-")
+        industry = str(p.get("industry") or p.get("sector") or metadata.get("sector") or "-")
+        rows.append([
+            p.get("ticker"), Paragraph(f"{country}<br/>{exchange}", table_cell_style), Paragraph(industry, table_cell_style),
+            f"{_f(p.get('target_weight_pct')):.2f}%", f"{_f(p.get('pnl_pct')):+.2f}%",
+            f"{_f(p.get('portfolio_score_adjusted'), _f(p.get('portfolio_score'))):.1f}",
+            f"#{p.get('rank','-')} {p.get('rank_arrow','→')}", f"{p.get('stop_icon','')} {p.get('stop_status','')}",
+            f"{p.get('stop_pressure_icon','')} {p.get('stop_pressure','-')} {p.get('stop_direction_arrow','→')}",
+        ])
+    table = Table(rows, repeatRows=1, colWidths=[17*mm, 25*mm, 25*mm, 15*mm, 16*mm, 14*mm, 16*mm, 23*mm, 30*mm])
+    table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey),("GRID",(0,0),(-1,-1),0.25,colors.grey),("FONTSIZE",(0,0),(-1,-1),6.5),("VALIGN",(0,0),(-1,-1),"MIDDLE")]))
     story.append(table); story.append(Spacer(1, 10))
     summary = dashboard_summary(data)
     bench = benchmark_summary(data, portfolio_return_pct=_f(summary.get("portfolio_return_pct")))
@@ -1980,12 +2016,12 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     actions = data.get("ai_would_do_today") or []
     if actions:
         for action in actions[:12]:
-            story.append(Paragraph(f"{action.get('action')} {action.get('ticker')}: {_f(action.get('from_pct')):.1f}% → {_f(action.get('to_pct')):.1f}%", styles["Normal"]))
+            story.append(Paragraph(_weight_change_text(action), styles["Normal"]))
     else:
         story.append(Paragraph("Ingen foreslåtte endringer.", styles["Normal"]))
     story.append(Spacer(1, 8)); story.append(Paragraph("SHADOW EXECUTED", styles["Heading2"]))
     for change in list(data.get("last_changes") or [])[:12]:
-        story.append(Paragraph(f"{change.get('action')} {change.get('ticker')}: {_f(change.get('from_pct')):.1f}% → {_f(change.get('to_pct')):.1f}% · {change.get('reason','')}", styles["Normal"]))
+        story.append(Paragraph(f"{_weight_change_text(change)} · {change.get('reason','')}", styles["Normal"]))
     doc.build(story)
     return out.getvalue()
 
@@ -2010,7 +2046,7 @@ def notify_changes(changes: Sequence[Mapping[str, Any]], state: Mapping[str, Any
     if health: lines.append(f"{health.get('icon','')} Health {_f(health.get('score')):.1f}/100")
     icons = {"BUY":"🟢","ADD":"🔵","REDUCE":"🟠","SELL":"🔴"}
     for c in list(changes)[:8]:
-        lines.append(f"{icons.get(str(c.get('action')), '•')} {c.get('action')} {c.get('ticker')} {_f(c.get('from_pct')):.1f}% → {_f(c.get('to_pct')):.1f}%")
+        lines.append(f"{icons.get(str(c.get('action')), '•')} {_weight_change_text(c)}")
     response = send_pushover_alert("\n".join(lines), title="Super Portfolio endret", url=report.get("report_url") or None, url_title="Åpne PDF")
     return normalize_notification_result(response)
 

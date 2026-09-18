@@ -17,9 +17,10 @@ from typing import Any, Mapping
 
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path, runtime_log_path
+from app_version import APP_VERSION
 
 
-VERSION = "v19.22.0-rc16.32l"
+VERSION = APP_VERSION
 ACTIVE_STATES = {"QUEUED", "STARTING", "RUNNING", "PAUSE_REQUESTED", "PAUSED", "STOP_REQUESTED"}
 TERMINAL_STATES = {"CANCELLED", "COMPLETED", "DEGRADED", "FAILED", "INTERRUPTED"}
 JOB_KEY = "super_portfolio/job_status.json"

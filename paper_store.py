@@ -16,6 +16,26 @@ STORAGE_KEY = "paper_trading/portfolio.json"
 DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": [], "fund_savings_plans": [], "review_queue": []}
 
 
+def _nullable_float(value):
+    try:
+        return None if value in (None, "") else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _score_path_json(value):
+    values = value if isinstance(value, (list, tuple)) else []
+    return json.dumps(list(values), ensure_ascii=False)
+
+
+def _score_path_load(value):
+    try:
+        parsed = json.loads(str(value or "[]"))
+        return list(parsed) if isinstance(parsed, list) else []
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+
 def _storage():
     """Repository-backed document adapter; exact legacy key is preserved."""
     try:
@@ -73,7 +93,10 @@ def init_db():
         country TEXT,
         market TEXT,
         sector TEXT,
-        industry TEXT
+        industry TEXT,
+        exchange TEXT,
+        entry_score REAL,
+        score_path TEXT
     );""")
 
     cur.execute("""
@@ -125,6 +148,9 @@ def init_db():
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS industry TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS target_price REAL;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS initial_risk_amount REAL;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS exchange TEXT;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_score REAL;",
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS score_path TEXT;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS confidence INTEGER;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS pnl_pct REAL;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS reason TEXT;",
@@ -140,6 +166,10 @@ def init_db():
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS rule_limit TEXT;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS measured_value TEXT;",
         "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS trade_explanation TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS exchange TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS entry_score REAL;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS exit_score REAL;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS trade_id TEXT;",
     ]
     for q in migrations:
         cur.execute(q)
@@ -242,7 +272,10 @@ def load_portfolio():
                    COALESCE(sector, '') AS sector,
                    COALESCE(industry, '') AS industry,
                    COALESCE(target_price, 0) AS target_price,
-                   COALESCE(initial_risk_amount, 0) AS initial_risk_amount
+                   COALESCE(initial_risk_amount, 0) AS initial_risk_amount,
+                   COALESCE(exchange, '') AS exchange,
+                   entry_score,
+                   COALESCE(score_path, '[]') AS score_path
             FROM paper_positions
             ORDER BY ticker
         """)
@@ -276,6 +309,9 @@ def load_portfolio():
                 "industry": r[21] or "",
                 "target_price": float(r[22] or 0),
                 "initial_risk_amount": float(r[23] or 0),
+                "exchange": r[24] or "",
+                "entry_score": None if r[25] is None else float(r[25]),
+                "score_path": _score_path_load(r[26]),
             }
 
         cur.execute("""
@@ -291,7 +327,11 @@ def load_portfolio():
                    COALESCE(rule_used, '') AS rule_used,
                    COALESCE(rule_limit, '') AS rule_limit,
                    COALESCE(measured_value, '') AS measured_value,
-                   COALESCE(trade_explanation, '') AS trade_explanation
+                   COALESCE(trade_explanation, '') AS trade_explanation,
+                   COALESCE(exchange, '') AS exchange,
+                   entry_score,
+                   exit_score,
+                   COALESCE(trade_id, '') AS trade_id
             FROM paper_trades
             ORDER BY id DESC
             LIMIT 300
@@ -320,6 +360,10 @@ def load_portfolio():
                 "rule_limit": r[18] or "",
                 "measured_value": r[19] or "",
                 "trade_explanation": r[20] or "",
+                "exchange": r[21] or "",
+                "entry_score": None if r[22] is None else float(r[22]),
+                "exit_score": None if r[23] is None else float(r[23]),
+                "trade_id": r[24] or "",
             })
 
         conn.close()
@@ -374,8 +418,9 @@ def save_portfolio(portfolio):
                 INSERT INTO paper_positions
                 (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
                  trailing_stop, trailing_stop_level, trailing_stop_pct, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode,
-                 country, market, sector, industry, target_price, initial_risk_amount)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 country, market, sector, industry, target_price, initial_risk_amount,
+                 exchange, entry_score, score_path)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 ticker,
                 float(pos.get("shares", 0)),
@@ -402,6 +447,9 @@ def save_portfolio(portfolio):
                 pos.get("industry", ""),
                 float(pos.get("target_price", 0) or 0),
                 float(pos.get("initial_risk_amount", 0) or 0),
+                pos.get("exchange", ""),
+                _nullable_float(pos.get("entry_score")),
+                _score_path_json(pos.get("score_path")),
             ))
 
         conn.commit()
@@ -441,8 +489,9 @@ def add_trade(portfolio, trade):
         cur.execute("""
             INSERT INTO paper_trades
             (id, time, type, ticker, price, shares, amount, confidence, pnl_pct, reason, asset_type, currency, nav_date, order_kind,
-             country, market, sector, industry, rule_used, rule_limit, measured_value, trade_explanation)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             country, market, sector, industry, rule_used, rule_limit, measured_value, trade_explanation,
+             exchange, entry_score, exit_score, trade_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             next_id,
             trade["time"],
@@ -466,6 +515,10 @@ def add_trade(portfolio, trade):
             trade.get("rule_limit", ""),
             trade.get("measured_value", ""),
             trade.get("trade_explanation", ""),
+            trade.get("exchange", ""),
+            _nullable_float(trade.get("entry_score")),
+            _nullable_float(trade.get("exit_score")),
+            trade.get("trade_id", ""),
         ))
         conn.commit()
         conn.close()
