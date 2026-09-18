@@ -83,6 +83,49 @@ def test_scheduler_health_exposes_all_three_required_next_slots(monkeypatch):
     ]
 
 
+def test_scheduler_history_preserves_failed_report_pushover_receipt(monkeypatch):
+    job = mi.JobProfile(
+        job_id="MI-REQUIRED-MORNING",
+        name="Obligatorisk morgenrapport",
+        schedules=["08:00"],
+        notify_pushover=True,
+    )
+    history = []
+    monkeypatch.setattr(mi, "load_jobs", lambda: [job])
+    monkeypatch.setattr(mi, "_due_slot_info", lambda *args, **kwargs: {
+        "due": True,
+        "previous_planned_utc": "2026-09-18T06:00:00+00:00",
+        "next_planned_utc": "2026-09-19T06:00:00+00:00",
+    })
+    monkeypatch.setattr(mi, "upsert_job", lambda value: value)
+    monkeypatch.setattr(mi, "_append_job_history", history.append)
+    monkeypatch.setattr(mi, "_audit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mi, "scheduler_health_snapshot", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        mi,
+        "run_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(mi.ReportStageError(
+            "REPORT feilet",
+            context={
+                "failure_notification": {
+                    "attempted": True,
+                    "sent": True,
+                    "detail": "sendt",
+                }
+            },
+        )),
+    )
+
+    results = mi.run_due_jobs(datetime(2026, 9, 18, 6, 1, tzinfo=timezone.utc))
+
+    assert results[0]["scheduler_result"] == "FAILED"
+    assert results[0]["failure_notification"]["sent"] is True
+    assert history[-1]["status"] == "Feil"
+    assert history[-1]["pushover_attempted"] is True
+    assert history[-1]["pushover_sent"] is True
+    assert history[-1]["pushover_detail"] == "sendt"
+
+
 def test_activated_autosave_name_is_not_presented_as_draft():
     assert mi.activated_job_name_v19220_rc1631q("Utkast – USA + Norge + Sverige") == "Analyse – USA + Norge + Sverige"
     loaded = mi.JobProfile.from_dict({

@@ -102,6 +102,83 @@ def test_report_failure_is_persisted_with_traceback_and_path(monkeypatch, tmp_pa
     assert stored["report_path"] == str(report_path)
 
 
+def test_report_failure_sends_one_deduplicated_pushover_without_report_link(monkeypatch, tmp_path):
+    receipts_path = tmp_path / "report_notification_receipts.json"
+    monkeypatch.setattr(mi, "REPORT_NOTIFICATION_RECEIPTS_PATH", receipts_path)
+    monkeypatch.setattr(mi, "_audit", lambda *args, **kwargs: None)
+    receipts = {}
+    monkeypatch.setattr(mi, "_read", lambda path, default: dict(receipts))
+    monkeypatch.setattr(mi, "_write", lambda path, value: receipts.update(value))
+    calls = []
+
+    def send(message, **kwargs):
+        calls.append((message, kwargs))
+        return True, "sendt"
+
+    monkeypatch.setitem(sys.modules, "notifier", types.SimpleNamespace(send_pushover_alert=send))
+    monkeypatch.setattr("runtime_identity.runtime_label", lambda role="": "test-runtime")
+    job = mi.JobProfile(
+        job_id="MI-REQUIRED-MORNING",
+        name="Obligatorisk morgenrapport",
+        notification_mode="ALWAYS",
+        notify_pushover=True,
+    )
+    run = {
+        "run_id": "MI-FAIL-PUSH",
+        "trigger": "SCHEDULED",
+        "scheduled_for": "2026-09-18T06:00:00+00:00",
+        "timezone_name": "Europe/Oslo",
+        "suppress_notifications": False,
+        "job_id": job.job_id,
+        "job_name": job.name,
+    }
+    context = {
+        "run_id": run["run_id"],
+        "error_type": "ValueError",
+        "error": "PDF/JSON-integritet feilet",
+        "diagnostic_path": str(tmp_path / "MI-FAIL-PUSH_report_failure.json"),
+    }
+
+    first = mi.notify_report_failure(job, run, context)
+    second = mi.notify_report_failure(job, run, context)
+
+    assert first["sent"] is True
+    assert first["attempted"] is True
+    assert first["report_url"] == ""
+    assert second == first
+    assert len(calls) == 1
+    message, kwargs = calls[0]
+    assert "MANGLENDE FAST RAPPORT" in message
+    assert "PDF: ikke bekreftet" in message
+    assert "PDF/JSON-integritet feilet" in message
+    assert "url" not in kwargs
+    assert receipts["FAILURE:MI-FAIL-PUSH"]["status"] == "SENT"
+
+
+def test_report_failure_notification_is_suppressed_for_silent_test(monkeypatch, tmp_path):
+    monkeypatch.setattr(mi, "REPORT_NOTIFICATION_RECEIPTS_PATH", tmp_path / "receipts.json")
+    monkeypatch.setattr(mi, "_audit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mi, "_read", lambda path, default: {})
+    monkeypatch.setattr(mi, "_write", lambda path, value: None)
+    calls = []
+    monkeypatch.setitem(
+        sys.modules,
+        "notifier",
+        types.SimpleNamespace(send_pushover_alert=lambda *args, **kwargs: calls.append((args, kwargs))),
+    )
+    job = mi.JobProfile(name="Rapporttest", notify_pushover=True)
+    receipt = mi.notify_report_failure(
+        job,
+        {"run_id": "MI-TEST-FAIL", "trigger": "TEST", "suppress_notifications": True},
+        {"run_id": "MI-TEST-FAIL", "error_type": "ValueError", "error": "testfeil"},
+    )
+
+    assert receipt["attempted"] is False
+    assert receipt["sent"] is False
+    assert receipt["skipped_reason"] == "SUPPRESSED_TEST"
+    assert calls == []
+
+
 def test_invalid_starlette_option_is_removed():
     config = Path(".streamlit/config.toml").read_text(encoding="utf-8")
     env = Path(".env.example").read_text(encoding="utf-8")

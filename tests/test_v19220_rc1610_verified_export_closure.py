@@ -227,6 +227,40 @@ class VerifiedExportClosureTests(unittest.TestCase):
             "REPLAY-NEW",
         )
 
+    def test_20b_export_status_records_click_and_worker_start_receipts(self):
+        import replay_export_background as background
+
+        persisted = {}
+        started = []
+
+        class FakeThread:
+            def __init__(self, *, target, args, name, daemon):
+                self.target = target
+                self.args = args
+                self.name = name
+                self.daemon = daemon
+
+            def start(self):
+                started.append(self)
+
+        def write_status(value):
+            persisted.clear()
+            persisted.update(value)
+            return dict(value)
+
+        with patch.object(background, "_read_status", side_effect=lambda: dict(persisted)), \
+             patch.object(background, "_write_status", side_effect=write_status), \
+             patch.object(background.threading, "Thread", FakeThread):
+            status = background.start_export(date_from="2026-09-01")
+
+        self.assertEqual(status["state"], "QUEUED")
+        self.assertTrue(status["start_acknowledged_at"])
+        self.assertEqual(status["worker_started_at"], "")
+        self.assertEqual(status["filters"]["date_from"], "2026-09-01")
+        self.assertEqual(len(started), 1)
+        self.assertFalse(started[0].daemon)
+        self.assertEqual(started[0].args[0], status["execution_id"])
+
     def test_21_archive_is_paginated_and_heavy_details_are_lazy(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
         archive = source[source.index("with tab_reports:"):source.index("with tab_accuracy:")]

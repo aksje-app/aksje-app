@@ -255,10 +255,12 @@ def _render_report_link(url: Any) -> bool:
     safe_url = _safe_public_report_url(url)
     if not safe_url:
         return False
+    from public_report_ui import with_report_return
+    safe_url = with_report_return(safe_url, "autonomy")
     st.markdown(
         '<a class="autonomy-report-link-v1901" '
-        f'href="{escape(safe_url, quote=True)}" target="_blank" rel="noopener noreferrer" '
-        'aria-label="Åpne offentlig PDF utenfor appen">↗ Ekstern PDF (kan forlate appen)</a>',
+        f'href="{escape(safe_url, quote=True)}" target="_self" '
+        'aria-label="Åpne rapport med retur til Autonomi">📄 Åpne rapport</a>',
         unsafe_allow_html=True,
     )
     return True
@@ -289,8 +291,8 @@ def _render_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any], *,
     )
     st.caption("På mobil: bruk Last ned PDF for å beholde appen åpen og dele filen fra telefonens delingsmeny.")
     if delivery.get("url"):
-        with st.expander("Ekstern offentlig PDF", expanded=False):
-            st.warning("Denne lenken kan åpne rapporten utenfor appen på iPhone/PWA. Bruk nettleserens tilbakeknapp for å returnere.")
+        with st.expander("Åpne publisert rapport", expanded=False):
+            st.info("Rapporten åpnes i Aurora-visningen med fast retur til Autonomi.")
             _render_report_link(delivery["url"])
     else:
         st.caption("Offentlig rapportlenke er ikke tilgjengelig; den nedlastede PDF-filen kan fortsatt deles.")

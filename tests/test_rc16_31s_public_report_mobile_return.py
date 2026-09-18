@@ -10,7 +10,7 @@ def test_public_report_landing_preserves_program_tab_and_has_return_action():
 
     assert 'target="_blank"' in markup
     assert 'rel="noopener noreferrer"' in markup
-    assert 'href="/" target="_self"' in markup
+    assert 'href="/?aa_nav=reports" target="_self"' in markup
     assert "Åpne PDF i ny fane" in markup
     assert "Tilbake til AI Aksje Analyzer" in markup
     assert "Tilbake til programmet" in markup
