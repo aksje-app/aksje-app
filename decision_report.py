@@ -1043,6 +1043,7 @@ def build_decision_report(
         "decision_diffs": decision_diffs,
         "historical_evaluations": historical_evaluations,
         "portfolio_intelligence": portfolio_intelligence,
+        "super_portfolio_snapshot": deepcopy(_mapping(run.get("super_portfolio_snapshot"))),
         "system_anomaly_watch": system_anomaly_watch,
         "candidate_watch_queue": candidate_watch_queue,
         "candidate_data_audit": candidate_data_audit,

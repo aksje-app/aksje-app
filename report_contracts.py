@@ -414,6 +414,7 @@ def build_report_document(run: Mapping[str, Any], previous: Mapping[str, Any] | 
         }, 10),
         _section("decision_overview", "Beslutningsoversikt", dict(decision_report.get("overview") or {}), 15),
         _section("portfolio_intelligence", "Eksisterende portefølje og kapitalbinding", dict(decision_report.get("portfolio_intelligence") or {}), 17),
+        _section("super_portfolio_snapshot", "Superportefølje – separat Shadow-status", dict(decision_report.get("super_portfolio_snapshot") or {}), 17.5),
         _section("system_anomaly_watch", "Automatisk systemvakt", list(decision_report.get("system_anomaly_watch") or []), 18),
         _section("candidate_watch_queue", "Observasjonskø 68-73", list(decision_report.get("candidate_watch_queue") or []), 19),
         _section("candidate_actionability", "Analyse mot kjøpsklarhet", dict(run.get("candidate_actionability") or {}), 19.25),

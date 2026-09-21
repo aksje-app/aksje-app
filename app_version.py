@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32p"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32p Mobile PDF Return"
+APP_VERSION = "v19.22.0-rc16.32q"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32q Priority and Portfolio Clarity"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32o"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32p"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32q: Priority and Portfolio Clarity. Fresh Trend- og Paper-varsler viser ticker først, P1–P4-prioritet, eierskap og samlet prioritert oversikt ved samtidige signaler. De tre faste rapportene får et kompakt, eksplisitt isolert Superportefølje-snapshot, og forsiden viser reell fra-/til-dato og siste måletid for avkastningshistorikken. Ingen score-, handels-, portefølje-, scheduler- eller terskelregler er endret.",
     "v19.22.0-rc16.32p: Mobile PDF Return. Adds a visible, clickable return button at the top and bottom of every page served through the durable report viewer, preserves the selected Aurora workspace, and keeps the existing browser landing-page return actions. No trading, ranking, scheduler, learning or portfolio rules are changed.",
     "v19.22.0-rc16.32o: Trade Receipt and Fresh Trend Clarity. Adds durable Paper BUY/SELL notification receipts with bounded retry, preserves entry metadata for truthful holding-time and score reporting, distinguishes historical 1/3/5-day movement from development since signal start, closes the five-session Fresh Trend follow-up explicitly, and makes user-facing components use the canonical app version. Trading thresholds and real-trading authority are unchanged.",
     "v19.22.0-rc16.32l: Immediate Manual Shadow Apply. A completed manual Super Portfolio scan now applies approved Shadow changes immediately through the existing freshness, confidence, persistence and data-coverage gates. The page performs one full refresh after the verified background result, exposes the applied-change count, and stamps PDFs with the exact decision run ID so stale reports are visible.",

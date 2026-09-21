@@ -1523,6 +1523,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     reliability = section_payload(document, "report_reliability", {}) or {}
     quality_dimensions = section_payload(document, "quality_dimensions", {}) or {}
     portfolio_intelligence = section_payload(document, "portfolio_intelligence", {}) or {}
+    super_portfolio = section_payload(document, "super_portfolio_snapshot", {}) or {}
     system_anomaly_watch = section_payload(document, "system_anomaly_watch", []) or []
     candidate_watch_queue = section_payload(document, "candidate_watch_queue", []) or []
     changes = section_payload(document, "changes", {}) or {}
@@ -1589,6 +1590,20 @@ def build_text_report(run: Mapping[str, Any]) -> str:
             f"eiertid {row.get('holding_days')} dager · resultat {float(row.get('unrealized_pnl_pct') or 0):+.2f} % · "
             f"score {row.get('entry_score')} → {row.get('current_score')} · {row.get('addition_policy')}"
         )
+    lines.extend(["", "SUPERPORTEFØLJE – SEPARAT SHADOW-STATUS"])
+    lines.append(
+        f"- Oppdatert: {super_portfolio.get('updated_at') or '-'} · status {super_portfolio.get('status') or 'UKJENT'} · "
+        f"verdi {_localize_report_decimal_text(super_portfolio.get('value'))} kr · avkastning {_localize_report_decimal_text(super_portfolio.get('return_pct'))} %"
+    )
+    lines.append(
+        f"- Posisjoner: {super_portfolio.get('position_count', 0)} · kontanter {_localize_report_decimal_text(super_portfolio.get('cash_pct'))} % · "
+        f"Health {_localize_report_decimal_text(super_portfolio.get('health_score'))} · beslutningssikkerhet {_localize_report_decimal_text(super_portfolio.get('decision_confidence'))}"
+    )
+    lines.append(f"- Rebalansering: {super_portfolio.get('rebalance_policy') or '-'}")
+    for row in list(super_portfolio.get("changes") or [])[:6]:
+        if isinstance(row, Mapping):
+            lines.append(f"- Endring: {row.get('ticker') or '-'} · {row.get('action') or row.get('decision') or row.get('type') or 'VURDER'} · {row.get('reason') or row.get('message') or '-'}")
+    lines.append(f"- {super_portfolio.get('note') or 'Separat Shadow-portefølje; ingen handelsmyndighet.'}")
     if system_anomaly_watch:
         lines.extend(["", "AUTOMATISK SYSTEMVAKT"])
         for alert in system_anomaly_watch:
@@ -3595,6 +3610,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     decision_quality = section_payload(report_document, "quality_dimensions", {}) or {}
     decision_reliability = section_payload(report_document, "report_reliability", {}) or {}
     decision_portfolio = section_payload(report_document, "portfolio_intelligence", {}) or {}
+    decision_super_portfolio = section_payload(report_document, "super_portfolio_snapshot", {}) or {}
     decision_anomalies = section_payload(report_document, "system_anomaly_watch", []) or []
     decision_watch_queue = section_payload(report_document, "candidate_watch_queue", []) or []
 
@@ -4157,6 +4173,41 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         Paragraph("Salgstrakt og konkret oppfølging", styles["Subsection"]),
         exit_detail_table,
         Paragraph("Alle eksisterende posisjoner er merket som allerede eid; tilleggskjøp er deaktivert. Kapitalstagnasjon utløser vurdering, mens salg og utskifting krever en eksplisitt exitbeslutning.", styles["Small"]),
+    ]
+    super_changes = []
+    for row in list(decision_super_portfolio.get("changes") or [])[:4]:
+        if not isinstance(row, Mapping):
+            continue
+        super_changes.append(
+            f"{row.get('ticker') or '-'}: {row.get('action') or row.get('decision') or row.get('type') or 'VURDER'}"
+        )
+    super_status_table = Table([
+        [_p("Status / sist målt", "Tiny"),
+         _p(f"{decision_super_portfolio.get('status') or 'UKJENT'} · {decision_super_portfolio.get('updated_at') or '-'}", "Tiny"),
+         _p("Verdi / avkastning", "Tiny"),
+         _p(f"{_fmt(decision_super_portfolio.get('value'))} kr · {_fmt_signed(decision_super_portfolio.get('return_pct'), 2)} %", "Tiny")],
+        [_p("Posisjoner / kontanter", "Tiny"),
+         _p(f"{int(decision_super_portfolio.get('position_count') or 0)} · {_fmt(decision_super_portfolio.get('cash_pct'))} %", "Tiny"),
+         _p("Health / beslutningssikkerhet", "Tiny"),
+         _p(f"{_fmt(decision_super_portfolio.get('health_score'))} · {_fmt(decision_super_portfolio.get('decision_confidence'))}", "Tiny")],
+        [_p("Rebalansering", "Tiny"),
+         _p(decision_super_portfolio.get("last_rebalance_date") or "-", "Tiny"),
+         _p("Siste endringer", "Tiny"),
+         _p(" · ".join(super_changes) or "Ingen registrerte endringer", "Tiny")],
+    ], colWidths=[35*mm, 55*mm, 42*mm, 47*mm])
+    super_status_table.setStyle(_table_style(5.2, padding=1.4))
+    decision_story += [
+        Paragraph("Superportefølje – separat Shadow-status", styles["Section"]),
+        Paragraph(
+            "Dette er et skrivebeskyttet sammendrag av Superporteføljen. Den har separat motor, "
+            "egen rebalanseringsplan og ingen handelsmyndighet i Paper Trading eller Autonomi.",
+            styles["BodyCompact"],
+        ),
+        super_status_table,
+        Paragraph(
+            escape(str(decision_super_portfolio.get("rebalance_policy") or "Ordinær rebalansering fredag; markedsgrunnlaget oppdateres minst hver 12. time.")),
+            styles["Small"],
+        ),
     ]
     exit_funnel = decision_portfolio.get("exit_funnel") if isinstance(decision_portfolio.get("exit_funnel"), Mapping) else {}
     if exit_funnel:
@@ -6694,6 +6745,56 @@ def _run_job_impl(
     _final_portfolio["snapshot_timing"] = "ETTER_AUTONOMI"
     _final_portfolio["snapshot_run_id"] = str(run_id)
     run["autonomous_portfolio_snapshot"] = _final_portfolio
+    # Keep Super Portfolio technically isolated, but include one compact,
+    # read-only status snapshot in every fixed report. This does not execute
+    # the SP engine and cannot create, alter or authorize trades.
+    try:
+        from super_portfolio import load_state as _load_super_portfolio_state
+        _sp_state = dict(_load_super_portfolio_state() or {})
+        _sp_positions = [dict(row) for row in (_sp_state.get("positions") or {}).values() if isinstance(row, Mapping)]
+        def _sp_number(value: Any, default: float = 0.0) -> float:
+            try:
+                return float(value if value not in (None, "") else default)
+            except (TypeError, ValueError):
+                return float(default)
+        _sp_weight = sum(_sp_number(row.get("target_weight_pct") or row.get("weight_pct")) for row in _sp_positions)
+        _sp_return = (
+            sum(_sp_number(row.get("pnl_pct") or row.get("return_pct")) * _sp_number(row.get("target_weight_pct") or row.get("weight_pct")) for row in _sp_positions) / _sp_weight
+            if _sp_weight > 0 else 0.0
+        )
+        _sp_initial = _sp_number(_sp_state.get("initial_cash"))
+        _sp_health = _sp_state.get("portfolio_health") if isinstance(_sp_state.get("portfolio_health"), Mapping) else {}
+        _sp_confidence = _sp_state.get("decision_confidence") if isinstance(_sp_state.get("decision_confidence"), Mapping) else {}
+        run["super_portfolio_snapshot"] = {
+            "status": str(_sp_state.get("status") or "SHADOW"),
+            "updated_at": str(_sp_state.get("updated_at") or ""),
+            "source_run_id": str(_sp_state.get("source_run_id") or ""),
+            "value": round(_sp_initial * (1.0 + _sp_return / 100.0), 2) if _sp_initial > 0 else None,
+            "return_pct": round(_sp_return, 4),
+            "position_count": len(_sp_positions),
+            "cash_pct": round(max(0.0, 100.0 - _sp_weight), 2),
+            "health_score": _sp_health.get("score"),
+            "health_status": _sp_health.get("status") or _sp_health.get("label"),
+            "decision_confidence": _sp_confidence.get("score"),
+            "last_rebalance_date": str(_sp_state.get("last_rebalance_date") or ""),
+            "rebalance_policy": "Ordinær rebalansering fredag; markedsgrunnlag oppdateres minst hver 12. time.",
+            "changes": [dict(item) for item in list(_sp_state.get("last_changes") or [])[:6] if isinstance(item, Mapping)],
+            "positions": [
+                {"ticker": str(row.get("ticker") or ""),
+                 "weight_pct": row.get("target_weight_pct") or row.get("weight_pct"),
+                 "return_pct": row.get("pnl_pct") or row.get("return_pct"),
+                 "score": row.get("score") or row.get("portfolio_score_adjusted")}
+                for row in _sp_positions[:10]
+            ],
+            "execution_authorized": False,
+            "note": "Separat Shadow-portefølje; statusen påvirker ikke Paper Trading eller Autonomi-handler.",
+        }
+    except Exception as exc:
+        run["super_portfolio_snapshot"] = {
+            "status": "UNAVAILABLE", "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+            "execution_authorized": False,
+            "note": "Superporteføljen er fortsatt teknisk isolert.",
+        }
     # Owned positions are a mandatory report population, independent of the
     # candidate evidence budget. Complete and merge their short/insider checks
     # before the immutable report document is assembled.

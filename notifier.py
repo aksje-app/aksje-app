@@ -247,7 +247,7 @@ def normalize_notification_result(response):
     return bool(response), ""
 
 
-def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None):
+def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None, *, priority=0):
     title = _trim_text(title, PUSHOVER_TITLE_LIMIT)
     message = fit_pushover_message(message)
     url_title = _trim_text(url_title, PUSHOVER_TITLE_LIMIT) if url_title else None
@@ -284,6 +284,9 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
         payload = {
             "token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY,
             "title": title, "message": message,
+            # Pushover priority 1 is visible as high priority without the
+            # acknowledgement/retry semantics of emergency priority 2.
+            "priority": max(-2, min(1, int(priority or 0))),
         }
         if url:
             payload["url"] = str(url)
@@ -320,20 +323,23 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
 
     trade_type = str(trade_type).upper()
 
+    ticker = str(ticker or "-").upper()
+    company = str(details.get("company_name") or details.get("name") or "").strip()
+    title_identity = f"{ticker} · {company}" if company else ticker
     if trade_type == "BUY":
         icon = "📈"
-        title = "Paper BUY utført"
+        title = f"🔴 P1 · {title_identity} · PAPER BUY"
     elif trade_type == "SELL":
         icon = "📉"
-        title = "Paper SELL utført"
+        title = f"🔴 P1 · {title_identity} · PAPER SELL"
     else:
         icon = "🔔"
-        title = "Paper trade utført"
+        title = f"🔴 P1 · {title_identity} · PAPER TRADE"
 
     exchange = str(details.get("exchange") or "").strip()
     country = str(details.get("country") or details.get("market") or "").strip()
-    identity = " · ".join(value for value in (str(ticker), exchange, country) if value)
-    lines = [f"{icon} {trade_type} {identity}"]
+    identity = " · ".join(value for value in (ticker, company, exchange, country) if value)
+    lines = [f"PAPER – EID", f"{icon} {trade_type} {identity}"]
     entry_price = details.get("entry_price")
     exit_price = details.get("exit_price", price if trade_type == "SELL" else None)
     if trade_type == "SELL" and entry_price is not None:
@@ -380,4 +386,4 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
         lines.append(f"Bransje: {industry}")
     lines.append(f"Program: {_runtime_release_label()}")
 
-    return send_pushover_alert("\n".join(lines), title=title)
+    return send_pushover_alert("\n".join(lines), title=title, priority=1)
