@@ -412,6 +412,30 @@ def _release_label() -> str:
         return VERSION
 
 
+def _notification_priority(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Classify urgency from action risk, ownership and signal state.
+
+    This is presentation/delivery metadata only. It must never affect Fresh
+    Score, portfolio admission, trade authority or any production threshold.
+    """
+    status = str(row.get("status") or "UKJENT").upper()
+    owned = bool(
+        row.get("is_held") or row.get("owned") or row.get("in_portfolio")
+        or row.get("portfolio_position") or row.get("paper_position")
+    )
+    if owned and status in {"FALSKT BREAKOUT", "MISTER MOMENT"}:
+        level, icon, label, pushover = 1, "🔴", "HANDLING NÅ", 1
+    elif status in {"FALSKT BREAKOUT", "MISTER MOMENT", "STERKT BEKREFTET", "AKSELERERER"}:
+        level, icon, label, pushover = 2, "🟠", "VIKTIG VURDERING", 0
+    elif status == "AVVENTER BEKREFTELSE":
+        level, icon, label, pushover = 3, "🟡", "FØLG OPP", 0
+    else:
+        level, icon, label, pushover = 4, "🔵", "INFORMASJON", -1
+    scope = "PAPER – EID" if owned else "KANDIDAT – IKKE EID"
+    return {"level": level, "code": f"P{level}", "icon": icon, "label": label,
+            "pushover_priority": pushover, "scope": scope, "owned": owned}
+
+
 def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     raw_path = [round(float(x), 1) for x in row.get("score_path", [])]
     compact_path = [value for index, value in enumerate(raw_path) if index == 0 or value != raw_path[index - 1]]
@@ -430,11 +454,13 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     elif row.get("status") == "AKSELERERER": action = "Følg volum og brudd/retest i neste 15-min scan"
     elif row.get("status") == "AVVENTER BEKREFTELSE": action = "Avvent: krev score +4, volum ≥0.80x og ny bekreftelse"
     elif row.get("status") in {"MISTER MOMENT", "FALSKT BREAKOUT"}: action = "Ikke jag; krev to forbedrede målinger før oppgradering"
-    title = f"{row.get('emoji','⚫❓')} Fresh Trend: {row.get('status','UKJENT')}"
+    priority = _notification_priority(row)
     name = str(row.get("company_name") or row.get("name") or "").strip()
     if len(name) > 72:
         name = name[:69].rsplit(" ", 1)[0] + "…"
     identity = f"{row.get('ticker')} · {name}" if name else str(row.get("ticker") or "-")
+    title_identity = f"{str(row.get('ticker') or '-').upper()} · {name}" if name else str(row.get("ticker") or "-").upper()
+    title = f"{priority['icon']} {priority['code']} · {title_identity} · {row.get('status','UKJENT')}"
     exchange = str(row.get("exchange_name") or row.get("exchange") or "Ukjent børs")
     country = str(row.get("country") or "Ukjent land")
     freshness = row.get("data_freshness") if isinstance(row.get("data_freshness"), Mapping) else {}
@@ -480,10 +506,12 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     brakes = "; ".join(direction.get("negative") or []) or (cautions[0] if cautions else "ingen ny negativ driver")
     interval = changes.get("scan_interval_minutes")
     since_label = f"siden sist ({int(interval)} min)" if interval is not None else "siden sist"
-    body = (f"Oppsettstatus: {row.get('status')}\n"
+    body = (f"{identity}\n"
+            f"{priority['scope']} · {priority['label']}\n"
+            f"Oppsettstatus: {row.get('status')}\n"
             f"Retning nå: {direction.get('icon','⚫❓')} {direction.get('label','UKJENT')} ({direction.get('score','-')}) · datadekning {direction.get('data_coverage', direction.get('confidence',0))}%\n"
             f"Handling: {action}\n"
-            f"{identity} · {exchange} · {country}\nFresh Trend-oppfølging: dag {row.get('follow_up_session','-')} av {FOLLOW_UP_SESSIONS} børsdager · signalalder {fs.get('trend_age_sessions', row.get('trend_age_sessions','-'))} økter\n"
+            f"{exchange} · {country}\nFresh Trend-oppfølging: dag {row.get('follow_up_session','-')} av {FOLLOW_UP_SESSIONS} børsdager · signalalder {fs.get('trend_age_sessions', row.get('trend_age_sessions','-'))} økter\n"
             + (f"Kurs {price:.2f}" if price is not None else "Kurs -"))
     body += f" · {since_label} {_fmt_signed(changes.get('scan_price_amount'),2,' kr')}/{_fmt_signed(changes.get('scan_price_pct'),2,'%')}\n"
     body += f"Historisk kursutvikling bakover: {horizon('1')} · {horizon('3')} · {horizon('5')}\n"
@@ -501,6 +529,17 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     from notifier import fit_pushover_message
     body = fit_pushover_message(body, required_tail=f"Data: {freshness.get('status','UKJENT')} · {age_text}\n{release_label}")
     return title, body
+
+
+def _batch_message(alerts: Sequence[Mapping[str, Any]]) -> tuple[str, str]:
+    ordered = sorted(alerts, key=lambda item: (int(item.get("priority_level") or 4), str(item.get("ticker") or "")))
+    counts = {level: sum(1 for item in ordered if int(item.get("priority_level") or 4) == level) for level in range(1, 5)}
+    title = f"{'🔴' if counts[1] else '🟠' if counts[2] else '🟡'} {len(ordered)} NYE SIGNALER · PRIORITERT"
+    lines = [f"P1 {counts[1]} · P2 {counts[2]} · P3 {counts[3]} · P4 {counts[4]}"]
+    for index, item in enumerate(ordered[:8], 1):
+        lines.append(f"{index}. {item.get('ticker') or '-'} · {item.get('status') or 'UKJENT'} · {item.get('scope') or ''}")
+    lines.append("Åpne P1 først, deretter P2. Uendrede signaler er utelatt.")
+    return title, "\n".join(lines)
 
 
 def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | None = None,
@@ -609,17 +648,41 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
             or ((not unchanged_snapshot) and (not previous_status or status != previous_status or abs(comp["Score delta"]) >= 10))
         )
         if meaningful:
-            title, body = _message(row); event = {"ticker": ticker, "status": status, "title": title, "message": body, "sent": False}
-            if notify:
-                from notifier import normalize_notification_result, send_pushover_alert
-                report_url = str(row.get("report_url") or row.get("public_report_url") or "")
-                ok, detail = normalize_notification_result(send_pushover_alert(
-                    body, title=title, url=report_url or None,
-                    url_title="Åpne siste rapportdetaljer" if report_url else None,
-                ))
-                event.update({"sent": ok, "detail": detail})
+            priority = _notification_priority(row)
+            title, body = _message(row)
+            event = {"ticker": ticker, "status": status, "title": title, "message": body, "sent": False,
+                     "priority_level": priority["level"], "priority_code": priority["code"],
+                     "pushover_priority": priority["pushover_priority"], "scope": priority["scope"],
+                     "report_url": str(row.get("report_url") or row.get("public_report_url") or "")}
             alerts.append(event)
         tracked[ticker] = row; rows.append(row)
+    alerts.sort(key=lambda item: (int(item.get("priority_level") or 4), str(item.get("ticker") or "")))
+    if notify and alerts:
+        from notifier import normalize_notification_result, send_pushover_alert
+        if len(alerts) > 1:
+            summary_title, summary_body = _batch_message(alerts)
+            summary_priority = 1 if any(int(item.get("priority_level") or 4) == 1 for item in alerts) else 0
+            ok, detail = normalize_notification_result(send_pushover_alert(
+                summary_body, title=summary_title, priority=summary_priority,
+            ))
+            current["last_batch_notification"] = {
+                "sent": ok, "detail": detail, "title": summary_title,
+                "count": len(alerts), "at": now.isoformat(timespec="seconds"),
+            }
+        for event in alerts:
+            # The batch gives the ordering for all events. Individual detail is
+            # limited to actionable P1/P2 transitions to prevent notification floods.
+            if len(alerts) > 1 and int(event.get("priority_level") or 4) > 2:
+                event.update({"sent": False, "detail": "included in prioritized batch summary"})
+                continue
+            report_url = str(event.get("report_url") or "")
+            ok, detail = normalize_notification_result(send_pushover_alert(
+                str(event.get("message") or ""), title=str(event.get("title") or "Fresh Trend"),
+                url=report_url or None,
+                url_title="Åpne siste rapportdetaljer" if report_url else None,
+                priority=int(event.get("pushover_priority") or 0),
+            ))
+            event.update({"sent": ok, "detail": detail})
     missed = []
     active = {str(r.get("ticker") or "").upper() for r in rows}
     for ticker, old in tracked.items():
@@ -636,6 +699,7 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
               "tracked": tracked, "watchlist": rows, "alerts": alerts,
               "unchanged_count": max(0, len(rows) - len(alerts)),
               "notification_policy": "Kun ny status eller vesentlig scoreendring varsles; uendrede kandidater logges samlet.",
+              "last_batch_notification": current.get("last_batch_notification"),
               "missed_opportunities": list(current.get("missed_opportunities") or [])[-250:] + missed,
               "production_scoring_changed": False, "trade_authority": False}
     write_json(STATE_KEY, STATE_PATH, result)

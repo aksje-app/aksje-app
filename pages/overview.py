@@ -53,6 +53,7 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
         })
     history_returns = []
     history_labels = []
+    latest_measurement_at = str(state.get("updated_at") or state.get("last_evaluated_at") or "")
     for snapshot in list(state.get("history") or [])[-12:]:
         if not isinstance(snapshot, Mapping):
             continue
@@ -61,6 +62,8 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
         if weight > 0:
             history_returns.append(round(sum(_number(row.get("pnl_pct") or row.get("return_pct")) * _number(row.get("target_weight_pct") or row.get("weight_pct")) for row in rows) / weight, 4))
             raw_at = str(snapshot.get("at") or snapshot.get("created_at") or "")
+            if raw_at:
+                latest_measurement_at = raw_at
             try:
                 parsed_at = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
                 history_labels.append(parsed_at.strftime("%d.%m"))
@@ -68,8 +71,18 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
                 history_labels.append("")
     if since_start is not None and (not history_returns or history_returns[-1] != since_start):
         history_returns.append(since_start)
-        history_labels.append("Nå")
-    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "health_components": dict(health_components), "decisions": decisions, "history_returns": history_returns[-12:], "history_labels": history_labels[-12:]}
+        try:
+            latest = datetime.fromisoformat(latest_measurement_at.replace("Z", "+00:00"))
+            history_labels.append(latest.astimezone(ZoneInfo("Europe/Oslo")).strftime("%d.%m"))
+        except (TypeError, ValueError):
+            history_labels.append("Siste")
+    updated_label = "Ikke tilgjengelig"
+    try:
+        latest = datetime.fromisoformat(latest_measurement_at.replace("Z", "+00:00"))
+        updated_label = latest.astimezone(ZoneInfo("Europe/Oslo")).strftime("%d.%m kl. %H:%M")
+    except (TypeError, ValueError):
+        pass
+    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "health_components": dict(health_components), "decisions": decisions, "history_returns": history_returns[-12:], "history_labels": history_labels[-12:], "last_updated": updated_label}
 
 
 def _sparkline_svg(values: Iterable[Any], labels: Iterable[str] | None = None) -> str:
@@ -97,7 +110,7 @@ def _sparkline_svg(values: Iterable[Any], labels: Iterable[str] | None = None) -
     axis_labels = list(labels or [])
     first_label = axis_labels[0] if axis_labels and axis_labels[0] else "Eldst"
     last_label = axis_labels[-1] if axis_labels and axis_labels[-1] else "Siste"
-    return f'''<div class="aa-chart-wrap"><span>AVKASTNINGSHISTORIKK</span><div class="aa-axis-y"><b>+{scale:.1f}%</b><b>0%</b><b>−{scale:.1f}%</b></div><svg class="aa-return-chart" width="100%" height="78" viewBox="0 0 500 92" preserveAspectRatio="none" role="img" aria-label="Avkastningsutvikling"><defs><linearGradient id="aaReturnFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#55d5ba" stop-opacity=".18"/><stop offset="1" stop-color="#55d5ba" stop-opacity="0"/></linearGradient></defs><line class="aa-chart-baseline" x1="8" y1="{zero_y:.1f}" x2="492" y2="{zero_y:.1f}"/><path class="aa-chart-area" d="{area}"/><path class="aa-chart-line" d="{curve}"/><circle class="aa-chart-end" cx="{last_x:.1f}" cy="{last_y:.1f}" r="4"/></svg><div class="aa-axis-x"><b>{escape(first_label)}</b><b>{escape(last_label)}</b></div></div>'''
+    return f'''<div class="aa-chart-wrap"><span>AVKASTNINGSHISTORIKK</span><div class="aa-axis-y"><b>+{scale:.1f}%</b><b>0%</b><b>−{scale:.1f}%</b></div><svg class="aa-return-chart" width="100%" height="78" viewBox="0 0 500 92" preserveAspectRatio="none" role="img" aria-label="Avkastningsutvikling"><defs><linearGradient id="aaReturnFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#55d5ba" stop-opacity=".18"/><stop offset="1" stop-color="#55d5ba" stop-opacity="0"/></linearGradient></defs><line class="aa-chart-baseline" x1="8" y1="{zero_y:.1f}" x2="492" y2="{zero_y:.1f}"/><path class="aa-chart-area" d="{area}"/><path class="aa-chart-line" d="{curve}"/><circle class="aa-chart-end" cx="{last_x:.1f}" cy="{last_y:.1f}" r="4"/></svg><div class="aa-axis-x"><b>Fra {escape(first_label)}</b><b>Til {escape(last_label)}</b></div></div>'''
 
 
 def _next_report_time(now: datetime | None = None) -> str:
@@ -188,7 +201,7 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
         </section></main>''', unsafe_allow_html=True,
     )
     st_module.markdown(f'''<section class="aa-portfolio-command">
-      <article class="aa-portfolio-value"><span>SUPER PORTEFØLJE</span><p>Shadow-porteføljens beregnede verdi og vektede utvikling.</p><strong>{escape(fmt_money(portfolio.get('value')))}</strong><b>{escape(fmt_pct(portfolio.get('return_pct')))} <small>siden start</small></b>{chart}</article>
+      <article class="aa-portfolio-value"><span>SUPER PORTEFØLJE</span><p>Shadow-porteføljens beregnede verdi og vektede utvikling.</p><p><small>Sist oppdatert: {escape(str(portfolio.get('last_updated') or 'Ikke tilgjengelig'))}</small></p><strong>{escape(fmt_money(portfolio.get('value')))}</strong><b>{escape(fmt_pct(portfolio.get('return_pct')))} <small>siden start</small></b>{chart}</article>
       <article class="aa-confidence"><span>BESLUTNINGSRO</span><p>Samlet kvalitet på Super Portfolio sitt beslutningsgrunnlag.</p><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small><div class="aa-confidence-components">{component_html}</div></article>
     </section>
     <section class="aa-portfolio-facts"><div><strong>{portfolio.get('positions', 0)}</strong><span>POSISJONER</span></div><div><strong>{escape(fmt_pct(portfolio.get('cash_pct')).replace('+',''))}</strong><span>KONTANTER</span></div><div><strong>{escape(str((model.get('next_event') or {}).get('value') or '–'))}</strong><span>NESTE RAPPORT</span></div></section>''', unsafe_allow_html=True)
