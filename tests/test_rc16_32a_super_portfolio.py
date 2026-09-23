@@ -14,12 +14,13 @@ def test_ranking_and_weights_are_risk_adjusted_and_sum_to_100():
     assert weights["AAA"] > weights["BBB"]
 
 
-def test_stop_watch_levels():
+def test_stop_watch_levels_follow_current_three_percent_cap():
     cfg=SuperPortfolioConfig()
-    p={"entry_price":100,"peak_price":120,"last_price":110}
+    p={"entry_price":100,"peak_price":120,"last_price":118}
     out=_stop_status(p,cfg)
     assert out["stop_status"]=="WATCH"
-    p["last_price"]=106
+    assert out["hard_stop_drawdown_pct"]==3.0
+    p["last_price"]=117.2
     assert _stop_status(p,cfg)["stop_status"]=="NEAR STOP"
-    p["last_price"]=101
+    p["last_price"]=116.39
     assert _stop_status(p,cfg)["stop_status"]=="STOP TRIGGERED"
