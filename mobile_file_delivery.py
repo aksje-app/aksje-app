@@ -17,6 +17,7 @@ def render_mobile_file_delivery(
     key: str,
     return_url: str = "/",
     instance_key: str = "",
+    show_return: bool = True,
 ) -> None:
     """Render open, download, copy, share and return without losing the app.
 
@@ -27,6 +28,12 @@ def render_mobile_file_delivery(
     safe_name = escape(str(filename or "nedlasting"), quote=True)
     safe_label = escape(str(label or "Last ned"))
     safe_return = escape(str(return_url or "/"), quote=True)
+    return_action = (
+        f'<a href="{safe_return}" target="_self" '
+        'style="display:block;text-align:center;padding:.65rem;border:1px solid #2dd4bf;border-radius:.5rem;'
+        'color:inherit;text-decoration:none;font-weight:700">← Tilbake til programmet</a>'
+        if show_return else ""
+    )
     landing_url = "public_file_token=" in str(url or "") or "public_report_token=" in str(url or "")
     if landing_url:
         secondary_action = (
@@ -46,11 +53,7 @@ def render_mobile_file_delivery(
         'style="grid-column:1/-1;display:block;text-align:center;padding:.75rem;border-radius:.55rem;'
         'background:#0284c7;color:white;text-decoration:none;font-weight:800">'
         f'{safe_label}</a>'
-        + secondary_action +
-        f'<a href="{safe_return}" target="_self" '
-        'style="display:block;text-align:center;padding:.65rem;border:1px solid #2dd4bf;border-radius:.5rem;'
-        'color:inherit;text-decoration:none;font-weight:700">← Tilbake til programmet</a>'
-        '</div>',
+        + secondary_action + return_action + '</div>',
         unsafe_allow_html=True,
     )
 

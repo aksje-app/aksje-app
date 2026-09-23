@@ -35,10 +35,13 @@ def test_super_portfolio_broad_discovery_scans_full_available_universe_before_sh
         return Assessment(row, cfg.market_scope)
 
     import investment_pipeline as ip
+    import stocks
+    monkeypatch.setattr(stocks, "get_us_broad_tickers", lambda limit: [])
     monkeypatch.setattr(ip, "_load_candidate_rows_from_app", fake_load)
     monkeypatch.setattr(ip, "_prepare_candidate_rows", fake_prepare)
     monkeypatch.setattr(ip, "score_candidate", fake_score)
     monkeypatch.setattr(sp, "_coarse_rank_market_rows", fake_coarse)
+    monkeypatch.setattr(sp, "_bounded_insider_checks", lambda candidates, config: {})
     monkeypatch.setattr(sp, "write_json", lambda *args, **kwargs: None)
 
     cfg = sp.SuperPortfolioConfig(

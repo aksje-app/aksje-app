@@ -182,6 +182,18 @@ def render_super_portfolio(_legacy_context) -> None:
     b2.metric(str(aur.get("label") or "Aurora"), f"{float(aur.get('return_pct') or 0):+.2f}%", delta=f"Alpha {float(aur.get('alpha_pct') or 0):+.2f} pp" if aur.get("return_pct") is not None else None)
     confidence = state.get("decision_confidence") or {}
     b3.metric("🧠 Decision Confidence", f"{confidence.get('icon','⚪')} {float(confidence.get('score') or 0):.1f}/100")
+    with st.expander("🧾 Innsiderkontroll – posisjoner og finalister", expanded=False):
+        checks = state.get("insider_checks") or {}
+        st.caption("Offisielle primærkilder sjekkes etter bredskanningen. Kjøp gjennom ansattprogram vises, men gir ikke et positivt innsidermomentum.")
+        if not checks:
+            st.info("Ingen innsiderkontroll fra siste markedsskanning er tilgjengelig.")
+        for ticker, check in checks.items():
+            st.markdown(f"**{ticker}** · {check.get('signal') or check.get('coverage') or 'Ukjent'}")
+            for fact in (check.get("evidence") or [])[:3]:
+                context = "Ansattprogram" if fact.get("transaction_context") == "EMPLOYEE_SHARE_PROGRAMME" else str(fact.get("type") or "Handel")
+                st.caption(f"{context}: {fact.get('insider') or 'Ukjent'} · {fact.get('shares', 0)} aksjer · {fact.get('date') or '-'}")
+                if fact.get("source_url"):
+                    st.link_button("Kildemelding", str(fact["source_url"]))
     with st.expander("⚙️ Benchmark-innstillinger", expanded=False):
         presets={"STOXX Europe 600":"^STOXX","S&P 500":"^GSPC","OMX Stockholm 30":"^OMX","Oslo All Share":"OSEAX.OL"}
         current_cfg=dict(state.get("config") or {})

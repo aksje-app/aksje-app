@@ -108,9 +108,6 @@ def _report_landing_actions(static_url: str, *, return_href: str = "/?aa_nav=rep
         f'<iframe title="Rapportvisning" src="{safe_pdf}#view=FitH" '
         'style="width:100%;height:78vh;min-height:620px;border:1px solid #475569;border-radius:.65rem;background:white" '
         'loading="eager"></iframe>'
-        f'<a href="{safe_return}" target="_self" style="display:block;text-align:center;padding:.9rem 1rem;'
-        'border:1px solid #789;border-radius:.5rem;color:inherit;text-decoration:none;font-weight:800">'
-        'Tilbake til AI Aksje Analyzer</a>'
         '</div>'
     )
 
@@ -144,17 +141,11 @@ def render_public_report(st) -> bool:
     mobile_pdf = target.read_bytes()
     st.markdown("### 📄 Rapporten er klar")
     st.caption(f"Rapport-ID: {report.get('report_id') or '-'}")
-    st.info("Rapporten vises på denne siden. Bruk «Tilbake til programmet» over rapporten for å gå direkte tilbake.")
-    action_columns = st.columns(2)
-    with action_columns[0]:
-        st.link_button("← Tilbake til programmet", return_href, width="stretch")
-    with action_columns[1]:
-        st.link_button("Åpne PDF i ny fane", static_url, width="stretch")
     from mobile_file_delivery import render_mobile_file_delivery
     render_mobile_file_delivery(
         st, url=static_url, filename=str(report.get("filename") or "rapport.pdf"),
         label="Åpne PDF for nedlasting eller deling", mime="application/pdf",
-        data=mobile_pdf, key=f"public_pdf_{token}",
+        data=mobile_pdf, key=f"public_pdf_{token}", show_return=False,
     )
     st.markdown(_report_landing_actions(static_url, return_href=return_href), unsafe_allow_html=True)
     return True

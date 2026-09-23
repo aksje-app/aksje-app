@@ -153,7 +153,7 @@ def test_mobile_report_actions_are_above_iframe_and_keep_return_path():
     delivery = Path("mobile_file_delivery.py").read_text(encoding="utf-8")
     assert "st.download_button(" in delivery
     assert "st.code(" in delivery
-    assert 'st.link_button("← Tilbake til programmet", return_href' in source
+    assert 'data-testid="public-report-mobile-shell"' in source
 
 
 def test_required_report_schedule_contract_remains_08_14_22():

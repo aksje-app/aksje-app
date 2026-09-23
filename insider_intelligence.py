@@ -20,7 +20,7 @@ from app_version import APP_VERSION
 VERSION = APP_VERSION
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = 24 * 3600
-INSIDER_CACHE_SCHEMA_VERSION = 2
+INSIDER_CACHE_SCHEMA_VERSION = 3
 MAX_WORKERS = 4
 _CACHE_LOCK = threading.RLock()
 
@@ -156,9 +156,11 @@ def score_transactions(
         magnitude = min(1.0, math.log10(max(value, 1.0)) / 7.0)
         weighted = (0.45 * recency + 0.30 * importance + 0.25 * magnitude)
         planned_10b5_1 = bool(row.get("planned_10b5_1"))
-        if kind == "BUY":
+        transaction_context = str(row.get("transaction_context") or "").upper()
+        programme = transaction_context == "EMPLOYEE_SHARE_PROGRAMME"
+        if kind == "BUY" and not programme:
             weighted_buy += weighted; total_buy += value; buyers.add(insider)
-        else:
+        elif kind == "SELL":
             # Pre-arranged 10b5-1 sales are real transactions but normally carry
             # less discretionary information than an unplanned open-market sale.
             weighted_sell += weighted * (0.25 if planned_10b5_1 else 1.0)
@@ -196,6 +198,8 @@ def score_transactions(
             "published_at": str(_pick(row, "published at", "published_at", "filing date") or ""),
             "retrieved_at": str(_pick(row, "retrieved at", "retrieved_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
             "planned_10b5_1": planned_10b5_1,
+            "transaction_context": transaction_context or "DISCRETIONARY_UNKNOWN",
+            "score_effect": "INFORMATION_ONLY" if programme else "SCORED",
         })
     evidence.sort(key=lambda x: (x["date"], x["value"]), reverse=True)
     if not evidence:
@@ -211,11 +215,14 @@ def score_transactions(
     # Counts and cluster bonus may not turn a net-sale period into a positive signal.
     if total_sell > total_buy:
         score = min(score, 61.0)
-    signal = "STERKT POSITIV" if score >= 78 else "POSITIV" if score >= 62 else "NØYTRAL" if score >= 42 else "NEGATIV" if score >= 25 else "STERKT NEGATIV"
+    signal = ("ANSATTPROGRAM – INGEN KJØPSSIGNAL" if not buyers and not sellers
+              else "STERKT POSITIV" if score >= 78 else "POSITIV" if score >= 62
+              else "NØYTRAL" if score >= 42 else "NEGATIV" if score >= 25 else "STERKT NEGATIV")
     return {
         "ticker": ticker, "score": round(score, 2), "signal": signal, "coverage": "AVAILABLE",
-        "buy_count": sum(1 for x in evidence if x["type"] == "BUY"),
+        "buy_count": sum(1 for x in evidence if x["type"] == "BUY" and x["score_effect"] == "SCORED"),
         "sell_count": sum(1 for x in evidence if x["type"] == "SELL"),
+        "programme_count": sum(1 for x in evidence if x["score_effect"] == "INFORMATION_ONLY"),
         "unique_buyers": len(buyers), "unique_sellers": len(sellers),
         "buy_value": round(total_buy, 2), "sell_value": round(total_sell, 2),
         "net_value": round(total_buy - total_sell, 2), "evidence": evidence[:10],
@@ -226,6 +233,9 @@ def score_transactions(
             else "SECONDARY_ONLY"
         ),
         "reason": (
+            "Dokumenterte kjøp gjennom ansattprogrammet er vist som informasjon og gir ikke positivt kjøpssignal. "
+            if not buyers and not sellers and any(x["score_effect"] == "INFORMATION_ONLY" for x in evidence)
+            else
             f"{len(buyers)} kjøper(e) siste {lookback_days} dager, {len(sellers)} selger(e) siste {sell_lookback_days} dager; "
             f"nettoverdi {round(total_buy - total_sell, 2)}."
         ),
@@ -236,7 +246,8 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                                market: str = "", company: str = "", *,
                                primary_only: bool = False) -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
-    cache = _load_cache(); cached = cache.get(ticker)
+    cache_key = f"{ticker}|PRIMARY" if primary_only else ticker
+    cache = _load_cache(); cached = cache.get(cache_key)
     cached_logs = (cached.get("result") or {}).get("search_log") if cached else []
     brazil_primary_cached = any("CVM" in str(row.get("source") or "") for row in cached_logs or [])
     direct_primary_cached = any(bool(row.get("direct_primary_source_checked")) for row in cached_logs or [])
@@ -286,7 +297,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 "direct_primary_source_checked": False,
                 "error": str(discovery.get("error") or "")[:240],
             })
-            _store_cached_result(ticker, result)
+            _store_cached_result(cache_key, result)
         from evidence_contract import normalize_search_payload
         return normalize_search_payload(result, area="insider")
     search_log: list[dict[str, Any]] = []
@@ -492,7 +503,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
     from evidence_contract import canonical_status, normalize_search_payload
     result["canonical_evidence_status"] = canonical_status(result, result.get("evidence") or [])
     result = normalize_search_payload(result, area="insider")
-    _store_cached_result(ticker, result)
+    _store_cached_result(cache_key, result)
     return result
 
 
