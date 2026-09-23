@@ -64,7 +64,7 @@ def test_public_report_return_target_is_allowlisted_and_preserved():
         "/app/static/reports/public_report_SAFE_TOKEN.pdf",
         return_href="/?aa_nav=portfolio",
     )
-    assert markup.count('href="/?aa_nav=portfolio" target="_self"') == 2
+    assert markup.count('href="/?aa_nav=portfolio" target="_self"') == 1
 
 
 def test_internal_report_url_can_carry_safe_return_route():
@@ -75,4 +75,3 @@ def test_internal_report_url_can_carry_safe_return_route():
     assert "public_report_token=" + "A" * 43 in url
     assert "return_to=portfolio" in url
     assert public_report_ui.with_report_return("javascript:bad", "portfolio") == ""
-

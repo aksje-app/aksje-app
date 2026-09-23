@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32r"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32r Capital Protection"
+APP_VERSION = "v19.22.0-rc16.32t"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32t Insider Primary Sources"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32q"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32s"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32s: Report Return and Print. A standalone mobile PDF shows one clickable app return control on its first page, with a nonprinting annotation so paper copies contain only report content. The report landing page retains one return action and the current Aurora destination. Archived and newly generated reports use the same delivery path. Analysis, orders, scheduler and portfolio policy are unchanged.",
     "v19.22.0-rc16.32r: Capital Protection. Replaces Superporteføljens legacy 15–18 prosent stop with a maximum three-percent high-water trailing stop, warning at 1.5 percent and confirmed early Shadow exit between 2.25 and 3 percent during continued deterioration. A separate lightweight 15-minute surveillance refreshes only held tickers between broad scans and can execute risk exits without ranking, buying or rebalancing; missing provider data causes no sale and is audited. Risk exits receive a one-day cooldown and two improving fresh observations before re-entry. Stop Pushover messages now show priority, ticker, action, entry/peak/current/stop prices, P/L, drawdown and distance change; recoveries are also reported and duplicate change alerts are suppressed. Real trading authority, Autonomy, Paper Trading and scheduler times are unchanged.",
     "v19.22.0-rc16.32q: Priority and Portfolio Clarity. Fresh Trend- og Paper-varsler viser ticker først, P1–P4-prioritet, eierskap og samlet prioritert oversikt ved samtidige signaler. De tre faste rapportene får et kompakt, eksplisitt isolert Superportefølje-snapshot, og forsiden viser reell fra-/til-dato og siste måletid for avkastningshistorikken. Ingen score-, handels-, portefølje-, scheduler- eller terskelregler er endret.",
     "v19.22.0-rc16.32p: Mobile PDF Return. Adds a visible, clickable return button at the top and bottom of every page served through the durable report viewer, preserves the selected Aurora workspace, and keeps the existing browser landing-page return actions. No trading, ranking, scheduler, learning or portfolio rules are changed.",

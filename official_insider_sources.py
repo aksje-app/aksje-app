@@ -12,7 +12,9 @@ import html
 import io
 import re
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from typing import Any, Mapping
+from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree
 
 import requests
@@ -25,6 +27,137 @@ NASDAQ_MAIN_RSS = "https://api.news.eu.nasdaq.com/news/rss/mainMarketNotices"
 NASDAQ_FIRST_NORTH_RSS = "https://api.news.eu.nasdaq.com/news/rss/firstNorthNotices"
 SWEDEN_FI_EXPORT = "https://marknadssok.fi.se/Publiceringsklient/sv-SE/Search/Search"
 EURONEXT_OSLO_NEWS = "https://live.euronext.com/en/markets/oslo/equities/company-news"
+VEIDEKKE_DISCLOSURES = "https://www.veidekke.com/investor-relations/company-disclosures/"
+
+
+class _Links(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[tuple[str, str]] = []
+        self.href = ""
+        self.label = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "a":
+            self.href = dict(attrs).get("href") or ""
+            self.label = ""
+
+    def handle_data(self, data: str) -> None:
+        if self.href:
+            self.label += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self.href:
+            self.links.append((self.href, _normalise_text(self.label)))
+            self.href = ""
+
+
+def _safe_source_url(base: str, href: str, hosts: set[str]) -> str:
+    url = urljoin(base, href)
+    parsed = urlparse(url)
+    return url if parsed.scheme == "https" and parsed.hostname in hosts and not parsed.username else ""
+
+
+def _programme_pdf_rows(content: bytes, *, date: str, price: float, source_url: str,
+                        announcement_url: str) -> list[dict[str, Any]]:
+    """Read an issuer's four-column holdings table; reject ambiguous rows."""
+    if not content.startswith(b"%PDF") or len(content) > 2_000_000:
+        return []
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(content), strict=True)
+    if not 1 <= len(reader.pages) <= 3:
+        return []
+    pages = "\n".join(page.extract_text() or "" for page in reader.pages)
+    if "previous holding" not in pages.lower() or "number of shares purchased" not in pages.lower():
+        return []
+    rows = []
+    for line in pages.splitlines():
+        match = re.fullmatch(r"\s*([A-Za-zÀ-ž][A-Za-zÀ-ž .'-]{3,75}?)\s+((?:\d+[ ]*){3,12})\s*", line)
+        if not match:
+            continue
+        name, numbers = match.groups()
+        tokens = numbers.split()
+        possible = []
+        for first in range(1, len(tokens) - 1):
+            for second in range(first + 1, len(tokens)):
+                previous, shares, holding = (int("".join(part)) for part in
+                    (tokens[:first], tokens[first:second], tokens[second:]))
+                if 0 < shares <= 1_000_000 and previous + shares == holding:
+                    possible.append((previous, shares, holding))
+        if len(set(possible)) != 1:
+            continue
+        previous, shares, holding = possible[0]
+        rows.append({
+            "date": date, "transaction": "BUY", "transaction_context": "EMPLOYEE_SHARE_PROGRAMME",
+            "insider": name.strip(), "position": "Ledende ansatt (ansattprogram)",
+            "shares": shares, "price": price, "value": round(shares * price, 2), "currency": "NOK",
+            "source": "Veidekke – offisiell børsmelding og vedlegg", "source_type": "OFFICIAL_PRIMARY",
+            "source_url": announcement_url, "document_url": source_url,
+            "verification": "PRIMARY_DOCUMENT", "document_id": source_url,
+            "published_at": date, "retrieved_at": _now(),
+        })
+    return rows
+
+
+def fetch_veidekke_disclosures(*, lookback_days: int = 90,
+                               session: requests.Session | None = None) -> dict[str, Any]:
+    """Issuer-specific primary source; other issuers need an explicit verified adapter."""
+    client = session or requests.Session()
+    base: dict[str, Any] = {
+        "source": "Veidekke – offisielle børsmeldinger", "source_type": "OFFICIAL_PRIMARY",
+        "attempted": True, "checked_at": _now(), "url": VEIDEKKE_DISCLOSURES,
+        "direct_primary_source_checked": True, "transactions": [], "results": 0,
+    }
+    try:
+        response = client.get(VEIDEKKE_DISCLOSURES, timeout=DEFAULT_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        links = _Links(); links.feed(response.text)
+        cutoff = datetime.now(timezone.utc).date() - timedelta(days=max(1, lookback_days))
+        relevant = []
+        for href, label in links.links:
+            url = _safe_source_url(VEIDEKKE_DISCLOSURES, href, {"www.veidekke.com", "veidekke.com"})
+            if not url.startswith(VEIDEKKE_DISCLOSURES) or url == VEIDEKKE_DISCLOSURES:
+                continue
+            if not any(term in label.casefold() for term in ("employee share", "key employees", "meldepliktig handel")):
+                continue
+            match = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b", label)
+            if match and datetime(int(match[3]), int(match[1]), int(match[2])).date() < cutoff:
+                continue
+            if url not in relevant:
+                relevant.append(url)
+        found, rows = 0, []
+        for url in relevant[:4]:
+            response = client.get(url, timeout=DEFAULT_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            content = _normalise_text(response.text)
+            date_match = re.search(r"Published:\s*(\d{1,2})/(\d{1,2})/(\d{4})", content, re.I)
+            if not date_match:
+                continue
+            date = datetime(int(date_match[3]), int(date_match[1]), int(date_match[2])).date()
+            if date < cutoff:
+                continue
+            found += 1
+            if not all(term in content.casefold() for term in ("primary insider", "programme")):
+                continue
+            price_match = re.search(r"subscription price was set at NOK\s*([\d.]+)", content, re.I)
+            if not price_match:
+                continue
+            detail = _Links(); detail.feed(response.text)
+            for href, label in detail.links:
+                pdf_url = _safe_source_url(url, href, {"mb.cision.com"})
+                if not pdf_url.lower().endswith(".pdf") or "primary insider" not in label.casefold():
+                    continue
+                attachment = client.get(pdf_url, timeout=DEFAULT_TIMEOUT_SECONDS)
+                attachment.raise_for_status()
+                rows.extend(_programme_pdf_rows(attachment.content, date=date.isoformat(),
+                            price=float(price_match[1]), source_url=pdf_url, announcement_url=url))
+                break
+        unique = {(row["insider"].casefold(), row["date"], row["shares"]): row for row in rows}
+        base.update({"transactions": list(unique.values()), "results": len(unique), "announcements_found": found,
+                     "status": "SUCCESS_WITH_RESULTS" if unique else "DISCOVERY_ONLY" if found else "SUCCESS_NO_RESULTS", "error": ""})
+    except Exception as exc:
+        base.update({"status": "SOURCE_ERROR", "error": f"{type(exc).__name__}: {str(exc)[:300]}"})
+    return base
 
 
 def _now() -> str:
@@ -287,6 +420,8 @@ def fetch_official_insider_sources(ticker: str, company: str, market: str, *, lo
         attempts.append(fetch_nasdaq_nordic(ticker, company, market, lookback_days=lookback_days, session=session))
     elif market == "Norge":
         attempts.append(fetch_euronext_oslo(ticker, company, lookback_days=lookback_days, session=session))
+        if str(ticker or "").upper() == "VEI.OL":
+            attempts.append(fetch_veidekke_disclosures(lookback_days=lookback_days, session=session))
     transactions = [dict(tx) for attempt in attempts for tx in attempt.get("transactions") or []]
     if transactions:
         status = "SUCCESS_WITH_RESULTS"

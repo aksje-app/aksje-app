@@ -6,6 +6,7 @@ never submits real orders and never changes the authoritative Autonomy chain.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 import hashlib
@@ -551,6 +552,7 @@ def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) ->
         "ticker": str(getattr(assessment, "ticker", source.get("ticker") or "")).upper(),
         "market": str(getattr(assessment, "market", source.get("market") or "")),
         "sector": str(getattr(assessment, "sector", source.get("sector") or source.get("industry") or "Ukjent")),
+        "company": str(source.get("longName") or source.get("shortName") or source.get("name") or ""),
         "investment_score": _f(getattr(assessment, "investment_score", 0.0)),
         "risk_score": _f(getattr(assessment, "risk_score", 50.0), 50.0),
         "data_quality_score": _f(getattr(assessment, "data_quality", 50.0), 50.0),
@@ -558,6 +560,49 @@ def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) ->
         "raw": compact_raw,
         "source": "Super Portfolio independent market universe",
     }
+
+
+def _bounded_insider_checks(candidates: list[dict[str, Any]], config: "SuperPortfolioConfig") -> dict[str, Any]:
+    """Check held names and a small per-market finalist set, never the whole universe."""
+    from insider_intelligence import fetch_insider_intelligence
+    state = load_state()
+    held = dict(state.get("positions") or {})
+    by_ticker = {str(row.get("ticker") or "").upper(): row for row in candidates}
+    chosen: dict[str, dict[str, Any]] = {}
+    for ticker, position in list(held.items())[:20]:
+        key = str(ticker).upper()
+        if key:
+            row = by_ticker.get(key) or dict(position or {})
+            chosen[key] = {"ticker": key, "market": row.get("market") or row.get("country") or "",
+                           "company": row.get("company") or row.get("name") or ""}
+    for market in config.market_scopes:
+        finalists = sorted((row for row in candidates if row.get("market") == market),
+                           key=lambda row: _f(row.get("investment_score")), reverse=True)
+        for row in finalists[:5]:
+            chosen.setdefault(str(row["ticker"]).upper(), row)
+    checks = {}
+    def check(item: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+        ticker, row = item
+        try:
+            result = fetch_insider_intelligence(ticker, market=str(row.get("market") or ""),
+                        company=str(row.get("company") or ""), primary_only=True)
+            value = {"coverage": result.get("coverage"), "signal": result.get("signal"),
+                     "score": result.get("score"), "evidence": result.get("evidence") or [],
+                     "search_log": result.get("search_log") or []}
+        except Exception as exc:
+            value = {"coverage": "SOURCE_ERROR", "signal": "KILDEFEIL", "score": 50.0,
+                     "evidence": [], "error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+        return ticker, value
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for future in as_completed([pool.submit(check, item) for item in list(chosen.items())[:40]]):
+            ticker, value = future.result()
+            checks[ticker] = value
+    for ticker in checks:
+        if ticker in by_ticker:
+            by_ticker[ticker]["insider_intelligence"] = checks[ticker]
+            by_ticker[ticker]["raw"]["insider_intelligence"] = checks[ticker]
+    return checks
 
 
 def build_super_portfolio_market_pipeline(
@@ -570,7 +615,8 @@ def build_super_portfolio_market_pipeline(
 
     This deliberately does not mutate Investment Pipeline's canonical latest_run.json.
     It uses the same local market enrichment and scoring primitives with expensive
-    evidence modules disabled, then stores only a compact candidate payload.
+    evidence modules disabled in the broad pass; a bounded primary-source
+    insider check runs for held positions and final candidates afterward.
     """
     config = cfg or SuperPortfolioConfig()
     now_dt = now or _now_dt()
@@ -706,6 +752,8 @@ def build_super_portfolio_market_pipeline(
 
     candidates.sort(key=lambda row: (_f(row.get("investment_score")), -_f(row.get("risk_score"))), reverse=True)
     check_control()
+    emit("INSIDER_CHECK", 96, message="Kontrollerer eide aksjer og sluttkandidater mot primærkilder")
+    insider_checks = _bounded_insider_checks(candidates, config)
     payload: dict[str, Any] = {
         "version": VERSION,
         "run_id": f"SPM-{now_dt.strftime('%Y%m%d-%H%M%S')}",
@@ -715,6 +763,7 @@ def build_super_portfolio_market_pipeline(
         "markets": list(config.market_scopes),
         "production_norway_only_ignored": True,
         "candidates": candidates,
+        "insider_checks": insider_checks,
         "provider_health": provider_health,
         "degraded_markets": [name for name, health in provider_health.items() if health.get("failed_batches") or health.get("circuit_open")],
         "summary": {
@@ -1956,6 +2005,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "rebalance_gate": rebalance_gate,
         "rebalance_impact": rebalance_impact,
         "market_scan_summary": dict(pipeline.get("summary") or {}),
+        "insider_checks": dict(pipeline.get("insider_checks") or {}),
     })
     history.append(snapshot)
     state["history"] = history[-max(10, int(cfg.history_limit)):]
@@ -2134,6 +2184,20 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     table = Table(rows, repeatRows=1, colWidths=[17*mm, 25*mm, 25*mm, 15*mm, 16*mm, 14*mm, 16*mm, 23*mm, 30*mm])
     table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey),("GRID",(0,0),(-1,-1),0.25,colors.grey),("FONTSIZE",(0,0),(-1,-1),6.5),("VALIGN",(0,0),(-1,-1),"MIDDLE")]))
     story.append(table); story.append(Spacer(1, 10))
+    insider_checks = data.get("insider_checks") or {}
+    if insider_checks:
+        from html import escape
+        story.append(Paragraph("Innsiderkontroll – eide aksjer og finalister", styles["Heading2"]))
+        story.append(Paragraph("Offisielle kilder kontrolleres for et avgrenset utvalg. Ansattprogram er informasjon, ikke et kjøpssignal.", styles["Normal"]))
+        for ticker, check in list(insider_checks.items())[:20]:
+            evidence = list(check.get("evidence") or [])
+            if ticker not in (data.get("positions") or {}) and not evidence:
+                continue
+            story.append(Paragraph(f"{escape(ticker)}: {escape(str(check.get('signal') or check.get('coverage') or 'UKJENT'))}", styles["Normal"]))
+            for fact in evidence[:2]:
+                label = "ansattprogram" if fact.get("transaction_context") == "EMPLOYEE_SHARE_PROGRAMME" else str(fact.get("type") or "handel")
+                story.append(Paragraph(f"{escape(str(fact.get('insider') or 'Ukjent'))} · {escape(label)} · {fact.get('shares', 0)} aksjer · {escape(str(fact.get('date') or ''))}", styles["Normal"]))
+        story.append(Spacer(1, 8))
     summary = dashboard_summary(data)
     bench = benchmark_summary(data, portfolio_return_pct=_f(summary.get("portfolio_return_pct")))
     story.append(Paragraph("Benchmark", styles["Heading2"]))
