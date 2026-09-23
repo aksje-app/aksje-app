@@ -19,15 +19,14 @@ def _candidate(ticker, score=90, risk=30, price=100, sector="Tech", market="USA"
     }
 
 
-def test_dynamic_stop_tightens_for_large_profit_and_widens_for_high_volatility():
+def test_dynamic_stop_never_widens_beyond_three_percent():
     cfg = sp.SuperPortfolioConfig()
     high_vol = {"entry_price": 100, "peak_price": 110, "last_price": 105, "volatility_pct": 55}
     protected_profit = {"entry_price": 100, "peak_price": 165, "last_price": 155, "volatility_pct": 55}
     high_vol_levels = sp.dynamic_stop_levels(high_vol, cfg)
     protected_levels = sp.dynamic_stop_levels(protected_profit, cfg)
-    assert high_vol_levels["hard_stop_drawdown_pct"] > cfg.hard_stop_drawdown_pct
-    assert protected_levels["hard_stop_drawdown_pct"] <= 8.0
-    assert protected_levels["hard_stop_drawdown_pct"] < high_vol_levels["hard_stop_drawdown_pct"]
+    assert high_vol_levels["hard_stop_drawdown_pct"] == 3.0
+    assert protected_levels["hard_stop_drawdown_pct"] == 3.0
 
 
 def test_return_profile_correlations_are_derived_without_network_calls():

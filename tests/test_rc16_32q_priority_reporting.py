@@ -40,9 +40,9 @@ def test_changed_modules_are_valid_python() -> None:
 
 def test_release_version_and_safety_statement_are_current() -> None:
     source = _source("app_version.py")
-    assert 'APP_VERSION = "v19.22.0-rc16.32q"' in source
-    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.32p"' in source
-    assert "Ingen score-, handels-, portefølje-, scheduler- eller terskelregler er endret" in source
+    assert 'APP_VERSION = "v19.22.0-rc16.32r"' in source
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.32q"' in source
+    assert "v19.22.0-rc16.32q: Priority and Portfolio Clarity" in source
 
 
 def test_notification_priority_is_delivery_only_and_batched() -> None:

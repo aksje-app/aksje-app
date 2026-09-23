@@ -332,7 +332,18 @@ def run_or_resume_scheduled_job(now: datetime | None = None) -> dict[str, Any]:
         }
     due, reason = _scheduled_job_due(now)
     if not due:
-        return {"state": "NOT_DUE", "reason": reason, "job_id": str(recovered.get("job_id") or "")}
+        # The broad discovery pipeline is intentionally expensive and remains
+        # on its existing refresh cadence. Held positions still need a cheap
+        # price-only trailing-stop check on each Cron wake-up; the surveillance
+        # function enforces its own durable 15-minute interval.
+        from super_portfolio import run_lightweight_stop_surveillance
+
+        surveillance = dict(run_lightweight_stop_surveillance(now=now) or {})
+        surveillance.setdefault("state", "NOT_DUE")
+        surveillance["schedule_reason"] = reason
+        surveillance["job_id"] = str(recovered.get("job_id") or "")
+        surveillance["mode"] = "STOP_SURVEILLANCE"
+        return surveillance
     job = create_or_get_job("SCHEDULED", True)
     if job.get("duplicate_request"):
         return {"state": "ALREADY_RUNNING", "job_id": job.get("job_id"), "trigger": job.get("trigger")}

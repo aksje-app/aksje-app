@@ -1,4 +1,4 @@
-"""Super Portfolio intelligence v19.22.0 RC16.32l.
+"""Super Portfolio intelligence v19.22.0 RC16.32r.
 
 Isolated theoretical portfolio layer. Reuses completed Investment Pipeline data,
 never submits real orders and never changes the authoritative Autonomy chain.
@@ -22,6 +22,9 @@ from market_universe import production_market_scopes, shadow_market_scopes, mark
 from app_version import APP_VERSION
 
 VERSION = APP_VERSION
+MAX_TRAILING_STOP_PCT = 3.0
+STOP_WARNING_PCT = 1.5
+STOP_NEAR_PCT = 2.25
 # Durable background runtime; this line also invalidates old timestamp caches.
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
@@ -272,9 +275,9 @@ class SuperPortfolioConfig:
     start_cash: float = 1_000_000.0
     minimum_score: float = 60.0
     maximum_risk: float = 75.0
-    warning_drawdown_pct: float = 7.0
-    near_stop_drawdown_pct: float = 10.0
-    hard_stop_drawdown_pct: float = 15.0
+    warning_drawdown_pct: float = STOP_WARNING_PCT
+    near_stop_drawdown_pct: float = STOP_NEAR_PCT
+    hard_stop_drawdown_pct: float = MAX_TRAILING_STOP_PCT
     min_rebalance_pp: float = 1.0
     max_position_pct: float = 15.0
     concentration_soft_pct: float = 40.0
@@ -283,6 +286,9 @@ class SuperPortfolioConfig:
     correlation_penalty_scale: float = 8.0
     rebalance_weekday: int = 4  # Friday
     manual_exit_cooldown_days: int = 10
+    risk_exit_cooldown_days: int = 1
+    risk_reentry_confirmation_runs: int = 2
+    stop_surveillance_minutes: int = 15
     auto_pushover: bool = True
     history_limit: int = 180
     transaction_cost_bps: float = 10.0
@@ -331,6 +337,10 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
         "last_rebalance_date": "",
         "last_changes": [],
         "manual_exit_cooldown": {},
+        "risk_exit_cooldown": {},
+        "risk_reentry_confirmation": {},
+        "last_stop_surveillance_at": "",
+        "stop_surveillance_history": [],
         "manual_exit_shadow": [],
         "benchmark": {},
         "stress_radar": [],
@@ -347,7 +357,25 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
 
 def load_state() -> dict[str, Any]:
     value = read_json(STATE_KEY, STATE_PATH, {})
-    return dict(value) if isinstance(value, Mapping) and value else default_state()
+    state = dict(value) if isinstance(value, Mapping) and value else default_state()
+    # RC16.32r safety migration: old persisted 7/10/15–18% stop settings must
+    # never survive a deploy. Volatility may reduce position size, but it may
+    # not widen the maximum loss/trailing distance beyond three percent.
+    config = dict(state.get("config") or {})
+    config.update({
+        "warning_drawdown_pct": STOP_WARNING_PCT,
+        "near_stop_drawdown_pct": STOP_NEAR_PCT,
+        "hard_stop_drawdown_pct": MAX_TRAILING_STOP_PCT,
+        "risk_exit_cooldown_days": 1,
+        "risk_reentry_confirmation_runs": 2,
+        "stop_surveillance_minutes": 15,
+    })
+    state["config"] = config
+    state.setdefault("risk_exit_cooldown", {})
+    state.setdefault("risk_reentry_confirmation", {})
+    state.setdefault("last_stop_surveillance_at", "")
+    state.setdefault("stop_surveillance_history", [])
+    return state
 
 
 def save_state(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -785,7 +813,10 @@ def _candidate_entry_gates(
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     """Gate only NEW entrants; preserve incumbents when a challenger is not yet executable."""
     rows = [dict(r) for r in proposed_rows]
-    if not previous:
+    # A genuinely new portfolio may be populated immediately. If the portfolio
+    # is empty because risk exits just removed every position, re-entry records
+    # still have to pass cooldown and two improving fresh observations.
+    if not previous and not (state.get("risk_reentry_confirmation") or {}):
         gates = {}
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
@@ -796,15 +827,26 @@ def _candidate_entry_gates(
     run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     age = _pipeline_age_minutes(pipeline, now)
     persistence = {str(k).upper(): dict(v) for k, v in (state.get("candidate_persistence") or {}).items()}
+    risk_reentry = {str(k).upper(): dict(v) for k, v in (state.get("risk_reentry_confirmation") or {}).items()}
     # Legacy/synthetic direct calls without a timestamp cannot prove consecutive
-    # fresh scans. Preserve pre-RC16.32j behavior instead of silently blocking them.
+    # fresh scans. They remain compatible for ordinary candidates, but a prior
+    # risk exit must fail closed because improving observations cannot be proven.
     if age is None:
         gates = {}
+        allowed_rows = []
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
-            gates[ticker] = {"allowed": True, "reason_codes": [], "coverage": cov, "legacy_freshness_unknown": True}
-        return rows, gates, persistence
+            blocked = ticker in risk_reentry
+            gates[ticker] = {
+                "allowed": not blocked,
+                "reason_codes": ["RISK_REENTRY_FRESHNESS_UNKNOWN"] if blocked else [],
+                "coverage": cov,
+                "legacy_freshness_unknown": True,
+            }
+            if not blocked:
+                allowed_rows.append(row)
+        return allowed_rows, gates, persistence
     fresh_run = bool(run_id) and age <= float(config.max_rebalance_data_age_minutes)
     proposed_new = {str(row.get("ticker") or "").upper() for row in rows if str(row.get("ticker") or "").upper() not in previous}
     if fresh_run:
@@ -836,11 +878,32 @@ def _candidate_entry_gates(
             reasons.append("DATA_COVERAGE_BLOCKED")
         if int(item.get("streak") or 0) < required:
             reasons.append("PERSISTENCE_GATE_BLOCKED")
+        risk_record = dict(risk_reentry.get(ticker) or {})
+        if risk_record:
+            current_price = _candidate_price(row)
+            current_score = _f(row.get("portfolio_score_adjusted"), _f(row.get("portfolio_score")))
+            previous_price = _f(risk_record.get("last_price"), _f(risk_record.get("exit_price")))
+            previous_score = _f(risk_record.get("last_score"), _f(risk_record.get("exit_score")))
+            last_reentry_run = str(risk_record.get("last_run_id") or "")
+            if fresh_run and last_reentry_run != run_id:
+                price_improving = current_price > previous_price
+                score_not_worse = current_score >= previous_score
+                risk_record["streak"] = int(risk_record.get("streak") or 0) + 1 if price_improving and score_not_worse else 0
+                risk_record.update({
+                    "last_run_id": run_id, "last_price": current_price,
+                    "last_score": current_score, "last_seen_at": now.isoformat(timespec="seconds"),
+                })
+            risk_reentry[ticker] = risk_record
+            reentry_required = max(2, int(config.risk_reentry_confirmation_runs))
+            if int(risk_record.get("streak") or 0) < reentry_required:
+                reasons.append("RISK_REENTRY_CONFIRMATION_BLOCKED")
         allowed = not reasons
         gates[ticker] = {
             "allowed": allowed, "reason_codes": reasons, "coverage": cov,
             "persistence_streak": int(item.get("streak") or 0), "required_persistence_runs": required,
             "fresh_run": fresh_run, "regime": regime_policy.get("regime"),
+            "risk_reentry_streak": int(risk_record.get("streak") or 0) if risk_record else None,
+            "risk_reentry_required": max(2, int(config.risk_reentry_confirmation_runs)) if risk_record else None,
         }
         if allowed:
             allowed_rows.append(row)
@@ -857,6 +920,8 @@ def _candidate_entry_gates(
             if ticker in previous and ticker not in selected_keys:
                 allowed_rows.append(dict(row)); selected_keys.add(ticker)
                 gates.setdefault(ticker, {"allowed": True, "reason_codes": [], "incumbent": True, "retained_due_to_blocked_challenger": True})
+    if isinstance(state, dict):
+        state["risk_reentry_confirmation"] = risk_reentry
     return allowed_rows[: max(1, int(config.target_positions))], gates, persistence
 
 
@@ -1012,19 +1077,13 @@ def dynamic_stop_levels(position: Mapping[str, Any], config: SuperPortfolioConfi
     entry = _f(position.get("entry_price"))
     peak = _f(position.get("peak_price"))
     peak_gain = ((peak / entry) - 1.0) * 100.0 if entry > 0 and peak > 0 else 0.0
-    hard = cfg.hard_stop_drawdown_pct
-    if vol >= 45:
-        hard = max(hard, 18.0)
-    elif vol <= 18:
-        hard = min(hard, 12.0)
-    if peak_gain >= 60:
-        hard = min(hard, 8.0)
-    elif peak_gain >= 40:
-        hard = min(hard, 10.0)
-    elif peak_gain >= 25:
-        hard = min(hard, 12.0)
-    warning = min(cfg.warning_drawdown_pct, max(4.0, hard * 0.50))
-    near = min(cfg.near_stop_drawdown_pct, max(warning + 1.0, hard * 0.75))
+    # The stop follows the high-water mark. It starts three percent below the
+    # entry because peak >= entry, and only moves upward as a new peak is made.
+    # Stored legacy settings and volatility can tighten, never widen, this cap.
+    configured_hard = _f(cfg.hard_stop_drawdown_pct, MAX_TRAILING_STOP_PCT)
+    hard = min(MAX_TRAILING_STOP_PCT, configured_hard if configured_hard > 0 else MAX_TRAILING_STOP_PCT)
+    warning = min(STOP_WARNING_PCT, max(0.5, hard * 0.50))
+    near = min(STOP_NEAR_PCT, max(warning + 0.25, hard * 0.75))
     return {
         "warning_drawdown_pct": round(warning, 2),
         "near_stop_drawdown_pct": round(near, 2),
@@ -1075,9 +1134,9 @@ def stop_pressure(position: Mapping[str, Any], history: Sequence[Mapping[str, An
     elif change > 1.5: arrow = "↑↑"
     elif change > 0.25: arrow = "↑"
     else: arrow = "→"
-    if current_distance <= 1.5: pressure, icon = "CRITICAL", "🔴"
-    elif current_distance <= 4.0 and change < 0: pressure, icon = "HIGH", "🟠"
-    elif current_distance <= 7.0 or change <= -2.0: pressure, icon = "ELEVATED", "🟡"
+    if current_distance <= 0.75: pressure, icon = "CRITICAL", "🔴"
+    elif current_distance <= max(1.5, min(3.0, _f(cfg.hard_stop_drawdown_pct))) and change < 0: pressure, icon = "HIGH", "🟠"
+    elif current_distance <= 2.25 or change <= -0.5: pressure, icon = "ELEVATED", "🟡"
     else: pressure, icon = "LOW", "🟢"
     return {"pressure": pressure, "pressure_icon": icon, "direction_arrow": arrow, "distance_change_pct": round(change, 2), "previous_distance_to_stop_pct": None if previous_distance is None else round(previous_distance, 2)}
 
@@ -1133,7 +1192,7 @@ def build_decision_trace(*, state: Mapping[str, Any], pipeline: Mapping[str, Any
             if not in_pipeline:
                 exclusion = "NOT_IN_CURRENT_PIPELINE"
             elif _cooldown_active(state, ticker, reference):
-                exclusion = "MANUAL_EXIT_COOLDOWN"
+                exclusion = _cooldown_reason(state, ticker, reference)
             else:
                 normalized = _normalized_candidate(raw or {})
                 if _f(normalized.get("price")) <= 0:
@@ -1513,16 +1572,38 @@ def target_weights(ranked: Sequence[Mapping[str, Any]], config: SuperPortfolioCo
 
 
 def _cooldown_active(state: Mapping[str, Any], ticker: str, now: datetime) -> bool:
-    value = (state.get("manual_exit_cooldown") or {}).get(ticker)
-    if not value:
-        return False
-    try:
-        until = datetime.fromisoformat(str(value))
-        if until.tzinfo is None:
-            until = until.replace(tzinfo=timezone.utc)
-        return until > now
-    except Exception:
-        return False
+    for ledger_name in ("manual_exit_cooldown", "risk_exit_cooldown"):
+        value = (state.get(ledger_name) or {}).get(ticker)
+        if not value:
+            continue
+        try:
+            until = datetime.fromisoformat(str(value))
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            if until > now:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _cooldown_reason(state: Mapping[str, Any], ticker: str, now: datetime) -> str:
+    for ledger_name, reason in (
+        ("risk_exit_cooldown", "RISK_EXIT_COOLDOWN"),
+        ("manual_exit_cooldown", "MANUAL_EXIT_COOLDOWN"),
+    ):
+        value = (state.get(ledger_name) or {}).get(ticker)
+        if not value:
+            continue
+        try:
+            until = datetime.fromisoformat(str(value))
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            if until > now:
+                return reason
+        except Exception:
+            continue
+    return ""
 
 
 def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, Any], now_iso: str, cfg: SuperPortfolioConfig, history: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1571,6 +1652,16 @@ def _rebalance_due(state: Mapping[str, Any], now: datetime, cfg: SuperPortfolioC
     return str(state.get("last_rebalance_date") or "") != now.date().isoformat()
 
 
+def _automatic_stop_exit(position: Mapping[str, Any]) -> tuple[str, str] | None:
+    status = str(position.get("stop_status") or "SAFE")
+    direction = str(position.get("stop_direction_arrow") or "→")
+    if status == "STOP TRIGGERED":
+        return "HARD_STOP", "Maksimalt 3 % fall fra høyeste kurs eller kjøpskurs"
+    if status == "NEAR STOP" and direction in {"↓", "↓↓"}:
+        return "CONFIRMED_EARLY_TRAILING_EXIT", "Fall mot 3 % stop er bekreftet; gevinst/tap beskyttes før hard stop"
+    return None
+
+
 def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
     severity = {"SAFE": 0, "WATCH": 1, "NEAR STOP": 2, "STOP TRIGGERED": 3}
     alerts: list[dict[str, Any]] = []
@@ -1578,8 +1669,21 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
         old = previous.get(ticker) or {}
         old_status = str(old.get("stop_status") or "SAFE")
         new_status = str(row.get("stop_status") or "SAFE")
-        if severity.get(new_status, 0) > severity.get(old_status, 0):
-            alerts.append({"ticker": ticker, "from": old_status, "to": new_status, "distance_pct": row.get("distance_to_hard_stop_pct"), "direction": row.get("stop_direction_arrow"), "pressure": row.get("stop_pressure")})
+        executed_exit = bool(row.get("stop_exit_reason_code"))
+        if new_status != old_status or executed_exit:
+            escalating = severity.get(new_status, 0) > severity.get(old_status, 0)
+            alerts.append({
+                "ticker": ticker, "from": old_status, "to": new_status,
+                "transition": "EXIT" if executed_exit else ("ESCALATION" if escalating else "RECOVERY"),
+                "action": "SHADOW SELL UTFØRT" if executed_exit else ("FØLG NESTE MÅLING" if escalating else "INGEN HANDLING"),
+                "reason_code": row.get("stop_exit_reason_code"),
+                "entry_price": row.get("entry_price"), "peak_price": row.get("peak_price"),
+                "current_price": row.get("last_price"), "stop_price": row.get("hard_stop_price"),
+                "pnl_pct": row.get("pnl_pct"), "drawdown_from_peak_pct": row.get("drawdown_from_peak_pct"),
+                "distance_pct": row.get("distance_to_hard_stop_pct"),
+                "distance_change_pct": row.get("stop_distance_change_pct"),
+                "direction": row.get("stop_direction_arrow"), "pressure": row.get("stop_pressure"),
+            })
     return alerts
 
 
@@ -1683,6 +1787,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     )
 
     positions: dict[str, dict[str, Any]] = {}
+    risk_exit_positions: dict[str, dict[str, Any]] = {}
     changes: list[dict[str, Any]] = []
     advisory_by_ticker = {str(row.get("ticker") or ""): dict(row) for row in advisory}
 
@@ -1691,10 +1796,16 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             row = by_ticker[ticker]
             old = previous.get(ticker) or {}
             pos = _position_from_row(row, weight, old, now_iso, cfg, history)
-            if old and str(pos.get("stop_status")) == "STOP TRIGGERED":
+            stop_exit = _automatic_stop_exit(pos) if old else None
+            if stop_exit:
+                reason_code, reason = stop_exit
+                pos["stop_exit_reason_code"] = reason_code
+                risk_exit_positions[ticker] = dict(pos)
                 changes.append({
                     "action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")),
-                    "to_pct": 0.0, "reason_code": "HARD_STOP", "reason": "Dynamisk hard stop utløst",
+                    "to_pct": 0.0, "reason_code": reason_code, "reason": reason,
+                    "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
+                    "exit_price": pos.get("last_price"), "pnl_pct": pos.get("pnl_pct"),
                     "decision_run_id": decision_run_id,
                 })
                 continue
@@ -1708,6 +1819,11 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                     "reason": str(action_info.get("reason") or "Ny Top-kandidat ved rebalansering"),
                     "decision_run_id": decision_run_id,
                 })
+                # Clear special re-entry confirmation only after the repurchase
+                # was actually executed, never during an advisory-only cycle.
+                risk_reentry = dict(state.get("risk_reentry_confirmation") or {})
+                risk_reentry.pop(ticker, None)
+                state["risk_reentry_confirmation"] = risk_reentry
             elif abs(weight - old_weight) >= cfg.min_rebalance_pp:
                 action = "ADD" if weight > old_weight else "REDUCE"
                 changes.append({
@@ -1718,7 +1834,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                 })
         for ticker, old in previous.items():
             if ticker not in positions:
-                if any(c.get("ticker") == ticker and c.get("reason_code") == "HARD_STOP" for c in changes):
+                if ticker in risk_exit_positions:
                     continue
                 action_info = advisory_by_ticker.get(ticker) or {}
                 changes.append({
@@ -1743,10 +1859,17 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                     "stop_pressure": pressure["pressure"], "stop_pressure_icon": pressure["pressure_icon"],
                     "stop_direction_arrow": pressure["direction_arrow"], "stop_distance_change_pct": pressure["distance_change_pct"],
                 })
-            if str(pos.get("stop_status")) == "STOP TRIGGERED":
+            stop_exit = _automatic_stop_exit(pos)
+            if stop_exit:
+                reason_code, reason = stop_exit
+                pos["stop_exit_reason_code"] = reason_code
+                risk_exit_positions[ticker] = dict(pos)
                 changes.append({
                     "action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0,
-                    "reason_code": "HARD_STOP", "reason": "Dynamisk hard stop utløst", "decision_run_id": decision_run_id,
+                    "reason_code": reason_code, "reason": reason,
+                    "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
+                    "exit_price": pos.get("last_price"), "pnl_pct": pos.get("pnl_pct"),
+                    "decision_run_id": decision_run_id,
                 })
                 continue
             positions[ticker] = pos
@@ -1762,7 +1885,31 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     turnover = turnover_cost_summary(changes, portfolio_value=_f(state.get("initial_cash"), cfg.start_cash), gross_return_pct=weighted_return, cost_bps=cfg.transaction_cost_bps)
     stress = stress_radar(position_rows)
     confidence = dict(rebalance_gate.get("confidence") or {})
-    stop_alerts = _stop_alerts(previous, positions)
+    # A risk exit is removed from the new portfolio, but it must remain in the
+    # transition set so Pushover can explain the price, P/L and executed exit.
+    stop_alerts = _stop_alerts(previous, {**positions, **risk_exit_positions})
+    if risk_exit_positions:
+        risk_cooldown = dict(state.get("risk_exit_cooldown") or {})
+        risk_reentry = dict(state.get("risk_reentry_confirmation") or {})
+        persistence = dict(candidate_persistence or {})
+        cooldown_days = max(1, int(cfg.risk_exit_cooldown_days))
+        cooldown_until = (now_dt + timedelta(days=cooldown_days)).isoformat(timespec="seconds")
+        for ticker in risk_exit_positions:
+            risk_cooldown[ticker] = cooldown_until
+            exited = risk_exit_positions[ticker]
+            risk_reentry[ticker] = {
+                "exit_at": now_iso, "exit_price": exited.get("last_price"),
+                "exit_score": exited.get("portfolio_score_adjusted", exited.get("portfolio_score")),
+                "last_price": exited.get("last_price"),
+                "last_score": exited.get("portfolio_score_adjusted", exited.get("portfolio_score")),
+                "last_run_id": decision_run_id, "streak": 0,
+            }
+            # Re-entry must establish a new persistence streak after cooldown;
+            # an old pre-exit streak cannot authorize an immediate repurchase.
+            persistence.pop(ticker, None)
+        state["risk_exit_cooldown"] = risk_cooldown
+        state["risk_reentry_confirmation"] = risk_reentry
+        candidate_persistence = persistence
     ranking_snapshot = [{"ticker": row.get("ticker"), "rank": row.get("rank"), "score": row.get("portfolio_score_adjusted"), "rank_arrow": row.get("rank_arrow")} for row in ranked_all[: max(cfg.target_positions + cfg.challenger_count, 30)]]
     snapshot = {
         "at": now_iso,
@@ -2056,11 +2203,155 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
         return True, "no alerts"
     from notifier import normalize_notification_result, send_pushover_alert
     report = publish_pdf_report(state)
-    lines = ["🛡️ SUPER PORTFOLIO – STOP WATCH"]
+    has_exit = any(str(row.get("action") or "") == "SHADOW SELL UTFØRT" for row in alerts)
+    has_escalation = any(str(row.get("transition") or "") == "ESCALATION" for row in alerts)
+    alert_identity = str(alerts[0].get("ticker") or "-") if len(alerts) == 1 else f"{len(alerts)} POSISJONER"
+    if has_exit:
+        title = f"🔴 P1 · {alert_identity} · SHADOW SELL"
+        priority = 1
+    elif has_escalation:
+        title = f"🟡 P2 · {alert_identity} · STOP WATCH"
+        priority = 0
+    else:
+        title = f"🟢 P3 · {alert_identity} · BEDRET STOPSTATUS"
+        priority = -1
+    lines = ["🛡️ SUPERPORTEFØLJE – TRAILING STOP"]
     for row in list(alerts)[:8]:
-        lines.append(f"{row.get('ticker')} {row.get('from')} → {row.get('to')} · {row.get('distance_pct')}% til stop {row.get('direction','→')}")
-    response = send_pushover_alert("\n".join(lines), title="Super Portfolio stop-varsel", url=report.get("report_url") or None, url_title="Åpne PDF")
+        lines.extend([
+            f"{row.get('ticker')} · {row.get('from')} → {row.get('to')} · {row.get('action')}",
+            f"Kjøp {_f(row.get('entry_price')):.2f} · topp {_f(row.get('peak_price')):.2f} · nå {_f(row.get('current_price')):.2f}",
+            f"Resultat {_f(row.get('pnl_pct')):+.2f}% · fra topp {_f(row.get('drawdown_from_peak_pct')):+.2f}%",
+            f"Stop {_f(row.get('stop_price')):.2f} · {_f(row.get('distance_pct')):.2f} pp margin · siden sist {_f(row.get('distance_change_pct')):+.2f} pp {row.get('direction','→')}",
+        ])
+    lines.append("Regel: varsel 1,5% · tidlig exit 2,25–3% ved fortsatt fall · maks trailing stop 3%.")
+    response = send_pushover_alert(
+        "\n".join(lines), title=title, url=report.get("report_url") or None,
+        url_title="Åpne PDF", priority=priority,
+    )
     return normalize_notification_result(response)
+
+
+def run_lightweight_stop_surveillance(
+    *, state: Mapping[str, Any] | None = None, now: datetime | None = None,
+) -> dict[str, Any]:
+    """Refresh only held tickers and enforce trailing exits between broad scans.
+
+    This path cannot add, rank or rebalance positions. Missing/stale provider
+    data causes no sale; the next scheduled cycle retries after the interval.
+    """
+    data = dict(state or load_state())
+    reference = now or _now_dt()
+    config_data = data.get("config") if isinstance(data.get("config"), Mapping) else {}
+    allowed = set(SuperPortfolioConfig.__dataclass_fields__)
+    cfg = SuperPortfolioConfig(**{k: v for k, v in config_data.items() if k in allowed})
+    interval = max(5, int(cfg.stop_surveillance_minutes))
+    last_run = str(data.get("last_stop_surveillance_at") or "")
+    if last_run:
+        try:
+            observed = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            if (reference - observed).total_seconds() < interval * 60:
+                return {"state": "NOT_DUE", "changes": [], "stop_alerts": [], "notification": "NOT_SENT"}
+        except Exception:
+            pass
+
+    previous = {str(k).upper(): dict(v) for k, v in (data.get("positions") or {}).items()}
+    data["last_stop_surveillance_at"] = reference.isoformat(timespec="seconds")
+    if not previous:
+        save_state(data)
+        return {"state": "NOT_DUE", "reason": "NO_POSITIONS", "changes": [], "stop_alerts": [], "notification": "NOT_SENT"}
+
+    prices = _coarse_market_snapshot(list(previous), "STOP_SURVEILLANCE")
+    if not prices:
+        save_state(data)
+        append_event(AUDIT_KEY, AUDIT_PATH, {
+            "timestamp": _now(), "event": "STOP_SURVEILLANCE_NO_DATA",
+            "tickers": list(previous), "action": "NO_SALE_FAIL_CLOSED",
+        })
+        return {"state": "NO_FRESH_PRICE", "changes": [], "stop_alerts": [], "notification": "NOT_SENT"}
+
+    stop_history = list(data.get("stop_surveillance_history") or [])
+    positions: dict[str, dict[str, Any]] = {}
+    exited: dict[str, dict[str, Any]] = {}
+    changes: list[dict[str, Any]] = []
+    for ticker, old in previous.items():
+        quote = dict(prices.get(ticker) or {})
+        current_price = _f(quote.get("last_price"))
+        if current_price <= 0:
+            positions[ticker] = old
+            continue
+        pos = dict(old)
+        pos["last_price"] = current_price
+        pos["peak_price"] = max(_f(old.get("peak_price")), _f(old.get("entry_price")), current_price)
+        pos["stop_price_checked_at"] = reference.isoformat(timespec="seconds")
+        pos.update(_stop_status(pos, cfg))
+        pressure = stop_pressure(pos, stop_history, cfg)
+        pos.update({
+            "stop_pressure": pressure["pressure"], "stop_pressure_icon": pressure["pressure_icon"],
+            "stop_direction_arrow": pressure["direction_arrow"],
+            "stop_distance_change_pct": pressure["distance_change_pct"],
+        })
+        stop_exit = _automatic_stop_exit(pos)
+        if stop_exit:
+            reason_code, reason = stop_exit
+            pos["stop_exit_reason_code"] = reason_code
+            exited[ticker] = pos
+            changes.append({
+                "action": "SELL", "ticker": ticker,
+                "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0,
+                "reason_code": reason_code, "reason": reason,
+                "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
+                "exit_price": pos.get("last_price"), "pnl_pct": pos.get("pnl_pct"),
+                "decision_run_id": f"STOP-{reference.strftime('%Y%m%d-%H%M%S')}",
+            })
+        else:
+            positions[ticker] = pos
+
+    alerts = _stop_alerts(previous, {**positions, **exited})
+    if exited:
+        risk_cooldown = dict(data.get("risk_exit_cooldown") or {})
+        risk_reentry = dict(data.get("risk_reentry_confirmation") or {})
+        persistence = dict(data.get("candidate_persistence") or {})
+        until = (reference + timedelta(days=max(1, int(cfg.risk_exit_cooldown_days)))).isoformat(timespec="seconds")
+        for ticker, pos in exited.items():
+            risk_cooldown[ticker] = until
+            risk_reentry[ticker] = {
+                "exit_at": reference.isoformat(timespec="seconds"), "exit_price": pos.get("last_price"),
+                "exit_score": pos.get("portfolio_score_adjusted", pos.get("portfolio_score")),
+                "last_price": pos.get("last_price"),
+                "last_score": pos.get("portfolio_score_adjusted", pos.get("portfolio_score")),
+                "last_run_id": f"STOP-{reference.strftime('%Y%m%d-%H%M%S')}", "streak": 0,
+            }
+            persistence.pop(ticker, None)
+        data["risk_exit_cooldown"] = risk_cooldown
+        data["risk_reentry_confirmation"] = risk_reentry
+        data["candidate_persistence"] = persistence
+
+    stop_history.append({
+        "at": reference.isoformat(timespec="seconds"),
+        "positions": [{k: v for k, v in row.items() if k != "raw_candidate"} for row in {**positions, **exited}.values()],
+    })
+    data["stop_surveillance_history"] = stop_history[-192:]
+    data["positions"] = positions
+    data["portfolio_health"] = portfolio_health(list(positions.values()))
+    data["last_changes"] = changes
+    data["last_stop_alerts"] = alerts
+    save_state(data)
+
+    notification = "NOT_SENT"
+    if alerts and bool((data.get("config") or {}).get("auto_pushover", True)):
+        ok, detail = notify_stop_alerts(alerts, data)
+        notification = "SENT" if ok else f"FAILED:{detail}"
+    append_event(AUDIT_KEY, AUDIT_PATH, {
+        "timestamp": _now(), "event": "LIGHTWEIGHT_STOP_SURVEILLANCE",
+        "prices": len(prices), "changes": len(changes), "stop_alerts": len(alerts),
+        "notification": notification,
+    })
+    return {
+        "state": "COMPLETED", "changes": changes, "stop_alerts": alerts,
+        "notification": notification, "checked_positions": len(previous),
+    }
 
 
 def run_scheduled_shadow_cycle(
@@ -2088,7 +2379,8 @@ def run_scheduled_shadow_cycle(
     if not source_id:
         return {"state": "NO_PIPELINE", "source_run_id": ""}
     if source_id == str(state.get("last_scheduled_source_run_id") or ""):
-        return {"state": "NOT_DUE", "source_run_id": source_id}
+        surveillance = run_lightweight_stop_surveillance(state=state, now=now_dt)
+        return {**surveillance, "source_run_id": source_id, "mode": "STOP_SURVEILLANCE"}
     result = evaluate(pipeline=pipeline, persist=True, rebalance_policy="AUTO")
     new_state = dict(result.get("state") or load_state())
     new_state["last_scheduled_source_run_id"] = source_id
@@ -2100,8 +2392,12 @@ def run_scheduled_shadow_cycle(
     notification = {"changes": "NOT_SENT", "stops": "NOT_SENT"}
     cfg = dict(new_state.get("config") or {})
     if bool(cfg.get("auto_pushover", True)):
-        if result.get("changes"):
-            ok, detail = notify_changes(result["changes"], new_state)
+        non_stop_changes = [
+            row for row in (result.get("changes") or [])
+            if str(row.get("reason_code") or "") not in {"HARD_STOP", "HARD_TRAILING_STOP", "CONFIRMED_EARLY_TRAILING_EXIT"}
+        ]
+        if non_stop_changes:
+            ok, detail = notify_changes(non_stop_changes, new_state)
             notification["changes"] = "SENT" if ok else f"FAILED:{detail}"
         if result.get("stop_alerts"):
             ok, detail = notify_stop_alerts(result["stop_alerts"], new_state)
