@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32u"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32u Quality Valuation Shadow"
+APP_VERSION = "v19.22.0-rc16.32v"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32v Fresh Scanner Quotes"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32t"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32u"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32v: Automatic scanner paper buys require a fresh timestamped five-minute market quote and use the same observed price in the order. Missing, stale, timezone-less or materially changed prices keep the trade blocked. Manual trading and the optional Quality Valuation Shadow screen are unchanged.",
     "v19.22.0-rc16.32u: Optional Quality Valuation Shadow. Adds a bounded manual multi-stock screen with dated financial evidence, normalized EPS and capital return, an explicitly illustrative peer or user P/E scenario, mobile PDF, diagnostic export and time-bounded retention. Recent manual observations appear in fixed reports without changing trade rules, triggering scheduled scans or sending unverified Pushover signals.",
     "v19.22.0-rc16.32s: Report Return and Print. A standalone mobile PDF shows one clickable app return control on its first page, with a nonprinting annotation so paper copies contain only report content. The report landing page retains one return action and the current Aurora destination. Archived and newly generated reports use the same delivery path. Analysis, orders, scheduler and portfolio policy are unchanged.",
     "v19.22.0-rc16.32r: Capital Protection. Replaces Superporteføljens legacy 15–18 prosent stop with a maximum three-percent high-water trailing stop, warning at 1.5 percent and confirmed early Shadow exit between 2.25 and 3 percent during continued deterioration. A separate lightweight 15-minute surveillance refreshes only held tickers between broad scans and can execute risk exits without ranking, buying or rebalancing; missing provider data causes no sale and is audited. Risk exits receive a one-day cooldown and two improving fresh observations before re-entry. Stop Pushover messages now show priority, ticker, action, entry/peak/current/stop prices, P/L, drawdown and distance change; recoveries are also reported and duplicate change alerts are suppressed. Real trading authority, Autonomy, Paper Trading and scheduler times are unchanged.",
