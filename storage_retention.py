@@ -210,6 +210,28 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
                 deleted[prefix] = removed
         pending_after_batch += max(0, len(victims) - removed) if effective_apply else len(victims)
 
+    # Only the new optional screen's immutable run snapshots expire by age.
+    # Its latest pointer and all portfolio, trades and decision records remain
+    # outside this prefix. Respect the existing opt-in and batch budget.
+    from quality_valuation_store import preview_expired_run_keys
+    old_screens = preview_expired_run_keys(names, days=90)
+    if old_screens:
+        planned["quality_valuation/runs/older_than_90_days"] = len(old_screens)
+    removed_screens = 0
+    if effective_apply:
+        for name in old_screens:
+            if remaining_budget <= 0 or time.monotonic() - started >= max_seconds:
+                break
+            storage.delete_json(name)
+            # durable_runtime also maintains a non-authoritative local mirror.
+            # Remove only this feature's expired mirror after durable deletion.
+            runtime_data_path(*name.split("/")).unlink(missing_ok=True)
+            remaining_budget -= 1
+            removed_screens += 1
+        if removed_screens:
+            deleted["quality_valuation/runs/older_than_90_days"] = removed_screens
+    pending_after_batch += max(0, len(old_screens) - removed_screens) if effective_apply else len(old_screens)
+
     trimmed: dict[str, int] = {}
     public_state = "DRY_RUN" if not effective_apply else ("DEFERRED" if pending_after_batch else "PENDING")
     public_reports: dict[str, Any] = {"state": public_state}

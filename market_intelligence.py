@@ -1579,6 +1579,17 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     for item in overview.get("focus") or []:
         lines.append(f"- {item}")
 
+    qv = run.get("quality_valuation_observation") or {}
+    if isinstance(qv, Mapping) and qv.get("manual_shadow"):
+        lines += ["", "KVALITET OG PRISING – MANUELL SHADOW-OBSERVASJON",
+                  f"Sist vurdert: {qv.get('generated_at')} · ingen ny vurdering gjort av denne rapporten."]
+        for item in list(qv.get("top") or [])[:3]:
+            lines.append(f"- {item.get('ticker')}: {item.get('group')} · inngangsscenario {item.get('entry_range_scenario') or '-'}")
+        changes_qv = qv.get("changes") or {}
+        if changes_qv.get("comparable"):
+            lines.append(f"- Ny i attraktiv-gruppen: {', '.join(changes_qv.get('new_attractive') or []) or 'Ingen'}; ut: {', '.join(changes_qv.get('lost_attractive') or []) or 'Ingen'}.")
+        lines.append("Scenariopriser er ikke produksjonsgodkjente kjøpssignaler; kontroller regnskapstall og verdsettelsesforutsetning.")
+
     lines.extend(["", "EKSISTERENDE PORTEFØLJE OG KAPITALBINDING"])
     lines.append(f"- Åpne posisjoner: {portfolio_intelligence.get('open_positions', 0)} av {portfolio_intelligence.get('maximum_open_positions', 20)}")
     lines.append(f"- Sidelengsposisjoner: {portfolio_intelligence.get('sideways_positions', 0)}")
@@ -4607,6 +4618,15 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     story += [status_stripe, Spacer(1, 1*mm), summary_table, quick_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"]),
               Paragraph(escape(learning_text), styles["Small"])]
+    qv = run.get("quality_valuation_observation") or {}
+    if isinstance(qv, Mapping) and qv.get("manual_shadow"):
+        story += [Paragraph("Kvalitet og prising – manuell observasjon", styles["Subsection"]),
+                  Paragraph(escape(f"Sist vurdert {qv.get('generated_at')}; denne rapporten kjørte ingen ny verdsettelse. Scenariopriser er ikke kjøpssignaler."), styles["Small"])]
+        for item in list(qv.get("top") or [])[:3]:
+            story.append(Paragraph(escape(f"{item.get('ticker')}: {item.get('group')} · scenario {item.get('entry_range_scenario') or '-'}"), styles["Small"]))
+        changes_qv = qv.get("changes") or {}
+        if changes_qv.get("comparable"):
+            story.append(Paragraph(escape(f"Nye: {', '.join(changes_qv.get('new_attractive') or []) or 'Ingen'} · ut: {', '.join(changes_qv.get('lost_attractive') or []) or 'Ingen'}"), styles["Small"]))
     learning_rows = []
     for decision in list(learning_summary.get("learning_fills") or []):
         if not isinstance(decision, Mapping):
@@ -6818,6 +6838,15 @@ def _run_job_impl(
     run["portfolio_accounting_preflight"] = dict(_portfolio_report_preflight.get("reconciliation") or {})
     from autonomi_core.runtime.full_execution import reconcile_portfolio_assessment
     run["portfolio_assessment_contract"] = reconcile_portfolio_assessment(run)
+    # Observe one recent optional manual screen before final integrity and the
+    # immutable canonical result, without starting network or CPU-heavy work.
+    try:
+        from quality_valuation_store import recent_report_summary
+        observation = recent_report_summary()
+        if observation:
+            run["quality_valuation_observation"] = observation
+    except Exception:
+        pass
     # This is the last canonicalisation point before every external consumer.
     # JSON, PDFs, Pushover and publication gates must observe the same rows.
     apply_report_integrity(run)

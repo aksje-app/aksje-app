@@ -8,7 +8,7 @@ import os
 
 
 _RETURN_NAV_TARGETS = {
-    "dashboard", "portfolio", "long_engine", "autonomy", "reports",
+    "dashboard", "portfolio", "long_engine", "autonomy", "reports", "market",
     "jobs", "approvals", "paper_trading", "fx_alerts", "alerts",
     "drift_center", "system",
 }

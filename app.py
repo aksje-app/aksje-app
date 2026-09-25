@@ -10179,6 +10179,8 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
         render_ranking(rows, f"Marked {market} rangering")
     else:
         st.info("Ingen lagret rangering for dette panelet ennå.")
+    from quality_valuation_ui import render_quality_valuation
+    render_quality_valuation(st, source_tickers)
 
 
 def _render_market_room_toolbar_v1863cb() -> dict:
