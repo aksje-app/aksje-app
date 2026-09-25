@@ -81,6 +81,8 @@ from services.simulated_execution_service import get_simulated_execution_service
 from services.paper_quality_enrichment_service import get_paper_quality_enrichment_service
 from runtime_safety import paper_trading_decision
 from ticker_health import quarantine_status, record_ticker_failure, record_ticker_success
+from scanner_fresh_quote import fresh_paper_buy_quote
+from trading_settings import load_rules
 
 
 def _paper_candidate_context(result):
@@ -678,10 +680,23 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                         allow_trade = False
 
                     if allow_trade:
-                        print(f"✅ {ticker}: BUY-kandidat godkjent, prøver paper_buy direkte")
+                        # The 2y daily history used for ranking is not proof
+                        # of a fresh executable quote. Fetch price and time
+                        # together; never stamp the current time onto it.
+                        quote, quote_error = fresh_paper_buy_quote(
+                            result["ticker"], max_age_minutes=float(
+                                load_rules().get("automatic_signal_max_age_minutes", 120) or 120),
+                        )
+                        if quote is None:
+                            print(f"Auto BUY {ticker}: blokkert - {quote_error}")
+                            continue
+                        if result["price"] <= 0 or abs(quote["price"] / result["price"] - 1) > 0.03:
+                            print(f"Auto BUY {ticker}: blokkert - kursen endret seg mer enn 3% siden signalgrunnlaget")
+                            continue
+                        print(f"✅ {ticker}: BUY-kandidat godkjent med tidsstemplet intradagkurs, prøver paper_buy")
                         traded, msg = paper_buy(
                             result["ticker"],
-                            result["price"],
+                            quote["price"],
                             result["confidence"],
                             "AUTO BUY via Cron/Kjøp nå",
                             trade_context={
@@ -690,7 +705,8 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                                 "run_id": scan_run_id,
                                 "scan_id": scan_run_id,
                                 "scanner_execution_id": load_scanner_status().get("execution_id"),
-                                "market_data_at": result.get("market_data_at") or result.get("as_of") or "",
+                                "market_data_at": quote["market_data_at"],
+                                "execution_quote": quote,
                                 "candidate": _paper_candidate_context(result),
                             },
                         )
