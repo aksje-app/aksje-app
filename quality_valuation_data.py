@@ -71,15 +71,29 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
     except Exception:
         balance = None
         warnings.append("Balanse utilgjengelig")
+    try:
+        cashflow = security.cashflow
+    except Exception:
+        cashflow = None
+        warnings.append("Kontantstrømoppstilling utilgjengelig")
     eps_by_year = _dated_values(annual, ("Diluted EPS", "Basic EPS"))
     ebit = _dated_values(annual, ("EBIT", "Operating Income"))
     assets = _dated_values(balance, ("Total Assets",))
     current_liabilities = _dated_values(balance, ("Current Liabilities", "Total Current Liabilities"))
+    operating_cash = _dated_values(cashflow, ("Operating Cash Flow", "Total Cash From Operating Activities"))
+    capex = _dated_values(cashflow, ("Capital Expenditure", "Capital Expenditures"))
+    free_cash = _dated_values(cashflow, ("Free Cash Flow",))
+    fcf_by_year = dict(free_cash)
+    for year in operating_cash.keys() & capex.keys():
+        if year not in fcf_by_year:
+            # Yahoo normally reports capex as a negative cash outflow.
+            fcf_by_year[year] = operating_cash[year] + capex[year]
     eps = [eps_by_year[year] for year in sorted(eps_by_year, reverse=True)][:5]
     roce_history = [ebit[year] / (assets[year] - current_liabilities[year])
                     for year in sorted(ebit.keys() & assets.keys() & current_liabilities.keys(), reverse=True)
                     if assets[year] > current_liabilities[year]][:5]
     sector = str(info.get("sector") or "")
+    fcf_history = [fcf_by_year[year] for year in sorted(fcf_by_year, reverse=True)][:10]
     financial = [frame for frame in (annual, balance) if frame is not None and not getattr(frame, "empty", True)]
     period = max((year for year in ebit.keys() & assets.keys() & current_liabilities.keys()), default="") if len(financial) == 2 else ""
     # ROCE is not comparable for banks/insurers; never reinterpret ROE as ROCE.
@@ -96,7 +110,8 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "ticker": ticker, "price": price, "trailing_eps": info.get("trailingEps"),
         "forward_eps": info.get("forwardEps"), "annual_eps": eps,
         "financial_date": period, "free_cash_flow": info.get("freeCashflow"),
-        "roce": roce, "roce_history": [] if is_financial else roce_history[:5],
+        "free_cash_flow_history": fcf_history,
+        "roce": roce, "roce_history": [] if is_financial else roce_history[:10],
         "name": info.get("longName") or info.get("shortName") or ticker,
         "country": info.get("country"), "currency": info.get("currency"),
         "industry": info.get("industry") or sector,
