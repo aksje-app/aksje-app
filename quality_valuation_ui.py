@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from quality_valuation import GROUPS, MAX_SYMBOLS, run_screen
 from quality_valuation_data import isolated_financial_snapshot, memory_budget_ok, observed_driver_prices
-from quality_valuation_store import load_latest, persist_screen
+from quality_valuation_store import load_latest_manual, persist_screen
 
 
 def _printable(value: Any) -> str:
@@ -156,6 +156,16 @@ def required_report_busy() -> bool:
     return bool(fresh and str(owner.get("state") or "").upper() == "ACTIVE")
 
 
+def _warning_kind(message: str) -> tuple[str, str]:
+    """Separate company risk from missing verification and valuation uncertainty."""
+    text = str(message or "").lower()
+    if any(word in text for word in ("primærkild", "tredjepart", "sammenlignbare", "ikke verifisert", "mangler")):
+        return "ⓘ", "Datagrunnlag"
+    if any(word in text for word in ("inngangsområde", "kursgrense", "p/e-forutsetning", "scenario")):
+        return "◇", "Verdsettelse"
+    return "⚠️", "Risiko/kvalitet"
+
+
 def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, expanded: bool = False) -> None:
     with st.expander("Kvalitet, prising og inngangskurs · shadow", expanded=expanded):
         st.caption("Manuell observasjonsanalyse. Starter ingen handel og sender ikke Pushover. Finansdata må kontrolleres i selskapsrapporten.")
@@ -233,7 +243,7 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                 st.error(f"Kunne ikke fullføre vurderingen: {type(exc).__name__}. Kontroller diagnose og markedstilgang.")
         result = st.session_state.get("qv_result")
         if result is None and not run_attempted:
-            result = load_latest()
+            result = load_latest_manual()
         if not result:
             st.info("Ingen kvalitetsvurdering kjørt ennå.")
             return
@@ -273,7 +283,11 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                         )
                     warnings = list(item.get("warnings") or [])[:3]
                     if warnings:
-                        st.markdown("\n".join(f"- ⚠️ {warning}" for warning in warnings))
+                        rendered = []
+                        for warning in warnings:
+                            icon, kind = _warning_kind(str(warning))
+                            rendered.append(f"- {icon} **{kind}:** {warning}")
+                        st.markdown("\n".join(rendered))
         st.download_button("Last ned kort PDF", build_screen_pdf(result), "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf")
         try:
             from quality_extended_report import build_extended_analysis_pdf
@@ -282,8 +296,8 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
         except Exception:
             st.caption("Utvidet analyse-PDF er midlertidig utilgjengelig; kort PDF og diagnose er fortsatt tilgjengelig.")
         st.download_button("Last ned diagnose", diagnostic_document(result), "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis")
-        if st.button("← Tilbake til Marked", key="qv_back_to_market", use_container_width=True):
-            st.session_state["market_room_view_v1863cb"] = "Market Scanner"
+        st.caption("Siste manuelle kjøring er lagret og kan åpnes igjen etter at du har vært på andre sider.")
+        if st.button("⌂ Hovedsiden", key="qv_home", use_container_width=True, type="primary"):
             st.session_state["ai_control_center_last_applied_nav_v19016"] = ""
-            st.query_params["aa_nav"] = "market"
+            st.query_params["aa_nav"] = "overview"
             st.rerun()
