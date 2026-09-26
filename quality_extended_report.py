@@ -47,6 +47,32 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
     y = line(y, f"Neste V2-beslutningspunkt: {oversight.get('next_milestone') or 'BESLUTNING KREVES'}")
     y -= 8
 
+    def chart(y: float, title: str, values: list[Any], labels: list[str], *, percent: bool = False) -> float:
+        nums = []
+        for value in values:
+            try:
+                nums.append(float(value) * (100 if percent else 1))
+            except (TypeError, ValueError):
+                pass
+        if not nums:
+            return line(y, f"{title}: IKKE DOKUMENTERT")
+        y = line(y, title, bold=True)
+        left, chart_w, chart_h = 55, width - 100, 82
+        base = y - chart_h
+        low, high = min(nums), max(nums)
+        span = max(abs(high-low), abs(high)*.05, 1e-9)
+        xs = [left + (i * chart_w / max(1, len(nums)-1)) for i in range(len(nums))]
+        pts = [(x, base + (value-low)/span*chart_h) for x, value in zip(xs, nums)]
+        pdf.setStrokeColor(colors.grey); pdf.line(left, base, left+chart_w, base)
+        for a, b in zip(pts, pts[1:]): pdf.line(a[0], a[1], b[0], b[1])
+        for idx, ((x, py), value) in enumerate(zip(pts, nums)):
+            pdf.circle(x, py, 2, stroke=1, fill=0)
+            label = labels[idx] if idx < len(labels) else f"t-{idx}"
+            pdf.setFont("Helvetica", 5.5); pdf.drawCentredString(x, base-9, _safe(label)[:10])
+            suffix = "%" if percent else ""
+            pdf.drawCentredString(x, py+4, f"{value:.1f}{suffix}")
+        return base - 18
+
     shadow_by_ticker = {str(row.get("ticker")): row for row in shadow.get("rows") or []}
     for item in _all_rows(result):
         pdf.showPage()
@@ -85,10 +111,15 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
 
         eps = list(item.get("annual_eps_history") or [])
         fcf = list(item.get("free_cash_flow_history") or [])
-        y = line(y, f"EPS-historikk, nyeste først: {eps or '-'}")
-        y = line(y, f"FCF-historikk, nyeste først: {fcf or '-'}")
-        y = line(y, "Dataperiode: inntil 10 tilgjengelige regnskapsperioder; faktisk antall vises over.")
-        y -= 5
+        periods = list(item.get("fiscal_periods") or [])
+        y = line(y, f"Faktiske tilgjengelige regnskapsperioder: {periods or 'IKKE DOKUMENTERT'}")
+        y = chart(y, "EPS-historikk", eps, periods)
+        y = chart(y, "FCF-historikk", fcf, periods)
+        y = chart(y, "Driftsmargin", list(item.get("operating_margin_history") or []), periods, percent=True)
+        y = chart(y, "Gjeld", list(item.get("debt_history") or []), periods)
+        y = chart(y, "ROE (finans)", list(item.get("roe_history") or []), periods, percent=True)
+        y = line(y, "ROIC-historikk: IKKE DOKUMENTERT i nåværende providergrunnlag.")
+        y = line(y, "Kurs-historikk: IKKE DOKUMENTERT i denne rapportkjøringen.")
 
         v2 = shadow_by_ticker.get(str(item.get("ticker")), {})
         y = line(y, "Quality Model V2 · SHADOW · ingen produksjonseffekt", bold=True, size=9)

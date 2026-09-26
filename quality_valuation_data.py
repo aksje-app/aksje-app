@@ -78,8 +78,13 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         warnings.append("Kontantstrømoppstilling utilgjengelig")
     eps_by_year = _dated_values(annual, ("Diluted EPS", "Basic EPS"))
     ebit = _dated_values(annual, ("EBIT", "Operating Income"))
+    revenue = _dated_values(annual, ("Total Revenue", "Operating Revenue"))
+    operating_income = _dated_values(annual, ("Operating Income", "EBIT"))
+    net_income = _dated_values(annual, ("Net Income", "Net Income Common Stockholders"))
     assets = _dated_values(balance, ("Total Assets",))
     current_liabilities = _dated_values(balance, ("Current Liabilities", "Total Current Liabilities"))
+    debt = _dated_values(balance, ("Total Debt", "Long Term Debt And Capital Lease Obligation", "Long Term Debt"))
+    equity = _dated_values(balance, ("Stockholders Equity", "Total Equity Gross Minority Interest"))
     operating_cash = _dated_values(cashflow, ("Operating Cash Flow", "Total Cash From Operating Activities"))
     capex = _dated_values(cashflow, ("Capital Expenditure", "Capital Expenditures"))
     free_cash = _dated_values(cashflow, ("Free Cash Flow",))
@@ -93,7 +98,16 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
                     for year in sorted(ebit.keys() & assets.keys() & current_liabilities.keys(), reverse=True)
                     if assets[year] > current_liabilities[year]][:5]
     sector = str(info.get("sector") or "")
+    fiscal_periods = sorted(set(eps_by_year) | set(ebit) | set(fcf_by_year) | set(revenue) | set(debt) | set(equity), reverse=True)[:10]
     fcf_history = [fcf_by_year[year] for year in sorted(fcf_by_year, reverse=True)][:10]
+    operating_margin_by_year = {year: operating_income[year] / revenue[year]
+                                for year in operating_income.keys() & revenue.keys() if revenue[year]}
+    operating_margin_history = [operating_margin_by_year[year] for year in sorted(operating_margin_by_year, reverse=True)][:10]
+    debt_history = [debt[year] for year in sorted(debt, reverse=True)][:10]
+    equity_history = [equity[year] for year in sorted(equity, reverse=True)][:10]
+    roe_by_year = {year: net_income[year] / equity[year]
+                   for year in net_income.keys() & equity.keys() if equity[year] > 0}
+    roe_history = [roe_by_year[year] for year in sorted(roe_by_year, reverse=True)][:10]
     financial = [frame for frame in (annual, balance) if frame is not None and not getattr(frame, "empty", True)]
     period = max((year for year in ebit.keys() & assets.keys() & current_liabilities.keys()), default="") if len(financial) == 2 else ""
     # ROCE is not comparable for banks/insurers; never reinterpret ROE as ROCE.
@@ -111,6 +125,13 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "forward_eps": info.get("forwardEps"), "annual_eps": eps,
         "financial_date": period, "free_cash_flow": info.get("freeCashflow"),
         "free_cash_flow_history": fcf_history,
+        "fiscal_periods": fiscal_periods,
+        "operating_margin_history": operating_margin_history,
+        "debt_history": debt_history,
+        "equity_history": equity_history,
+        "roe_history": roe_history if is_financial else [],
+        "sector": sector,
+        "is_financial": is_financial,
         "roce": roce, "roce_history": [] if is_financial else roce_history[:10],
         "name": info.get("longName") or info.get("shortName") or ticker,
         "country": info.get("country"), "currency": info.get("currency"),

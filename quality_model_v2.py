@@ -68,9 +68,17 @@ def _dispersion(values: Sequence[float]) -> float | None:
 def evaluate_shadow(raw: Mapping[str, Any], v11: Mapping[str, Any]) -> dict[str, Any]:
     """Evaluate evidence without changing the active V1.1 result."""
     roce = _series(raw.get("roce_history"), 10)
+    roe = _series(raw.get("roe_history"), 10)
+    margins = _series(raw.get("operating_margin_history"), 10)
+    is_financial = bool(raw.get("is_financial"))
+    industry_text = (str(raw.get("industry") or "") + " " + str(raw.get("sector") or "")).lower()
+    is_cyclical = any(word in industry_text for word in ("oil", "gas", "energy", "shipping", "marine", "metals", "mining", "steel", "commodity"))
     fcf = _series(raw.get("free_cash_flow_history"), 10)
     eps = _series(raw.get("annual_eps"), 10)
     latest_roce = roce[0] if roce else _num(raw.get("roce"))
+    latest_roe = roe[0] if roe else None
+    median_roe = median(roe[:5]) if len(roe) >= 3 else latest_roe
+    roe_trend = _trend(roe)
     median_roce = median(roce[:5]) if len(roce) >= 3 else latest_roce
     roce_trend = _trend(roce)
     fcf_ratio = _positive_ratio(fcf)
@@ -82,7 +90,18 @@ def evaluate_shadow(raw: Mapping[str, Any], v11: Mapping[str, Any]) -> dict[str,
     roic = roic_history[0] if roic_history else _num(raw.get("roic"))
     roic_wacc_spread = (roic - wacc) if roic is not None and wacc is not None else None
 
-    if len(roce) < 3:
+    if is_financial:
+        if len(roe) < 3:
+            quality_band = "NOT_DOCUMENTED"
+        elif median_roe is not None and median_roe >= 0.15:
+            quality_band = "STRONG"
+        elif roe_trend == "IMPROVING" and latest_roe is not None and latest_roe >= 0.12:
+            quality_band = "IMPROVING"
+        elif median_roe is not None and median_roe >= 0.10:
+            quality_band = "STABLE_QUALITY"
+        else:
+            quality_band = "WATCH"
+    elif len(roce) < 3:
         quality_band = "NOT_DOCUMENTED"
     elif median_roce is not None and median_roce >= 0.15 and (fcf_ratio is None or fcf_ratio >= 0.80):
         quality_band = "STRONG"
@@ -114,7 +133,22 @@ def evaluate_shadow(raw: Mapping[str, Any], v11: Mapping[str, Any]) -> dict[str,
     }
     moat_evidence = "DOCUMENTED" if moat_dimensions else "NOT_DOCUMENTED"
 
+    cyclical_normalization = "NOT_APPLICABLE"
+    if is_cyclical:
+        if len(margins) < 3 or len(fcf) < 3:
+            cyclical_normalization = "NOT_DOCUMENTED"
+        else:
+            margin_trend = _trend(margins)
+            fcf_trend = _trend(fcf)
+            cyclical_normalization = "CYCLE_PEAK_RISK" if margin_trend == "WEAKENING" or fcf_trend == "WEAKENING" else "MULTI_PERIOD_AVAILABLE"
+
     reasons: list[str] = []
+    if is_financial:
+        reasons.append("Finanssektor vurderes med flerårig ROE-evidens; industriell ROCE brukes ikke.")
+    if cyclical_normalization == "CYCLE_PEAK_RISK":
+        reasons.append("Syklisk normalisering flagger mulig toppnivå: margin/FCF svekkes mot flerårig historikk.")
+    elif cyclical_normalization == "NOT_DOCUMENTED":
+        reasons.append("Syklisk normalisering mangler minst tre sammenlignbare perioder med margin og FCF.")
     active_state = str(v11.get("quality_state") or "")
     if quality_band in {"STRONG", "IMPROVING", "STABLE_QUALITY"} and active_state in {"WEAK", "INSUFFICIENT"}:
         reasons.append("V2 ser sterkere eller forbedrende kapitalavkastning enn aktiv V1.1-status.")
@@ -133,6 +167,12 @@ def evaluate_shadow(raw: Mapping[str, Any], v11: Mapping[str, Any]) -> dict[str,
         "shadow_only": True,
         "production_effect": False,
         "quality_band": quality_band,
+        "sector_policy": "FINANCIAL_ROE" if is_financial else "INDUSTRIAL_CAPITAL_RETURN",
+        "roe_latest_pct": round(latest_roe * 100, 2) if latest_roe is not None else None,
+        "roe_median_pct": round(median_roe * 100, 2) if median_roe is not None else None,
+        "roe_trend": roe_trend,
+        "cyclical": is_cyclical,
+        "cyclical_normalization": cyclical_normalization,
         "roce_latest_pct": round(latest_roce * 100, 2) if latest_roce is not None else None,
         "roce_median_pct": round(median_roce * 100, 2) if median_roce is not None else None,
         "roce_trend": roce_trend,
@@ -157,6 +197,11 @@ def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         row for row in items
         if row.get("reasons") and any("V2 ser sterkere" in reason or "svakere" in reason for reason in row.get("reasons") or [])
     ]
+    try:
+        from quality_v2_benchmark import compare_reference
+        benchmark = compare_reference(items)
+    except Exception:
+        benchmark = {"production_effect": False, "state": "UNAVAILABLE"}
     return {
         "model_version": MODEL_VERSION,
         "shadow_only": True,
@@ -166,5 +211,6 @@ def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "strong_or_improving": sum(1 for row in items if row.get("quality_band") in {"STRONG", "IMPROVING"}),
         "weakening_count": sum(1 for row in items if row.get("roce_trend") == "WEAKENING"),
         "moat_documented_count": sum(1 for row in items if row.get("moat_evidence") == "DOCUMENTED"),
+        "benchmark": benchmark,
         "rows": items,
     }

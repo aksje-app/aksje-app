@@ -192,6 +192,11 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     local_hour = datetime.now(ZoneInfo("Europe/Oslo")).hour
     greeting = "God morgen" if local_hour < 12 else "God ettermiddag" if local_hour < 18 else "God kveld"
     chart = _sparkline_svg(portfolio.get("history_returns") or [], portfolio.get("history_labels") or [])
+    try:
+        from quality_v2_shadow_store import load_shadow_state
+        v2_shadow = load_shadow_state()
+    except Exception:
+        v2_shadow = {}
     st_module.markdown(
         f'''<main class="aa-overview-v2" aria-label="Oversikt">
         <section class="aa-overview-hero tone-{escape(str(hero.get('tone') or 'neutral'))}">
@@ -205,6 +210,22 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
       <article class="aa-confidence"><span>BESLUTNINGSRO</span><p>Samlet kvalitet på Super Portfolio sitt beslutningsgrunnlag.</p><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small><div class="aa-confidence-components">{component_html}</div></article>
     </section>
     <section class="aa-portfolio-facts"><div><strong>{portfolio.get('positions', 0)}</strong><span>POSISJONER</span></div><div><strong>{escape(fmt_pct(portfolio.get('cash_pct')).replace('+',''))}</strong><span>KONTANTER</span></div><div><strong>{escape(str((model.get('next_event') or {}).get('value') or '–'))}</strong><span>NESTE RAPPORT</span></div></section>''', unsafe_allow_html=True)
+    if v2_shadow:
+        runs = int(v2_shadow.get("complete_runs") or 0)
+        evaluated = int(v2_shadow.get("evaluated_companies") or 0)
+        disagreements = int(v2_shadow.get("disagreement_count") or 0)
+        weakening = int(v2_shadow.get("weakening_count") or 0)
+        next_point = v2_shadow.get("next_milestone")
+        decision_required = bool(v2_shadow.get("decision_required"))
+        status_label = "BESLUTNING KREVES" if decision_required else "SHADOW - INGEN PRODUKSJONSEFFEKT"
+        next_label = "Beslutning kreves nå" if decision_required else f"Neste evaluering: {next_point or '-'} komplette kjøringer"
+        st_module.markdown(f'''<section class="aa-v2-shadow-card">
+          <div><span class="aa-overline">QUALITY V2 · SHADOW</span><h3>{escape(status_label)}</h3><p>{escape(next_label)}</p></div>
+          <div class="aa-v2-shadow-facts"><b>{runs}<small>KJØRINGER</small></b><b>{evaluated}<small>VURDERT</small></b><b>{disagreements}<small>V1.1 ↔ V2 UENIGHET</small></b><b>{weakening}<small>SVEKKENDE</small></b></div>
+        </section>''', unsafe_allow_html=True)
+    else:
+        st_module.caption("Quality V2 Shadow: ingen komplette evalueringskjøringer registrert ennå.")
+
     left, right = st_module.columns([1.65, 1])
     with left:
         st_module.markdown('<h2 class="aa-section-title">Krever oppmerksomhet</h2>', unsafe_allow_html=True)
