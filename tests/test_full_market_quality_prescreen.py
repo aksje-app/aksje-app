@@ -3,10 +3,10 @@ from quality_market_prescreen import full_market_prescreen
 def test_full_market_prescreen_examines_every_ticker_before_finalists(monkeypatch):
     import quality_market_prescreen as q
     calls = []
-    def fake_enrich(tickers, **kwargs):
-        calls.extend(tickers)
+    def fake_enrich(rows, **kwargs):
+        calls.extend(row["ticker"] for row in rows)
         return [{
-            "ticker": ticker,
+            "ticker": row["ticker"],
             "last_price": 100 + i,
             "trailing_pe": 15,
             "roe": 20 + i,
@@ -17,7 +17,7 @@ def test_full_market_prescreen_examines_every_ticker_before_finalists(monkeypatc
             "trend_score": 50,
             "data_fetch_status": "OK",
             "raw_fields_available": ["price", "fundamentals"],
-        } for i, ticker in enumerate(tickers)]
+        } for i, row in enumerate(rows)]
     monkeypatch.setattr(q, "enrich_candidate_rows", fake_enrich)
     universe = [f"T{i:03d}.OL" for i in range(137)]
     result = full_market_prescreen(universe, finalist_limit=20, chunk_size=31)
