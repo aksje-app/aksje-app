@@ -9406,12 +9406,14 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
-    elif nav == "market":
+    elif nav in {"market", "quality_valuation"}:
         st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
         st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
         st.session_state["ai_control_center_active_panel_v1863m"] = "🔍 Marked – Market Scanner"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "🔍 Marked – Market Scanner"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "🔍 Marked – Market Scanner"
+        if nav == "quality_valuation":
+            st.session_state["market_room_view_v1863cb"] = "Kvalitet og prising"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
