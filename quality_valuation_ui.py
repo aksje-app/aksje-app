@@ -221,7 +221,7 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                 f"{len(result.get('prescreen_finalists') or [])} gikk videre til full analyse."
             )
         st.caption(f"Sist lagret: {result.get('generated_at')} · {result.get('state')} · {result.get('completed')}/{result.get('selected')} · {result.get('elapsed_seconds') or 0}s · CPU {result.get('cpu_seconds') or 0}s")
-        st.caption("Varsling: avventes. Tredjeparts nøkkeltall og et manuelt valgt P/E-scenario er ikke kontrollert mot primærkilder; disse resultatene sender derfor ingen Pushover.")
+        st.warning("Pushover: IKKE SENDT. Tredjeparts nøkkeltall og P/E-/peer-scenario er ikke kontrollert mot primærkilder. Resultatet er observasjon, ikke kjøpssignal.")
         if result.get("stop_reason") or result.get("failures"):
             st.warning(f"Ufullstendig kjøring. {result.get('stop_reason') or ''} Feil: {len(result.get('failures') or [])}")
         if result.get("driver_prices"):
@@ -236,12 +236,25 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                 continue
             visible = items if st.toggle("Vis alle", key=f"qv_all_{group}", value=False) else items[:5]
             for item in visible:
-                st.markdown(f"**{item['ticker']} · {item['name']}** · {item.get('country') or '-'} · {item.get('industry') or '-'}")
-                st.caption(f"Kurs {item.get('price') or '-'} {item.get('currency') or ''} · ROCE {item.get('roce_pct') or '-'}% · P/E {item.get('reported_pe') or '-'} · normalisert P/E {item.get('normalized_pe') or '-'} · scenario {item.get('entry_range_scenario') or '-'}")
-                if item.get("entry_range_scenario"):
-                    st.caption(f"Grunnlag: {item.get('valuation_basis') or 'P/E-forutsetning valgt manuelt'} · margin {item.get('entry_buffer_pct')}% basert på resultatvariasjon. {item.get('capital_return_method')}")
-                for warning in (item.get("warnings") or [])[:3]:
-                    st.caption(f"⚠ {warning}")
+                with st.container(border=True):
+                    st.markdown(f"**{item['ticker']} · {item['name']}**  \\n{item.get('country') or '-'} · {item.get('industry') or '-'}")
+                    st.write(
+                        f"Kurs {item.get('price') or '-'} {item.get('currency') or ''} · "
+                        f"ROCE {item.get('roce_pct') or '-'}% · P/E {item.get('reported_pe') or '-'} · "
+                        f"normalisert P/E {item.get('normalized_pe') or '-'} · scenario {item.get('entry_range_scenario') or '-'}"
+                    )
+                    if item.get("entry_range_scenario"):
+                        st.write(
+                            f"Grunnlag: {item.get('valuation_basis') or 'P/E-forutsetning valgt manuelt'} · "
+                            f"margin {item.get('entry_buffer_pct')}% basert på resultatvariasjon."
+                        )
+                    warnings = list(item.get("warnings") or [])[:3]
+                    if warnings:
+                        st.markdown("\n".join(f"- ⚠️ {warning}" for warning in warnings))
         st.download_button("Last ned PDF", build_screen_pdf(result), "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf")
         st.download_button("Last ned diagnose", diagnostic_document(result), "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis")
-        st.link_button("← Tilbake til programmet", "/?aa_nav=market")
+        if st.button("← Tilbake til Marked", key="qv_back_to_market", use_container_width=True):
+            st.session_state["market_room_view_v1863cb"] = "Market Scanner"
+            st.session_state["ai_control_center_last_applied_nav_v19016"] = ""
+            st.query_params["aa_nav"] = "market"
+            st.rerun()
