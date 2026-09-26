@@ -11,6 +11,7 @@ from storage_architecture import runtime_data_path
 
 ROOT = "quality_valuation"
 LATEST = f"{ROOT}/latest"
+MANUAL_LATEST = f"{ROOT}/manual_latest"
 
 
 def _path(key: str) -> Path:
@@ -20,6 +21,15 @@ def _path(key: str) -> Path:
 def load_latest() -> dict[str, Any]:
     value = read_json(LATEST, _path(LATEST), {})
     return dict(value) if isinstance(value, dict) else {}
+
+
+def load_latest_manual() -> dict[str, Any]:
+    """Latest manual result survives navigation and scheduled report writes."""
+    value = read_json(MANUAL_LATEST, _path(MANUAL_LATEST), {})
+    if isinstance(value, dict) and value:
+        return dict(value)
+    latest = load_latest()
+    return latest if latest and latest.get("run_mode") != "SCHEDULED_SHADOW" else {}
 
 
 def recent_report_summary(*, max_age_hours: float = 2.0) -> dict[str, Any]:
@@ -118,6 +128,8 @@ def persist_screen(result: dict[str, Any]) -> str:
     # immutable run accessible in storage diagnostics, never a false success.
     write_json(run_key, _path(run_key), snapshot)
     write_json(LATEST, _path(LATEST), snapshot)
+    if snapshot.get("run_mode") != "SCHEDULED_SHADOW":
+        write_json(MANUAL_LATEST, _path(MANUAL_LATEST), snapshot)
     try:
         from quality_v2_shadow_store import record_shadow_run
         shadow_state = record_shadow_run(snapshot)
@@ -125,6 +137,8 @@ def persist_screen(result: dict[str, Any]) -> str:
             snapshot["quality_v2_oversight"] = shadow_state
             write_json(run_key, _path(run_key), snapshot)
             write_json(LATEST, _path(LATEST), snapshot)
+            if snapshot.get("run_mode") != "SCHEDULED_SHADOW":
+                write_json(MANUAL_LATEST, _path(MANUAL_LATEST), snapshot)
     except Exception:
         # Oversight failure cannot corrupt the active quality result.
         pass
