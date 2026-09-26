@@ -133,8 +133,8 @@ def required_report_busy() -> bool:
     return bool(fresh and str(owner.get("state") or "").upper() == "ACTIVE")
 
 
-def render_quality_valuation(st: Any, market_tickers: Sequence[str] = ()) -> None:
-    with st.expander("Kvalitet, prising og inngangskurs · shadow", expanded=False):
+def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, expanded: bool = False) -> None:
+    with st.expander("Kvalitet, prising og inngangskurs · shadow", expanded=expanded):
         st.caption("Manuell observasjonsanalyse. Starter ingen handel og sender ikke Pushover. Finansdata må kontrolleres i selskapsrapporten.")
         source = st.radio("Aksjer", ["Skriv tickere", "Bruk valgt markedsutvalg"], horizontal=True, key="qv_source")
         raw = st.text_input("Tickere, adskilt med komma", placeholder="EQNR.OL, NHY.OL, YAR.OL", key="qv_tickers") if source == "Skriv tickere" else ""

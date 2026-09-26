@@ -23,7 +23,7 @@ MORE_ROUTES=(
     ShellRoute("settings","Innstillinger","operations"),
 )
 _ALIASES={"paper":"portfolio","paper_trading":"portfolio","super_portfolio":"portfolio","long_engine":"market","analysis":"market","top_picks":"market","control_center":"overview","system":"operations","settings":"operations","jobs":"operations","approvals":"autonomy","fx_alerts":"market","drift_center":"operations"}
-_LEGACY_TARGETS={"overview":"dashboard","portfolio":"portfolio","market":"long_engine","autonomy":"autonomy","reports":"reports","operations":"drift_center","alerts":"alerts","more":"system","jobs":"jobs","approvals":"approvals","paper":"paper_trading","fx_alerts":"fx_alerts","settings":"system"}
+_LEGACY_TARGETS={"overview":"dashboard","portfolio":"portfolio","market":"market","autonomy":"autonomy","reports":"reports","operations":"drift_center","alerts":"alerts","more":"system","jobs":"jobs","approvals":"approvals","paper":"paper_trading","fx_alerts":"fx_alerts","settings":"system"}
 _NAV_ICONS={"overview":"⌂","portfolio":"▣","market":"⌁","alerts":"!","more":"•••","autonomy":"◈","reports":"▤","jobs":"◷","approvals":"✓","paper":"◇","fx_alerts":"¤","operations":"⚙","settings":"⚙"}
 
 def canonical_shell_route(value: str) -> str:
