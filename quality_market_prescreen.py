@@ -25,10 +25,16 @@ def prescreen_score(row: Mapping[str, Any]) -> float:
     market_score=50.0 if not market else _clamp(sum(market)/len(market))
     return round(roe_score*.25+pe_score*.25+debt_score*.15+growth_score*.20+market_score*.05+coverage*100*.10,2)
 
-def full_market_prescreen(tickers: Sequence[str], finalist_limit: int=20, *, progress: Callable[[int,int,str],None]|None=None, chunk_size: int=60) -> dict[str,Any]:
+def full_market_prescreen(tickers: Sequence[str], finalist_limit: int=20, *, progress: Callable[[int,int,str],None]|None=None, chunk_size: int=60, memory_guard: Callable[[], bool] | None=None, deadline_seconds: int | None=None) -> dict[str,Any]:
     universe=list(dict.fromkeys(str(x or "").strip().upper() for x in tickers if str(x or "").strip()))
+    import time
     limit=max(1,min(int(finalist_limit or 20),20)); rows=[]; total=len(universe); completed=0
+    started=time.monotonic(); stop_reason=""
     for start in range(0,total,max(1,int(chunk_size))):
+        if memory_guard is not None and not memory_guard():
+            stop_reason="MEMORY_GUARD"; break
+        if deadline_seconds is not None and time.monotonic()-started >= max(1,int(deadline_seconds)):
+            stop_reason="DEADLINE"; break
         chunk=universe[start:start+max(1,int(chunk_size))]
         input_rows=[{"ticker": ticker} for ticker in chunk]
         enriched=enrich_candidate_rows(input_rows,max_workers=6,force_refresh=False)
@@ -40,4 +46,4 @@ def full_market_prescreen(tickers: Sequence[str], finalist_limit: int=20, *, pro
     usable=[r for r in rows if str(r.get("data_fetch_status") or "").upper() not in {"ERROR","QUARANTINED"} and r.get("last_price") not in (None,"")]
     usable.sort(key=lambda r:(float(r.get("quality_prescreen_score") or 0),len(r.get("raw_fields_available") or [])),reverse=True)
     failures=[r for r in rows if str(r.get("data_fetch_status") or "").upper() in {"ERROR","QUARANTINED"}]
-    return {"universe_count":total,"examined_count":len(rows),"usable_count":len(usable),"failed_count":len(failures),"complete":len(rows)==total and not failures,"finalist_limit":limit,"finalists":[str(r.get("ticker") or "") for r in usable[:limit] if r.get("ticker")],"rows":rows}
+    return {"universe_count":total,"examined_count":len(rows),"usable_count":len(usable),"failed_count":len(failures),"coverage_complete":len(rows)==total,"complete":len(rows)==total and not failures,"stop_reason":stop_reason,"finalist_limit":limit,"finalists":[str(r.get("ticker") or "") for r in usable[:limit] if r.get("ticker")],"rows":rows}
