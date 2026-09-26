@@ -62,3 +62,14 @@ Never infer completion from a prior chat. Update the two contract files in the s
 8. Full regression/release gate.
 9. Merge.
 10. Render deploy smoke test; only then mark DEPLOY_VERIFIED.
+
+
+## rc16.33b correction contract
+
+| ID | Requirement | Current status | Acceptance evidence required |
+|---|---|---|---|
+| QUX-001 | V2 Shadow appears directly after Investor Intelligence and before Super Portfolio; mobile metrics are separated/readable | IMPLEMENTED | focused UI/static test + deploy screenshot |
+| QUX-002 | Direct prominent "Kjør kvalitetsvurdering" action near top of Overview during testing | IMPLEMENTED | focused UI/static test + deploy screenshot |
+| QUX-003 | Quality warnings distinguish real risk/quality deterioration from data-verification caveats and valuation uncertainty | IMPLEMENTED | classification test + deploy screenshot |
+| QUX-004 | Latest manual Quality run persists independently of later scheduled runs and reopens after page navigation | IMPLEMENTED | persistence test + deploy smoke test |
+| QUX-005 | Quality result has a simple "Hovedsiden" action returning to Overview without restarting the app | IMPLEMENTED | navigation test + deploy smoke test |
