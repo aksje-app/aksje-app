@@ -43,3 +43,25 @@ def test_failed_new_run_does_not_fall_back_to_stale_saved_result():
     src = open("quality_valuation_ui.py", encoding="utf-8").read()
     assert 'st.session_state.pop("qv_result", None)' in src
     assert "if result is None and not run_attempted:" in src
+
+
+def test_prescreen_passes_mapping_rows_to_market_enrichment(monkeypatch):
+    import quality_market_prescreen as q
+    seen = []
+    def fake_enrich(rows, **kwargs):
+        assert rows
+        assert all(isinstance(row, dict) for row in rows)
+        assert all("ticker" in row for row in rows)
+        seen.extend(row["ticker"] for row in rows)
+        return [{
+            "ticker": row["ticker"],
+            "last_price": 100,
+            "data_fetch_status": "OK",
+            "raw_fields_available": ["last_price"],
+        } for row in rows]
+    monkeypatch.setattr(q, "enrich_candidate_rows", fake_enrich)
+    universe = ["EQNR.OL", "DNB.OL", "NHY.OL"]
+    result = q.full_market_prescreen(universe, finalist_limit=2, chunk_size=2)
+    assert seen == universe
+    assert result["examined_count"] == 3
+    assert result["finalists"] == ["EQNR.OL", "DNB.OL"]
