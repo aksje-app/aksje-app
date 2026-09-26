@@ -9,8 +9,8 @@ OSLO = ZoneInfo("Europe/Oslo")
 def test_release_version_is_scheduled_quality_reports():
     from app_version import APP_VERSION, APP_VERSION_NAME
 
-    assert APP_VERSION == "v19.22.0-rc16.32w"
-    assert "Scheduled Quality Reports" in APP_VERSION_NAME
+    assert APP_VERSION == "v19.22.0-rc16.32x"
+    assert "Mobile Market Quality View" in APP_VERSION_NAME
 
 
 def test_quality_schedule_runs_before_each_required_report_only_on_weekdays():

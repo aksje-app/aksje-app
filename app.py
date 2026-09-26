@@ -9406,6 +9406,13 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["ai_control_center_group_v1863aj"] = "Testing og portefolje"
         st.session_state["ai_control_center_active_panel_v1863aj"] = "Paper Trading og kontroll"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav == "market":
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🔍 Marked – Market Scanner"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🔍 Marked – Market Scanner"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🔍 Marked – Market Scanner"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "long_engine":
         st.session_state["ai_control_center_group_v1863m"] = "Long Engine"
         st.session_state["ai_control_center_active_panel_v1863m"] = "Long Engine"
@@ -10179,49 +10186,48 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
         render_ranking(rows, f"Marked {market} rangering")
     else:
         st.info("Ingen lagret rangering for dette panelet ennå.")
-    from quality_valuation_ui import render_quality_valuation
-    render_quality_valuation(st, source_tickers)
 
 
 def _render_market_room_toolbar_v1863cb() -> dict:
-    """Compact Market room toolbar with dropdown-style controls."""
+    """Mobile-safe Market toolbar with the primary view selector first."""
     market_options = ["AI kildegrunnlag"] + market_scope_options(include_aggregate=True)
-    c_filter, c_market, c_chart, c_group, c_period, c_view = st.columns([0.42, 1.05, 1.05, 1.0, 0.72, 1.45])
-    with c_filter:
-        filter_open = st.toggle("Filter", value=False, key="market_room_filter_open_v1863cb")
-    with c_market:
-        market = st.selectbox("Marked", market_options, key="market_room_market_v1863cb")
-    with c_chart:
+    view = st.selectbox(
+        "Visning",
+        ["Oversikt", "Kvalitet og prising", "Rangering", "Heatmap", "Markedsklima", "Lagrede signaler", "IPO", "Regime", "Makro", "Nyheter"],
+        key="market_room_view_v1863cb",
+    )
+    market = st.selectbox("Marked", market_options, key="market_room_market_v1863cb")
+    chart_content = ["Hovedindeks", "Toppindeks"]
+    grouping = "Sektor"
+    period = "1M"
+    with st.expander("Diagram og filtre", expanded=False):
         chart_content = st.multiselect(
             "Chart",
             ["Hovedindeks", "Toppindeks", "Valuta", "Strategier", "Toppselskaper"],
             default=["Hovedindeks", "Toppindeks"],
             key="market_room_chart_content_v1863cb",
         )
-    with c_group:
         grouping = st.selectbox(
             "Gruppering",
             ["Sektor", "Land", "Industri", "Faktorstil", "Risikostil", "Storrelse"],
             key="market_room_grouping_v1863cb",
         )
-    with c_period:
         period = st.selectbox("Periode", ["1D", "1U", "1M", "3M", "6M", "1Y"], index=2, key="market_room_period_v1863cb")
-    with c_view:
-        view = st.radio(
-            "Visning",
-            ["Oversikt", "Rangering", "Heatmap", "Markedsklima", "Lagrede signaler", "IPO", "Regime", "Makro", "Nyheter"],
-            horizontal=True,
-            key="market_room_view_v1863cb",
-        )
-    if filter_open:
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
+        filter_open = st.toggle("Flere filtre", value=False, key="market_room_filter_open_v1863cb")
+        if filter_open:
             st.multiselect("Signalfilter", ["Momentum", "Volum", "Relativ styrke", "Lav risiko", "Insider/bjellesau"], default=[], key="market_room_signal_filter_v1863cb")
-        with fc2:
             st.slider("Min score", 0, 100, 50, 5, key="market_room_min_score_v1863cb")
-        with fc3:
             st.checkbox("Vis bare kandidater med pipeline-input", value=False, key="market_room_pipeline_only_v1863cb")
     return {"market": market, "chart_content": chart_content, "grouping": grouping, "period": period, "view": view}
+
+
+def _market_room_quality_tickers_v19220_rc1632x(market: str, limit: int) -> list[str]:
+    """Resolve the bounded manual quality universe without starting a scan."""
+    if market == "AI kildegrunnlag":
+        return _ai_candidate_import_tickers_v1864l("Kombiner kilder")[: int(limit)]
+    if market in MARKET_SCOPE_OPTIONS:
+        return resolve_universe_tickers([market], max_count=int(limit))
+    return []
 
 
 def _render_market_room_overview_v1863cb(config: dict) -> None:
@@ -10252,7 +10258,22 @@ def render_market_room_control_center_v1863cb() -> None:
     st.caption("Spor markeder, prisendringer, sektortrender og rangering fra samme arbeidsflate.")
     config = _render_market_room_toolbar_v1863cb()
     view = str(config.get("view") or "Oversikt")
-    if view == "Rangering":
+    if view == "Kvalitet og prising":
+        quality_limit = st.slider(
+            "Maks aksjer i kvalitetsvurderingen",
+            1,
+            50,
+            20,
+            1,
+            key="market_room_quality_limit_v19220_rc1632x",
+        )
+        quality_tickers = _market_room_quality_tickers_v19220_rc1632x(
+            str(config.get("market") or "AI kildegrunnlag"), int(quality_limit)
+        )
+        st.caption(f"Valgt markedsutvalg: {len(quality_tickers)} aksjer. Analysen starter først når du trykker kjør.")
+        from quality_valuation_ui import render_quality_valuation
+        render_quality_valuation(st, quality_tickers, expanded=True)
+    elif view == "Rangering":
         limit_max = 60 if str(config.get("market") or "") == "AI kildegrunnlag" else 100
         limit_default = min(max(int(max_count or 30), 5), limit_max)
         limit_key = "market_room_ranking_limit_v1863cb"

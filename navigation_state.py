@@ -37,6 +37,7 @@ CANONICAL_NAV_BY_PANEL_V19220_RC7 = {
     "⭐ Analyse – Top Picks": "top_picks",
     "Long Engine": "long_engine",
     "📈 Analyse – Long Engine": "long_engine",
+    "🔍 Marked – Market Scanner": "market",
     "AI Kandidattest": "analysis",
     "🤖 AI – Kandidattest": "analysis",
     "Paper Trading og kontroll": "paper_trading",
