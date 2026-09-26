@@ -23,27 +23,65 @@ def load_latest() -> dict[str, Any]:
 
 
 def recent_report_summary(*, max_age_hours: int = 24) -> dict[str, Any]:
-    """A dated manual snapshot, never a claim that the scheduled job rescreened."""
+    """Return a report-safe shadow summary without silently hiding missing data."""
     latest = load_latest()
-    if not latest or latest.get("state") != "COMPLETED":
-        return {}
+    unavailable = {
+        "shadow_observation": True,
+        "manual_shadow": False,
+        "run_mode": "SCHEDULED_SHADOW",
+        "status": "MANGLER",
+        "selected": 0,
+        "completed": 0,
+        "failure_count": 0,
+        "top": [],
+        "reason": "Ingen fersk planlagt kvalitets- og verdsettelsesvurdering er tilgjengelig.",
+    }
+    if not latest:
+        return unavailable
+    unavailable.update({
+        "generated_at": latest.get("generated_at"),
+        "run_key": latest.get("run_key"),
+        "report_url": latest.get("report_url"),
+        "selected": int(latest.get("selected") or 0),
+        "completed": int(latest.get("completed") or 0),
+        "failure_count": len(latest.get("failures") or []),
+    })
+    if latest.get("state") not in {"COMPLETED", "PARTIAL"}:
+        unavailable["status"] = str(latest.get("state") or "MISLYKTET")
+        unavailable["reason"] = "Siste vurdering ble ikke fullført; ingen rangering brukes i rapporten."
+        return unavailable
     try:
         generated = datetime.fromisoformat(str(latest["generated_at"]).replace("Z", "+00:00"))
         age = datetime.now(timezone.utc) - generated.astimezone(timezone.utc)
         if age < timedelta(0) or age > timedelta(hours=max_age_hours):
-            return {}
+            unavailable["status"] = "UTDATERT"
+            unavailable["reason"] = "Siste vurdering er eldre enn rapportens ferskhetsgrense; rangeringen er skjult."
+            return unavailable
     except (ValueError, KeyError, TypeError):
-        return {}
+        unavailable["status"] = "UGYLDIG TID"
+        unavailable["reason"] = "Siste vurdering mangler et gyldig tidspunkt; rangeringen er skjult."
+        return unavailable
     groups = latest.get("groups") or {}
+    if not any(groups.get(name) for name in ("Attraktivt priset kandidat", "Kvalitetsselskap", "Dyr kvalitet / følges")):
+        unavailable["status"] = str(latest.get("state") or "TOM")
+        unavailable["reason"] = "Vurderingen ga ingen dokumenterbare kandidater i de tre rangerte gruppene."
+        return unavailable
     return {
         "generated_at": latest["generated_at"], "run_key": latest.get("run_key"),
-        "status": latest.get("state"), "manual_shadow": True,
+        "status": latest.get("state"), "manual_shadow": latest.get("run_mode") != "SCHEDULED_SHADOW",
+        "shadow_observation": True, "run_mode": latest.get("run_mode") or "MANUAL_SHADOW",
+        "selected": int(latest.get("selected") or 0), "completed": int(latest.get("completed") or 0),
+        "failure_count": len(latest.get("failures") or []),
+        "report_url": latest.get("report_url"),
         "changes": dict(latest.get("changes") or {}),
-        "top": [{"ticker": row.get("ticker"), "group": name,
+        "top": [{"ticker": row.get("ticker"), "name": row.get("name"), "group": name,
                  "entry_range_scenario": row.get("entry_range_scenario"),
-                 "financial_date": row.get("financial_date")}
+                 "financial_date": row.get("financial_date"), "roce_pct": row.get("roce_pct"),
+                 "reported_pe": row.get("reported_pe"), "normalized_pe": row.get("normalized_pe"),
+                 "industry": row.get("industry"), "country": row.get("country"),
+                 "warnings": list(row.get("warnings") or [])[:2]}
                 for name in ("Attraktivt priset kandidat", "Kvalitetsselskap", "Dyr kvalitet / følges")
-                for row in (groups.get(name) or [])[:3]],
+                for row in (groups.get(name) or [])[:5]],
     }
 
 

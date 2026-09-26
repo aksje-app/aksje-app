@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32v"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32v Fresh Scanner Quotes"
+APP_VERSION = "v19.22.0-rc16.32w"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32w Scheduled Quality Reports"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32u"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32v"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32w: Scheduled Quality Reports. Runs a bounded quality and valuation shadow screen before the three required report slots, preserves transparent partial provider coverage, publishes an unlisted standalone PDF, and adds compact ranked ROCE, reported P/E, normalized P/E and entry-scenario rows to fixed reports. The job remains observational, resource guarded and unable to trade; Pushover investment transitions still require verified primary-source evidence.",
     "v19.22.0-rc16.32v: Automatic scanner paper buys require a fresh timestamped five-minute market quote and use the same observed price in the order. Missing, stale, timezone-less or materially changed prices keep the trade blocked. Manual trading and the optional Quality Valuation Shadow screen are unchanged.",
     "v19.22.0-rc16.32u: Optional Quality Valuation Shadow. Adds a bounded manual multi-stock screen with dated financial evidence, normalized EPS and capital return, an explicitly illustrative peer or user P/E scenario, mobile PDF, diagnostic export and time-bounded retention. Recent manual observations appear in fixed reports without changing trade rules, triggering scheduled scans or sending unverified Pushover signals.",
     "v19.22.0-rc16.32s: Report Return and Print. A standalone mobile PDF shows one clickable app return control on its first page, with a nonprinting annotation so paper copies contain only report content. The report landing page retains one return action and the current Aurora destination. Archived and newly generated reports use the same delivery path. Analysis, orders, scheduler and portfolio policy are unchanged.",

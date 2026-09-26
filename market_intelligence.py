@@ -1580,11 +1580,20 @@ def build_text_report(run: Mapping[str, Any]) -> str:
         lines.append(f"- {item}")
 
     qv = run.get("quality_valuation_observation") or {}
-    if isinstance(qv, Mapping) and qv.get("manual_shadow"):
-        lines += ["", "KVALITET OG PRISING – MANUELL SHADOW-OBSERVASJON",
-                  f"Sist vurdert: {qv.get('generated_at')} · ingen ny vurdering gjort av denne rapporten."]
-        for item in list(qv.get("top") or [])[:3]:
-            lines.append(f"- {item.get('ticker')}: {item.get('group')} · inngangsscenario {item.get('entry_range_scenario') or '-'}")
+    if isinstance(qv, Mapping) and (qv.get("shadow_observation") or qv.get("manual_shadow")):
+        mode = "planlagt" if qv.get("run_mode") == "SCHEDULED_SHADOW" else "manuell"
+        lines += ["", "KVALITET, ROCE OG PRISING – SHADOW-OBSERVASJON",
+                  f"Sist vurdert: {qv.get('generated_at')} · {mode} separat vurdering; "
+                  f"dekning {qv.get('completed', 0)}/{qv.get('selected', 0)} · "
+                  f"feil {qv.get('failure_count', 0)} · status {qv.get('status') or '-' }."]
+        if qv.get("reason"):
+            lines.append(f"- Datastatus: {qv.get('reason')}")
+        for item in list(qv.get("top") or [])[:15]:
+            lines.append(
+                f"- {item.get('ticker')} · {item.get('group')} · ROCE {item.get('roce_pct') or '-'} % · "
+                f"P/E {item.get('reported_pe') or '-'} · normalisert P/E {item.get('normalized_pe') or '-'} · "
+                f"inngangsscenario {item.get('entry_range_scenario') or '-'}"
+            )
         changes_qv = qv.get("changes") or {}
         if changes_qv.get("comparable"):
             lines.append(f"- Ny i attraktiv-gruppen: {', '.join(changes_qv.get('new_attractive') or []) or 'Ingen'}; ut: {', '.join(changes_qv.get('lost_attractive') or []) or 'Ingen'}.")
@@ -4618,15 +4627,43 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     story += [status_stripe, Spacer(1, 1*mm), summary_table, quick_table,
               Paragraph(escape(decision_conclusion), styles["BodyCompact"]),
               Paragraph(escape(learning_text), styles["Small"])]
+    qv_story: list[Any] = []
     qv = run.get("quality_valuation_observation") or {}
-    if isinstance(qv, Mapping) and qv.get("manual_shadow"):
-        story += [Paragraph("Kvalitet og prising – manuell observasjon", styles["Subsection"]),
-                  Paragraph(escape(f"Sist vurdert {qv.get('generated_at')}; denne rapporten kjørte ingen ny verdsettelse. Scenariopriser er ikke kjøpssignaler."), styles["Small"])]
-        for item in list(qv.get("top") or [])[:3]:
-            story.append(Paragraph(escape(f"{item.get('ticker')}: {item.get('group')} · scenario {item.get('entry_range_scenario') or '-'}"), styles["Small"]))
+    if isinstance(qv, Mapping) and (qv.get("shadow_observation") or qv.get("manual_shadow")):
+        mode = "planlagt" if qv.get("run_mode") == "SCHEDULED_SHADOW" else "manuell"
+        qv_story += [Paragraph("Kvalitet, ROCE og prising – shadow-observasjon", styles["Subsection"]),
+                     Paragraph(escape(
+                         f"Sist vurdert {qv.get('generated_at')} i en separat {mode} kjøring. "
+                         f"Dekning {qv.get('completed', 0)}/{qv.get('selected', 0)} · "
+                         f"feil {qv.get('failure_count', 0)} · status {qv.get('status') or '-'}. "
+                         "Scenariopriser er ikke kjøpssignaler; regnskapstall må kontrolleres mot primærkilder."
+                     ), styles["Small"])]
+        if qv.get("reason"):
+            qv_story.append(Paragraph(escape(f"Datastatus: {qv.get('reason')}"), styles["Small"]))
+        qv_rows = [["Aksje", "Gruppe", "ROCE", "P/E", "Norm. P/E", "Inngangsscenario"]]
+        for item in list(qv.get("top") or [])[:15]:
+            ticker_label = str(item.get("ticker") or "-")
+            if item.get("name") and str(item.get("name")) != ticker_label:
+                ticker_label += f"\n{str(item.get('name'))[:18]}"
+            scenario = item.get("entry_range_scenario") or "-"
+            if isinstance(scenario, (list, tuple)) and len(scenario) == 2:
+                scenario = f"{scenario[0]}-{scenario[1]}"
+            qv_rows.append([
+                _p(ticker_label), _p(item.get("group") or "-"),
+                _p(f"{item.get('roce_pct')} %" if item.get("roce_pct") is not None else "-"),
+                _p(item.get("reported_pe") if item.get("reported_pe") is not None else "-"),
+                _p(item.get("normalized_pe") if item.get("normalized_pe") is not None else "-"),
+                _p(scenario),
+            ])
+        if len(qv_rows) > 1:
+            qv_table = Table(qv_rows, repeatRows=1, colWidths=[29*mm, 43*mm, 18*mm, 18*mm, 23*mm, 37*mm])
+            qv_table.setStyle(_table_style(6.2, padding=2))
+            qv_story.append(qv_table)
         changes_qv = qv.get("changes") or {}
         if changes_qv.get("comparable"):
-            story.append(Paragraph(escape(f"Nye: {', '.join(changes_qv.get('new_attractive') or []) or 'Ingen'} · ut: {', '.join(changes_qv.get('lost_attractive') or []) or 'Ingen'}"), styles["Small"]))
+            qv_story.append(Paragraph(escape(f"Nye: {', '.join(changes_qv.get('new_attractive') or []) or 'Ingen'} · ut: {', '.join(changes_qv.get('lost_attractive') or []) or 'Ingen'}"), styles["Small"]))
+        if qv.get("report_url"):
+            qv_story.append(Paragraph("Full kvalitetsrapport er tilgjengelig fra Marked.", styles["Small"]))
     learning_rows = []
     for decision in list(learning_summary.get("learning_fills") or []):
         if not isinstance(decision, Mapping):
@@ -5670,7 +5707,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         or run.get("decision_funnel") or run.get("data_contract")
     )
     if has_technical_content and include_technical:
-        story = decision_story + [
+        story = decision_story + qv_story + [
             PageBreak(),
             Paragraph("Teknisk vedlegg", styles["ReportTitle"]),
             Paragraph("Full rangering, datakontrakter, kildelogger, bevis, modellbidrag, porteføljelag og revisjonsspor.", styles["BodyCompact"]),
@@ -5680,7 +5717,8 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             run.get("candidates") or run.get("changes") or decision_tasks or decision_events
             or decision_historical or decision_diffs or decision_counter_hypotheses
         )
-        story = (decision_story + decision_audit_story) if has_followup_content_v1924 else decision_story[:decision_page_one_end_v1924]
+        story = ((decision_story + qv_story + decision_audit_story) if has_followup_content_v1924
+                 else decision_story[:decision_page_one_end_v1924] + qv_story)
     doc.build(story, onFirstPage=_page, onLaterPages=_page)
     pdf_bytes = buf.getvalue()
     # ReportLab inherits the Render host timezone for PDF metadata. Rewrite the
