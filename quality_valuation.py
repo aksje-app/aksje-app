@@ -58,7 +58,7 @@ def _date(value: Any) -> datetime | None:
 
 def _safe_ticker(value: Any) -> str:
     ticker = str(value or "").strip().upper()
-    if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", ticker):
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,19}", ticker):
         return ""
     # This observation screen follows the shared market activation contract.
     # Unsupported suffixes must never silently be interpreted as US listings.
