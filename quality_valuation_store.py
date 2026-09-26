@@ -22,7 +22,7 @@ def load_latest() -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
-def recent_report_summary(*, max_age_hours: int = 24) -> dict[str, Any]:
+def recent_report_summary(*, max_age_hours: float = 2.0) -> dict[str, Any]:
     """Return a report-safe shadow summary without silently hiding missing data."""
     latest = load_latest()
     unavailable = {
@@ -33,6 +33,10 @@ def recent_report_summary(*, max_age_hours: int = 24) -> dict[str, Any]:
         "selected": 0,
         "completed": 0,
         "failure_count": 0,
+        "market_universe_count": 0,
+        "market_examined_count": 0,
+        "market_coverage_complete": False,
+        "candidate_basis_generated_at": None,
         "top": [],
         "reason": "Ingen fersk planlagt kvalitets- og verdsettelsesvurdering er tilgjengelig.",
     }
@@ -45,6 +49,10 @@ def recent_report_summary(*, max_age_hours: int = 24) -> dict[str, Any]:
         "selected": int(latest.get("selected") or 0),
         "completed": int(latest.get("completed") or 0),
         "failure_count": len(latest.get("failures") or []),
+        "market_universe_count": int(latest.get("market_universe_count") or 0),
+        "market_examined_count": int(latest.get("market_examined_count") or 0),
+        "market_coverage_complete": bool(latest.get("market_coverage_complete")),
+        "candidate_basis_generated_at": latest.get("candidate_basis_generated_at"),
     })
     if latest.get("state") not in {"COMPLETED", "PARTIAL"}:
         unavailable["status"] = str(latest.get("state") or "MISLYKTET")
@@ -72,6 +80,11 @@ def recent_report_summary(*, max_age_hours: int = 24) -> dict[str, Any]:
         "shadow_observation": True, "run_mode": latest.get("run_mode") or "MANUAL_SHADOW",
         "selected": int(latest.get("selected") or 0), "completed": int(latest.get("completed") or 0),
         "failure_count": len(latest.get("failures") or []),
+        "market_universe_count": int(latest.get("market_universe_count") or 0),
+        "market_examined_count": int(latest.get("market_examined_count") or 0),
+        "market_coverage_complete": bool(latest.get("market_coverage_complete")),
+        "candidate_basis_generated_at": latest.get("candidate_basis_generated_at"),
+        "candidate_basis_source": latest.get("candidate_basis_source"),
         "report_url": latest.get("report_url"),
         "changes": dict(latest.get("changes") or {}),
         "top": [{"ticker": row.get("ticker"), "name": row.get("name"), "group": name,
