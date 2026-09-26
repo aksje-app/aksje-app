@@ -10223,12 +10223,18 @@ def _render_market_room_toolbar_v1863cb() -> dict:
     return {"market": market, "chart_content": chart_content, "grouping": grouping, "period": period, "view": view}
 
 
-def _market_room_quality_tickers_v19220_rc1632x(market: str, limit: int) -> list[str]:
-    """Resolve the bounded manual quality universe without starting a scan."""
+def _market_room_quality_tickers_v19220_rc1632x(market: str, limit: int = 500) -> list[str]:
+    """Resolve the complete available market universe before quality pre-screening."""
     if market == "AI kildegrunnlag":
-        return _ai_candidate_import_tickers_v1864l("Kombiner kilder")[: int(limit)]
+        return list(dict.fromkeys(_ai_candidate_import_tickers_v1864l("Kombiner kilder")))
+    if market == "USA":
+        try:
+            from stocks import get_us_broad_tickers
+            return list(get_us_broad_tickers(limit=1600) or [])
+        except Exception:
+            return resolve_universe_tickers([market], max_count=500)
     if market in MARKET_SCOPE_OPTIONS:
-        return resolve_universe_tickers([market], max_count=int(limit))
+        return resolve_universe_tickers([market], max_count=500)
     return []
 
 
@@ -10261,18 +10267,13 @@ def render_market_room_control_center_v1863cb() -> None:
     config = _render_market_room_toolbar_v1863cb()
     view = str(config.get("view") or "Oversikt")
     if view == "Kvalitet og prising":
-        quality_limit = st.slider(
-            "Maks aksjer i kvalitetsvurderingen",
-            1,
-            50,
-            20,
-            1,
-            key="market_room_quality_limit_v19220_rc1632x",
-        )
         quality_tickers = _market_room_quality_tickers_v19220_rc1632x(
-            str(config.get("market") or "AI kildegrunnlag"), int(quality_limit)
+            str(config.get("market") or "AI kildegrunnlag")
         )
-        st.caption(f"Valgt markedsutvalg: {len(quality_tickers)} aksjer. Analysen starter først når du trykker kjør.")
+        st.caption(
+            f"Markedsunivers: {len(quality_tickers)} aksjer. Hele dette universet undersøkes når du trykker kjør; "
+            "først etterpå velges inntil 20 finalister til den tyngre kvalitets-/prisingsanalysen."
+        )
         from quality_valuation_ui import render_quality_valuation
         render_quality_valuation(st, quality_tickers, expanded=True)
     elif view == "Rangering":

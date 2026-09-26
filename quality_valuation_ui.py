@@ -138,9 +138,9 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
         st.caption("Manuell observasjonsanalyse. Starter ingen handel og sender ikke Pushover. Finansdata må kontrolleres i selskapsrapporten.")
         source = st.radio("Aksjer", ["Skriv tickere", "Bruk valgt markedsutvalg"], horizontal=True, key="qv_source")
         raw = st.text_input("Tickere, adskilt med komma", placeholder="EQNR.OL, NHY.OL, YAR.OL", key="qv_tickers") if source == "Skriv tickere" else ""
-        selected = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()] if raw else list(market_tickers)[:MAX_SYMBOLS]
+        selected = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()] if raw else list(market_tickers)
         if source == "Bruk valgt markedsutvalg":
-            st.caption(f"Valgte aksjer: {', '.join(selected) if selected else 'Ingen aksjer valgt'} · maks {MAX_SYMBOLS} per kjøring.")
+            st.caption(f"Hele valgt univers undersøkes først: {len(selected)} aksjer. Deretter går inntil {MAX_SYMBOLS} best rangerte videre til full kvalitets-/prisingsanalyse.")
         use_scenario = st.checkbox("Vis priseksempel med P/E jeg velger", value=False, key="qv_use_assumption")
         assumed_pe = st.number_input("P/E-forutsetning (analytisk scenario, ikke fast verdi)", 4.0, 40.0, 15.0, 0.5, key="qv_assumption") if use_scenario else None
         if use_scenario:
@@ -172,8 +172,28 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                     if not acquired:
                         st.info("Et annet manuelt kvalitetssøk pågår. Prøv igjen når det er ferdig.")
                         return
-                    result = run_screen(selected, isolated_financial_snapshot, assumed_pe=assumed_pe,
+                    analysis_selected = selected
+                    if source == "Bruk valgt markedsutvalg":
+                        from quality_market_prescreen import full_market_prescreen
+                        prescreen_bar = st.progress(0, text=f"Undersøker hele markedet · 0/{len(selected)}")
+                        def prescreen_progress(done: int, total: int, ticker: str) -> None:
+                            prescreen_bar.progress(
+                                min(100, round(100 * done / max(total, 1))),
+                                text=f"Undersøker hele markedet · {done}/{total} · {ticker}",
+                            )
+                        prescreen = full_market_prescreen(selected, MAX_SYMBOLS, progress=prescreen_progress)
+                        analysis_selected = list(prescreen.get("finalists") or [])
+                        if not analysis_selected:
+                            raise RuntimeError("Ingen aksjer med brukbare markedsdata etter full markedsscreening")
+                        st.session_state["quality_valuation_prescreen"] = prescreen
+                    result = run_screen(analysis_selected, isolated_financial_snapshot, assumed_pe=assumed_pe,
                                         progress=update, memory_guard=workload_safe)
+                    if source == "Bruk valgt markedsutvalg":
+                        result["market_universe_count"] = int(prescreen.get("universe_count") or 0)
+                        result["market_examined_count"] = int(prescreen.get("examined_count") or 0)
+                        result["market_usable_count"] = int(prescreen.get("usable_count") or 0)
+                        result["market_failed_count"] = int(prescreen.get("failed_count") or 0)
+                        result["prescreen_finalists"] = analysis_selected
                     if result["elapsed_seconds"] < 140 and workload_safe():
                         names = [name for items in result["groups"].values() for item in items
                                  for name in item.get("market_drivers") or []]
@@ -190,6 +210,12 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
         if not result:
             st.info("Ingen kvalitetsvurdering kjørt ennå.")
             return
+        if result.get("market_universe_count") is not None:
+            st.info(
+                f"Markedsscreening: {int(result.get('market_examined_count') or 0)}/{int(result.get('market_universe_count') or 0)} undersøkt · "
+                f"{int(result.get('market_usable_count') or 0)} med brukbare data · "
+                f"{len(result.get('prescreen_finalists') or [])} gikk videre til full analyse."
+            )
         st.caption(f"Sist lagret: {result.get('generated_at')} · {result.get('state')} · {result.get('completed')}/{result.get('selected')} · {result.get('elapsed_seconds') or 0}s · CPU {result.get('cpu_seconds') or 0}s")
         st.caption("Varsling: avventes. Tredjeparts nøkkeltall og et manuelt valgt P/E-scenario er ikke kontrollert mot primærkilder; disse resultatene sender derfor ingen Pushover.")
         if result.get("stop_reason") or result.get("failures"):
