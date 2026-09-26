@@ -218,6 +218,7 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         return "FAILED"
     warnings = []
     for key, field in (
+        ("quality_valuation_schedule", "state"),
         ("learning_observation_maintenance", "status"),
         ("report_repair", "state"),
         ("report_revalidation", "state"),
@@ -299,6 +300,7 @@ def _run_once_locked() -> dict[str, Any]:
         "completed_at": None,
         "scheduler": {},
         "report_test_mode": {},
+        "quality_valuation_schedule": {},
         "currency_alerts": {},
         "retired_module_cleanup": {},
         "learning_observation_maintenance": {},
@@ -365,6 +367,26 @@ def _run_once_locked() -> dict[str, Any]:
         state["parameter_integrity"] = verify_parameter_integrity(notify=True)
     except Exception as exc:
         state["parameter_integrity"] = {"status": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
+
+    # Prepare a bounded quality/valuation observation before each fixed report.
+    # Its windows close 15 minutes before 08/14/22 so this optional shadow work
+    # cannot delay a mandatory report. Partial provider coverage is published
+    # transparently and never creates a trade.
+    try:
+        from runtime_memory import release_process_memory
+        release_process_memory("scheduled_runner:before_quality_valuation")
+        from quality_valuation_schedule import run_due_scheduled_screen
+        mark_breadcrumb("scheduler:quality_valuation:before", component="scheduled_runner")
+        state["quality_valuation_schedule"] = dict(run_due_scheduled_screen() or {})
+        mark_breadcrumb(
+            "scheduler:quality_valuation:after", component="scheduled_runner",
+            detail={"state": state["quality_valuation_schedule"].get("state"),
+                    "completed": state["quality_valuation_schedule"].get("completed")},
+        )
+    except Exception as exc:
+        state["quality_valuation_schedule"] = {
+            "state": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"
+        }
 
     _mem("scheduler:before_due_jobs")
 
@@ -653,6 +675,7 @@ def main() -> int:
         "completed_at": state.get("completed_at"), "error": state.get("error"),
         "scheduled_runs": (state.get("scheduler") or {}).get("runs", 0),
         "report_test_mode": (state.get("report_test_mode") or {}).get("run_state"),
+        "quality_valuation": (state.get("quality_valuation_schedule") or {}).get("state"),
         "currency_alerts": (state.get("currency_alerts") or {}).get("state"),
         "retired_module_cleanup": (state.get("retired_module_cleanup") or {}).get("state"),
         "learning_observations": (state.get("learning_observation_maintenance") or {}).get("status"),
