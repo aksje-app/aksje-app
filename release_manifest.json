@@ -167,48 +167,53 @@
     {
       "id": "QUX-001",
       "title": "V2 placement and mobile metrics",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "pages/overview.py",
-        "ui_library/theme.py"
+        "ui_library/theme.py",
+        "GitHub Actions rc16.33b verification run 36267989271: success"
       ]
     },
     {
       "id": "QUX-002",
       "title": "Direct top Overview quality action",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "pages/overview.py:aa_overview_quality_top"
+        "pages/overview.py:aa_overview_quality_top",
+        "GitHub Actions rc16.33b verification run 36267989271: success"
       ]
     },
     {
       "id": "QUX-003",
       "title": "Typed quality caveats",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_valuation_ui.py:_warning_kind"
+        "quality_valuation_ui.py:_warning_kind",
+        "GitHub Actions rc16.33b verification run 36267989271: success"
       ]
     },
     {
       "id": "QUX-004",
       "title": "Persistent latest manual quality run",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "quality_valuation_store.py:MANUAL_LATEST",
-        "quality_valuation_ui.py:load_latest_manual"
+        "quality_valuation_ui.py:load_latest_manual",
+        "GitHub Actions rc16.33b verification run 36267989271: success"
       ]
     },
     {
       "id": "QUX-005",
       "title": "Hovedsiden return action",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_valuation_ui.py:qv_home"
+        "quality_valuation_ui.py:qv_home",
+        "GitHub Actions rc16.33b verification run 36267989271: success"
       ]
     }
   ]
