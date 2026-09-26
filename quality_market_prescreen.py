@@ -30,7 +30,8 @@ def full_market_prescreen(tickers: Sequence[str], finalist_limit: int=20, *, pro
     limit=max(1,min(int(finalist_limit or 20),20)); rows=[]; total=len(universe); completed=0
     for start in range(0,total,max(1,int(chunk_size))):
         chunk=universe[start:start+max(1,int(chunk_size))]
-        input_rows=[{"ticker": ticker} for ticker in chunk]\n        enriched=enrich_candidate_rows(input_rows,max_workers=6,force_refresh=False)
+        input_rows=[{"ticker": ticker} for ticker in chunk]
+        enriched=enrich_candidate_rows(input_rows,max_workers=6,force_refresh=False)
         by_ticker={str(row.get("ticker") or "").upper():dict(row) for row in enriched}
         for ticker in chunk:
             row=by_ticker.get(ticker,{"ticker":ticker,"data_fetch_status":"ERROR","data_fetch_error":"Mangler resultat"})
