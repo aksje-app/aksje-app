@@ -42,34 +42,57 @@ def use_v2_shell() -> bool:
 
 def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) -> str:
     current=canonical_shell_route(route); status=status or {}
+
+    def _navigate(target: str) -> None:
+        st_module.query_params["aa_nav"] = target
+        try:
+            st_module.rerun()
+        except Exception:
+            pass
+
     def nav_link(item: ShellRoute, *, mobile: bool = False) -> str:
         active=' aria-current="page"' if item.slug==current else ""
         target=_LEGACY_TARGETS[item.slug]
         icon=(f'<span class="aa-nav-icon" aria-hidden="true">{_NAV_ICONS.get(item.slug, "•")}</span>' if mobile else "")
-        return f'<a href="?aa_nav={target}" class="aa-ui-nav-link aa-module-{item.module}"{active}>{icon}<span>{item.label}</span></a>'
+        return f'<a href="?aa_nav={target}" target="_self" class="aa-ui-nav-link aa-module-{item.module}"{active}>{icon}<span>{item.label}</span></a>'
+
     def nav_html(routes,css):
-        links=[]
-        for item in routes:
-            links.append(nav_link(item))
-        return f'<nav class="{css}" aria-label="Hovednavigasjon">{"".join(links)}</nav>'
-    def mobile_nav_html() -> str:
-        primary=[]
-        for item in MOBILE_ROUTES:
-            if item.slug != "more":
-                primary.append(nav_link(item, mobile=True))
-                continue
-            more_active = current in {"autonomy", "reports", "operations"}
-            active = ' aria-current="page"' if more_active else ""
-            more_links="".join(nav_link(extra, mobile=True) for extra in MORE_ROUTES)
-            primary.append(
-                '<details class="aa-mobile-more">'
-                f'<summary class="aa-ui-nav-link"{active}>'
-                f'<span class="aa-nav-icon" aria-hidden="true">{_NAV_ICONS["more"]}</span><span>Mer</span></summary>'
-                '<div class="aa-mobile-more-panel" role="dialog" aria-label="Flere programområder">'
-                '<header><strong>Flere områder</strong><small>Velg området du vil åpne</small></header>'
-                f'<div class="aa-mobile-more-grid">{more_links}</div></div></details>'
-            )
-        return f'<nav class="aa-mobile-nav" aria-label="Mobil hovednavigasjon">{"".join(primary)}</nav>'
+        return f'<nav class="{css}" aria-label="Hovednavigasjon">{"".join(nav_link(item) for item in routes)}</nav>'
+
+    # Desktop keeps normal links. Mobile uses native Streamlit buttons because
+    # fixed HTML descendants are not reliably hit-testable in iOS Safari/WebView.
     st_module.markdown(nav_html(DESKTOP_ROUTES,"aa-desktop-nav"),unsafe_allow_html=True)
-    st_module.markdown(mobile_nav_html(),unsafe_allow_html=True)
+
+    if not all(hasattr(st_module, name) for name in ("container","columns","button","session_state","query_params")):
+        # Test/compatibility fallback only.
+        st_module.markdown(
+            f'<nav class="aa-mobile-nav" aria-label="Mobil hovednavigasjon">{"".join(nav_link(item, mobile=True) for item in MOBILE_ROUTES)}</nav>',
+            unsafe_allow_html=True,
+        )
+        return current
+
+    with st_module.container(key="aa_mobile_nav_native"):
+        cols=st_module.columns(len(MOBILE_ROUTES), gap="small")
+        for col,item in zip(cols,MOBILE_ROUTES):
+            with col:
+                label=f'{_NAV_ICONS.get(item.slug, "•")}\\n{item.label}'
+                if item.slug == "more":
+                    if st_module.button(label, key="aa_mobile_nav_more", use_container_width=True):
+                        st_module.session_state["aa_mobile_more_open"] = not bool(st_module.session_state.get("aa_mobile_more_open"))
+                        st_module.rerun()
+                elif st_module.button(label, key=f"aa_mobile_nav_{item.slug}", use_container_width=True):
+                    _navigate(_LEGACY_TARGETS[item.slug])
+
+    if st_module.session_state.get("aa_mobile_more_open"):
+        with st_module.container(key="aa_mobile_more_native"):
+            st_module.markdown("**Flere områder**")
+            extra_cols=st_module.columns(2, gap="small")
+            for idx,item in enumerate(MORE_ROUTES):
+                with extra_cols[idx % 2]:
+                    if st_module.button(item.label, key=f"aa_mobile_more_{item.slug}", use_container_width=True):
+                        st_module.session_state["aa_mobile_more_open"] = False
+                        _navigate(_LEGACY_TARGETS[item.slug])
+            if st_module.button("Lukk", key="aa_mobile_more_close", use_container_width=True):
+                st_module.session_state["aa_mobile_more_open"] = False
+                st_module.rerun()
     return current
