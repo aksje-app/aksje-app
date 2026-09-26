@@ -205,11 +205,6 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
           <div class="aa-system-chip"><i></i>{'SYSTEMET ER KLART' if str(hero.get('tone')) == 'success' else 'KREVER OPPMERKSOMHET'}</div>
         </section></main>''', unsafe_allow_html=True,
     )
-    st_module.markdown(f'''<section class="aa-portfolio-command">
-      <article class="aa-portfolio-value"><span>SUPER PORTEFØLJE</span><p>Shadow-porteføljens beregnede verdi og vektede utvikling.</p><p><small>Sist oppdatert: {escape(str(portfolio.get('last_updated') or 'Ikke tilgjengelig'))}</small></p><strong>{escape(fmt_money(portfolio.get('value')))}</strong><b>{escape(fmt_pct(portfolio.get('return_pct')))} <small>siden start</small></b>{chart}</article>
-      <article class="aa-confidence"><span>BESLUTNINGSRO</span><p>Samlet kvalitet på Super Portfolio sitt beslutningsgrunnlag.</p><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small><div class="aa-confidence-components">{component_html}</div></article>
-    </section>
-    <section class="aa-portfolio-facts"><div><strong>{portfolio.get('positions', 0)}</strong><span>POSISJONER</span></div><div><strong>{escape(fmt_pct(portfolio.get('cash_pct')).replace('+',''))}</strong><span>KONTANTER</span></div><div><strong>{escape(str((model.get('next_event') or {}).get('value') or '–'))}</strong><span>NESTE RAPPORT</span></div></section>''', unsafe_allow_html=True)
     if v2_shadow:
         runs = int(v2_shadow.get("complete_runs") or 0)
         evaluated = int(v2_shadow.get("evaluated_companies") or 0)
@@ -221,11 +216,20 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
         next_label = "Beslutning kreves nå" if decision_required else f"Neste evaluering: {next_point or '-'} komplette kjøringer"
         st_module.markdown(f'''<section class="aa-v2-shadow-card">
           <div><span class="aa-overline">QUALITY V2 · SHADOW</span><h3>{escape(status_label)}</h3><p>{escape(next_label)}</p></div>
-          <div class="aa-v2-shadow-facts"><b>{runs}<small>KJØRINGER</small></b><b>{evaluated}<small>VURDERT</small></b><b>{disagreements}<small>V1.1 ↔ V2 UENIGHET</small></b><b>{weakening}<small>SVEKKENDE</small></b></div>
+          <div class="aa-v2-shadow-facts"><span><b>{runs}</b><small>KJØRINGER</small></span><span><b>{evaluated}</b><small>VURDERT</small></span><span><b>{disagreements}</b><small>V1.1 ↔ V2 UENIGHET</small></span><span><b>{weakening}</b><small>SVEKKENDE</small></span></div>
         </section>''', unsafe_allow_html=True)
     else:
         st_module.caption("Quality V2 Shadow: ingen komplette evalueringskjøringer registrert ennå.")
 
+
+    if st_module.button("▶ Kjør kvalitetsvurdering", key="aa_overview_quality_top", width="stretch", type="primary"):
+        navigate("quality_valuation"); st_module.rerun()
+
+    st_module.markdown(f'''<section class="aa-portfolio-command">
+      <article class="aa-portfolio-value"><span>SUPER PORTEFØLJE</span><p>Shadow-porteføljens beregnede verdi og vektede utvikling.</p><p><small>Sist oppdatert: {escape(str(portfolio.get('last_updated') or 'Ikke tilgjengelig'))}</small></p><strong>{escape(fmt_money(portfolio.get('value')))}</strong><b>{escape(fmt_pct(portfolio.get('return_pct')))} <small>siden start</small></b>{chart}</article>
+      <article class="aa-confidence"><span>BESLUTNINGSRO</span><p>Samlet kvalitet på Super Portfolio sitt beslutningsgrunnlag.</p><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small><div class="aa-confidence-components">{component_html}</div></article>
+    </section>
+    <section class="aa-portfolio-facts"><div><strong>{portfolio.get('positions', 0)}</strong><span>POSISJONER</span></div><div><strong>{escape(fmt_pct(portfolio.get('cash_pct')).replace('+',''))}</strong><span>KONTANTER</span></div><div><strong>{escape(str((model.get('next_event') or {}).get('value') or '–'))}</strong><span>NESTE RAPPORT</span></div></section>''', unsafe_allow_html=True)
     left, right = st_module.columns([1.65, 1])
     with left:
         st_module.markdown('<h2 class="aa-section-title">Krever oppmerksomhet</h2>', unsafe_allow_html=True)
