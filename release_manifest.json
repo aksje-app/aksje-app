@@ -22,9 +22,11 @@
     {
       "id": "QV2-001",
       "title": "Overview V2 Shadow status card",
-      "status": "AGREED",
+      "status": "IMPLEMENTED",
       "release_blocker": true,
-      "evidence": []
+      "evidence": [
+        "pages/overview.py:QUALITY V2 SHADOW card"
+      ]
     },
     {
       "id": "QV2-002",
@@ -32,36 +34,46 @@
       "status": "IMPLEMENTED",
       "release_blocker": true,
       "evidence": [
-        "quality_v2_shadow_store.py:MILESTONES"
+        "quality_v2_shadow_store.py:MILESTONES",
+        "quality_v2_shadow_store.py:_write_milestone_evaluation"
       ]
     },
     {
       "id": "QV2-003",
       "title": "Persisted V2 milestone evaluation report",
-      "status": "AGREED",
+      "status": "IMPLEMENTED",
       "release_blocker": true,
-      "evidence": []
+      "evidence": [
+        "quality_v2_shadow_store.py:_write_milestone_evaluation"
+      ]
     },
     {
       "id": "QV2-004",
       "title": "Morningstar wide-moat external benchmark harness",
-      "status": "AGREED",
+      "status": "IMPLEMENTED",
       "release_blocker": false,
-      "evidence": []
+      "evidence": [
+        "quality_v2_benchmark.py:REFERENCE_SYMBOLS",
+        "quality_model_v2.py:summarize_shadow"
+      ]
     },
     {
       "id": "QV2-005",
       "title": "Extended PDF actual period/date labels",
-      "status": "AGREED",
+      "status": "IMPLEMENTED",
       "release_blocker": true,
-      "evidence": []
+      "evidence": [
+        "quality_extended_report.py:fiscal_periods"
+      ]
     },
     {
       "id": "QV2-006",
       "title": "Extended PDF multi-metric charts",
-      "status": "AGREED",
+      "status": "IMPLEMENTED",
       "release_blocker": true,
-      "evidence": []
+      "evidence": [
+        "quality_extended_report.py:chart"
+      ]
     },
     {
       "id": "QV2-007",
@@ -69,22 +81,27 @@
       "status": "IMPLEMENTED",
       "release_blocker": true,
       "evidence": [
-        "quality_valuation_ui.py:diagnostic_document"
+        "quality_valuation_ui.py:diagnostic_document@2.1"
       ]
     },
     {
       "id": "QV2-008",
       "title": "Sector-aware financial quality model",
-      "status": "AGREED",
+      "status": "IMPLEMENTED",
       "release_blocker": true,
-      "evidence": []
+      "evidence": [
+        "quality_model_v2.py:FINANCIAL_ROE",
+        "quality_valuation_data.py:roe_history"
+      ]
     },
     {
       "id": "QV2-009",
       "title": "Cyclical normalisation shadow analysis",
-      "status": "AGREED",
+      "status": "IMPLEMENTED",
       "release_blocker": true,
-      "evidence": []
+      "evidence": [
+        "quality_model_v2.py:cyclical_normalization"
+      ]
     },
     {
       "id": "QV2-010",
@@ -131,7 +148,8 @@
       "release_blocker": true,
       "evidence": [
         "AUTONOMI_COMMITMENTS.md",
-        "release_manifest.json"
+        "release_manifest.json",
+        "scripts/verify_autonomi_commitments.py"
       ]
     }
   ]
