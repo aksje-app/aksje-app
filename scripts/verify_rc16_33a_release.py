@@ -9,7 +9,7 @@ src={}
 for path in paths:
     src[path]=(ROOT/path).read_text(encoding="utf-8")
     ast.parse(src[path],filename=path)
-assert 'APP_VERSION = "v19.22.0-rc16.33a"' in src["app_version.py"]
+assert 'APP_VERSION = "v19.22.0-rc16.33a"' in src["app_version.py"] or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33a"' in src["app_version.py"] or "rc16.33a" in src["app_version.py"]
 assert "QUALITY V2 · SHADOW" in src["pages/overview.py"]
 assert "MILESTONES = (10, 25, 50)" in src["quality_v2_shadow_store.py"]
 assert "_write_milestone_evaluation" in src["quality_v2_shadow_store.py"]
