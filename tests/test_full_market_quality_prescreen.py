@@ -33,3 +33,13 @@ def test_market_room_no_longer_slices_first_20():
     assert "get_us_broad_tickers(limit=1600)" in src
     assert "list(market_tickers)[:MAX_SYMBOLS]" not in ui
     assert "full_market_prescreen(selected, MAX_SYMBOLS" in ui
+
+
+def test_prescreen_module_is_tracked_in_runtime_tree():
+    import quality_market_prescreen
+    assert callable(quality_market_prescreen.full_market_prescreen)
+
+def test_failed_new_run_does_not_fall_back_to_stale_saved_result():
+    src = open("quality_valuation_ui.py", encoding="utf-8").read()
+    assert 'st.session_state.pop("qv_result", None)' in src
+    assert "if result is None and not run_attempted:" in src
