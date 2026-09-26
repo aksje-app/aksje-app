@@ -89,11 +89,10 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
 
 
 def diagnostic_document(result: Mapping[str, Any]) -> bytes:
-    """No credentials, database URL or raw provider payloads in the bundle."""
+    """Secret-free reproducibility/audit document for active and shadow quality models."""
     from runtime_memory import memory_snapshot
     from services.storage_service import get_storage_service
     from storage_retention import load_storage_retention_state
-
     try:
         health = get_storage_service().health()
         storage = {"backend": str(getattr(health, "backend", "unknown")), "ok": bool(getattr(health, "ok", False))}
@@ -104,22 +103,44 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
         retention = load_storage_retention_state()
     except Exception:
         retention = {"state": "UNAVAILABLE"}
+
+    audit_fields = (
+        "ticker", "name", "country", "industry", "currency", "price", "group",
+        "quality_state", "model_version", "financial_date", "financial_age_days",
+        "reported_pe", "forward_pe", "normalized_pe", "normalized_eps",
+        "annual_eps_history", "free_cash_flow", "free_cash_flow_history",
+        "fcf_positive_ratio", "roce_pct", "roce_latest_pct", "roce_history_pct",
+        "roce_trend", "quality_evidence_ready", "evidence_ready", "assumed_pe",
+        "fair_price_scenario", "entry_range_scenario", "entry_buffer_pct",
+        "valuation_method", "capital_return_method", "market_drivers",
+        "verified_exposure", "source", "provider_partial", "warnings", "observed_at",
+    )
     payload = {
-        "run_key": result.get("run_key"), "generated_at": result.get("generated_at"),
+        "audit_schema": "quality-diagnosis@2.0",
+        "app_version": __import__("app_version").APP_VERSION,
+        "run_key": result.get("run_key"), "report_id": result.get("report_id"),
+        "generated_at": result.get("generated_at"), "run_mode": result.get("run_mode"),
         "state": result.get("state"), "stop_reason": result.get("stop_reason"),
-        "selected": result.get("selected"), "completed": result.get("completed"),
-        "elapsed_seconds": result.get("elapsed_seconds"), "failures": result.get("failures"),
-        "cpu_seconds": result.get("cpu_seconds"),
-        "groups": {name: [{"ticker": item.get("ticker"), "group": item.get("group"),
-                             "warnings": item.get("warnings"), "financial_date": item.get("financial_date"),
-                             "source": item.get("source")} for item in items]
+        "selected": result.get("selected"), "selected_symbols": result.get("selected_symbols"),
+        "completed": result.get("completed"), "elapsed_seconds": result.get("elapsed_seconds"),
+        "cpu_seconds": result.get("cpu_seconds"), "failures": result.get("failures"),
+        "market_basis": {key: result.get(key) for key in (
+            "markets", "market_universe_count", "market_examined_count", "market_usable_count",
+            "market_failed_count", "market_coverage_complete", "market_prescreen_stop_reason",
+            "candidate_basis_generated_at", "candidate_basis_source", "prescreen_finalists", "holding_symbols")},
+        "active_quality_model": "quality_v1.1@1.1",
+        "groups": {name: [{key: item.get(key) for key in audit_fields} for item in items]
                    for name, items in (result.get("groups") or {}).items()},
+        "quality_v2_shadow": result.get("quality_v2_shadow") or {},
+        "quality_v2_oversight": result.get("quality_v2_oversight") or {},
+        "driver_prices": result.get("driver_prices") or {},
         "storage": storage,
         "retention": {key: retention.get(key) for key in ("state", "apply_enabled", "planned", "deleted_keys")},
         "memory_mb": {name: memory.get(name) for name in ("process_rss_mb", "cgroup_memory_current_mb", "cgroup_memory_limit_mb")},
+        "safety": {"v2_shadow_only": True, "v2_production_effect": False,
+                   "raw_provider_payloads_included": False, "credentials_included": False},
     }
     return json.dumps(payload, ensure_ascii=False, indent=2, default=str).encode("utf-8")
-
 
 def required_report_busy() -> bool:
     """Read-only advisory guard; never acquire or block the scheduler's lock."""
@@ -251,7 +272,13 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                     warnings = list(item.get("warnings") or [])[:3]
                     if warnings:
                         st.markdown("\n".join(f"- ⚠️ {warning}" for warning in warnings))
-        st.download_button("Last ned PDF", build_screen_pdf(result), "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf")
+        st.download_button("Last ned kort PDF", build_screen_pdf(result), "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf")
+        try:
+            from quality_extended_report import build_extended_analysis_pdf
+            st.download_button("Last ned utvidet analyse PDF", build_extended_analysis_pdf(result),
+                               "kvalitet_utvidet_analyse.pdf", "application/pdf", key="qv_extended_pdf")
+        except Exception:
+            st.caption("Utvidet analyse-PDF er midlertidig utilgjengelig; kort PDF og diagnose er fortsatt tilgjengelig.")
         st.download_button("Last ned diagnose", diagnostic_document(result), "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis")
         if st.button("← Tilbake til Marked", key="qv_back_to_market", use_container_width=True):
             st.session_state["market_room_view_v1863cb"] = "Market Scanner"
