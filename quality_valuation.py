@@ -286,6 +286,14 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
             progress({"stage": stage, "ticker": ticker, "completed": index + 1, "total": len(selected)})
     if assumed_pe is None:
         add_peer_context(results)
+    # Peer valuation may change the active group after V2 was evaluated. Keep
+    # the shadow comparison bound to the final active V1.1 result.
+    final_active = {str(row.get("ticker")): row for row in results}
+    for shadow in shadow_rows:
+        active = final_active.get(str(shadow.get("ticker")))
+        if active:
+            shadow["active_v11_group"] = active.get("group")
+            shadow["active_v11_quality_state"] = active.get("quality_state")
     after_cpu = resource.getrusage(resource.RUSAGE_SELF)
     after_children = resource.getrusage(resource.RUSAGE_CHILDREN)
     cpu_seconds = sum(after.ru_utime - before.ru_utime + after.ru_stime - before.ru_stime for before, after in
