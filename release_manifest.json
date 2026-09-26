@@ -1,0 +1,138 @@
+{
+  "schema_version": "1.0",
+  "release_target": "v19.22.0-rc16.33a",
+  "baseline_version": "v19.22.0-rc16.33",
+  "baseline_main_commit": "4fdbf4e4c0604fce84e60325ab110590d837798a",
+  "status_order": [
+    "AGREED",
+    "IMPLEMENTED",
+    "TESTED",
+    "MERGED",
+    "DEPLOY_VERIFIED",
+    "BLOCKED"
+  ],
+  "production_completion_status": "DEPLOY_VERIFIED",
+  "rules": {
+    "assistant_may_call_finished_only_at": "DEPLOY_VERIFIED",
+    "merge_requires_release_blockers_at_least": "TESTED",
+    "planned_is_not_implemented": true,
+    "shadow_must_not_affect_production": true
+  },
+  "items": [
+    {
+      "id": "QV2-001",
+      "title": "Overview V2 Shadow status card",
+      "status": "AGREED",
+      "release_blocker": true,
+      "evidence": []
+    },
+    {
+      "id": "QV2-002",
+      "title": "Automatic 10/25/50 milestone evaluation",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "quality_v2_shadow_store.py:MILESTONES"
+      ]
+    },
+    {
+      "id": "QV2-003",
+      "title": "Persisted V2 milestone evaluation report",
+      "status": "AGREED",
+      "release_blocker": true,
+      "evidence": []
+    },
+    {
+      "id": "QV2-004",
+      "title": "Morningstar wide-moat external benchmark harness",
+      "status": "AGREED",
+      "release_blocker": false,
+      "evidence": []
+    },
+    {
+      "id": "QV2-005",
+      "title": "Extended PDF actual period/date labels",
+      "status": "AGREED",
+      "release_blocker": true,
+      "evidence": []
+    },
+    {
+      "id": "QV2-006",
+      "title": "Extended PDF multi-metric charts",
+      "status": "AGREED",
+      "release_blocker": true,
+      "evidence": []
+    },
+    {
+      "id": "QV2-007",
+      "title": "Complete diagnosis/audit schema",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "quality_valuation_ui.py:diagnostic_document"
+      ]
+    },
+    {
+      "id": "QV2-008",
+      "title": "Sector-aware financial quality model",
+      "status": "AGREED",
+      "release_blocker": true,
+      "evidence": []
+    },
+    {
+      "id": "QV2-009",
+      "title": "Cyclical normalisation shadow analysis",
+      "status": "AGREED",
+      "release_blocker": true,
+      "evidence": []
+    },
+    {
+      "id": "QV2-010",
+      "title": "No fabricated ROIC-WACC/reinvestment/moat evidence",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "quality_model_v2.py:evaluate_shadow"
+      ]
+    },
+    {
+      "id": "QV2-011",
+      "title": "V2 production isolation invariants",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "quality_model_v2.py:production_effect=false"
+      ]
+    },
+    {
+      "id": "QV2-012",
+      "title": "Overview quick action and mobile return navigation",
+      "status": "MERGED",
+      "release_blocker": false,
+      "evidence": [
+        "pages/overview.py",
+        "quality_valuation_ui.py"
+      ]
+    },
+    {
+      "id": "QV2-013",
+      "title": "Fresh full-market scheduled quality prescreen",
+      "status": "MERGED",
+      "release_blocker": true,
+      "evidence": [
+        "quality_valuation_schedule.py",
+        "quality_market_prescreen.py"
+      ]
+    },
+    {
+      "id": "QV2-014",
+      "title": "Manifest-backed release truth gate",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "AUTONOMI_COMMITMENTS.md",
+        "release_manifest.json"
+      ]
+    }
+  ]
+}
