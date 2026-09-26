@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.32z"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.32z Full Market Quality Verified"
+APP_VERSION = "v19.22.0-rc16.32zb"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.32zb Quality Full-Market Automation"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32x"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.32za"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,8 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.32zb: Quality Full-Market Automation. Planlagte kvalitetskjøringer bruker fersk fullmarkedsscreening i stedet for gammel kandidatfil, reserverer egne plasser til beholdninger, viser universdekning/ferskhet, strammer rapportferskhet og degraderer Yahoo-felter separat ved providerfeil.",
+    "v19.22.0-rc16.32za: Quality Mobile Return Fix. Gjør tilbakeknappen til en ekte Streamlit-navigasjon, rydder mobilresultater i separate kort og gjør Pushover-/kildevarselet eksplisitt.",
     "v19.22.0-rc16.32z: Full Market Quality Verified. Retter SyntaxError i fullmarkedsscreening, bruker korrekt radformat mot markedsdata, beholder full universdekning før finalistvalg og sperrer foreldet resultat etter feilet kjøring.",
     "v19.22.0-rc16.32x: Mobile Market Quality View. The mobile Marked action now opens Market Scanner instead of Long Engine. Visning is a full-width first control, Kvalitet og prising is a dedicated direct view, and secondary chart/filter controls are stacked in a collapsible mobile-safe section. Ranking and trading rules are unchanged.",
     "v19.22.0-rc16.32w: Scheduled Quality Reports. Runs a bounded quality and valuation shadow screen before the three required report slots, preserves transparent partial provider coverage, publishes an unlisted standalone PDF, and adds compact ranked ROCE, reported P/E, normalized P/E and entry-scenario rows to fixed reports. The job remains observational, resource guarded and unable to trade; Pushover investment transitions still require verified primary-source evidence.",

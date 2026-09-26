@@ -227,8 +227,8 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
             st_module.markdown('<article class="aa-empty-decisions"><strong>Ingen nye porteføljebeslutninger</strong><p>Nye kjøp, salg og vurderinger vises her etter neste verifiserte Super Portfolio-kjøring.</p></article>', unsafe_allow_html=True)
     with right:
         st_module.markdown('<h2 class="aa-section-title">Hurtighandlinger</h2>', unsafe_allow_html=True)
-        actions = [("Kjør eller åpne rapport", "reports", "aa_overview_reports"),("Åpne Super Portfolio", "portfolio", "aa_overview_portfolio"),("Se marked og kandidater", "long_engine", "aa_overview_market"),("Åpne drift", "operations", "aa_overview_operations")]
+        actions = [("Kjør kvalitetsvurdering", "quality_valuation", "aa_overview_quality"),("Kjør eller åpne rapport", "reports", "aa_overview_reports"),("Åpne Super Portfolio", "portfolio", "aa_overview_portfolio"),("Se marked og kandidater", "long_engine", "aa_overview_market"),("Åpne drift", "operations", "aa_overview_operations")]
         for label, route, key in actions:
-            if st_module.button(label, key=key, width="stretch", type="primary" if route == "reports" else "secondary"):
+            if st_module.button(label, key=key, width="stretch", type="primary" if route == "quality_valuation" else "secondary"):
                 navigate(route); st_module.rerun()
         st_module.caption("Handlingene åpner eksisterende arbeidsflater og starter ingen analyse automatisk.")

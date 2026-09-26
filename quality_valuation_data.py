@@ -55,9 +55,22 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
     import yfinance as yf
 
     security = yf.Ticker(ticker)
-    info = security.info or {}
-    annual = security.income_stmt
-    balance = security.balance_sheet
+    warnings: list[str] = []
+    try:
+        info = security.info or {}
+    except Exception:
+        info = {}
+        warnings.append("Yahoo info utilgjengelig")
+    try:
+        annual = security.income_stmt
+    except Exception:
+        annual = None
+        warnings.append("Resultatregnskap utilgjengelig")
+    try:
+        balance = security.balance_sheet
+    except Exception:
+        balance = None
+        warnings.append("Balanse utilgjengelig")
     eps_by_year = _dated_values(annual, ("Diluted EPS", "Basic EPS"))
     ebit = _dated_values(annual, ("EBIT", "Operating Income"))
     assets = _dated_values(balance, ("Total Assets",))
@@ -74,8 +87,11 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
     roce = roce_history[0] if not is_financial and roce_history else None
     price = info.get("currentPrice") or info.get("regularMarketPrice")
     if not price:
-        fast = security.fast_info
-        price = fast.get("lastPrice") if fast else None
+        try:
+            fast = security.fast_info
+            price = fast.get("lastPrice") if fast else None
+        except Exception:
+            warnings.append("Fast kurs utilgjengelig")
     return {
         "ticker": ticker, "price": price, "trailing_eps": info.get("trailingEps"),
         "forward_eps": info.get("forwardEps"), "annual_eps": eps,
@@ -83,7 +99,10 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "roce": roce, "roce_history": [] if is_financial else roce_history[:5],
         "name": info.get("longName") or info.get("shortName") or ticker,
         "country": info.get("country"), "currency": info.get("currency"),
-        "industry": info.get("industry") or sector, "source": "Yahoo Finance: aksjekurs, selskapets regnskap og nøkkeltall",
+        "industry": info.get("industry") or sector,
+        "source": "Yahoo Finance: aksjekurs, selskapets regnskap og nøkkeltall",
+        "provider_warnings": warnings,
+        "provider_partial": bool(warnings),
     }
 
 
