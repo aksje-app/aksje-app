@@ -22,29 +22,32 @@
     {
       "id": "QV2-001",
       "title": "Overview V2 Shadow status card",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "pages/overview.py:QUALITY V2 SHADOW card"
+        "pages/overview.py:QUALITY V2 SHADOW card",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-002",
       "title": "Automatic 10/25/50 milestone evaluation",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "quality_v2_shadow_store.py:MILESTONES",
-        "quality_v2_shadow_store.py:_write_milestone_evaluation"
+        "quality_v2_shadow_store.py:_write_milestone_evaluation",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-003",
       "title": "Persisted V2 milestone evaluation report",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_v2_shadow_store.py:_write_milestone_evaluation"
+        "quality_v2_shadow_store.py:_write_milestone_evaluation",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
@@ -60,65 +63,72 @@
     {
       "id": "QV2-005",
       "title": "Extended PDF actual period/date labels",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_extended_report.py:fiscal_periods"
+        "quality_extended_report.py:fiscal_periods",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-006",
       "title": "Extended PDF multi-metric charts",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_extended_report.py:chart"
+        "quality_extended_report.py:chart",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-007",
       "title": "Complete diagnosis/audit schema",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_valuation_ui.py:diagnostic_document@2.1"
+        "quality_valuation_ui.py:diagnostic_document@2.1",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-008",
       "title": "Sector-aware financial quality model",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "quality_model_v2.py:FINANCIAL_ROE",
-        "quality_valuation_data.py:roe_history"
+        "quality_valuation_data.py:roe_history",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-009",
       "title": "Cyclical normalisation shadow analysis",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_model_v2.py:cyclical_normalization"
+        "quality_model_v2.py:cyclical_normalization",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-010",
       "title": "No fabricated ROIC-WACC/reinvestment/moat evidence",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_model_v2.py:evaluate_shadow"
+        "quality_model_v2.py:evaluate_shadow",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-011",
       "title": "V2 production isolation invariants",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
-        "quality_model_v2.py:production_effect=false"
+        "quality_model_v2.py:production_effect=false",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
@@ -134,22 +144,24 @@
     {
       "id": "QV2-013",
       "title": "Fresh full-market scheduled quality prescreen",
-      "status": "MERGED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "quality_valuation_schedule.py",
-        "quality_market_prescreen.py"
+        "quality_market_prescreen.py",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     },
     {
       "id": "QV2-014",
       "title": "Manifest-backed release truth gate",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "AUTONOMI_COMMITMENTS.md",
         "release_manifest.json",
-        "scripts/verify_autonomi_commitments.py"
+        "scripts/verify_autonomi_commitments.py",
+        "GitHub Actions rc16.33a verification run 36265541060: success"
       ]
     }
   ]
