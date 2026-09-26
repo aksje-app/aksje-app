@@ -288,14 +288,27 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                             icon, kind = _warning_kind(str(warning))
                             rendered.append(f"- {icon} **{kind}:** {warning}")
                         st.markdown("\n".join(rendered))
-        st.download_button("Last ned kort PDF", build_screen_pdf(result), "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf")
+        st.markdown("#### Rapporter og deling")
+        st.caption("Filene under åpnes som vanlige nedlastinger på mobil og kan derfra lagres, kopieres eller videresendes med telefonens delingsmeny.")
+        short_pdf = build_screen_pdf(result)
+        diagnosis = diagnostic_document(result)
+        st.download_button("⬇ Last ned / del kort PDF", short_pdf, "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf", use_container_width=True)
+        extended_pdf = None
         try:
             from quality_extended_report import build_extended_analysis_pdf
-            st.download_button("Last ned utvidet analyse PDF", build_extended_analysis_pdf(result),
-                               "kvalitet_utvidet_analyse.pdf", "application/pdf", key="qv_extended_pdf")
+            extended_pdf = build_extended_analysis_pdf(result)
+            st.download_button("⬇ Last ned / del utvidet PDF", extended_pdf,
+                               "kvalitet_utvidet_analyse.pdf", "application/pdf", key="qv_extended_pdf", use_container_width=True)
         except Exception:
             st.caption("Utvidet analyse-PDF er midlertidig utilgjengelig; kort PDF og diagnose er fortsatt tilgjengelig.")
-        st.download_button("Last ned diagnose", diagnostic_document(result), "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis")
+        st.download_button("⬇ Last ned / del diagnose", diagnosis, "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis", use_container_width=True)
+        try:
+            from quality_report_package import build_manual_report_package
+            st.download_button("📦 Last ned / del komplett kontrollpakke", build_manual_report_package(result),
+                               "kvalitet_siste_manuelle_kjoring.zip", "application/zip", key="qv_package", use_container_width=True)
+            st.caption("Kontrollpakken inneholder kort PDF, utvidet PDF, diagnose og manifest fra nøyaktig samme run-id.")
+        except Exception:
+            st.caption("Komplett kontrollpakke kunne ikke bygges; enkeltfilene over er fortsatt tilgjengelige.")
         st.caption("Siste manuelle kjøring er lagret og kan åpnes igjen etter at du har vært på andre sider.")
         if st.button("⌂ Hovedsiden", key="qv_home", use_container_width=True, type="primary"):
             st.session_state["ai_control_center_last_applied_nav_v19016"] = ""
