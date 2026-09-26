@@ -17,3 +17,9 @@ def test_quality_mobile_rows_are_isolated_and_warning_is_explicit():
     assert "with st.container(border=True):" in source
     assert "Pushover: IKKE SENDT" in source
     assert 'st.markdown("\\n".join(f"- ⚠️ {warning}"' in source
+
+def test_overview_has_direct_quality_quick_action():
+    source=(ROOT/"pages"/"overview.py").read_text(encoding="utf-8")
+    ast.parse(source)
+    assert '("Kjør kvalitetsvurdering", "quality_valuation", "aa_overview_quality")' in source
+    assert 'type="primary" if route == "quality_valuation"' in source
