@@ -75,7 +75,7 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
         cols=st_module.columns(len(MOBILE_ROUTES), gap="small")
         for col,item in zip(cols,MOBILE_ROUTES):
             with col:
-                label=f'{_NAV_ICONS.get(item.slug, "•")}\\n{item.label}'
+                label=f'{_NAV_ICONS.get(item.slug, "•")} {item.label}'
                 if item.slug == "more":
                     if st_module.button(label, key="aa_mobile_nav_more", use_container_width=True):
                         st_module.session_state["aa_mobile_more_open"] = not bool(st_module.session_state.get("aa_mobile_more_open"))
