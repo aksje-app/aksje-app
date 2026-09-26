@@ -145,7 +145,9 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
         assumed_pe = st.number_input("P/E-forutsetning (analytisk scenario, ikke fast verdi)", 4.0, 40.0, 15.0, 0.5, key="qv_assumption") if use_scenario else None
         if use_scenario:
             st.warning("Samme P/E på tvers av bransjer er kun et illustrert scenario. Det gir ikke en bekreftet inngangskurs eller automatisk kjøpssignal.")
-        if st.button("Kjør kvalitetsvurdering", key="qv_run", type="primary", disabled=not bool(selected)):
+        run_attempted = st.button("Kjør kvalitetsvurdering", key="qv_run", type="primary", disabled=not bool(selected))
+        if run_attempted:
+            st.session_state.pop("qv_result", None)
             from services.storage_service import get_storage_service
             health = get_storage_service().health()
             if not bool(getattr(health, "ok", False)) or (os.getenv("DATABASE_URL") and getattr(health, "backend", "") != "postgres"):
@@ -206,7 +208,9 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                                  text=f"{result['state']} · {result['completed']}/{result['selected']}")
             except Exception as exc:
                 st.error(f"Kunne ikke fullføre vurderingen: {type(exc).__name__}. Kontroller diagnose og markedstilgang.")
-        result = st.session_state.get("qv_result") or load_latest()
+        result = st.session_state.get("qv_result")
+        if result is None and not run_attempted:
+            result = load_latest()
         if not result:
             st.info("Ingen kvalitetsvurdering kjørt ennå.")
             return
