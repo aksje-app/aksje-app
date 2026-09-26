@@ -85,7 +85,7 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
     page.save()
     from pdf_mobile_return import add_pdf_return_links
     from public_report_ui import _absolute_report_return_url
-    return add_pdf_return_links(buffer.getvalue(), return_url=_absolute_report_return_url("market"))
+    return add_pdf_return_links(buffer.getvalue(), return_url=_absolute_report_return_url("overview"))
 
 
 def diagnostic_document(result: Mapping[str, Any]) -> bytes:
