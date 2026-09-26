@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.33"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.33 Quality v1.1 + V2 Shadow"
+APP_VERSION = "v19.22.0-rc16.33a"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.33a Quality V2 Oversight Completion"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.32zb"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.33"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.33a: Quality V2 Oversight Completion. Adds visible V2 Shadow progress on Overview, durable 10/25/50 milestone evaluations, external Morningstar reference harness, dated multi-metric Quality PDF evidence, expanded diagnosis, financial-sector ROE policy, cyclical normalization flags, and repository-backed cross-chat release commitments.",
     "v19.22.0-rc16.33: Quality v1.1 + V2 Shadow. Aktiv kvalitetsmodell bruker ROCE-trend og flerårig FCF-kvalitet uten hard 12%-diskvalifikasjon alene; V2 kjører isolert shadow med milepæler 10/25/50, dokumentert moat-beviskrav og ingen produksjonseffekt. Legger til utvidet analyse-PDF med historikk/graf og komplett secret-free diagnose/auditgrunnlag.",
     "v19.22.0-rc16.32zb: Quality Full-Market Automation. Planlagte kvalitetskjøringer bruker fersk fullmarkedsscreening i stedet for gammel kandidatfil, reserverer egne plasser til beholdninger, viser universdekning/ferskhet, strammer rapportferskhet og degraderer Yahoo-felter separat ved providerfeil.",
     "v19.22.0-rc16.32za: Quality Mobile Return Fix. Gjør tilbakeknappen til en ekte Streamlit-navigasjon, rydder mobilresultater i separate kort og gjør Pushover-/kildevarselet eksplisitt.",
