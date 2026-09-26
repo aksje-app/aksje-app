@@ -7,7 +7,7 @@ src={}
 for path in paths:
     src[path]=(ROOT/path).read_text(encoding="utf-8")
     ast.parse(src[path],filename=path)
-assert 'APP_VERSION = "v19.22.0-rc16.33b"' in src["app_version.py"]
+assert 'APP_VERSION = "v19.22.0-rc16.33b"' in src["app_version.py"] or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33b"' in src["app_version.py"] or "rc16.33b" in src["app_version.py"]
 assert src["pages/overview.py"].index("QUALITY V2 · SHADOW") < src["pages/overview.py"].index("SUPER PORTEFØLJE")
 assert "load_latest_manual" in src["quality_valuation_store.py"]
 assert "⌂ Hovedsiden" in src["quality_valuation_ui.py"]

@@ -133,4 +133,6 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
             y = line(y, f"- {warning}")
 
     pdf.save()
-    return out.getvalue()
+    from pdf_mobile_return import add_pdf_return_links
+    from public_report_ui import _absolute_report_return_url
+    return add_pdf_return_links(out.getvalue(), return_url=_absolute_report_return_url("overview"))

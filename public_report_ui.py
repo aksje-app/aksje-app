@@ -10,7 +10,7 @@ import os
 _RETURN_NAV_TARGETS = {
     "dashboard", "portfolio", "long_engine", "autonomy", "reports", "market",
     "jobs", "approvals", "paper_trading", "fx_alerts", "alerts",
-    "drift_center", "system",
+    "drift_center", "system", "overview",
 }
 
 
@@ -96,7 +96,7 @@ def _report_landing_actions(static_url: str, *, return_href: str = "/?aa_nav=rep
         f'<a href="{safe_return}" target="_self" '
         'style="display:block;text-align:center;padding:.8rem .5rem;border-radius:.5rem;'
         'background:#0f766e;color:white;text-decoration:none;font-weight:800">'
-        '← Tilbake til programmet</a>'
+        '← Hovedsiden</a>'
         f'<a href="{safe_pdf}" target="_blank" rel="noopener noreferrer" '
         'style="display:block;text-align:center;padding:.8rem 1rem;border-radius:.5rem;'
         'background:#0b6efd;color:white;text-decoration:none;font-weight:700">'
