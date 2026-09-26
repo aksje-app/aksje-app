@@ -197,6 +197,11 @@ def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         row for row in items
         if row.get("reasons") and any("V2 ser sterkere" in reason or "svakere" in reason for reason in row.get("reasons") or [])
     ]
+    try:
+        from quality_v2_benchmark import compare_reference
+        benchmark = compare_reference(items)
+    except Exception:
+        benchmark = {"production_effect": False, "state": "UNAVAILABLE"}
     return {
         "model_version": MODEL_VERSION,
         "shadow_only": True,
@@ -206,5 +211,6 @@ def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "strong_or_improving": sum(1 for row in items if row.get("quality_band") in {"STRONG", "IMPROVING"}),
         "weakening_count": sum(1 for row in items if row.get("roce_trend") == "WEAKENING"),
         "moat_documented_count": sum(1 for row in items if row.get("moat_evidence") == "DOCUMENTED"),
+        "benchmark": benchmark,
         "rows": items,
     }
