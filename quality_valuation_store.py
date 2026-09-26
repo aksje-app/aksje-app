@@ -118,6 +118,16 @@ def persist_screen(result: dict[str, Any]) -> str:
     # immutable run accessible in storage diagnostics, never a false success.
     write_json(run_key, _path(run_key), snapshot)
     write_json(LATEST, _path(LATEST), snapshot)
+    try:
+        from quality_v2_shadow_store import record_shadow_run
+        shadow_state = record_shadow_run(snapshot)
+        if shadow_state:
+            snapshot["quality_v2_oversight"] = shadow_state
+            write_json(run_key, _path(run_key), snapshot)
+            write_json(LATEST, _path(LATEST), snapshot)
+    except Exception:
+        # Oversight failure cannot corrupt the active quality result.
+        pass
     return run_key
 
 
