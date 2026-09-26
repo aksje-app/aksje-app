@@ -254,6 +254,7 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
     before_cpu = resource.getrusage(resource.RUSAGE_SELF)
     before_children = resource.getrusage(resource.RUSAGE_CHILDREN)
     results: list[dict[str, Any]] = []
+    shadow_rows: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
     stop_reason = ""
     for index, ticker in enumerate(selected):
@@ -269,7 +270,14 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
         try:
             row = dict(provider(ticker) or {})
             row["ticker"] = ticker
-            results.append(evaluate_company(row, assumed_pe=assumed_pe))
+            active = evaluate_company(row, assumed_pe=assumed_pe)
+            results.append(active)
+            try:
+                from quality_model_v2 import evaluate_shadow
+                shadow_rows.append(evaluate_shadow(row, active))
+            except Exception:
+                # Shadow must never make the active screen fail.
+                pass
         except Exception as exc:
             stage = "Feil ved henting"
             # Provider messages may contain authenticated URLs or request data.
@@ -282,9 +290,14 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
     after_children = resource.getrusage(resource.RUSAGE_CHILDREN)
     cpu_seconds = sum(after.ru_utime - before.ru_utime + after.ru_stime - before.ru_stime for before, after in
                       ((before_cpu, after_cpu), (before_children, after_children)))
+    try:
+        from quality_model_v2 import summarize_shadow
+        quality_v2_shadow = summarize_shadow(shadow_rows)
+    except Exception:
+        quality_v2_shadow = {"shadow_only": True, "production_effect": False, "evaluated": 0, "rows": []}
     return {"state": "PARTIAL" if stop_reason or failures else "COMPLETED", "stop_reason": stop_reason,
             "selected": len(selected), "selected_symbols": selected, "assumed_pe": assumed_pe,
             "completed": len(results) + len(failures), "failures": failures,
             "elapsed_seconds": round(time.monotonic() - start, 2), "cpu_seconds": round(cpu_seconds, 2),
-            "groups": rank_results(results),
+            "groups": rank_results(results), "quality_v2_shadow": quality_v2_shadow,
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"), "shadow_only": True}
