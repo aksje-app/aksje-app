@@ -99,7 +99,7 @@ def isolated_financial_snapshot(ticker: str) -> dict[str, Any]:
     """Kill stalled providers and release memory between ticker fetches."""
     child = subprocess.run(
         [sys.executable, str(Path(__file__).with_name("quality_valuation_worker.py")), ticker],
-        cwd=str(Path(__file__).parent), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        cwd=str(Path(__file__).parent), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         timeout=15, check=False,
     )
     if child.returncode or len(child.stdout) > 32768:
