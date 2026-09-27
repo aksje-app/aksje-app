@@ -42,7 +42,7 @@ def test_repeated_same_run_counts_stay_current_not_cumulative(monkeypatch):
 
 def test_overview_labels_current_counts():
     src = open("pages/overview.py", encoding="utf-8").read()
-    assert "VURDERT NÅ" in src
+    assert ("VURDERT NÅ" in src or "VURDERT I SISTE KJØRING" in src)
     assert ("AKTIVE V1.1 ↔ V2 UENIGHETER" in src or "UENIGHETER NÅ" in src)
-    assert ("SVEKKENDE NÅ" in src or "AV DISSE: V2 SVAKERE" in src)
+    assert ("SVEKKENDE NÅ" in src or "AV DISSE: V2 SVAKERE" in src or "V2 SVAKERE" in src)
     assert "latest_shadow.get(\"disagreement_count\")" in src

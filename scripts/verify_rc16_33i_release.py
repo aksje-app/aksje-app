@@ -23,8 +23,8 @@ for p in paths:
 assert ('APP_VERSION = "v19.22.0-rc16.33i"' in src["app_version.py"]
         or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33i"' in src["app_version.py"]
         or "rc16.33i" in src["app_version.py"])
-assert "IKKE KLASSIFISERT ENNÅ" in src["pages/overview.py"]
-assert "Ny kvalitetskjøring kreves" in src["pages/overview.py"]
+assert ("IKKE KLASSIFISERT ENNÅ" in src["pages/overview.py"] or "IKKE KOMPLETT KLASSIFISERT" in src["pages/overview.py"])
+assert ("Ny kvalitetskjøring kreves" in src["pages/overview.py"] or "Tallene holdes tilbake til en komplett kvalitetskjøring foreligger." in src["pages/overview.py"])
 assert "classification_available" in src["quality_model_v2.py"]
 assert "classification_available" in src["quality_v2_shadow_store.py"]
 assert "tone-neutral" in src["ui_library/theme.py"]

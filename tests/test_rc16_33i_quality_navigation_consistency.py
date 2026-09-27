@@ -69,8 +69,8 @@ def test_quality_confirmed_does_not_report_quality_weak_reason():
 
 def test_overview_legacy_disagreement_state_never_claims_zero_zero_complete():
     src = Path("pages/overview.py").read_text(encoding="utf-8")
-    assert "IKKE KLASSIFISERT ENNÅ" in src
-    assert "Ny kvalitetskjøring kreves" in src
+    assert ("IKKE KLASSIFISERT ENNÅ" in src or "IKKE KOMPLETT KLASSIFISERT" in src)
+    assert ("Ny kvalitetskjøring kreves" in src or "Tallene holdes tilbake til en komplett kvalitetskjøring foreligger." in src)
     assert "classification_available" in src
     assert "disagreements == v2_weaker + v2_stronger" in src
     assert 'weaker_class = "tone-danger" if v2_weaker > 0 else "tone-neutral"' in src
