@@ -20,7 +20,8 @@ for path in paths:
 assert ('APP_VERSION = "v19.22.0-rc16.33d"' in src["app_version.py"]
         or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33d"' in src["app_version.py"]
         or "rc16.33d" in src["app_version.py"])
-assert 'quality_v1.2@1.2' in src["quality_valuation.py"]
+assert ('quality_v1.2@1.2' in src["quality_valuation.py"]
+        or 'quality_v1.3@1.3' in src["quality_valuation.py"])
 assert '"FINANCIAL"' in src["quality_valuation.py"]
 assert '"REAL_ESTATE"' in src["quality_valuation.py"]
 assert '"CYCLICAL"' in src["quality_valuation.py"]
