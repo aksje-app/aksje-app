@@ -1,4 +1,4 @@
-"""Extended Quality analysis PDF with traceable historical evidence."""
+"""Compact extended Quality analysis PDF with sector-aware evidence."""
 from __future__ import annotations
 
 from io import BytesIO
@@ -10,7 +10,24 @@ def _safe(value: Any) -> str:
 
 
 def _all_rows(result: Mapping[str, Any]) -> list[dict[str, Any]]:
-    return [dict(row) for rows in (result.get("groups") or {}).values() for row in rows]
+    groups = result.get("groups") or {}
+    order = ("Attraktivt priset kandidat", "Kvalitetsselskap", "Dyr kvalitet / følges", "Ufullstendig / krever vurdering")
+    return [dict(row) for name in order for row in (groups.get(name) or [])]
+
+
+def _compact_number(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    magnitude = abs(number)
+    if magnitude >= 1_000_000_000:
+        return f"{number / 1_000_000_000:.2f} mrd."
+    if magnitude >= 1_000_000:
+        return f"{number / 1_000_000:.1f} mill."
+    if magnitude >= 1_000:
+        return f"{number / 1_000:.1f}k"
+    return f"{number:.2f}".rstrip("0").rstrip(".")
 
 
 def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
@@ -22,115 +39,197 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
     pdf = canvas.Canvas(out, pagesize=A4)
     width, height = A4
 
+    palette = {
+        "green": colors.HexColor("#16a34a"),
+        "yellow": colors.HexColor("#d97706"),
+        "red": colors.HexColor("#dc2626"),
+        "blue": colors.HexColor("#2563eb"),
+        "grey": colors.HexColor("#64748b"),
+        "light": colors.HexColor("#e2e8f0"),
+    }
+
     def header(title: str, subtitle: str = "") -> float:
+        pdf.setFillColor(colors.black)
         pdf.setFont("Helvetica-Bold", 15)
-        pdf.drawString(38, height - 42, _safe(title)[:82])
-        pdf.setFont("Helvetica", 8)
-        pdf.drawString(38, height - 58, _safe(subtitle)[:120])
+        pdf.drawString(36, height - 40, _safe(title)[:82])
+        pdf.setFont("Helvetica", 7.5)
+        pdf.drawString(36, height - 55, _safe(subtitle)[:125])
+        pdf.setStrokeColor(palette["light"])
+        pdf.line(36, height - 63, width - 36, height - 63)
         return height - 82
 
-    def line(y: float, text: str, *, bold: bool = False, size: int = 8) -> float:
-        if y < 48:
-            pdf.showPage()
-            y = header("Utvidet kvalitetsanalyse", f"Run {result.get('run_key') or '-'}")
+    def text(y: float, value: str, *, bold: bool = False, size: float = 8, x: float = 40) -> float:
+        pdf.setFillColor(colors.black)
         pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        pdf.drawString(40, y, _safe(text)[:125])
-        return y - (size + 5)
+        pdf.drawString(x, y, _safe(value)[:128])
+        return y - (size + 4)
 
-    y = header("Utvidet kvalitet og verdsettelse",
-               f"Generert {result.get('generated_at') or '-'} · aktiv quality_v1.1 · V2 shadow")
-    y = line(y, "Dette er dokumentasjon av analysegrunnlaget, ikke en kjøpsordre.")
-    y = line(y, f"Marked: undersøkt {result.get('market_examined_count') or '-'} / {result.get('market_universe_count') or '-'} · full dekning: {'JA' if result.get('market_coverage_complete') else 'NEI'}")
+    def dot(x: float, y: float, state: str) -> None:
+        color = palette["green"] if state == "good" else palette["red"] if state == "bad" else palette["yellow"] if state == "watch" else palette["blue"]
+        pdf.setFillColor(color)
+        pdf.circle(x, y + 2, 3.5, stroke=0, fill=1)
+
+    def arrow(x: float, y: float, state: str) -> None:
+        color = palette["green"] if state == "good" else palette["red"] if state == "bad" else palette["yellow"]
+        pdf.setStrokeColor(color)
+        pdf.setFillColor(color)
+        if state == "good":
+            pdf.line(x, y - 4, x, y + 5)
+            pdf.line(x, y + 5, x - 3, y + 1)
+            pdf.line(x, y + 5, x + 3, y + 1)
+        elif state == "bad":
+            pdf.line(x, y + 5, x, y - 4)
+            pdf.line(x, y - 4, x - 3, y)
+            pdf.line(x, y - 4, x + 3, y)
+        else:
+            pdf.line(x - 4, y, x + 4, y)
+            pdf.line(x + 4, y, x, y + 3)
+            pdf.line(x + 4, y, x, y - 3)
+
+    def medal(x: float, y: float, rank: int) -> None:
+        if rank not in (1, 2, 3):
+            return
+        fill = colors.HexColor("#d4af37") if rank == 1 else colors.HexColor("#9ca3af") if rank == 2 else colors.HexColor("#b87333")
+        pdf.setFillColor(fill)
+        pdf.circle(x, y, 7, stroke=0, fill=1)
+        pdf.setFillColor(colors.white)
+        pdf.setFont("Helvetica-Bold", 7)
+        pdf.drawCentredString(x, y - 2.5, str(rank))
+
+    def trend_state(value: str) -> tuple[str, str]:
+        value = str(value or "").upper()
+        if value in {"FORBEDRENDE", "IMPROVING"}:
+            return "good", "OPP"
+        if value in {"SVEKKENDE", "WEAKENING"}:
+            return "bad", "NED"
+        return "watch", "STABIL"
+
+    def mini_chart(y: float, title: str, values: list[Any], labels: list[str], *, percent: bool = False, compact: bool = False) -> float:
+        pairs: list[tuple[float, str]] = []
+        for idx, value in enumerate(values[:5]):
+            try:
+                number = float(value) * (100 if percent else 1)
+            except (TypeError, ValueError):
+                continue
+            label = labels[idx] if idx < len(labels) else f"t-{idx}"
+            pairs.append((number, str(label)))
+        if not pairs:
+            return text(y, f"{title}: IKKE DOKUMENTERT", size=7)
+        pdf.setFont("Helvetica-Bold", 7.5)
+        pdf.setFillColor(colors.black)
+        pdf.drawString(40, y, _safe(title))
+        left, chart_w, chart_h = 62, width - 118, 40
+        base = y - 48
+        nums = [p[0] for p in pairs]
+        low, high = min(nums), max(nums)
+        if low == high:
+            low -= 1
+            high += 1
+        span = max(high - low, 1e-9)
+        pdf.setStrokeColor(palette["light"])
+        pdf.line(left, base, left + chart_w, base)
+        xs = [left + i * chart_w / max(1, len(pairs) - 1) for i in range(len(pairs))]
+        pts = [(x, base + (value - low) / span * chart_h) for x, (value, _) in zip(xs, pairs)]
+        pdf.setStrokeColor(palette["blue"])
+        for a, b in zip(pts, pts[1:]):
+            pdf.line(a[0], a[1], b[0], b[1])
+        for idx, ((x, py), (value, label)) in enumerate(zip(pts, pairs)):
+            pdf.setFillColor(palette["blue"])
+            pdf.circle(x, py, 2.2, stroke=0, fill=1)
+            pdf.setFillColor(colors.black)
+            pdf.setFont("Helvetica", 5.4)
+            pdf.drawCentredString(x, base - 8, _safe(label)[:9])
+            shown = f"{value:.1f}%" if percent else (_compact_number(value) if compact else f"{value:.2f}".rstrip("0").rstrip("."))
+            pdf.drawCentredString(x, py + 4, _safe(shown)[:14])
+        return base - 13
+
+    rows = _all_rows(result)
     shadow = result.get("quality_v2_shadow") or {}
     oversight = result.get("quality_v2_oversight") or {}
-    y = line(y, f"V2 shadow: {shadow.get('evaluated', 0)} vurdert · uenighet {shadow.get('disagreement_count', 0)} · komplette shadow-kjøringer {oversight.get('complete_runs', 0)}")
-    y = line(y, f"Neste V2-beslutningspunkt: {oversight.get('next_milestone') or 'BESLUTNING KREVES'}")
-    y -= 8
-
-    def chart(y: float, title: str, values: list[Any], labels: list[str], *, percent: bool = False) -> float:
-        nums = []
-        for value in values:
-            try:
-                nums.append(float(value) * (100 if percent else 1))
-            except (TypeError, ValueError):
-                pass
-        if not nums:
-            return line(y, f"{title}: IKKE DOKUMENTERT")
-        y = line(y, title, bold=True)
-        left, chart_w, chart_h = 55, width - 100, 82
-        base = y - chart_h
-        low, high = min(nums), max(nums)
-        span = max(abs(high-low), abs(high)*.05, 1e-9)
-        xs = [left + (i * chart_w / max(1, len(nums)-1)) for i in range(len(nums))]
-        pts = [(x, base + (value-low)/span*chart_h) for x, value in zip(xs, nums)]
-        pdf.setStrokeColor(colors.grey); pdf.line(left, base, left+chart_w, base)
-        for a, b in zip(pts, pts[1:]): pdf.line(a[0], a[1], b[0], b[1])
-        for idx, ((x, py), value) in enumerate(zip(pts, nums)):
-            pdf.circle(x, py, 2, stroke=1, fill=0)
-            label = labels[idx] if idx < len(labels) else f"t-{idx}"
-            pdf.setFont("Helvetica", 5.5); pdf.drawCentredString(x, base-9, _safe(label)[:10])
-            suffix = "%" if percent else ""
-            pdf.drawCentredString(x, py+4, f"{value:.1f}{suffix}")
-        return base - 18
-
     shadow_by_ticker = {str(row.get("ticker")): row for row in shadow.get("rows") or []}
-    for item in _all_rows(result):
+
+    y = header(
+        "Utvidet kvalitet og verdsettelse",
+        f"Generert {result.get('generated_at') or '-'} - aktiv quality_v1.2 - V2 shadow",
+    )
+    y = text(y, "Dokumentasjon av analysegrunnlaget. Scenario er sammenligning, ikke kursmål eller kjøpsordre.", bold=True)
+    y = text(y, f"Marked: undersøkt {result.get('market_examined_count') or '-'} / {result.get('market_universe_count') or '-'} - full dekning: {'JA' if result.get('market_coverage_complete') else 'NEI'}")
+    y = text(y, f"V2 shadow: {shadow.get('evaluated', 0)} vurdert - uenighet {shadow.get('disagreement_count', 0)} - komplette shadow-kjøringer {oversight.get('complete_runs', 0)}")
+    y = text(y, f"Neste V2-beslutningspunkt: {oversight.get('next_milestone') or 'BESLUTNING KREVES'}")
+    y -= 8
+    y = text(y, "Bransjepolicy", bold=True, size=10)
+    for policy, explanation in (
+        ("STANDARD", "ROCE/ROACE + trend + flerårig FCF."),
+        ("FINANCIAL", "ROE brukes; industriell ROCE/FCF er ikke kvalitetsporter."),
+        ("CYCLICAL", "Flerårig ROCE/FCF gjennom syklus; peer-P/E alene brukes ikke."),
+        ("REAL_ESTATE", "FFO/AFFO/NAV kreves; vanlig P/E alene er utilstrekkelig."),
+    ):
+        y = text(y, f"{policy}: {explanation}", size=8)
+    y = text(y - 6, f"Selskaper i rapporten: {len(rows)}", bold=True, size=9)
+
+    attractive_rank = 0
+    for item in rows:
         pdf.showPage()
-        y = header(f"{item.get('ticker')} · {item.get('name')}",
-                   f"{item.get('country') or '-'} · {item.get('industry') or '-'} · kilde: {item.get('source') or '-'}")
-        y = line(y, f"Aktiv V1.1: {item.get('group')} · kvalitetsstatus {item.get('quality_state')}", bold=True, size=10)
-        y = line(y, f"Kurs {item.get('price') or '-'} {item.get('currency') or ''} · rapportert P/E {item.get('reported_pe') or '-'} · normalisert P/E {item.get('normalized_pe') or '-'}")
-        y = line(y, f"Regnskapsdato {item.get('financial_date') or '-'} · alder {item.get('financial_age_days') if item.get('financial_age_days') is not None else '-'} dager")
-        y = line(y, f"ROCE median {item.get('roce_pct') if item.get('roce_pct') is not None else '-'}% · siste {item.get('roce_latest_pct') if item.get('roce_latest_pct') is not None else '-'}% · trend {item.get('roce_trend')}")
-        y = line(y, f"FCF positiv historikk: {round((item.get('fcf_positive_ratio') or 0)*100,1) if item.get('fcf_positive_ratio') is not None else '-'}% · siste FCF {item.get('free_cash_flow') if item.get('free_cash_flow') is not None else '-'}")
-        y -= 5
+        y = header(
+            f"{item.get('ticker')} - {item.get('name')}",
+            f"{item.get('country') or '-'} - {item.get('industry') or '-'} - policy {item.get('sector_policy') or 'STANDARD'}",
+        )
+        state = "good" if item.get("quality_evidence_ready") else "watch" if item.get("quality_state") in {"WATCH", "SECTOR_METRIC_REQUIRED"} else "bad"
+        if item.get("group") == "Attraktivt priset kandidat":
+            attractive_rank += 1
+            medal(44, y + 1, attractive_rank)
+            y = text(y, f"Pallplass {attractive_rank} - Aktiv: {item.get('group')} - kvalitetsstatus {item.get('quality_state')}", bold=True, size=9, x=58)
+        else:
+            dot(42, y - 1, state)
+            y = text(y, f"Aktiv: {item.get('group')} - kvalitetsstatus {item.get('quality_state')}", bold=True, size=9, x=50)
 
-        history = list(item.get("roce_history_pct") or [])
-        if history:
-            y = line(y, "ROCE-historikk (nyeste først)", bold=True)
-            left, chart_w, chart_h = 55, width - 100, 105
-            base = y - chart_h
-            low, high = min(history + [0]), max(history + [12])
-            span = max(1.0, high - low)
-            pdf.setStrokeColor(colors.grey)
-            pdf.line(left, base, left + chart_w, base)
-            threshold_y = base + (12 - low) / span * chart_h
-            pdf.setDash(3, 2); pdf.line(left, threshold_y, left + chart_w, threshold_y); pdf.setDash()
-            if len(history) == 1:
-                xs = [left + chart_w / 2]
-            else:
-                xs = [left + i * chart_w / (len(history)-1) for i in range(len(history))]
-            points = [(x, base + (value-low)/span*chart_h) for x, value in zip(xs, history)]
-            for a, b in zip(points, points[1:]):
-                pdf.line(a[0], a[1], b[0], b[1])
-            for idx, ((x, py), value) in enumerate(zip(points, history)):
-                pdf.circle(x, py, 2, stroke=1, fill=0)
-                pdf.setFont("Helvetica", 6); pdf.drawCentredString(x, base-10, f"t-{idx}"); pdf.drawCentredString(x, py+5, f"{value:.1f}%")
-            pdf.setFont("Helvetica", 6); pdf.drawRightString(left + chart_w, threshold_y + 2, "12% referanse")
-            y = base - 22
+        y = text(y, f"Kurs nå {item.get('price') or '-'} {item.get('currency') or ''} - P/E ved dagens kurs {item.get('reported_pe') or '-'} - forward P/E {item.get('forward_pe') or '-'}")
+        y = text(y, f"Normalisert P/E ved dagens kurs {item.get('normalized_pe') or '-'} - normalisert EPS {item.get('normalized_eps') or '-'}")
+        if item.get("entry_range_scenario"):
+            y = text(y, f"Scenarioverdi {item.get('fair_price_scenario')} - inngangsscenario {item.get('entry_range_scenario')} - SCENARIO, IKKE KURSMAL", bold=True)
+            peers = list(item.get("peer_tickers") or [])
+            peer_pe = list(item.get("peer_normalized_pe") or [])
+            if peers:
+                basis = ", ".join(f"{ticker}:{pe}" for ticker, pe in zip(peers, peer_pe))
+                y = text(y, f"Peer-median P/E {item.get('assumed_pe')} - peers ({len(peers)}): {basis}", size=7)
+        else:
+            y = text(y, "Ingen automatisk inngangsscenario for denne bransjepolicyen / utilstrekkelig peer-grunnlag.", size=7)
 
-        eps = list(item.get("annual_eps_history") or [])
-        fcf = list(item.get("free_cash_flow_history") or [])
+        if item.get("sector_policy") == "FINANCIAL":
+            trend_kind, trend_label = trend_state(item.get("roe_trend"))
+            arrow(43, y + 1, trend_kind)
+            y = text(y, f"ROE median {item.get('roe_pct') if item.get('roe_pct') is not None else '-'}% - siste {item.get('roe_latest_pct') if item.get('roe_latest_pct') is not None else '-'}% - retning {trend_label}", x=52)
+        else:
+            trend_kind, trend_label = trend_state(item.get("roce_trend"))
+            arrow(43, y + 1, trend_kind)
+            y = text(y, f"ROCE median {item.get('roce_pct') if item.get('roce_pct') is not None else '-'}% - siste {item.get('roce_latest_pct') if item.get('roce_latest_pct') is not None else '-'}% - retning {trend_label}", x=52)
+
+        y = text(y, f"Regnskapsdato {item.get('financial_date') or '-'} - alder {item.get('financial_age_days') if item.get('financial_age_days') is not None else '-'} dager")
+        y = text(y, f"FCF TTM/siste {_compact_number(item.get('free_cash_flow'))} - positiv års-historikk {round((item.get('fcf_positive_ratio') or 0)*100,1) if item.get('fcf_positive_ratio') is not None else '-'}%")
+        y = text(y, f"Metode: {item.get('capital_return_method') or '-'}", size=6.7)
+
         periods = list(item.get("fiscal_periods") or [])
-        y = line(y, f"Faktiske tilgjengelige regnskapsperioder: {periods or 'IKKE DOKUMENTERT'}")
-        y = chart(y, "EPS-historikk", eps, periods)
-        y = chart(y, "FCF-historikk", fcf, periods)
-        y = chart(y, "Driftsmargin", list(item.get("operating_margin_history") or []), periods, percent=True)
-        y = chart(y, "Gjeld", list(item.get("debt_history") or []), periods)
-        y = chart(y, "ROE (finans)", list(item.get("roe_history") or []), periods, percent=True)
-        y = line(y, "ROIC-historikk: IKKE DOKUMENTERT i nåværende providergrunnlag.")
-        y = line(y, "Kurs-historikk: IKKE DOKUMENTERT i denne rapportkjøringen.")
+        y = text(y, f"Faktiske tilgjengelige regnskapsperioder: {periods or 'IKKE DOKUMENTERT'}", size=6.7)
+        if item.get("sector_policy") == "FINANCIAL":
+            y = mini_chart(y, "ROE-historikk", list(item.get("roe_history") or []), periods, percent=True)
+        else:
+            y = mini_chart(y, "ROCE-historikk", list(item.get("roce_history_pct") or []), periods, percent=False)
+        y = mini_chart(y, "EPS-historikk", list(item.get("annual_eps_history") or []), periods)
+        y = mini_chart(y, "FCF års-historikk", list(item.get("free_cash_flow_history") or []), periods, compact=True)
+        y = mini_chart(y, "Driftsmargin", list(item.get("operating_margin_history") or []), periods, percent=True)
+        y = mini_chart(y, "Gjeld", list(item.get("debt_history") or []), periods, compact=True)
 
         v2 = shadow_by_ticker.get(str(item.get("ticker")), {})
-        y = line(y, "Quality Model V2 · SHADOW · ingen produksjonseffekt", bold=True, size=9)
-        y = line(y, f"V2 kvalitet {v2.get('quality_band') or '-'} · ROCE-trend {v2.get('roce_trend') or '-'} · FCF {v2.get('fcf_quality') or '-'}")
-        y = line(y, f"ROIC-WACC {v2.get('roic_minus_wacc_pct_points') if v2.get('roic_minus_wacc_pct_points') is not None else 'ikke dokumentert'} · moat {v2.get('moat_evidence') or 'NOT_DOCUMENTED'}")
-        for reason in v2.get("reasons") or []:
-            y = line(y, f"V2: {reason}")
-        y -= 5
-        y = line(y, "Advarsler / databegrensninger", bold=True)
-        for warning in item.get("warnings") or []:
-            y = line(y, f"- {warning}")
+        y = text(y, f"V2 shadow: kvalitet {v2.get('quality_band') or '-'} - FCF {v2.get('fcf_quality') or '-'} - moat {v2.get('moat_evidence') or 'NOT_DOCUMENTED'}", bold=True, size=7.5)
+        if v2.get("reasons"):
+            y = text(y, f"V2: {str((v2.get('reasons') or [''])[0])}", size=6.4)
+
+        warnings = list(item.get("warnings") or [])
+        y = text(y, f"Vurderingsårsak: {item.get('review_reason_category') or '-'}", bold=True, size=7.5)
+        for warning in warnings[:3]:
+            y = text(y, f"- {warning}", size=6.3)
+        if len(warnings) > 3:
+            y = text(y, f"... +{len(warnings) - 3} flere advarsler i diagnosefilen.", size=6.3)
 
     pdf.save()
     from pdf_mobile_return import add_pdf_return_links

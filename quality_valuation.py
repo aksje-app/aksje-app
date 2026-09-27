@@ -76,19 +76,55 @@ def relevant_prices(industry: str, *, verified_exposure: Mapping[str, Any] | Non
     matches = [names for word, names in PROXY_BY_INDUSTRY.items() if word in text]
     return list(dict.fromkeys(name for group in matches for name in group))[:5]
 
+def _sector_policy(raw: Mapping[str, Any]) -> str:
+    """Route quality evidence to metrics that fit the business model."""
+    text = " ".join((
+        str(raw.get("sector") or ""),
+        str(raw.get("industry") or ""),
+        str(raw.get("name") or ""),
+    )).lower()
+    if bool(raw.get("is_financial")) or any(word in text for word in (
+        "financial", "bank", "insurance", "forsik", "capital markets",
+        "asset management", "broker", "investment banking",
+    )):
+        return "FINANCIAL"
+    if any(word in text for word in (
+        "real estate", "reit", "property", "eiendom",
+    )):
+        return "REAL_ESTATE"
+    if any(word in text for word in (
+        "shipping", "marine", "oil", "gas", "energy", "metals", "mining",
+        "steel", "commodity", "tankers", "dry bulk", "offshore",
+    )):
+        return "CYCLICAL"
+    return "STANDARD"
+
+
+def _effective_financial_date(raw: Mapping[str, Any]) -> datetime | None:
+    direct = _date(raw.get("financial_date"))
+    if direct:
+        return direct
+    for value in raw.get("fiscal_periods") or []:
+        candidate = _date(value)
+        if candidate:
+            return candidate
+    return None
+
+
 
 def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None, as_of: datetime | None = None) -> dict[str, Any]:
-    """Active Quality v1.1: quality evidence first, valuation second."""
+    """Active Quality v1.2: sector-aware quality evidence first, valuation second."""
     now = as_of or datetime.now(timezone.utc)
     ticker = _safe_ticker(raw.get("ticker"))
     if not ticker:
         raise ValueError("Ugyldig ticker")
+    policy = _sector_policy(raw)
     price = _positive(raw.get("price"))
     annual_eps = [n for n in (_number(x) for x in (raw.get("annual_eps") or [])) if n is not None][:10]
     reported_eps = _positive(raw.get("trailing_eps"))
     forward_eps = _positive(raw.get("forward_eps"))
     normalized_eps = median(annual_eps[:5]) if len(annual_eps) >= 3 and median(annual_eps[:5]) > 0 else None
-    financial_date = _date(raw.get("financial_date"))
+    financial_date = _effective_financial_date(raw)
     financial_age = (now - financial_date).days if financial_date else None
     warnings: list[str] = list(raw.get("provider_warnings") or [])
 
@@ -102,26 +138,47 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
     fcf = _number(raw.get("free_cash_flow"))
     fcf_history = [n for n in (_number(x) for x in (raw.get("free_cash_flow_history") or [])) if n is not None][:10]
     fcf_positive_ratio = (sum(1 for n in fcf_history[:5] if n > 0) / len(fcf_history[:5])) if fcf_history else None
-    if fcf is None and not fcf_history:
-        warnings.append("Fri kontantstrøm mangler.")
-    elif fcf is not None and fcf <= 0:
-        warnings.append("Siste fri kontantstrøm er ikke positiv.")
-    if fcf_positive_ratio is not None and fcf_positive_ratio < 0.60:
-        warnings.append("Fri kontantstrøm har vært ustabil over historikken.")
+    if policy not in {"FINANCIAL", "REAL_ESTATE"}:
+        if fcf is None and not fcf_history:
+            warnings.append("Fri kontantstrøm mangler.")
+        elif fcf is not None and fcf <= 0:
+            warnings.append("Siste fri kontantstrøm er ikke positiv.")
+        if fcf_positive_ratio is not None and fcf_positive_ratio < 0.60:
+            warnings.append("Fri kontantstrøm har vært ustabil over historikken.")
 
     latest_roce = _number(raw.get("roce"))
     roce_history = [n for n in (_number(x) for x in (raw.get("roce_history") or [])) if n is not None][:10]
     median_roce = median(roce_history[:5]) if len(roce_history) >= 3 else latest_roce
-    if len(roce_history) < 3:
-        warnings.append("Kapitalavkastning over minst tre regnskapsår er ikke dokumentert.")
-    if median_roce is None:
-        warnings.append("Dokumentert kapitalavkastning (ROCE/ROACE) mangler.")
+    roe_history = [n for n in (_number(x) for x in (raw.get("roe_history") or [])) if n is not None][:10]
+    latest_roe = roe_history[0] if roe_history else None
+    median_roe = median(roe_history[:5]) if len(roe_history) >= 3 else latest_roe
 
     roce_trend = "IKKE_DOKUMENTERT"
     if len(roce_history) >= 3:
         older = median(roce_history[1:min(5, len(roce_history))])
         delta = roce_history[0] - older
         roce_trend = "FORBEDRENDE" if delta >= .02 else "SVEKKENDE" if delta <= -.02 else "STABIL"
+    roe_trend = "IKKE_DOKUMENTERT"
+    if len(roe_history) >= 3:
+        older = median(roe_history[1:min(5, len(roe_history))])
+        delta = roe_history[0] - older
+        roe_trend = "FORBEDRENDE" if delta >= .02 else "SVEKKENDE" if delta <= -.02 else "STABIL"
+
+    if policy == "FINANCIAL":
+        if len(roe_history) < 3:
+            warnings.append("Finansselskap: minst tre år med ROE-historikk er ikke dokumentert.")
+        if median_roe is None:
+            warnings.append("Finansselskap: dokumentert ROE mangler; industriell ROCE brukes ikke som erstatning.")
+    elif policy == "REAL_ESTATE":
+        ffo = _positive(raw.get("ffo_per_share") or raw.get("affo_per_share"))
+        nav = _positive(raw.get("nav_per_share"))
+        if not ffo and not nav:
+            warnings.append("Eiendom: FFO/AFFO eller NAV mangler. Vanlig P/E alene er ikke nok for kvalitets-/prisvurdering.")
+    else:
+        if len(roce_history) < 3:
+            warnings.append("Kapitalavkastning over minst tre regnskapsår er ikke dokumentert.")
+        if median_roce is None:
+            warnings.append("Dokumentert kapitalavkastning (ROCE/ROACE) mangler.")
         if roce_trend == "SVEKKENDE":
             warnings.append("Kapitalavkastningen er klart svakere enn nyere historikk.")
         elif roce_trend == "FORBEDRENDE":
@@ -130,7 +187,7 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
     pe_now = price / reported_eps if price and reported_eps else None
     pe_normal = price / normalized_eps if price and normalized_eps else None
     if pe_now and pe_normal and pe_normal > pe_now * 1.40:
-        warnings.append("Lav rapportert P/E kan skyldes uvanlig høy inntjening; normalisert P/E er betydelig høyere.")
+        warnings.append("Lav P/E ved dagens kurs kan skyldes uvanlig høy inntjening; normalisert P/E er betydelig høyere.")
 
     industry = str(raw.get("industry") or "Ukjent")
     proxies = relevant_prices(industry, verified_exposure=raw.get("verified_exposure"))
@@ -141,29 +198,67 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
     if multiple and not 4 <= multiple <= 40:
         raise ValueError("Valgt P/E-forutsetning må være mellom 4 og 40")
 
-    enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3
-                  and financial_age is not None and 0 <= financial_age <= 480)
-    latest_supports = latest_roce is not None and latest_roce >= .12
-    persistent_supports = median_roce is not None and median_roce >= .12
-    improving_supports = (roce_trend == "FORBEDRENDE" and latest_supports)
+    date_ok = financial_age is not None and 0 <= financial_age <= 480
     fcf_supports = ((fcf_positive_ratio is not None and fcf_positive_ratio >= .60)
                     or (fcf_positive_ratio is None and fcf is not None and fcf > 0))
-    quality_ok = bool(enough and fcf_supports and (persistent_supports or improving_supports))
 
-    if not enough:
-        quality_state = "INSUFFICIENT"
-    elif quality_ok and roce_trend == "FORBEDRENDE":
-        quality_state = "IMPROVING"
-    elif quality_ok and roce_trend == "SVEKKENDE":
-        quality_state = "QUALITY_WEAKENING"
-    elif quality_ok:
-        quality_state = "QUALITY"
-    elif median_roce is not None and median_roce >= .09:
-        quality_state = "WATCH"
+    review_reason_category = "QUALITY_WEAK"
+    capital_return_method = ""
+    if policy == "FINANCIAL":
+        enough = bool(price and normalized_eps and len(roe_history) >= 3 and median_roe is not None and date_ok)
+        improving = roe_trend == "FORBEDRENDE" and latest_roe is not None and latest_roe >= .12
+        quality_ok = bool(enough and ((median_roe is not None and median_roe >= .10) or improving))
+        quality_state = (
+            "INSUFFICIENT" if not enough else
+            "IMPROVING" if quality_ok and roe_trend == "FORBEDRENDE" else
+            "QUALITY_WEAKENING" if quality_ok and roe_trend == "SVEKKENDE" else
+            "QUALITY" if quality_ok else
+            "WATCH" if median_roe is not None and median_roe >= .08 else "WEAK"
+        )
+        capital_return_method = "Finans/forsikring vurderes med flerårig ROE; industriell ROCE og vanlig FCF er ikke kvalitetsporter."
+        review_reason_category = "MISSING_DATA" if not enough else "QUALITY_WEAK"
+    elif policy == "REAL_ESTATE":
+        ffo = _positive(raw.get("ffo_per_share") or raw.get("affo_per_share"))
+        nav = _positive(raw.get("nav_per_share"))
+        enough = bool(price and date_ok and (ffo or nav))
+        quality_ok = False
+        quality_state = "SECTOR_METRIC_REQUIRED" if not enough else "WATCH"
+        capital_return_method = "Eiendom krever FFO/AFFO og/eller NAV samt balanse/rentedekning; P/E alene brukes ikke som kvalitetssignal."
+        review_reason_category = "SECTOR_METRIC_REQUIRED"
+    elif policy == "CYCLICAL":
+        enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3 and date_ok)
+        latest_supports = latest_roce is not None and latest_roce >= .12
+        persistent_supports = median_roce is not None and median_roce >= .09
+        improving_supports = roce_trend == "FORBEDRENDE" and latest_supports
+        cyclical_fcf = ((fcf_positive_ratio is not None and fcf_positive_ratio >= .50)
+                        or (fcf_positive_ratio is None and fcf is not None and fcf > 0))
+        quality_ok = bool(enough and cyclical_fcf and (persistent_supports or improving_supports))
+        quality_state = (
+            "INSUFFICIENT" if not enough else
+            "IMPROVING" if quality_ok and roce_trend == "FORBEDRENDE" else
+            "QUALITY_WEAKENING" if quality_ok and roce_trend == "SVEKKENDE" else
+            "QUALITY" if quality_ok else
+            "WATCH" if median_roce is not None and median_roce >= .06 else "WEAK"
+        )
+        capital_return_method = "Syklisk/råvare vurderes på flerårig ROCE, FCF gjennom syklus og trend; 12% er ikke en absolutt diskvalifikasjonsgrense."
+        review_reason_category = "MISSING_DATA" if not enough else ("CYCLICAL_REVIEW" if not quality_ok else "")
     else:
-        quality_state = "WEAK"
+        enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3 and date_ok)
+        latest_supports = latest_roce is not None and latest_roce >= .12
+        persistent_supports = median_roce is not None and median_roce >= .12
+        improving_supports = roce_trend == "FORBEDRENDE" and latest_supports
+        quality_ok = bool(enough and fcf_supports and (persistent_supports or improving_supports))
+        quality_state = (
+            "INSUFFICIENT" if not enough else
+            "IMPROVING" if quality_ok and roce_trend == "FORBEDRENDE" else
+            "QUALITY_WEAKENING" if quality_ok and roce_trend == "SVEKKENDE" else
+            "QUALITY" if quality_ok else
+            "WATCH" if median_roce is not None and median_roce >= .09 else "WEAK"
+        )
+        capital_return_method = "Standardmodellen bruker siste og median ROCE/ROACE, trend og flerårig FCF."
+        review_reason_category = "MISSING_DATA" if not enough else "QUALITY_WEAK"
 
-    fair_price = round(normalized_eps * multiple, 2) if enough and multiple else None
+    fair_price = round(normalized_eps * multiple, 2) if quality_ok and normalized_eps and multiple and policy != "REAL_ESTATE" else None
     earnings_dispersion = (median([abs(value - normalized_eps) for value in annual_eps[:5]]) / normalized_eps) if normalized_eps else 0
     entry_buffer = max(.03, min(.15, earnings_dispersion)) if normalized_eps else None
 
@@ -177,18 +272,33 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         group = GROUPS[1]
     else:
         group = GROUPS[2]
-    if enough and multiple is None:
+    if enough and multiple is None and policy not in {"REAL_ESTATE", "CYCLICAL"}:
         warnings.append("Inngangsområde krever en begrunnet P/E-forutsetning; ingen kursgrense er beregnet.")
+    if policy == "CYCLICAL" and multiple is None:
+        warnings.append("Syklisk selskap: automatisk peer-P/E brukes ikke som eneste inngangsscenario; syklus/NAV må vurderes.")
+    if policy == "REAL_ESTATE":
+        warnings.append("Eiendom holdes til vurdering til sektorrelevante FFO/AFFO/NAV-data er dokumentert.")
+
+    valuation_method = {
+        "FINANCIAL": "Finans: normalisert EPS/P-E kan brukes som prisindikasjon, men kvalitet avgjøres med ROE-evidens.",
+        "REAL_ESTATE": "Eiendom: P/E alene er utilstrekkelig; FFO/AFFO/NAV kreves før inngangsscenario.",
+        "CYCLICAL": "Syklisk: normalisert EPS er støtteinformasjon; peer-P/E alene brukes ikke som inngangsscenario.",
+        "STANDARD": "Standard: kvalitet vurderes før pris; verdsettelse bruker normalisert EPS og eksplisitt/peer P/E.",
+    }[policy]
 
     return {
         "ticker": ticker, "name": str(raw.get("name") or ticker)[:100],
         "country": str(raw.get("country") or "Ukjent")[:80], "industry": industry[:100],
         "currency": str(raw.get("currency") or "")[:8], "price": price,
+        "sector_policy": policy, "review_reason_category": review_reason_category,
         "roce_pct": round(median_roce * 100, 1) if median_roce is not None else None,
         "roce_latest_pct": round(latest_roce * 100, 1) if latest_roce is not None else None,
         "roce_history_pct": [round(x * 100, 2) for x in roce_history],
-        "roce_trend": roce_trend, "quality_state": quality_state,
-        "capital_return_method": "V1.1 bruker både siste og median EBIT/(totale eiendeler-kortsiktig gjeld); trend kan hindre at femårsmedian skjuler forbedring/svekkelse.",
+        "roce_trend": roce_trend,
+        "roe_pct": round(median_roe * 100, 1) if median_roe is not None else None,
+        "roe_latest_pct": round(latest_roe * 100, 1) if latest_roe is not None else None,
+        "roe_trend": roe_trend, "quality_state": quality_state,
+        "capital_return_method": capital_return_method,
         "reported_pe": round(pe_now, 2) if pe_now else None,
         "forward_pe": round(price / forward_eps, 2) if price and forward_eps else None,
         "normalized_pe": round(pe_normal, 2) if pe_normal else None,
@@ -198,9 +308,9 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         "operating_margin_history": list(raw.get("operating_margin_history") or []),
         "debt_history": list(raw.get("debt_history") or []),
         "equity_history": list(raw.get("equity_history") or []),
-        "roe_history": list(raw.get("roe_history") or []),
+        "roe_history": roe_history,
         "sector": str(raw.get("sector") or "")[:100],
-        "is_financial": bool(raw.get("is_financial")),
+        "is_financial": policy == "FINANCIAL",
         "financial_date": financial_date.date().isoformat() if financial_date else None,
         "financial_age_days": financial_age, "free_cash_flow": fcf,
         "free_cash_flow_history": fcf_history, "fcf_positive_ratio": round(fcf_positive_ratio, 3) if fcf_positive_ratio is not None else None,
@@ -209,9 +319,9 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         "entry_buffer_pct": round(entry_buffer * 100, 1) if entry_buffer is not None else None,
         "group": group, "evidence_ready": bool(enough), "quality_evidence_ready": quality_ok, "warnings": warnings,
         "market_drivers": proxies, "verified_exposure": bool(raw.get("verified_exposure")),
-        "valuation_method": "Kvalitet vurderes før pris. Verdsettelse er separat scenario med normalisert EPS og eksplisitt P/E.",
+        "valuation_method": valuation_method,
         "source": str(raw.get("source") or "Ukjent")[:140], "provider_partial": bool(raw.get("provider_partial")),
-        "observed_at": now.isoformat(timespec="seconds"), "model_version": "quality_v1.1@1.1",
+        "observed_at": now.isoformat(timespec="seconds"), "model_version": "quality_v1.2@1.2",
     }
 
 def rank_results(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -225,29 +335,37 @@ def rank_results(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, 
 
 
 def add_peer_context(results: list[dict[str, Any]]) -> None:
-    """Use only 3+ other comparable, data-ready industry peers; no cross-sector fallback."""
+    """Use only 3+ comparable names and expose the exact peer basis."""
     for item in results:
-        if not item.get("evidence_ready") or item.get("assumed_pe") is not None:
+        if not item.get("quality_evidence_ready") or item.get("assumed_pe") is not None:
             continue
-        peers = [other["normalized_pe"] for other in results if other is not item
-                 and other.get("industry", "").casefold() == item.get("industry", "").casefold()
-                 and other.get("country", "Ukjent").casefold() == item.get("country", "Ukjent").casefold()
-                 and other.get("evidence_ready") and _positive(other.get("normalized_pe"))]
-        if len(peers) < 3:
+        if item.get("sector_policy") in {"CYCLICAL", "REAL_ESTATE"}:
+            item["warnings"].append("Automatisk peer-P/E er deaktivert for denne bransjepolicyen.")
+            continue
+        peer_rows = [other for other in results if other is not item
+                     and other.get("industry", "").casefold() == item.get("industry", "").casefold()
+                     and other.get("country", "Ukjent").casefold() == item.get("country", "Ukjent").casefold()
+                     and other.get("sector_policy") == item.get("sector_policy")
+                     and other.get("evidence_ready") and _positive(other.get("normalized_pe"))]
+        if len(peer_rows) < 3:
             item["warnings"].append("For få sammenlignbare selskaper til å beregne bransjebasert inngangsscenario.")
             continue
+        peers = [float(other["normalized_pe"]) for other in peer_rows]
         multiple = median(peers)
         eps = item.get("normalized_eps")
         fair = round(eps * multiple, 2)
-        # Peer screening is observational, not a verified intrinsic value.
         buffer = (item.get("entry_buffer_pct") or 3) / 100
         price = item.get("price") or 0
-        item.update(assumed_pe=round(multiple, 2), fair_price_scenario=fair,
-                    entry_range_scenario=[round(fair * (1 - buffer), 2), fair],
-                    group=(GROUPS[0] if price <= fair * (1 - buffer) else GROUPS[1] if price <= fair * 1.10 else GROUPS[2]),
-                    peer_count=len(peers), valuation_basis="Median P/E hos sammenlignbare aksjer i samme kjøring")
-        item["warnings"].append("Peer-scenario bygger på tredjeparts nøkkeltall; kontroll mot primærkilder kreves før varsling.")
-
+        item.update(
+            assumed_pe=round(multiple, 2), fair_price_scenario=fair,
+            entry_range_scenario=[round(fair * (1 - buffer), 2), fair],
+            group=(GROUPS[0] if price <= fair * (1 - buffer) else GROUPS[1] if price <= fair * 1.10 else GROUPS[2]),
+            peer_count=len(peers),
+            peer_tickers=[str(other.get("ticker") or "") for other in peer_rows],
+            peer_normalized_pe=[round(float(other["normalized_pe"]), 2) for other in peer_rows],
+            valuation_basis="Median normalisert P/E hos sammenlignbare aksjer i samme land/bransje/policy",
+        )
+        item["warnings"].append("Peer-scenario er en sammenligning, ikke kursmål; primærkilder må kontrolleres før varsling.")
 
 def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, Any]], *, assumed_pe: float | None = None,
                progress: Callable[[dict[str, Any]], None] | None = None, deadline_seconds: int = MAX_SECONDS,

@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.33c"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.33c Portable Report Package"
+APP_VERSION = "v19.22.0-rc16.33d"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.33d Sector-Aware Quality Reports"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.33b"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.33c"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -155,7 +155,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
         errors.append("Ugyldig versjonskontraktskjema")
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
-CHANGELOG = [
+CHANGELOG = [\n    "v19.22.0-rc16.33d: Sector-Aware Quality Reports. Adds financial/insurance ROE policy to the active quality model, explicit cyclical and real-estate routing, truthful review reasons, today-price P/E labels, peer-basis disclosure, compact graph formatting, podium/direction/status visuals, mobile durable share/print delivery, and screen-only PDF return controls that stay off printed output.",\n
     "v19.22.0-rc16.33c: Portable Report Package. Makes short/extended Quality PDFs and diagnosis explicit download/share artifacts, adds one ZIP control package containing both PDFs + diagnosis + manifest from the same run, and routes PDF return controls to Hovedsiden.",
     "v19.22.0-rc16.33b: Mobile Quality Workflow. Moves V2 Shadow above Super Portfolio, fixes V2 mobile metrics, adds direct Quality run access near the top of Overview, persists the latest manual Quality result independently of scheduled runs, adds a Hovedsiden return action, and separates risk warnings from data and valuation caveats.",
     "v19.22.0-rc16.33a: Quality V2 Oversight Completion. Adds visible V2 Shadow progress on Overview, durable 10/25/50 milestone evaluations, external Morningstar reference harness, dated multi-metric Quality PDF evidence, expanded diagnosis, financial-sector ROE policy, cyclical normalization flags, and repository-backed cross-chat release commitments.",
