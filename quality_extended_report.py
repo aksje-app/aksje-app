@@ -202,7 +202,7 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
 
     y = header(
         "Utvidet kvalitet og verdsettelse",
-        f"Generert {result.get('generated_at') or '-'} - aktiv quality_v1.2 - V2 shadow",
+        f"Generert {result.get('generated_at') or '-'} - aktiv quality_v1.3 - V2 shadow",
     )
     y = text(y, "Dokumentasjon av analysegrunnlaget. Scenario er sammenligning, ikke kursmål eller kjøpsordre.", bold=True)
     y = text(y, f"Marked: undersøkt {result.get('market_examined_count') or '-'} / {result.get('market_universe_count') or '-'} - full dekning: {'JA' if result.get('market_coverage_complete') else 'NEI'}")
@@ -247,17 +247,39 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
         y -= 12
         y = text(y, str(item.get("why_now") or ""), size=6.8)
         y = text(y, f"Sikkerhet i graden: {item.get('grade_confidence') or '-'} - {item.get('next_star_requirement') or ''}", size=6.4)
-        y = text(y, f"Kurs nå {item.get('price') or '-'} {item.get('currency') or ''} - P/E ved dagens kurs {item.get('reported_pe') or '-'} - forward P/E {item.get('forward_pe') or '-'}")
-        y = text(y, f"Normalisert P/E ved dagens kurs {item.get('normalized_pe') or '-'} - normalisert EPS {item.get('normalized_eps') or '-'}")
+
+        currency = item.get("currency") or ""
+        entry = item.get("entry_range_scenario") or []
+        entry_text = (
+            f"{entry[0]:.2f}-{entry[1]:.2f} {currency}"
+            if len(entry) >= 2 and all(isinstance(value, (int, float)) for value in entry[:2]) else "-"
+        )
+        y = text(y, "KURS / PRIS", bold=True, size=8.5)
+        y = text(y, f"Kurs nå: {float(item.get('price')):.2f} {currency}" if isinstance(item.get("price"), (int, float)) else "Kurs nå: -", size=7.8, x=46)
+        y = text(y, f"Scenarioverdi: {float(item.get('fair_price_scenario')):.2f} {currency}" if isinstance(item.get("fair_price_scenario"), (int, float)) else "Scenarioverdi: -", size=7.8, x=46)
+        y = text(y, f"Inngangsscenario: {entry_text}", size=7.8, x=46)
+        y = text(y, str(item.get("valuation_position_text") or "Scenarioavstand ikke beregnet."), bold=True, size=7.2, x=46)
+
+        y = text(y, "VERDSETTELSE - multipler, ikke aksjekurs", bold=True, size=8.5)
+        y = text(y, f"P/E ved dagens kurs: {item.get('reported_pe') if item.get('reported_pe') is not None else '-'}x - Forward P/E: {item.get('forward_pe') if item.get('forward_pe') is not None else '-'}x", size=7.6, x=46)
+        y = text(y, f"Normalisert P/E ved dagens kurs: {item.get('normalized_pe') if item.get('normalized_pe') is not None else '-'}x - Peer-median P/E: {item.get('assumed_pe') if item.get('assumed_pe') is not None else '-'}x", size=7.6, x=46)
+        y = text(y, f"Normalisert EPS: {item.get('normalized_eps') if item.get('normalized_eps') is not None else '-'}", size=7.2, x=46)
         if item.get("entry_range_scenario"):
-            y = text(y, f"Scenarioverdi {item.get('fair_price_scenario')} - inngangsscenario {item.get('entry_range_scenario')} - SCENARIO, IKKE KURSMAL", bold=True)
+            y = text(y, "SCENARIO - IKKE KURSMAL", bold=True, size=7.4)
             peers = list(item.get("peer_tickers") or [])
             peer_pe = list(item.get("peer_normalized_pe") or [])
             if peers:
-                basis = ", ".join(f"{ticker}:{pe}" for ticker, pe in zip(peers, peer_pe))
-                y = text(y, f"Peer-median P/E {item.get('assumed_pe')} - peers ({len(peers)}): {basis}", size=7)
+                basis = ", ".join(f"{ticker}:{pe}x" for ticker, pe in zip(peers, peer_pe))
+                thin = " - TYNT GRUNNLAG" if item.get("peer_basis_quality") == "THIN" else ""
+                y = text(y, f"Peers ({len(peers)}){thin}: {basis}", size=7)
         else:
             y = text(y, "Ingen automatisk inngangsscenario for denne bransjepolicyen / utilstrekkelig peer-grunnlag.", size=7)
+
+        previous = item.get("previous_comparison") if isinstance(item.get("previous_comparison"), Mapping) else {}
+        if previous.get("comparable"):
+            y = text(y, f"Siden forrige kjøring: stjerneendring {previous.get('star_delta') or 0:+d} - kvalitet {previous.get('quality_score_delta') or 0:+d} - prising {previous.get('valuation_score_delta') or 0:+d}", size=6.8)
+            if previous.get("group_changed"):
+                y = text(y, f"Gruppeendring: {previous.get('previous_group')} -> {item.get('group')}", size=6.8)
 
         if item.get("sector_policy") == "FINANCIAL":
             trend_kind, trend_label = trend_state(item.get("roe_trend"))

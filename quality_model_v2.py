@@ -65,6 +65,35 @@ def _dispersion(values: Sequence[float]) -> float | None:
     return round(mad / scale, 3)
 
 
+def _comparison_direction(v1_state: str, v2_band: str) -> str:
+    """Compare only documented quality states; missing evidence is not a downgrade."""
+    v1 = str(v1_state or "").upper()
+    v2 = str(v2_band or "").upper()
+    if v1 in {"INSUFFICIENT", "SECTOR_METRIC_REQUIRED", ""} or v2 in {"NOT_DOCUMENTED", ""}:
+        return "NOT_COMPARABLE"
+    v1_score = {
+        "WEAK": 1,
+        "WATCH": 2,
+        "QUALITY_WEAKENING": 3,
+        "QUALITY": 4,
+        "IMPROVING": 4,
+    }.get(v1)
+    v2_score = {
+        "WEAK": 1,
+        "WATCH": 2,
+        "STABLE_QUALITY": 4,
+        "IMPROVING": 4,
+        "STRONG": 5,
+    }.get(v2)
+    if v1_score is None or v2_score is None:
+        return "NOT_COMPARABLE"
+    if v2_score > v1_score:
+        return "V2_STRONGER"
+    if v2_score < v1_score:
+        return "V2_WEAKER"
+    return "SAME"
+
+
 def evaluate_shadow(raw: Mapping[str, Any], v11: Mapping[str, Any]) -> dict[str, Any]:
     """Evaluate evidence without changing the active V1.1 result."""
     roce = _series(raw.get("roce_history"), 10)
@@ -150,8 +179,11 @@ def evaluate_shadow(raw: Mapping[str, Any], v11: Mapping[str, Any]) -> dict[str,
     elif cyclical_normalization == "NOT_DOCUMENTED":
         reasons.append("Syklisk normalisering mangler minst tre sammenlignbare perioder med margin og FCF.")
     active_state = str(v11.get("quality_state") or "")
-    if quality_band in {"STRONG", "IMPROVING", "STABLE_QUALITY"} and active_state in {"WEAK", "INSUFFICIENT"}:
-        reasons.append("V2 ser sterkere eller forbedrende kapitalavkastning enn aktiv V1.1-status.")
+    comparison_direction = _comparison_direction(active_state, quality_band)
+    if comparison_direction == "V2_STRONGER":
+        reasons.append("V2 vurderer kvaliteten sterkere enn aktiv modell på dokumentert grunnlag.")
+    elif comparison_direction == "V2_WEAKER":
+        reasons.append("V2 vurderer kvaliteten svakere enn aktiv modell på dokumentert grunnlag.")
     if roce_trend == "WEAKENING":
         reasons.append("Nyeste kapitalavkastning er klart svakere enn nyere historikk.")
     if fcf_quality == "WEAK":
@@ -187,16 +219,16 @@ def evaluate_shadow(raw: Mapping[str, Any], v11: Mapping[str, Any]) -> dict[str,
         "moat_dimensions": moat_dimensions,
         "active_v11_group": v11.get("group"),
         "active_v11_quality_state": active_state,
+        "comparison_direction": comparison_direction,
         "reasons": reasons,
     }
 
 
 def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     items = [dict(row) for row in rows]
-    disagreements = [
-        row for row in items
-        if row.get("reasons") and any("V2 ser sterkere" in reason or "svakere" in reason for reason in row.get("reasons") or [])
-    ]
+    weaker = [row for row in items if row.get("comparison_direction") == "V2_WEAKER"]
+    stronger = [row for row in items if row.get("comparison_direction") == "V2_STRONGER"]
+    disagreements = weaker + stronger
     try:
         from quality_v2_benchmark import compare_reference
         benchmark = compare_reference(items)
@@ -208,6 +240,11 @@ def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "production_effect": False,
         "evaluated": len(items),
         "disagreement_count": len(disagreements),
+        "v2_weaker_count": len(weaker),
+        "v2_stronger_count": len(stronger),
+        "v2_weaker_tickers": [str(row.get("ticker") or "") for row in weaker if row.get("ticker")],
+        "v2_stronger_tickers": [str(row.get("ticker") or "") for row in stronger if row.get("ticker")],
+        "comparison_complete": len(disagreements) == len(weaker) + len(stronger),
         "strong_or_improving": sum(1 for row in items if row.get("quality_band") in {"STRONG", "IMPROVING"}),
         "weakening_count": sum(1 for row in items if row.get("roce_trend") == "WEAKENING"),
         "moat_documented_count": sum(1 for row in items if row.get("moat_evidence") == "DOCUMENTED"),

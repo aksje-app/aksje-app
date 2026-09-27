@@ -143,7 +143,43 @@ def _score_color(score: int) -> str:
     return GRADE_COLORS.get(max(1, min(5, int(score or 1))), GRADE_COLORS[1])
 
 
+def _apply_valuation_context(item: dict[str, Any]) -> None:
+    price = _positive(item.get("price"))
+    fair = _positive(item.get("fair_price_scenario"))
+    entry = item.get("entry_range_scenario") or []
+    low = _positive(entry[0]) if len(entry) >= 1 else None
+    high = _positive(entry[1]) if len(entry) >= 2 else None
+
+    item["price_vs_scenario_pct"] = round((price / fair - 1) * 100, 1) if price and fair else None
+    item["price_vs_entry_low_pct"] = round((price / low - 1) * 100, 1) if price and low else None
+    item["price_vs_entry_high_pct"] = round((price / high - 1) * 100, 1) if price and high else None
+    if not price or not fair:
+        item["valuation_position"] = "IKKE_BEREGNET"
+        item["valuation_position_text"] = "Scenarioavstand kan ikke beregnes med dokumentert grunnlag."
+        item["valuation_position_color"] = "#64748b"
+        return
+
+    distance = float(item["price_vs_scenario_pct"])
+    if low and high and price < low:
+        item["valuation_position"] = "UNDER_ENTRY_RANGE"
+        item["valuation_position_text"] = f"Dagens kurs er {abs(float(item['price_vs_entry_low_pct'])):.1f}% under nedre inngangsscenario."
+        item["valuation_position_color"] = "#16a34a"
+    elif low and high and low <= price <= high:
+        item["valuation_position"] = "INSIDE_ENTRY_RANGE"
+        item["valuation_position_text"] = "Dagens kurs ligger innenfor inngangsscenarioet."
+        item["valuation_position_color"] = "#16a34a"
+    elif distance <= 5:
+        item["valuation_position"] = "NEAR_SCENARIO"
+        item["valuation_position_text"] = f"Dagens kurs er {abs(distance):.1f}% {'under' if distance < 0 else 'over'} scenarioverdien."
+        item["valuation_position_color"] = "#d97706"
+    else:
+        item["valuation_position"] = "ABOVE_SCENARIO"
+        item["valuation_position_text"] = f"Dagens kurs er {distance:.1f}% over scenarioverdien."
+        item["valuation_position_color"] = "#ea580c" if distance <= 20 else "#dc2626"
+
+
 def _apply_grade(item: dict[str, Any]) -> None:
+    _apply_valuation_context(item)
     """Apply an explainable 1-5 quality/pricing grade without hiding evidence.
 
     Stars summarize the screen; they never replace the sector-specific method.
@@ -578,9 +614,12 @@ def add_peer_context(results: list[dict[str, Any]]) -> None:
             peer_count=len(peers),
             peer_tickers=[str(other.get("ticker") or "") for other in peer_rows],
             peer_normalized_pe=[round(float(other["normalized_pe"]), 2) for other in peer_rows],
+            peer_basis_quality="THIN" if len(peers) == 3 else "OK",
             valuation_basis="Median normalisert P/E hos sammenlignbare aksjer i samme land/bransje/policy",
         )
         item["warnings"].append("Peer-scenario er en sammenligning, ikke kursmål; primærkilder må kontrolleres før varsling.")
+        if len(peers) == 3:
+            item["warnings"].append("Peer-grunnlaget er tynt: scenarioet bygger på minimum tre sammenlignbare selskaper.")
         _apply_grade(item)
 
 def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, Any]], *, assumed_pe: float | None = None,
