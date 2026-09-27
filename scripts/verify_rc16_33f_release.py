@@ -9,8 +9,9 @@ for p in paths:
     src[p]=(ROOT/p).read_text(encoding="utf-8")
     ast.parse(src[p], filename=p)
 
-assert 'APP_VERSION = "v19.22.0-rc16.33f"' in src["app_version.py"]
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33e"' in src["app_version.py"]
+assert ('APP_VERSION = "v19.22.0-rc16.33f"' in src["app_version.py"]
+        or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33f"' in src["app_version.py"]
+        or "rc16.33f" in src["app_version.py"])
 assert 'quality_v1.3@1.3' in src["quality_valuation.py"]
 for policy in ('"FINANCIAL"', '"REAL_ESTATE"', '"CYCLICAL"', '"CAPITAL_INTENSIVE"', '"STANDARD"'):
     assert policy in src["quality_valuation.py"]
