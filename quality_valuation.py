@@ -178,6 +178,21 @@ def _apply_valuation_context(item: dict[str, Any]) -> None:
         item["valuation_position_color"] = "#ea580c" if distance <= 20 else "#dc2626"
 
 
+def _enforce_semantic_consistency(item: dict[str, Any]) -> None:
+    """Prevent user-facing group labels from contradicting the displayed quality score."""
+    try:
+        quality_score = int(item.get("quality_score") or 0)
+    except (TypeError, ValueError):
+        quality_score = 0
+    group = str(item.get("group") or "")
+    if quality_score and quality_score < 3 and group in {GROUPS[0], GROUPS[1]}:
+        item["group"] = "Ufullstendig / krever vurdering"
+        warnings = item.setdefault("warnings", [])
+        note = "Gruppen er nedjustert fordi kvalitetsscoren er under 3/5; kvalitetsselskap/kandidat ville vært selvmotsigende."
+        if note not in warnings:
+            warnings.append(note)
+
+
 def ensure_valuation_context(item: dict[str, Any]) -> dict[str, Any]:
     """Backfill scenario-distance fields for persisted rows from older releases."""
     _apply_valuation_context(item)
@@ -596,6 +611,7 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         "observed_at": now.isoformat(timespec="seconds"), "model_version": "quality_v1.3@1.3",
     }
     _apply_grade(result)
+    _enforce_semantic_consistency(result)
     return result
 
 def rank_results(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -644,6 +660,7 @@ def add_peer_context(results: list[dict[str, Any]]) -> None:
         if len(peers) == 3:
             item["warnings"].append("Peer-grunnlaget er tynt: scenarioet bygger på minimum tre sammenlignbare selskaper.")
         _apply_grade(item)
+        _enforce_semantic_consistency(item)
 
 def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, Any]], *, assumed_pe: float | None = None,
                progress: Callable[[dict[str, Any]], None] | None = None, deadline_seconds: int = MAX_SECONDS,

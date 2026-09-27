@@ -167,7 +167,7 @@ def _return_to_report_choices(st, return_to: str) -> None:
         st.rerun()
 
 
-def _render_in_app_file(st, artifact: dict, *, return_to: str) -> None:
+def _render_in_app_file(st, artifact: dict, *, return_to: str, static_url: str) -> None:
     """Keep diagnostic/package navigation inside Aurora until explicit download."""
     filename = str(artifact.get("filename") or "nedlasting")
     mime = str(artifact.get("mime") or "application/octet-stream")
@@ -205,16 +205,24 @@ def _render_in_app_file(st, artifact: dict, *, return_to: str) -> None:
         else:
             st.caption("ZIP-pakken er klar for nedlasting.")
 
-    st.download_button(
-        "Last ned / del fil",
-        data=data,
-        file_name=filename,
-        mime=mime,
-        key="public_file_download",
-        use_container_width=True,
-        type="primary",
+    safe_url = escape(str(static_url or ""), quote=True)
+    st.markdown(
+        '<a href="' + safe_url + '" target="_blank" rel="noopener noreferrer" '
+        'style="display:block;padding:.9rem;border:1px solid #2dd4bf;border-radius:.8rem;'
+        'background:#0f766e;color:white;text-decoration:none;font-weight:850;text-align:center">'
+        'Åpne / del fil i ny visning</a>',
+        unsafe_allow_html=True,
     )
-    st.caption("På iPhone kan delingsarket brukes etter nedlasting. Gå tilbake med knappen over før du åpner andre filer.")
+    st.caption("Appens rapportvalg blir stående i denne fanen. Lukk filvisningen eller bytt tilbake hit når du er ferdig.")
+    with st.expander("Direkte nedlasting", expanded=False):
+        st.download_button(
+            "Last ned fil",
+            data=data,
+            file_name=filename,
+            mime=mime,
+            key="public_file_download",
+            use_container_width=True,
+        )
 
 
 def render_public_report(st) -> bool:
@@ -229,7 +237,8 @@ def render_public_report(st) -> bool:
         if not artifact:
             st.error("Fillenken er ugyldig eller utløpt.")
             st.stop()
-        _render_in_app_file(st, artifact, return_to=return_to)
+        _, static_url = _hydrate_static_file(file_token, artifact)
+        _render_in_app_file(st, artifact, return_to=return_to, static_url=static_url)
         return True
 
     token = str(st.query_params.get("public_report_token") or "").strip()

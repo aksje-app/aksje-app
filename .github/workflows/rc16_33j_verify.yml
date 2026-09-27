@@ -1,0 +1,38 @@
+name: rc16.33j quality stabilization
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: |
+          python -m pip install --upgrade pip
+          pip install pytest reportlab pypdf pandas
+      - name: Historical release gates
+        env: {PYTHONPATH: .}
+        run: |
+          python scripts/verify_autonomi_commitments.py
+          python scripts/verify_rc16_33a_release.py
+          python scripts/verify_rc16_33b_release.py
+          python scripts/verify_rc16_33c_release.py
+          python scripts/verify_rc16_33d_release.py
+          python scripts/verify_rc16_33e_release.py
+          python scripts/verify_rc16_33f_release.py
+          python scripts/verify_rc16_33g_release.py
+          python scripts/verify_rc16_33h_release.py
+          python scripts/verify_rc16_33i_release.py
+      - name: Stabilization contract
+        env: {PYTHONPATH: .}
+        run: |
+          python scripts/verify_rc16_33j_release.py
+          pytest -q tests/test_rc16_33j_quality_stabilization.py tests/test_mobile_pdf_return_link.py
+      - name: Quality regression suite
+        env: {PYTHONPATH: .}
+        run: |
+          pytest -q tests/test_rc16_33d_sector_quality_mobile_reports.py tests/test_rc16_33e_current_shadow_counts.py tests/test_rc16_33f_star_grade_sector_robustness.py tests/test_rc16_33g_quality_report_ux.py tests/test_rc16_33h_quality_clarity_start_navigation.py tests/test_rc16_33i_quality_navigation_consistency.py tests/test_rc16_33j_quality_stabilization.py

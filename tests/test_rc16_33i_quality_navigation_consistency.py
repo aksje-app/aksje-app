@@ -85,7 +85,10 @@ def test_diagnosis_and_zip_stay_in_app_until_explicit_download():
     assert "st.download_button" in src
     assert "_return_to_report_choices" in src
     file_branch = src.split('file_token = str(st.query_params.get("public_file_token")', 1)[1]
-    assert "_render_in_app_file(st, artifact, return_to=return_to)" in file_branch
+    assert "_hydrate_static_file(file_token, artifact)" in file_branch
+    assert "_render_in_app_file(st, artifact, return_to=return_to, static_url=static_url)" in file_branch
+    assert 'target="_blank"' in src
+    assert "Appens rapportvalg blir stående i denne fanen." in src
 
 
 def test_mobile_bottom_nav_forces_one_horizontal_row():

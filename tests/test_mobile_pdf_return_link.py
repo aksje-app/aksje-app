@@ -22,22 +22,22 @@ def _pdf(page_count: int = 2) -> bytes:
     return output.getvalue()
 
 
-def test_single_screen_only_link_and_no_printed_button():
-    target = "https://aksje-app.onrender.com/?aa_nav=portfolio"
+def test_screen_only_return_link_on_every_page_and_no_printed_button():
+    target = "https://aksje-app.onrender.com/?aa_nav=quality_valuation&qv_reports=1"
     result = pdf_mobile_return.add_pdf_return_links(_pdf(), return_url=target)
     reader = PdfReader(BytesIO(result))
 
     assert len(reader.pages) == 2
-    assert all(pdf_mobile_return.RETURN_LABEL not in (page.extract_text() or "") for page in reader.pages)
-    assert len(reader.pages[0]["/Annots"]) == 2  # One visual label and one link.
-    assert "/Annots" not in reader.pages[1] or len(reader.pages[1]["/Annots"]) == 0
-    label, link = (item.get_object() for item in reader.pages[0]["/Annots"])
-    assert label["/Subtype"] == "/FreeText"
-    assert int(label["/F"]) & 4 == 0
-    assert label["/AP"]["/N"].get_object().get_data()
-    assert link["/Subtype"] == "/Link"
-    assert link["/A"]["/URI"] == target
-    assert int(link["/F"]) & 4 == 0  # PDF Print annotation flag is absent.
+    assert all("Tilbake til rapportvalg" not in (page.extract_text() or "") for page in reader.pages)
+    for page in reader.pages:
+        assert len(page["/Annots"]) == 2
+        label, link = (item.get_object() for item in page["/Annots"])
+        assert label["/Subtype"] == "/FreeText"
+        assert int(label["/F"]) & 4 == 0
+        assert label["/AP"]["/N"].get_object().get_data()
+        assert link["/Subtype"] == "/Link"
+        assert link["/A"]["/URI"] == target
+        assert int(link["/F"]) & 4 == 0
 
 
 def test_pdf_return_link_rejects_external_non_http_targets():
@@ -88,11 +88,14 @@ def test_report_delivery_shows_no_extra_return_button():
         label="Åpne PDF", mime="application/pdf", key="example", show_return=False,
     )
     assert "Tilbake til programmet" not in "\n".join(page.blocks)
-    assert public_report_ui._report_landing_actions("/app/static/reports/example.pdf").count(
-        "Tilbake til programmet"
-    ) == 1
+    landing = public_report_ui._report_landing_actions(
+        "/app/static/reports/example.pdf",
+        return_href="/?aa_nav=quality_valuation&qv_reports=1",
+        return_label="← Tilbake til rapportvalg",
+    )
+    assert landing.count("Tilbake til rapportvalg") == 1
 
 
 def test_mobile_pdf_return_release_has_new_canonical_version():
-    assert APP_VERSION == "v19.22.0-rc16.32t"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.32s"
+    assert APP_VERSION == "v19.22.0-rc16.33j"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33i"
