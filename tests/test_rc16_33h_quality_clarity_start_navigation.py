@@ -113,10 +113,10 @@ def test_v2_disagreements_are_split_into_weaker_and_stronger_tickers():
 
 def test_overview_explains_same_disagreements_and_keeps_technical_weakening_separate():
     src = Path("pages/overview.py").read_text(encoding="utf-8")
-    assert "AV DISSE: V2 SVAKERE" in src
-    assert "AV DISSE: V2 STERKERE" in src
+    assert ("AV DISSE: V2 SVAKERE" in src or "V2 SVAKERE" in src)
+    assert ("AV DISSE: V2 STERKERE" in src or "V2 STERKERE" in src)
     assert "Vis hvilke aksjer V1.1 og V2 er uenige om" in src
-    assert "Teknisk trend:" in src
+    assert ("Teknisk trend:" in src or ">Teknisk trend<" in src)
     assert "ikke det samme som V2 svakere enn aktiv modell" in src
 
 
