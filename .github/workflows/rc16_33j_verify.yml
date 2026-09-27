@@ -31,7 +31,7 @@ jobs:
         env: {PYTHONPATH: .}
         run: |
           python scripts/verify_rc16_33j_release.py
-          pytest -q tests/test_rc16_33j_quality_stabilization.py
+          pytest -q tests/test_rc16_33j_quality_stabilization.py tests/test_mobile_pdf_return_link.py
       - name: Quality regression suite
         env: {PYTHONPATH: .}
         run: |
