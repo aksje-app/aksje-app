@@ -64,11 +64,13 @@ def test_quality_pdf_return_annotation_targets_report_selector_and_is_nonprintin
     reader = PdfReader(BytesIO(pdf))
     annots = reader.pages[0].get("/Annots") or []
     assert annots
-    annotation = annots[0].get_object()
-    uri = str((annotation.get("/A") or {}).get("/URI") or "")
+    annotations = [item.get_object() for item in annots]
+    links = [item for item in annotations if str(item.get("/Subtype") or "") == "/Link"]
+    assert links
+    uri = str((links[0].get("/A") or {}).get("/URI") or "")
     assert "aa_nav=quality_valuation" in uri
     assert "qv_reports=1" in uri
-    assert int(annotation.get("/F", 0)) & 4 == 0
+    assert all(int(item.get("/F", 0)) & 4 == 0 for item in annotations)
 
 
 def test_old_ambiguous_primary_controls_removed_from_quality_ui():
