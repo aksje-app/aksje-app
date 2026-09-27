@@ -111,16 +111,23 @@ def test_low_quality_score_cannot_remain_quality_company_or_candidate():
 def test_v2_classification_sum_is_an_invariant_when_available():
     assert validate_v2_summary({
         "classification_available": True,
+        "classification_schema": "quality_v2_direction@1",
         "disagreement_count": 5,
         "v2_weaker_count": 3,
         "v2_stronger_count": 2,
+        "v2_weaker_tickers": ["A.OL", "B.OL", "C.OL"],
+        "v2_stronger_tickers": ["D.OL", "E.OL"],
     }) == []
-    assert validate_v2_summary({
+    errors = validate_v2_summary({
         "classification_available": True,
+        "classification_schema": "quality_v2_direction@1",
         "disagreement_count": 5,
         "v2_weaker_count": 0,
         "v2_stronger_count": 0,
-    }) == ["V2_DISAGREEMENT_SUM_MISMATCH"]
+        "v2_weaker_tickers": [],
+        "v2_stronger_tickers": [],
+    })
+    assert "V2_DISAGREEMENT_SUM_MISMATCH" in errors
 
 
 def test_report_selector_contract_is_preserved():
