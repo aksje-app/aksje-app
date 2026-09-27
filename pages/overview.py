@@ -195,6 +195,22 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     try:
         from quality_v2_shadow_store import load_shadow_state
         v2_shadow = load_shadow_state()
+        # Migration-safe current snapshot: older persisted shadow state used
+        # cumulative counters. Prefer the latest actual Quality run immediately,
+        # so 3 repeats of the same 8 disagreements still display 8, not 24.
+        try:
+            from quality_valuation_store import load_latest
+            latest_quality = load_latest()
+            latest_shadow = latest_quality.get("quality_v2_shadow") if isinstance(latest_quality, Mapping) else {}
+            if isinstance(latest_shadow, Mapping) and latest_shadow.get("shadow_only"):
+                v2_shadow = {
+                    **v2_shadow,
+                    "evaluated_companies": int(latest_shadow.get("evaluated") or 0),
+                    "disagreement_count": int(latest_shadow.get("disagreement_count") or 0),
+                    "weakening_count": int(latest_shadow.get("weakening_count") or 0),
+                }
+        except Exception:
+            pass
     except Exception:
         v2_shadow = {}
     st_module.markdown(
@@ -216,7 +232,7 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
         next_label = "Beslutning kreves nå" if decision_required else f"Neste evaluering: {next_point or '-'} komplette kjøringer"
         st_module.markdown(f'''<section class="aa-v2-shadow-card">
           <div><span class="aa-overline">QUALITY V2 · SHADOW</span><h3>{escape(status_label)}</h3><p>{escape(next_label)}</p></div>
-          <div class="aa-v2-shadow-facts"><span><b>{runs}</b><small>KJØRINGER</small></span><span><b>{evaluated}</b><small>VURDERT</small></span><span><b>{disagreements}</b><small>V1.1 ↔ V2 UENIGHET</small></span><span><b>{weakening}</b><small>SVEKKENDE</small></span></div>
+          <div class="aa-v2-shadow-facts"><span><b>{runs}</b><small>KJØRINGER</small></span><span><b>{evaluated}</b><small>VURDERT NÅ</small></span><span><b>{disagreements}</b><small>AKTIVE V1.1 ↔ V2 UENIGHETER</small></span><span><b>{weakening}</b><small>SVEKKENDE NÅ</small></span></div>
         </section>''', unsafe_allow_html=True)
     else:
         st_module.caption("Quality V2 Shadow: ingen komplette evalueringskjøringer registrert ennå.")

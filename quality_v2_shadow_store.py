@@ -76,9 +76,12 @@ def record_shadow_run(result: Mapping[str, Any]) -> dict[str, Any]:
     runs = int(state.get("complete_runs") or 0)
     if str(result.get("state") or "") == "COMPLETED":
         runs += 1
-    evaluated = int(state.get("evaluated_companies") or 0) + int(shadow.get("evaluated") or 0)
-    disagreements = int(state.get("disagreement_count") or 0) + int(shadow.get("disagreement_count") or 0)
-    weakening = int(state.get("weakening_count") or 0) + int(shadow.get("weakening_count") or 0)
+    current_evaluated = int(shadow.get("evaluated") or 0)
+    current_disagreements = int(shadow.get("disagreement_count") or 0)
+    current_weakening = int(shadow.get("weakening_count") or 0)
+    evaluated_observations = int(state.get("evaluated_observations_total") or state.get("evaluated_companies") or 0) + current_evaluated
+    disagreement_observations = int(state.get("disagreement_observations_total") or state.get("disagreement_count") or 0) + current_disagreements
+    weakening_observations = int(state.get("weakening_observations_total") or state.get("weakening_count") or 0) + current_weakening
 
     next_milestone = next((value for value in MILESTONES if runs < value), None)
     reached = max((value for value in MILESTONES if runs >= value), default=0)
@@ -93,9 +96,15 @@ def record_shadow_run(result: Mapping[str, Any]) -> dict[str, Any]:
     state = {
         "status": status,
         "complete_runs": runs,
-        "evaluated_companies": evaluated,
-        "disagreement_count": disagreements,
-        "weakening_count": weakening,
+        # User-facing/current-state counters: never accumulate the same company
+        # across repeated manual runs. The overview must answer "what disagrees now?".
+        "evaluated_companies": current_evaluated,
+        "disagreement_count": current_disagreements,
+        "weakening_count": current_weakening,
+        # Historical observation totals are retained only for diagnostics/audit.
+        "evaluated_observations_total": evaluated_observations,
+        "disagreement_observations_total": disagreement_observations,
+        "weakening_observations_total": weakening_observations,
         "last_run_at": result.get("generated_at") or datetime.now(timezone.utc).isoformat(),
         "last_run_state": result.get("state"),
         "last_run_key": result.get("run_key"),

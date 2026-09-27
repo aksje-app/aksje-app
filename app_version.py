@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.33d"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.33d Sector-Aware Quality Reports"
+APP_VERSION = "v19.22.0-rc16.33e"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.33e Current Shadow Counts"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.33c"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.33d"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.33e: Current Shadow Counts. Overview now shows current-run V2 evaluated, disagreement and weakening counts instead of cumulative repeat observations; historical observation totals remain diagnostic-only, with migration-safe fallback to the latest Quality run.",
     "v19.22.0-rc16.33d: Sector-Aware Quality Reports. Adds financial/insurance ROE policy to the active quality model, explicit cyclical and real-estate routing, truthful review reasons, today-price P/E labels, peer-basis disclosure, compact graph formatting, podium/direction/status visuals, mobile durable share/print delivery, and screen-only PDF return controls that stay off printed output.",
     "v19.22.0-rc16.33c: Portable Report Package. Makes short/extended Quality PDFs and diagnosis explicit download/share artifacts, adds one ZIP control package containing both PDFs + diagnosis + manifest from the same run, and routes PDF return controls to Hovedsiden.",
     "v19.22.0-rc16.33b: Mobile Quality Workflow. Moves V2 Shadow above Super Portfolio, fixes V2 mobile metrics, adds direct Quality run access near the top of Overview, persists the latest manual Quality result independently of scheduled runs, adds a Hovedsiden return action, and separates risk warnings from data and valuation caveats.",
