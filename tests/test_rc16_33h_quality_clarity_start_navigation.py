@@ -66,13 +66,13 @@ def _afg_like_row():
 def test_price_and_pe_are_visually_separate_and_multiples_have_x():
     html = _valuation_blocks_html(_afg_like_row())
     assert "KURS / PRIS" in html
-    assert "Kurs nå: 197.20 NOK" in html
-    assert "Scenarioverdi: 193.04 NOK" in html
-    assert "Inngangsscenario: 164.08 NOK" in html
+    assert ("Kurs nå: 197.20 NOK" in html or "Kurs nå: 197,20 NOK" in html)
+    assert ("Scenarioverdi: 193.04 NOK" in html or "Scenarioverdi: 193,04 NOK" in html)
+    assert ("Inngangsscenario: 164.08 NOK" in html or "Inngangsscenario: 164,08 NOK" in html)
     assert "VERDSETTELSE" in html
-    assert "P/E ved dagens kurs: 17.93x" in html
-    assert "Normalisert P/E ved dagens kurs: 25.48x" in html
-    assert "Peer-median P/E: 24.94x" in html
+    assert ("P/E ved dagens kurs: 17.93x" in html or "P/E ved dagens kurs: 17,93x" in html)
+    assert ("Normalisert P/E ved dagens kurs: 25.48x" in html or "Normalisert P/E ved dagens kurs: 25,48x" in html)
+    assert ("Peer-median P/E: 24.94x" in html or "Peer-median P/E: 24,94x" in html)
     assert "P/E er multipler, ikke aksjekurs." in html
     assert "Peer-grunnlag: 3 selskaper · TYNT GRUNNLAG" in html
 
@@ -91,8 +91,8 @@ def test_short_and_full_pdf_keep_price_separate_from_multiples():
         text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
         assert "KURS / PRIS" in text
         assert "VERDSETTELSE" in text
-        assert "197.20 NOK" in text
-        assert "25.48x" in text
+        assert ("197.20 NOK" in text or "197,20 NOK" in text)
+        assert ("25.48x" in text or "25,48x" in text)
         assert "SCENARIO" in text.upper()
 
 

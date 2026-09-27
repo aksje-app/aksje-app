@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from html import escape
 
-from quality_valuation import GROUPS, MAX_SYMBOLS, run_screen
+from quality_valuation import GROUPS, MAX_SYMBOLS, ensure_valuation_context, run_screen
 from quality_valuation_data import isolated_financial_snapshot, memory_budget_ok, observed_driver_prices
 from quality_valuation_store import load_latest_manual, persist_screen
 
@@ -169,6 +169,7 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
         page.drawString(40, y, _printable(f"{group} ({len(items)})"))
         y -= 17
         for item in items:
+            item = ensure_valuation_context(dict(item))
             if y < 125:
                 page.showPage()
                 y = heading("Kvalitet og verdsettelse", f"Run {result.get('run_key') or '-'}")
@@ -355,7 +356,7 @@ def _indicator_html(label: str, score: Any, color: str) -> str:
 def _multiple(value: Any) -> str:
     try:
         number = float(value)
-        return f"{number:.2f}x"
+        return f"{number:.2f}x".replace(".", ",")
     except (TypeError, ValueError):
         return "-"
 
@@ -363,7 +364,7 @@ def _multiple(value: Any) -> str:
 def _money(value: Any, currency: Any) -> str:
     try:
         number = float(value)
-        return f"{number:.2f} {str(currency or '').strip()}".strip()
+        return f"{number:.2f} {str(currency or '').strip()}".strip().replace(".", ",")
     except (TypeError, ValueError):
         return "-"
 
@@ -381,6 +382,7 @@ def _score_delta_label(value: Any) -> str:
 
 
 def _valuation_blocks_html(item: Mapping[str, Any]) -> str:
+    item = ensure_valuation_context(dict(item))
     currency = item.get("currency") or ""
     entry = item.get("entry_range_scenario") or []
     entry_text = "-"
