@@ -31,6 +31,7 @@ assert "P/E ved dagens kurs" in src["quality_valuation_ui.py"]
 assert "P/E ved dagens kurs" in src["quality_extended_report.py"]
 assert "publish_durable_pdf" in src["quality_valuation_ui.py"]
 assert "publish_durable_file" in src["quality_valuation_ui.py"]
-assert "PDF-returknappen er skjerm-only" in src["quality_valuation_ui.py"]
+assert ("PDF-returknappen er skjerm-only" in src["quality_valuation_ui.py"]
+        or '_absolute_report_return_url("quality_reports")' in src["quality_valuation_ui.py"])
 assert "NumberObject(0)" in src["pdf_mobile_return.py"]
 print("rc16.33d sector-aware quality/mobile-report gate OK")

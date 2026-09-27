@@ -227,7 +227,7 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
     page.save()
     from pdf_mobile_return import add_pdf_return_links
     from public_report_ui import _absolute_report_return_url
-    return add_pdf_return_links(buffer.getvalue(), return_url=_absolute_report_return_url("overview"))
+    return add_pdf_return_links(buffer.getvalue(), return_url=_absolute_report_return_url("quality_reports"))
 
 def diagnostic_document(result: Mapping[str, Any]) -> bytes:
     """Secret-free reproducibility/audit document for active and shadow quality models."""
@@ -336,6 +336,140 @@ def _indicator_html(label: str, score: Any, color: str) -> str:
     )
 
 
+def _quality_report_choice_cards(delivery: Mapping[str, Any]) -> str:
+    """Aurora-style report selector: text first, no decorative icon holders."""
+    choices = [
+        (
+            "Kort rapport",
+            "Rask oversikt over utvalgte aksjer, stjerner, prising og viktigste funn.",
+            f"/?public_report_token={delivery.get('short_pdf')}&return_to=quality_reports",
+            True,
+        ),
+    ]
+    if delivery.get("extended_pdf"):
+        choices.append((
+            "Full analyse",
+            "Detaljer, historikk, grafer og faglig grunnlag.",
+            f"/?public_report_token={delivery.get('extended_pdf')}&return_to=quality_reports",
+            False,
+        ))
+    choices.append((
+        "Diagnose",
+        "Teknisk kontrollgrunnlag og data for feilsøking.",
+        f"/?public_file_token={delivery.get('diagnosis')}&return_to=quality_reports",
+        False,
+    ))
+    if delivery.get("package"):
+        choices.append((
+            "Last ned alt",
+            "Kort rapport, full analyse, diagnose og manifest samlet i én kontrollpakke.",
+            f"/?public_file_token={delivery.get('package')}&return_to=quality_reports",
+            False,
+        ))
+
+    cards = []
+    for title, description, href, recommended in choices:
+        badge = (
+            '<span style="font-size:.72rem;font-weight:850;letter-spacing:.08em;color:#5eead4;'
+            'border:1px solid #2dd4bf;border-radius:999px;padding:.18rem .5rem">ANBEFALT</span>'
+            if recommended else ""
+        )
+        cards.append(
+            '<a href="' + escape(href, quote=True) + '" target="_self" '
+            'style="display:block;padding:1rem 1.05rem;border:1px solid #24445c;border-radius:.95rem;'
+            'background:linear-gradient(180deg,#0a1d2d,#071522);text-decoration:none;color:#f4fbff;'
+            'box-shadow:0 10px 24px rgba(0,0,0,.12)">'
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:.7rem">'
+            '<strong style="font-size:1.05rem">' + escape(title) + '</strong>' + badge + '</div>'
+            '<div style="margin-top:.35rem;color:#a8bdcc;font-size:.9rem;line-height:1.38">'
+            + escape(description) + '</div></a>'
+        )
+    return (
+        '<section data-testid="quality-report-choices" style="display:grid;gap:.72rem;margin:.65rem 0 1rem">'
+        '<a href="/?aa_nav=quality_valuation" target="_self" '
+        'style="display:inline-block;width:max-content;max-width:100%;padding:.55rem .78rem;'
+        'border:1px solid #2b7182;border-radius:.7rem;background:#0c2735;color:#e6f7fb;'
+        'text-decoration:none;font-weight:800">← Tilbake til Kvalitet</a>'
+        + "".join(cards) + '</section>'
+    )
+
+
+def _render_quality_report_choices(st: Any, result: Mapping[str, Any]) -> None:
+    st.markdown("#### Rapporter og deling")
+    st.caption("Velg hva du vil gjøre. Kort rapport er laget for rask lesing; full analyse viser hele grunnlaget.")
+
+    short_pdf = build_screen_pdf(result)
+    diagnosis = diagnostic_document(result)
+    extended_pdf = None
+    try:
+        from quality_extended_report import build_extended_analysis_pdf
+        extended_pdf = build_extended_analysis_pdf(result)
+    except Exception:
+        st.caption("Full analyse er midlertidig utilgjengelig. Kort rapport og diagnose kan fortsatt brukes.")
+
+    try:
+        from public_report_store import publish_durable_file, publish_durable_pdf
+
+        delivery_key = f"qv_delivery_{result.get('run_key') or result.get('generated_at') or 'latest'}"
+        delivery = st.session_state.get(delivery_key)
+        if not isinstance(delivery, dict):
+            report_id = str(result.get("report_id") or result.get("run_key") or "")
+            short_meta = {"report_id": report_id, "public_pdf_name": "kvalitet_verdsettelse.pdf"}
+            delivery = {
+                "short_pdf": publish_durable_pdf(short_meta, short_pdf),
+                "diagnosis": publish_durable_file(
+                    diagnosis,
+                    filename="kvalitet_verdsettelse_diagnose.json",
+                    mime="application/json",
+                    report_id=report_id,
+                ),
+            }
+            if extended_pdf is not None:
+                extended_meta = {"report_id": report_id, "public_pdf_name": "kvalitet_utvidet_analyse.pdf"}
+                delivery["extended_pdf"] = publish_durable_pdf(extended_meta, extended_pdf)
+            try:
+                from quality_report_package import build_manual_report_package
+                delivery["package"] = publish_durable_file(
+                    build_manual_report_package(result),
+                    filename="kvalitet_siste_manuelle_kjoring.zip",
+                    mime="application/zip",
+                    report_id=report_id,
+                )
+            except Exception:
+                pass
+            st.session_state[delivery_key] = delivery
+
+        st.markdown(_quality_report_choice_cards(delivery), unsafe_allow_html=True)
+    except Exception:
+        st.error("Rapportsiden kunne ikke publiseres akkurat nå.")
+        with st.expander("Reserve: direkte filer", expanded=False):
+            st.download_button(
+                "Kort rapport",
+                short_pdf,
+                "kvalitet_verdsettelse.pdf",
+                "application/pdf",
+                key="qv_pdf_fallback",
+                use_container_width=True,
+            )
+            if extended_pdf is not None:
+                st.download_button(
+                    "Full analyse",
+                    extended_pdf,
+                    "kvalitet_utvidet_analyse.pdf",
+                    "application/pdf",
+                    key="qv_extended_pdf_fallback",
+                    use_container_width=True,
+                )
+            st.download_button(
+                "Diagnose",
+                diagnosis,
+                "kvalitet_verdsettelse_diagnose.json",
+                "application/json",
+                key="qv_diagnosis_fallback",
+                use_container_width=True,
+            )
+
+
 def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, expanded: bool = False) -> None:
     with st.expander("Kvalitet, prising og inngangskurs · shadow", expanded=expanded):
         st.caption("Manuell observasjonsanalyse. Starter ingen handel og sender ikke Pushover. Finansdata må kontrolleres i selskapsrapporten.")
@@ -417,6 +551,10 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
         if not result:
             st.info("Ingen kvalitetsvurdering kjørt ennå.")
             return
+        report_choice_mode = str(st.query_params.get("qv_reports") or "").strip() == "1"
+        if report_choice_mode:
+            _render_quality_report_choices(st, result)
+            return
         if result.get("market_universe_count") is not None:
             st.info(
                 f"Markedsscreening: {int(result.get('market_examined_count') or 0)}/{int(result.get('market_universe_count') or 0)} undersøkt · "
@@ -476,80 +614,4 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                             icon, kind = _warning_kind(str(warning))
                             rendered.append(f"- {icon} **{kind}:** {warning}")
                         st.markdown("\n".join(rendered))
-        st.markdown("#### Rapporter og deling")
-        st.caption("Åpne rapportene via mobil filsiden. Appen blir tilgjengelig i bakgrunnen, og du får egen retur-, delings- og nedlastingsflyt.")
-        short_pdf = build_screen_pdf(result)
-        diagnosis = diagnostic_document(result)
-        extended_pdf = None
-        try:
-            from quality_extended_report import build_extended_analysis_pdf
-            extended_pdf = build_extended_analysis_pdf(result)
-        except Exception:
-            st.caption("Utvidet analyse-PDF er midlertidig utilgjengelig; kort PDF og diagnose er fortsatt tilgjengelig.")
-
-        try:
-            from public_report_store import publish_durable_file, publish_durable_pdf
-            delivery_key = f"qv_delivery_{result.get('run_key') or result.get('generated_at') or 'latest'}"
-            delivery = st.session_state.get(delivery_key)
-            if not isinstance(delivery, dict):
-                report_id = str(result.get("report_id") or result.get("run_key") or "")
-                short_meta = {"report_id": report_id, "public_pdf_name": "kvalitet_verdsettelse.pdf"}
-                delivery = {
-                    "short_pdf": publish_durable_pdf(short_meta, short_pdf),
-                    "diagnosis": publish_durable_file(
-                        diagnosis,
-                        filename="kvalitet_verdsettelse_diagnose.json",
-                        mime="application/json",
-                        report_id=report_id,
-                    ),
-                }
-                if extended_pdf is not None:
-                    extended_meta = {"report_id": report_id, "public_pdf_name": "kvalitet_utvidet_analyse.pdf"}
-                    delivery["extended_pdf"] = publish_durable_pdf(extended_meta, extended_pdf)
-                try:
-                    from quality_report_package import build_manual_report_package
-                    delivery["package"] = publish_durable_file(
-                        build_manual_report_package(result),
-                        filename="kvalitet_siste_manuelle_kjoring.zip",
-                        mime="application/zip",
-                        report_id=report_id,
-                    )
-                except Exception:
-                    pass
-                st.session_state[delivery_key] = delivery
-
-            st.link_button(
-                "📄 Åpne / del kort PDF",
-                f"/?public_report_token={delivery['short_pdf']}&return_to=overview",
-                width="stretch",
-            )
-            if delivery.get("extended_pdf"):
-                st.link_button(
-                    "📊 Åpne / del utvidet PDF",
-                    f"/?public_report_token={delivery['extended_pdf']}&return_to=overview",
-                    width="stretch",
-                )
-            st.link_button(
-                "🧾 Åpne / kopier diagnose",
-                f"/?public_file_token={delivery['diagnosis']}&return_to=overview",
-                width="stretch",
-            )
-            if delivery.get("package"):
-                st.link_button(
-                    "📦 Åpne / del komplett kontrollpakke",
-                    f"/?public_file_token={delivery['package']}&return_to=overview",
-                    width="stretch",
-                )
-                st.caption("Kontrollpakken inneholder kort PDF, utvidet PDF, diagnose og manifest fra nøyaktig samme run-id.")
-            st.caption("PDF-returknappen er skjerm-only og skal ikke komme med ved utskrift.")
-        except Exception:
-            st.warning("Mobil delingsside er midlertidig utilgjengelig. Bruk reserveknappene under.")
-            st.download_button("⬇ Reserve: kort PDF", short_pdf, "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf", use_container_width=True)
-            if extended_pdf is not None:
-                st.download_button("⬇ Reserve: utvidet PDF", extended_pdf, "kvalitet_utvidet_analyse.pdf", "application/pdf", key="qv_extended_pdf", use_container_width=True)
-            st.download_button("⬇ Reserve: diagnose", diagnosis, "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis", use_container_width=True)
-        st.caption("Siste manuelle kjøring er lagret og kan åpnes igjen etter at du har vært på andre sider.")
-        if st.button("⌂ Hovedsiden", key="qv_home", use_container_width=True, type="primary"):
-            st.session_state["ai_control_center_last_applied_nav_v19016"] = ""
-            st.query_params["aa_nav"] = "overview"
-            st.rerun()
+        _render_quality_report_choices(st, result)

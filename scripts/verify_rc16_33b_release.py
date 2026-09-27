@@ -10,6 +10,7 @@ for path in paths:
 assert 'APP_VERSION = "v19.22.0-rc16.33b"' in src["app_version.py"] or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33b"' in src["app_version.py"] or "rc16.33b" in src["app_version.py"]
 assert src["pages/overview.py"].index("QUALITY V2 · SHADOW") < src["pages/overview.py"].index("SUPER PORTEFØLJE")
 assert "load_latest_manual" in src["quality_valuation_store.py"]
-assert "⌂ Hovedsiden" in src["quality_valuation_ui.py"]
+assert ("⌂ Hovedsiden" in src["quality_valuation_ui.py"]
+        or "← Tilbake til Kvalitet" in src["quality_valuation_ui.py"])
 assert "def _warning_kind" in src["quality_valuation_ui.py"]
 print("rc16.33b workflow gate OK")

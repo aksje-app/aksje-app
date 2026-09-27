@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.33f"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.33f Explainable Star Grade"
+APP_VERSION = "v19.22.0-rc16.33g"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.33g Quality Report UX"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.33e"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.33f"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.33g: Quality Report UX. Replaces ambiguous blue/white report controls with Aurora-style text cards, adds a report-selection return to Kvalitet, returns opened reports to the report selector, exposes a clear mobile print action, removes technical file paths from the normal report flow, and preserves non-printing PDF return annotations.",
     "v19.22.0-rc16.33f: Explainable Star Grade. Adds colored 1-5 star grading beside company identity, colored quality/pricing/trend/data indicators, exchange-country-currency identity, why-now/next-star explanations, capital-intensive sector routing, conservative bank/insurance/real-estate/cyclical evidence caps, and cross-sector robustness tests.",
     "v19.22.0-rc16.33e: Current Shadow Counts. Overview now shows current-run V2 evaluated, disagreement and weakening counts instead of cumulative repeat observations; historical observation totals remain diagnostic-only, with migration-safe fallback to the latest Quality run.",
     "v19.22.0-rc16.33d: Sector-Aware Quality Reports. Adds financial/insurance ROE policy to the active quality model, explicit cyclical and real-estate routing, truthful review reasons, today-price P/E labels, peer-basis disclosure, compact graph formatting, podium/direction/status visuals, mobile durable share/print delivery, and screen-only PDF return controls that stay off printed output.",
