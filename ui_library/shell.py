@@ -44,6 +44,7 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
     current=canonical_shell_route(route); status=status or {}
 
     def _navigate(target: str) -> None:
+        st_module.session_state["aa_mobile_more_open"] = False
         st_module.query_params["aa_nav"] = target
         try:
             st_module.rerun()

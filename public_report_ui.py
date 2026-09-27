@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from html import escape
 from pathlib import Path
+import io
+import json
+import zipfile
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import os
 
@@ -156,6 +159,64 @@ def _file_landing_actions(static_url: str, *, return_href: str, return_label: st
     )
 
 
+def _return_to_report_choices(st, return_to: str) -> None:
+    if st.button(_return_label(return_to), key="public_file_back", use_container_width=True):
+        st.query_params.clear()
+        for key, value in _return_query(return_to).items():
+            st.query_params[key] = value
+        st.rerun()
+
+
+def _render_in_app_file(st, artifact: dict, *, return_to: str) -> None:
+    """Keep diagnostic/package navigation inside Aurora until explicit download."""
+    filename = str(artifact.get("filename") or "nedlasting")
+    mime = str(artifact.get("mime") or "application/octet-stream")
+    data = bytes(artifact.get("data") or b"")
+    suffix = Path(filename).suffix.lower()
+
+    st.markdown("### Fil og diagnose")
+    st.caption("Du blir på denne siden til du selv velger å laste ned filen.")
+    _return_to_report_choices(st, return_to)
+
+    if suffix == ".json":
+        st.markdown("#### Diagnose")
+        try:
+            parsed = json.loads(data.decode("utf-8"))
+            pretty = json.dumps(parsed, ensure_ascii=False, indent=2)
+        except Exception:
+            pretty = data.decode("utf-8", errors="replace")
+        st.caption("Diagnosen kan leses og kopieres her uten å åpne en ekstern filviser.")
+        st.code(pretty, language="json")
+    elif suffix == ".txt":
+        st.markdown("#### Innhold")
+        st.code(data.decode("utf-8", errors="replace"))
+    elif suffix == ".zip":
+        st.markdown("#### Kontrollpakke")
+        names = []
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                names = archive.namelist()
+        except Exception:
+            names = []
+        if names:
+            st.caption("Pakken inneholder:")
+            for name in names[:20]:
+                st.markdown(f"- {escape(str(name))}")
+        else:
+            st.caption("ZIP-pakken er klar for nedlasting.")
+
+    st.download_button(
+        "Last ned / del fil",
+        data=data,
+        file_name=filename,
+        mime=mime,
+        key="public_file_download",
+        use_container_width=True,
+        type="primary",
+    )
+    st.caption("På iPhone kan delingsarket brukes etter nedlasting. Gå tilbake med knappen over før du åpner andre filer.")
+
+
 def render_public_report(st) -> bool:
     return_to = str(st.query_params.get("return_to") or "reports")
     return_href = _report_return_href(return_to)
@@ -164,24 +225,11 @@ def render_public_report(st) -> bool:
     file_token = str(st.query_params.get("public_file_token") or "").strip()
     if file_token:
         from public_report_store import load_public_file
-
         artifact = load_public_file(file_token)
         if not artifact:
             st.error("Fillenken er ugyldig eller utløpt.")
             st.stop()
-        _, static_url = _hydrate_static_file(file_token, artifact)
-        filename = str(artifact.get("filename") or "nedlasting")
-        st.markdown("### Filen er klar")
-        st.caption("Last ned filen, eller gå tilbake til rapportvalgene.")
-        st.markdown(
-            _file_landing_actions(
-                static_url,
-                return_href=return_href,
-                return_label=return_label,
-                filename=filename,
-            ),
-            unsafe_allow_html=True,
-        )
+        _render_in_app_file(st, artifact, return_to=return_to)
         return True
 
     token = str(st.query_params.get("public_report_token") or "").strip()
@@ -189,7 +237,6 @@ def render_public_report(st) -> bool:
         return False
 
     from public_report_store import load_public_pdf
-
     report = load_public_pdf(token)
     if not report:
         st.error("Rapportlenken er ugyldig eller utløpt.")
@@ -198,7 +245,7 @@ def render_public_report(st) -> bool:
     _, static_url = _hydrate_static_pdf(token, report)
 
     st.markdown("### Rapport")
-    st.caption("Les rapporten under, del den, skriv den ut eller gå tilbake til rapportvalgene.")
+    st.caption("Les rapporten i appen. Åpne/del PDF bare når du trenger systemets PDF-viser.")
     st.markdown(
         _report_landing_actions(
             static_url,

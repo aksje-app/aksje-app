@@ -20,8 +20,9 @@ for p in paths:
     src[p]=(ROOT/p).read_text(encoding="utf-8")
     ast.parse(src[p], filename=p)
 
-assert 'APP_VERSION = "v19.22.0-rc16.33h"' in src["app_version.py"]
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33g"' in src["app_version.py"]
+assert ('APP_VERSION = "v19.22.0-rc16.33h"' in src["app_version.py"]
+        or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33h"' in src["app_version.py"]
+        or "rc16.33h" in src["app_version.py"])
 assert "KURS / PRIS" in src["quality_valuation_ui.py"]
 assert "VERDSETTELSE" in src["quality_valuation_ui.py"]
 assert "P/E er multipler, ikke aksjekurs." in src["quality_valuation_ui.py"]

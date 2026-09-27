@@ -113,6 +113,7 @@ def record_shadow_run(result: Mapping[str, Any]) -> dict[str, Any]:
         "v2_stronger_count": current_v2_stronger,
         "v2_weaker_tickers": current_v2_weaker_tickers,
         "v2_stronger_tickers": current_v2_stronger_tickers,
+        "classification_available": bool(shadow.get("classification_available", "v2_weaker_count" in shadow and "v2_stronger_count" in shadow)),
         "comparison_complete": (current_disagreements == current_v2_weaker + current_v2_stronger),
         "new_disagreement_tickers": new_disagreement_tickers,
         "resolved_disagreement_tickers": resolved_disagreement_tickers,

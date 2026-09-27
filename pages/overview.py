@@ -203,17 +203,25 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
             latest_quality = load_latest()
             latest_shadow = latest_quality.get("quality_v2_shadow") if isinstance(latest_quality, Mapping) else {}
             if isinstance(latest_shadow, Mapping) and latest_shadow.get("shadow_only"):
+                classification_available = bool(
+                    latest_shadow.get("classification_available",
+                                      "v2_weaker_count" in latest_shadow and "v2_stronger_count" in latest_shadow)
+                )
                 v2_shadow = {
                     **v2_shadow,
                     "evaluated_companies": int(latest_shadow.get("evaluated") or 0),
                     "disagreement_count": int(latest_shadow.get("disagreement_count") or 0),
                     "weakening_count": int(latest_shadow.get("weakening_count") or 0),
-                    "v2_weaker_count": int(latest_shadow.get("v2_weaker_count") or 0),
-                    "v2_stronger_count": int(latest_shadow.get("v2_stronger_count") or 0),
-                    "v2_weaker_tickers": list(latest_shadow.get("v2_weaker_tickers") or []),
-                    "v2_stronger_tickers": list(latest_shadow.get("v2_stronger_tickers") or []),
-                    "comparison_complete": bool(latest_shadow.get("comparison_complete", True)),
+                    "classification_available": classification_available,
                 }
+                if classification_available:
+                    v2_shadow.update({
+                        "v2_weaker_count": int(latest_shadow.get("v2_weaker_count") or 0),
+                        "v2_stronger_count": int(latest_shadow.get("v2_stronger_count") or 0),
+                        "v2_weaker_tickers": list(latest_shadow.get("v2_weaker_tickers") or []),
+                        "v2_stronger_tickers": list(latest_shadow.get("v2_stronger_tickers") or []),
+                        "comparison_complete": bool(latest_shadow.get("comparison_complete", False)),
+                    })
         except Exception:
             pass
     except Exception:
@@ -231,34 +239,65 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
         evaluated = int(v2_shadow.get("evaluated_companies") or 0)
         disagreements = int(v2_shadow.get("disagreement_count") or 0)
         weakening = int(v2_shadow.get("weakening_count") or 0)
-        v2_weaker = int(v2_shadow.get("v2_weaker_count") or 0)
-        v2_stronger = int(v2_shadow.get("v2_stronger_count") or 0)
-        weaker_tickers = [str(value) for value in (v2_shadow.get("v2_weaker_tickers") or []) if str(value)]
-        stronger_tickers = [str(value) for value in (v2_shadow.get("v2_stronger_tickers") or []) if str(value)]
-        comparison_complete = bool(v2_shadow.get("comparison_complete", disagreements == v2_weaker + v2_stronger))
-        new_tickers = [str(value) for value in (v2_shadow.get("new_disagreement_tickers") or []) if str(value)]
-        resolved_tickers = [str(value) for value in (v2_shadow.get("resolved_disagreement_tickers") or []) if str(value)]
+        classification_available = bool(v2_shadow.get("classification_available", False))
+        v2_weaker = int(v2_shadow.get("v2_weaker_count") or 0) if classification_available else 0
+        v2_stronger = int(v2_shadow.get("v2_stronger_count") or 0) if classification_available else 0
+        weaker_tickers = [str(value) for value in (v2_shadow.get("v2_weaker_tickers") or []) if str(value)] if classification_available else []
+        stronger_tickers = [str(value) for value in (v2_shadow.get("v2_stronger_tickers") or []) if str(value)] if classification_available else []
+        comparison_complete = bool(
+            classification_available
+            and v2_shadow.get("comparison_complete", disagreements == v2_weaker + v2_stronger)
+            and disagreements == v2_weaker + v2_stronger
+        )
+        unclassified = max(0, disagreements - v2_weaker - v2_stronger) if classification_available else disagreements
+        new_tickers = [str(value) for value in (v2_shadow.get("new_disagreement_tickers") or []) if str(value)] if comparison_complete else []
+        resolved_tickers = [str(value) for value in (v2_shadow.get("resolved_disagreement_tickers") or []) if str(value)] if comparison_complete else []
         next_point = v2_shadow.get("next_milestone")
         decision_required = bool(v2_shadow.get("decision_required"))
         status_label = "BESLUTNING KREVES" if decision_required else "SHADOW - INGEN PRODUKSJONSEFFEKT"
-        next_label = "Beslutning kreves nå" if decision_required else f"Neste evaluering: {next_point or '-'} komplette kjøringer"
-        consistency_note = (
-            f"{len(new_tickers)} nye · {len(resolved_tickers)} løst siden forrige kjøring"
-            if new_tickers or resolved_tickers else "Uendret mot forrige sammenlignbare kjøring"
-        )
-        if not comparison_complete:
-            consistency_note = "Uenighetene er ikke fullstendig klassifisert – se detaljene."
+        next_label = "Beslutning kreves nå" if decision_required else f"Neste milepæl: {next_point or '-'} komplette kjøringer"
+
+        if not classification_available or not comparison_complete:
+            consistency_note = (
+                f"{unclassified} aktive uenigheter er ikke klassifisert som V2 svakere/sterkere. "
+                "Ny kvalitetskjøring kreves."
+            )
+        elif new_tickers or resolved_tickers:
+            consistency_note = f"{len(new_tickers)} nye · {len(resolved_tickers)} løst siden forrige kjøring"
+        else:
+            consistency_note = "Uendret mot forrige sammenlignbare kjøring"
+
+        weaker_class = "tone-danger" if v2_weaker > 0 else "tone-neutral"
+        stronger_class = "tone-success" if v2_stronger > 0 else "tone-neutral"
+
+        if comparison_complete:
+            classification_cells = (
+                f'<span class="{weaker_class}"><b>{v2_weaker}</b><small>AV DISSE: V2 SVAKERE</small></span>'
+                f'<span class="{stronger_class}"><b>{v2_stronger}</b><small>AV DISSE: V2 STERKERE</small></span>'
+            )
+        else:
+            classification_cells = (
+                f'<span class="tone-neutral aa-v2-unclassified"><b>{unclassified}</b>'
+                '<small>IKKE KLASSIFISERT ENNÅ</small></span>'
+            )
+
         st_module.markdown(f'''<section class="aa-v2-shadow-card">
           <div><span class="aa-overline">QUALITY V2 · SHADOW</span><h3>{escape(status_label)}</h3><p>{escape(next_label)}</p><p>{escape(consistency_note)}</p></div>
-          <div class="aa-v2-shadow-facts"><span><b>{runs}</b><small>KJØRINGER</small></span><span><b>{evaluated}</b><small>VURDERT NÅ</small></span><span class="tone-watch"><b>{disagreements}</b><small>AKTIVE V1.1 ↔ V2 UENIGHETER</small></span><span class="tone-danger"><b>{v2_weaker}</b><small>AV DISSE: V2 SVAKERE</small></span><span class="tone-success"><b>{v2_stronger}</b><small>AV DISSE: V2 STERKERE</small></span></div>
+          <div class="aa-v2-shadow-facts"><span><b>{runs}</b><small>KJØRINGER</small></span><span><b>{evaluated}</b><small>VURDERT NÅ</small></span><span class="tone-watch"><b>{disagreements}</b><small>UENIGHETER NÅ</small></span>{classification_cells}</div>
         </section>''', unsafe_allow_html=True)
         with st_module.expander("Vis hvilke aksjer V1.1 og V2 er uenige om", expanded=False):
-            st_module.markdown(f"**V2 svakere ({v2_weaker}):** {escape(', '.join(weaker_tickers) if weaker_tickers else 'ingen')}")
-            st_module.markdown(f"**V2 sterkere ({v2_stronger}):** {escape(', '.join(stronger_tickers) if stronger_tickers else 'ingen')}")
-            if new_tickers:
-                st_module.caption("Nye uenigheter: " + ", ".join(new_tickers))
-            if resolved_tickers:
-                st_module.caption("Løst siden forrige kjøring: " + ", ".join(resolved_tickers))
+            if comparison_complete:
+                st_module.markdown(f"**V2 svakere ({v2_weaker}):** {escape(', '.join(weaker_tickers) if weaker_tickers else 'ingen')}")
+                st_module.markdown(f"**V2 sterkere ({v2_stronger}):** {escape(', '.join(stronger_tickers) if stronger_tickers else 'ingen')}")
+                if new_tickers:
+                    st_module.caption("Nye uenigheter: " + ", ".join(new_tickers))
+                if resolved_tickers:
+                    st_module.caption("Løst siden forrige kjøring: " + ", ".join(resolved_tickers))
+            else:
+                st_module.warning(
+                    f"{unclassified} uenigheter kommer fra en eldre/ufullstendig klassifisering. "
+                    "De kan ikke fordeles sikkert på svakere/sterkere før neste kvalitetskjøring."
+                )
             if weakening:
                 st_module.caption(f"Teknisk trend: {weakening} selskaper har svekkende kapitalavkastning. Dette er et eget mål og er ikke det samme som V2 svakere enn aktiv modell.")
     else:

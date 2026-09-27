@@ -31,6 +31,7 @@ def _compact_number(value: Any) -> str:
 
 
 def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
+    from quality_valuation import ensure_valuation_context
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
     from reportlab.lib import colors
@@ -222,6 +223,7 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
 
     attractive_rank = 0
     for item in rows:
+        item = ensure_valuation_context(dict(item))
         pdf.showPage()
         y = header(
             f"{item.get('ticker')} - {item.get('name')}",

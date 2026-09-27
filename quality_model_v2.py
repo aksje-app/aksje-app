@@ -244,6 +244,7 @@ def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "v2_stronger_count": len(stronger),
         "v2_weaker_tickers": [str(row.get("ticker") or "") for row in weaker if row.get("ticker")],
         "v2_stronger_tickers": [str(row.get("ticker") or "") for row in stronger if row.get("ticker")],
+        "classification_available": True,
         "comparison_complete": len(disagreements) == len(weaker) + len(stronger),
         "strong_or_improving": sum(1 for row in items if row.get("quality_band") in {"STRONG", "IMPROVING"}),
         "weakening_count": sum(1 for row in items if row.get("roce_trend") == "WEAKENING"),

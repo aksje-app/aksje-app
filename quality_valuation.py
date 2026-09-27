@@ -178,6 +178,12 @@ def _apply_valuation_context(item: dict[str, Any]) -> None:
         item["valuation_position_color"] = "#ea580c" if distance <= 20 else "#dc2626"
 
 
+def ensure_valuation_context(item: dict[str, Any]) -> dict[str, Any]:
+    """Backfill scenario-distance fields for persisted rows from older releases."""
+    _apply_valuation_context(item)
+    return item
+
+
 def _apply_grade(item: dict[str, Any]) -> None:
     _apply_valuation_context(item)
     """Apply an explainable 1-5 quality/pricing grade without hiding evidence.
@@ -271,6 +277,10 @@ def _apply_grade(item: dict[str, Any]) -> None:
 
     weighted = quality_score * .35 + valuation_score * .25 + trend_score * .20 + data_score * .20
     stars = max(1, min(cap, int(math.floor(weighted + .5))))
+    # A 5-star headline must never contradict a 1-3/5 subscore. The grade
+    # text promises simultaneously strong quality, valuation, trend and data.
+    if stars >= 5 and min(quality_score, valuation_score, trend_score, data_score) < 4:
+        stars = 4
     label = {5: "Svært sterk", 4: "Sterk", 3: "Middels", 2: "Svak", 1: "Svært svak"}[stars]
 
     weakest_name, weakest_score = min(
@@ -499,6 +509,19 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         )
         capital_return_method = "Standardmodellen bruker siste og median ROCE/ROACE, trend og flerårig FCF."
         review_reason_category = "MISSING_DATA" if not enough else "QUALITY_WEAK"
+
+    if quality_state in {"QUALITY", "IMPROVING"}:
+        review_reason_category = "QUALITY_CONFIRMED"
+    elif quality_state == "QUALITY_WEAKENING":
+        review_reason_category = "QUALITY_WEAKENING"
+    elif quality_state == "INSUFFICIENT":
+        review_reason_category = "MISSING_DATA"
+    elif quality_state == "SECTOR_METRIC_REQUIRED":
+        review_reason_category = "SECTOR_METRIC_REQUIRED"
+    elif quality_state == "WEAK":
+        review_reason_category = "QUALITY_WEAK"
+    elif quality_state == "WATCH" and not review_reason_category:
+        review_reason_category = "QUALITY_REVIEW"
 
     fair_price = round(normalized_eps * multiple, 2) if quality_ok and normalized_eps and multiple and policy != "REAL_ESTATE" else None
     earnings_dispersion = (median([abs(value - normalized_eps) for value in annual_eps[:5]]) / normalized_eps) if normalized_eps else 0

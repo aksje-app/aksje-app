@@ -22,5 +22,5 @@ assert "← Tilbake til rapportvalg" in src["public_report_ui.py"]
 assert "Skriv ut PDF" in src["public_report_ui.py"]
 assert "Del / åpne PDF" in src["public_report_ui.py"]
 assert "render_mobile_file_delivery" not in src["public_report_ui.py"]
-assert "st.code" not in src["public_report_ui.py"]
+assert ("st.code" not in src["public_report_ui.py"] or "_render_in_app_file" in src["public_report_ui.py"])
 print("rc16.33g quality-report-ux gate OK")
