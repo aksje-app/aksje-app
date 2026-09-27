@@ -123,6 +123,38 @@ def persist_screen(result: dict[str, Any]) -> str:
                 "new_attractive": sorted(new["Attraktivt priset kandidat"] - old["Attraktivt priset kandidat"]),
                 "lost_attractive": sorted(old["Attraktivt priset kandidat"] - new["Attraktivt priset kandidat"])}
                if comparable else {"comparable": False, "reason": "Første kjøring, andre aksjer, endret P/E-forutsetning eller ufullstendig kjøring"})
+    previous_rows = {
+        str(row.get("ticker") or ""): dict(row)
+        for rows in (previous.get("groups") or {}).values()
+        for row in (rows or [])
+        if isinstance(row, dict) and row.get("ticker")
+    }
+    for group_name, rows in (result.get("groups") or {}).items():
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            old_row = previous_rows.get(str(row.get("ticker") or ""))
+            if not old_row:
+                row["previous_comparison"] = {"comparable": False}
+                continue
+            row["previous_comparison"] = {
+                "comparable": comparable,
+                "previous_group": old_row.get("group"),
+                "previous_overall_stars": old_row.get("overall_stars"),
+                "star_delta": (
+                    int(row.get("overall_stars") or 0) - int(old_row.get("overall_stars") or 0)
+                    if row.get("overall_stars") is not None and old_row.get("overall_stars") is not None else None
+                ),
+                "quality_score_delta": (
+                    int(row.get("quality_score") or 0) - int(old_row.get("quality_score") or 0)
+                    if row.get("quality_score") is not None and old_row.get("quality_score") is not None else None
+                ),
+                "valuation_score_delta": (
+                    int(row.get("valuation_score") or 0) - int(old_row.get("valuation_score") or 0)
+                    if row.get("valuation_score") is not None and old_row.get("valuation_score") is not None else None
+                ),
+                "group_changed": str(old_row.get("group") or "") != str(group_name or ""),
+            }
     snapshot = {**result, "run_key": run_key, "changes": changes}
     # Only completed/partial bounded runs. A failed latest write leaves the
     # immutable run accessible in storage diagnostics, never a false success.

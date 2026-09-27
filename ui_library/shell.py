@@ -10,8 +10,8 @@ class ShellRoute:
     label: str
     module: str
 
-DESKTOP_ROUTES=(ShellRoute("overview","Oversikt","overview"),ShellRoute("portfolio","Porteføljer","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("autonomy","Autonomi","autonomy"),ShellRoute("reports","Rapporter","reports"),ShellRoute("operations","Drift","operations"))
-MOBILE_ROUTES=(ShellRoute("overview","Oversikt","overview"),ShellRoute("portfolio","Portefølje","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("alerts","Varsler","operations"),ShellRoute("more","Mer","overview"))
+DESKTOP_ROUTES=(ShellRoute("overview","Start","overview"),ShellRoute("portfolio","Porteføljer","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("autonomy","Autonomi","autonomy"),ShellRoute("reports","Rapporter","reports"),ShellRoute("operations","Drift","operations"))
+MOBILE_ROUTES=(ShellRoute("overview","Start","overview"),ShellRoute("portfolio","Portefølje","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("alerts","Varsler","operations"),ShellRoute("more","Mer","overview"))
 MORE_ROUTES=(
     ShellRoute("autonomy","Autonomi","autonomy"),
     ShellRoute("reports","Rapporter","reports"),

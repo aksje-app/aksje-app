@@ -79,6 +79,14 @@ def record_shadow_run(result: Mapping[str, Any]) -> dict[str, Any]:
     current_evaluated = int(shadow.get("evaluated") or 0)
     current_disagreements = int(shadow.get("disagreement_count") or 0)
     current_weakening = int(shadow.get("weakening_count") or 0)
+    current_v2_weaker = int(shadow.get("v2_weaker_count") or 0)
+    current_v2_stronger = int(shadow.get("v2_stronger_count") or 0)
+    current_v2_weaker_tickers = list(shadow.get("v2_weaker_tickers") or [])
+    current_v2_stronger_tickers = list(shadow.get("v2_stronger_tickers") or [])
+    previous_disagreement_tickers = set(state.get("v2_weaker_tickers") or []) | set(state.get("v2_stronger_tickers") or [])
+    current_disagreement_tickers = set(current_v2_weaker_tickers) | set(current_v2_stronger_tickers)
+    new_disagreement_tickers = sorted(current_disagreement_tickers - previous_disagreement_tickers)
+    resolved_disagreement_tickers = sorted(previous_disagreement_tickers - current_disagreement_tickers)
     evaluated_observations = int(state.get("evaluated_observations_total") or state.get("evaluated_companies") or 0) + current_evaluated
     disagreement_observations = int(state.get("disagreement_observations_total") or state.get("disagreement_count") or 0) + current_disagreements
     weakening_observations = int(state.get("weakening_observations_total") or state.get("weakening_count") or 0) + current_weakening
@@ -101,6 +109,13 @@ def record_shadow_run(result: Mapping[str, Any]) -> dict[str, Any]:
         "evaluated_companies": current_evaluated,
         "disagreement_count": current_disagreements,
         "weakening_count": current_weakening,
+        "v2_weaker_count": current_v2_weaker,
+        "v2_stronger_count": current_v2_stronger,
+        "v2_weaker_tickers": current_v2_weaker_tickers,
+        "v2_stronger_tickers": current_v2_stronger_tickers,
+        "comparison_complete": (current_disagreements == current_v2_weaker + current_v2_stronger),
+        "new_disagreement_tickers": new_disagreement_tickers,
+        "resolved_disagreement_tickers": resolved_disagreement_tickers,
         # Historical observation totals are retained only for diagnostics/audit.
         "evaluated_observations_total": evaluated_observations,
         "disagreement_observations_total": disagreement_observations,

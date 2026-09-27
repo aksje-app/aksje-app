@@ -44,5 +44,5 @@ def test_overview_labels_current_counts():
     src = open("pages/overview.py", encoding="utf-8").read()
     assert "VURDERT NÅ" in src
     assert "AKTIVE V1.1 ↔ V2 UENIGHETER" in src
-    assert "SVEKKENDE NÅ" in src
+    assert ("SVEKKENDE NÅ" in src or "AV DISSE: V2 SVAKERE" in src)
     assert "latest_shadow.get(\"disagreement_count\")" in src

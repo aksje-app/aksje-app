@@ -193,8 +193,20 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
             indicator(335, y + 1, "Data", item.get("data_score"))
             y -= 12
             y = write(y, str(item.get("why_now") or ""), size=6.7, x=52)
-            y = write(y, f"Kurs nå {item.get('price') or '-'} {item.get('currency') or ''} - P/E ved dagens kurs {item.get('reported_pe') or '-'} - forward P/E {item.get('forward_pe') or '-'}", size=7.6, x=52)
-            y = write(y, f"Normalisert P/E ved dagens kurs {item.get('normalized_pe') or '-'} - normalisert EPS {item.get('normalized_eps') or '-'}", size=7.6, x=52)
+            currency = item.get("currency") or ""
+            entry = item.get("entry_range_scenario") or []
+            entry_text = (
+                f"{entry[0]:.2f}–{entry[1]:.2f} {currency}"
+                if len(entry) >= 2 and all(isinstance(value, (int, float)) for value in entry[:2]) else "-"
+            )
+            y = write(y, "KURS / PRIS", font=bold, size=7.3, x=52)
+            y = write(y, f"Kurs nå: {float(item.get('price')):.2f} {currency}" if isinstance(item.get("price"), (int, float)) else "Kurs nå: -", size=7.4, x=58)
+            y = write(y, f"Scenarioverdi: {float(item.get('fair_price_scenario')):.2f} {currency}" if isinstance(item.get("fair_price_scenario"), (int, float)) else "Scenarioverdi: -", size=7.4, x=58)
+            y = write(y, f"Inngangsscenario: {entry_text}", size=7.4, x=58)
+            y = write(y, str(item.get("valuation_position_text") or "Scenarioavstand ikke beregnet."), font=bold, size=6.8, x=58)
+            y = write(y, "VERDSETTELSE (multipler, ikke aksjekurs)", font=bold, size=7.3, x=52)
+            y = write(y, f"P/E ved dagens kurs: {item.get('reported_pe') if item.get('reported_pe') is not None else '-'}x · Forward P/E: {item.get('forward_pe') if item.get('forward_pe') is not None else '-'}x", size=7.1, x=58)
+            y = write(y, f"Normalisert P/E ved dagens kurs: {item.get('normalized_pe') if item.get('normalized_pe') is not None else '-'}x · Peer-median P/E: {item.get('assumed_pe') if item.get('assumed_pe') is not None else '-'}x", size=7.1, x=58)
 
             policy = item.get("sector_policy") or "STANDARD"
             if policy == "FINANCIAL":
@@ -211,9 +223,10 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
                 y = write(y, f"ROCE median {item.get('roce_pct') if item.get('roce_pct') is not None else '-'}% - siste {item.get('roce_latest_pct') if item.get('roce_latest_pct') is not None else '-'}% - retning {direction}", size=7.4, x=64)
 
             if item.get("entry_range_scenario"):
-                y = write(y, f"Scenarioverdi {item.get('fair_price_scenario')} - inngangsscenario {item.get('entry_range_scenario')} - IKKE KURSMÅL", font=bold, size=7.4, x=52)
+                y = write(y, "Scenario er sammenligning - IKKE KURSMÅL", font=bold, size=7.1, x=52)
                 if item.get("peer_count"):
-                    y = write(y, f"Peer-median P/E {item.get('assumed_pe')} - peers {item.get('peer_count')}: {', '.join(item.get('peer_tickers') or [])}", size=6.8, x=52)
+                    thin = " - TYNT GRUNNLAG" if item.get("peer_basis_quality") == "THIN" else ""
+                    y = write(y, f"Peers {item.get('peer_count')}{thin}: {', '.join(item.get('peer_tickers') or [])}", size=6.8, x=52)
             else:
                 y = write(y, f"Scenario: ikke beregnet ({policy}-policy / utilstrekkelig sammenligningsgrunnlag).", size=6.8, x=52)
 
@@ -260,7 +273,10 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
         "roce_trend", "roe_pct", "roe_latest_pct", "roe_trend",
         "quality_evidence_ready", "evidence_ready", "assumed_pe",
         "fair_price_scenario", "entry_range_scenario", "entry_buffer_pct",
-        "peer_count", "peer_tickers", "peer_normalized_pe",
+        "peer_count", "peer_tickers", "peer_normalized_pe", "peer_basis_quality",
+        "price_vs_scenario_pct", "price_vs_entry_low_pct", "price_vs_entry_high_pct",
+        "valuation_position", "valuation_position_text", "valuation_position_color",
+        "previous_comparison",
         "valuation_method", "capital_return_method", "market_drivers",
         "verified_exposure", "source", "provider_partial", "warnings", "observed_at",
     )
@@ -333,6 +349,65 @@ def _indicator_html(label: str, score: Any, color: str) -> str:
         f'<span style="display:inline-block;margin:2px 8px 2px 0">'
         f'<span style="color:{safe_color};font-size:1.15em">●</span> '
         f'<b>{escape(label)}</b> {number}/5</span>'
+    )
+
+
+def _multiple(value: Any) -> str:
+    try:
+        number = float(value)
+        return f"{number:.2f}x"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _money(value: Any, currency: Any) -> str:
+    try:
+        number = float(value)
+        return f"{number:.2f} {str(currency or '').strip()}".strip()
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _score_delta_label(value: Any) -> str:
+    try:
+        delta = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if delta > 0:
+        return f"↑ +{delta}"
+    if delta < 0:
+        return f"↓ {delta}"
+    return "→ uendret"
+
+
+def _valuation_blocks_html(item: Mapping[str, Any]) -> str:
+    currency = item.get("currency") or ""
+    entry = item.get("entry_range_scenario") or []
+    entry_text = "-"
+    if len(entry) >= 2:
+        entry_text = f"{_money(entry[0], currency)} – {_money(entry[1], currency)}"
+    status_color = escape(str(item.get("valuation_position_color") or "#64748b"))
+    status_text = escape(str(item.get("valuation_position_text") or "Scenarioavstand ikke beregnet."))
+    peer_count = int(item.get("peer_count") or 0)
+    peer_note = ""
+    if peer_count:
+        thin = " · TYNT GRUNNLAG" if str(item.get("peer_basis_quality") or "") == "THIN" else ""
+        peer_note = f'<div class="qv-peer-note">Peer-grunnlag: {peer_count} selskaper{thin}</div>'
+    return (
+        '<div class="qv-value-grid">'
+        '<section class="qv-value-box qv-price-box"><span>KURS / PRIS</span>'
+        f'<strong>Kurs nå: {_money(item.get("price"), currency)}</strong>'
+        f'<div>Scenarioverdi: {_money(item.get("fair_price_scenario"), currency)}</div>'
+        f'<div>Inngangsscenario: {escape(entry_text)}</div>'
+        f'<b style="color:{status_color}">{status_text}</b>'
+        '</section>'
+        '<section class="qv-value-box qv-multiple-box"><span>VERDSETTELSE</span>'
+        f'<strong>P/E ved dagens kurs: {_multiple(item.get("reported_pe"))}</strong>'
+        f'<div>Forward P/E: {_multiple(item.get("forward_pe"))}</div>'
+        f'<div>Normalisert P/E ved dagens kurs: {_multiple(item.get("normalized_pe"))}</div>'
+        f'<div>Peer-median P/E: {_multiple(item.get("assumed_pe"))}</div>'
+        '<small>P/E er multipler, ikke aksjekurs.</small>'
+        + peer_note + '</section></div>'
     )
 
 
@@ -470,7 +545,26 @@ def _render_quality_report_choices(st: Any, result: Mapping[str, Any]) -> None:
             )
 
 
+def _inject_quality_card_css(st: Any) -> None:
+    st.markdown(
+        """
+        <style>
+        .qv-value-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;margin:.5rem 0 .7rem}
+        .qv-value-box{border:1px solid rgba(100,116,139,.34);border-radius:13px;padding:.75rem .85rem;background:rgba(8,23,38,.66)}
+        .qv-value-box>span{display:block;font-size:.68rem;font-weight:900;letter-spacing:.08em;color:#8fa4b6;margin-bottom:.35rem}
+        .qv-value-box>strong,.qv-value-box>div,.qv-value-box>b,.qv-value-box>small{display:block;margin:.16rem 0}
+        .qv-value-box>strong{font-size:.95rem;color:#f3f7fb}.qv-value-box>div{font-size:.83rem;color:#cbd5e1}
+        .qv-value-box>b{font-size:.8rem;margin-top:.38rem}.qv-value-box>small,.qv-peer-note{font-size:.72rem;color:#7fb4d5}
+        .qv-multiple-box{border-color:rgba(59,130,246,.34)}.qv-price-box{border-color:rgba(45,212,191,.28)}
+        @media(max-width:760px){.qv-value-grid{grid-template-columns:1fr}.qv-value-box{padding:.72rem}.qv-value-box>strong{font-size:.94rem}}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, expanded: bool = False) -> None:
+    _inject_quality_card_css(st)
     with st.expander("Kvalitet, prising og inngangskurs · shadow", expanded=expanded):
         st.caption("Manuell observasjonsanalyse. Starter ingen handel og sender ikke Pushover. Finansdata må kontrolleres i selskapsrapporten.")
         source = st.radio("Aksjer", ["Skriv tickere", "Bruk valgt markedsutvalg"], horizontal=True, key="qv_source")
@@ -595,12 +689,18 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                     st.caption(str(item.get("why_now") or ""))
                     metric_name = "ROE" if item.get("sector_policy") == "FINANCIAL" else "ROCE"
                     metric_value = item.get("roe_pct") if metric_name == "ROE" else item.get("roce_pct")
-                    st.write(
-                        f"Kurs {item.get('price') or '-'} {item.get('currency') or ''} · "
-                        f"{metric_name} {metric_value if metric_value is not None else '-'}% · "
-                        f"P/E ved dagens kurs {item.get('reported_pe') or '-'} · "
-                        f"normalisert P/E {item.get('normalized_pe') or '-'} · scenario {item.get('entry_range_scenario') or '-'}"
-                    )
+                    st.write(f"{metric_name}: {metric_value if metric_value is not None else '-'}%")
+                    st.markdown(_valuation_blocks_html(item), unsafe_allow_html=True)
+                    previous = item.get("previous_comparison") if isinstance(item.get("previous_comparison"), Mapping) else {}
+                    if previous.get("comparable"):
+                        star_change = _score_delta_label(previous.get("star_delta"))
+                        q_change = _score_delta_label(previous.get("quality_score_delta"))
+                        p_change = _score_delta_label(previous.get("valuation_score_delta"))
+                        group_change = (
+                            f" · gruppe: {previous.get('previous_group')} → {item.get('group')}"
+                            if previous.get("group_changed") else ""
+                        )
+                        st.caption(f"Siden forrige sammenlignbare kjøring: stjerner {star_change} · kvalitet {q_change} · prising {p_change}{group_change}")
                     st.caption(str(item.get("next_star_requirement") or ""))
                     if item.get("entry_range_scenario"):
                         st.write(
