@@ -65,8 +65,16 @@ def validate_v2_summary(summary: Mapping[str, Any]) -> list[str]:
     if available:
         weaker = int(summary.get("v2_weaker_count") or 0)
         stronger = int(summary.get("v2_stronger_count") or 0)
+        weaker_tickers = {str(v).strip().upper() for v in (summary.get("v2_weaker_tickers") or []) if str(v).strip()}
+        stronger_tickers = {str(v).strip().upper() for v in (summary.get("v2_stronger_tickers") or []) if str(v).strip()}
         if weaker + stronger != disagreements:
             errors.append("V2_DISAGREEMENT_SUM_MISMATCH")
+        if weaker != len(weaker_tickers) or stronger != len(stronger_tickers):
+            errors.append("V2_TICKER_COUNT_MISMATCH")
+        if weaker_tickers & stronger_tickers:
+            errors.append("V2_TICKER_DIRECTION_OVERLAP")
+        if not str(summary.get("classification_schema") or ""):
+            errors.append("V2_CLASSIFICATION_SCHEMA_MISSING")
     return errors
 
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.33j"
-APP_VERSION_NAME = "Investor Edition Release Candidate 16.33j Quality Stabilization"
+APP_VERSION = "v19.22.0-rc16.33k"
+APP_VERSION_NAME = "Investor Edition Release Candidate 16.33k V2 Panel Semantics"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.33i"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.33j"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.33k: V2 Panel Semantics. Version-locks V2 direction classification, compares new/lost/unchanged tickers only against a truly compatible prior snapshot, rejects duplicate/overlapping direction tickers, separates technical weakening from model disagreement, adds per-ticker reasons, and rebuilds the mobile detail panel for readable line spacing.",
     "v19.22.0-rc16.33j: Quality Stabilization. Centralizes the Quality deep-link contract, makes quality_valuation a verified report-return route, preserves the report selector when opening diagnosis/ZIP in a separate view, adds non-printing return annotations to every PDF page, prevents low-quality rows from remaining in quality/candidate groups, and introduces hard PASS/FAIL acceptance gates for routing and semantic invariants.",
     "v19.22.0-rc16.33i: Quality Navigation Consistency. Prevents legacy V2 disagreements from displaying as 5 = 0 + 0, marks unclassified legacy differences explicitly, keeps zero states neutral, repairs mobile bottom-navigation stacking, keeps diagnosis/ZIP inside Aurora until explicit download, backfills scenario-distance text in old stored reports, enforces coherent five-star subscores, and aligns review-reason codes with actual quality state.",
     "v19.22.0-rc16.33h: Quality Clarity and Start Navigation. Separates price/currency from P/E multiples in UI and PDFs, adds scenario-distance status and thin-peer warnings, compares star/quality/pricing movement with the previous comparable run, classifies active V1.1↔V2 disagreements as V2 weaker/stronger with tickers and new/resolved changes, and labels the direct startup-page navigation as Start on both mobile and desktop.",

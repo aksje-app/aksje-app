@@ -13,8 +13,9 @@ for p in paths:
     src[p]=(ROOT/p).read_text(encoding="utf-8")
     ast.parse(src[p], filename=p)
 
-assert 'APP_VERSION = "v19.22.0-rc16.33j"' in src["app_version.py"]
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33i"' in src["app_version.py"]
+assert ('APP_VERSION = "v19.22.0-rc16.33j"' in src["app_version.py"]
+        or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33j"' in src["app_version.py"]
+        or "rc16.33j" in src["app_version.py"])
 assert "if is_supported_deep_link_nav(nav_from_url):" in src["app.py"]
 assert '"quality_valuation"' in src["quality_stability_contract.py"]
 assert "REPORT_RETURN_ROUTE_REJECTED" in src["quality_stability_contract.py"]

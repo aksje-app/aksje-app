@@ -10,6 +10,7 @@ from statistics import median
 from typing import Any, Mapping, Sequence
 
 MODEL_VERSION = "quality_v2@2.0-shadow"
+CLASSIFICATION_SCHEMA = "quality_v2_direction@1"
 MILESTONES = (10, 25, 50)
 
 
@@ -234,18 +235,43 @@ def summarize_shadow(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         benchmark = compare_reference(items)
     except Exception:
         benchmark = {"production_effect": False, "state": "UNAVAILABLE"}
+    weaker_tickers = list(dict.fromkeys(str(row.get("ticker") or "") for row in weaker if row.get("ticker")))
+    stronger_tickers = list(dict.fromkeys(str(row.get("ticker") or "") for row in stronger if row.get("ticker")))
+    overlap = sorted(set(weaker_tickers) & set(stronger_tickers))
+    weaker_details = [
+        {
+            "ticker": str(row.get("ticker") or ""),
+            "reason": next((str(reason) for reason in (row.get("reasons") or []) if "svakere enn aktiv modell" in str(reason)), "V2 gir en svakere kvalitetsvurdering enn aktiv modell."),
+        }
+        for row in weaker if row.get("ticker")
+    ]
+    stronger_details = [
+        {
+            "ticker": str(row.get("ticker") or ""),
+            "reason": next((str(reason) for reason in (row.get("reasons") or []) if "sterkere enn aktiv modell" in str(reason)), "V2 gir en sterkere kvalitetsvurdering enn aktiv modell."),
+        }
+        for row in stronger if row.get("ticker")
+    ]
+    comparison_complete = (
+        len(disagreements) == len(weaker_tickers) + len(stronger_tickers)
+        and not overlap
+    )
     return {
         "model_version": MODEL_VERSION,
+        "classification_schema": CLASSIFICATION_SCHEMA,
         "shadow_only": True,
         "production_effect": False,
         "evaluated": len(items),
         "disagreement_count": len(disagreements),
-        "v2_weaker_count": len(weaker),
-        "v2_stronger_count": len(stronger),
-        "v2_weaker_tickers": [str(row.get("ticker") or "") for row in weaker if row.get("ticker")],
-        "v2_stronger_tickers": [str(row.get("ticker") or "") for row in stronger if row.get("ticker")],
+        "v2_weaker_count": len(weaker_tickers),
+        "v2_stronger_count": len(stronger_tickers),
+        "v2_weaker_tickers": weaker_tickers,
+        "v2_stronger_tickers": stronger_tickers,
+        "v2_weaker_details": weaker_details,
+        "v2_stronger_details": stronger_details,
         "classification_available": True,
-        "comparison_complete": len(disagreements) == len(weaker) + len(stronger),
+        "comparison_complete": comparison_complete,
+        "classification_errors": (["TICKER_IN_BOTH_DIRECTIONS"] if overlap else []),
         "strong_or_improving": sum(1 for row in items if row.get("quality_band") in {"STRONG", "IMPROVING"}),
         "weakening_count": sum(1 for row in items if row.get("roce_trend") == "WEAKENING"),
         "moat_documented_count": sum(1 for row in items if row.get("moat_evidence") == "DOCUMENTED"),
