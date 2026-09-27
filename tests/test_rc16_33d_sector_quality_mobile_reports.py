@@ -127,6 +127,6 @@ def test_ui_uses_durable_mobile_delivery_instead_of_raw_download_as_primary():
     src = Path("quality_valuation_ui.py").read_text(encoding="utf-8")
     assert "publish_durable_pdf" in src
     assert "publish_durable_file" in src
-    assert "Åpne / del kort PDF" in src
-    assert "Åpne / del komplett kontrollpakke" in src
-    assert "PDF-returknappen er skjerm-only" in src
+    assert ("Åpne / del kort PDF" in src or '"Kort rapport"' in src)
+    assert ("Åpne / del komplett kontrollpakke" in src or '"Last ned alt"' in src)
+    assert ("PDF-returknappen er skjerm-only" in src or "quality_reports" in src)

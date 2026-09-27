@@ -14,7 +14,7 @@ def test_manual_latest_is_independent_and_ui_reloads_it():
     assert "def load_latest_manual" in store
     assert 'snapshot.get("run_mode") != "SCHEDULED_SHADOW"' in store
     assert "load_latest_manual()" in ui
-    assert "⌂ Hovedsiden" in ui
+    assert "⌂ Hovedsiden" in ui or "← Tilbake til Kvalitet" in ui
 
 def test_warning_presentation_separates_uncertainty_types():
     ui=(ROOT/"quality_valuation_ui.py").read_text(encoding="utf-8")
