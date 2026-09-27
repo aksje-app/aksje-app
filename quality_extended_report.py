@@ -40,8 +40,10 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
     width, height = A4
 
     palette = {
+        "dark_green": colors.HexColor("#0b6b3a"),
         "green": colors.HexColor("#16a34a"),
         "yellow": colors.HexColor("#d97706"),
+        "orange": colors.HexColor("#ea580c"),
         "red": colors.HexColor("#dc2626"),
         "blue": colors.HexColor("#2563eb"),
         "grey": colors.HexColor("#64748b"),
@@ -95,6 +97,56 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
         pdf.setFillColor(colors.white)
         pdf.setFont("Helvetica-Bold", 7)
         pdf.drawCentredString(x, y - 2.5, str(rank))
+
+    def score_color(score: Any):
+        try:
+            score = max(1, min(5, int(score)))
+        except (TypeError, ValueError):
+            score = 1
+        return {
+            5: palette["dark_green"],
+            4: palette["green"],
+            3: palette["yellow"],
+            2: palette["orange"],
+            1: palette["red"],
+        }[score]
+
+    def star_path(cx: float, cy: float, radius: float):
+        import math
+        path = pdf.beginPath()
+        for index in range(10):
+            angle = -math.pi / 2 + index * math.pi / 5
+            current_radius = radius if index % 2 == 0 else radius * .45
+            x = cx + math.cos(angle) * current_radius
+            y = cy + math.sin(angle) * current_radius
+            if index == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+        path.close()
+        return path
+
+    def rating_stars(x: float, y: float, stars: Any) -> None:
+        try:
+            stars = max(1, min(5, int(stars)))
+        except (TypeError, ValueError):
+            stars = 1
+        active = score_color(stars)
+        for index in range(5):
+            pdf.setStrokeColor(active if index < stars else palette["grey"])
+            pdf.setFillColor(active if index < stars else colors.white)
+            pdf.drawPath(star_path(x + index * 14, y, 5.2), stroke=1, fill=1)
+
+    def indicator(x: float, y: float, label: str, score: Any) -> None:
+        try:
+            score = max(1, min(5, int(score)))
+        except (TypeError, ValueError):
+            score = 1
+        pdf.setFillColor(score_color(score))
+        pdf.circle(x, y + 2, 3.2, stroke=0, fill=1)
+        pdf.setFillColor(colors.black)
+        pdf.setFont("Helvetica", 6.8)
+        pdf.drawString(x + 7, y - 1, _safe(f"{label} {score}/5"))
 
     def trend_state(value: str) -> tuple[str, str]:
         value = str(value or "").upper()
@@ -162,6 +214,7 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
         ("STANDARD", "ROCE/ROACE + trend + flerårig FCF."),
         ("FINANCIAL", "ROE brukes; industriell ROCE/FCF er ikke kvalitetsporter."),
         ("CYCLICAL", "Flerårig ROCE/FCF gjennom syklus; peer-P/E alene brukes ikke."),
+        ("CAPITAL_INTENSIVE", "Lavere ROCE-referanse + flerårig FCF og trend for utility/telekom/infrastruktur."),
         ("REAL_ESTATE", "FFO/AFFO/NAV kreves; vanlig P/E alene er utilstrekkelig."),
     ):
         y = text(y, f"{policy}: {explanation}", size=8)
@@ -172,8 +225,12 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
         pdf.showPage()
         y = header(
             f"{item.get('ticker')} - {item.get('name')}",
-            f"{item.get('country') or '-'} - {item.get('industry') or '-'} - policy {item.get('sector_policy') or 'STANDARD'}",
+            f"{item.get('exchange') or 'Børs ikke dokumentert'} - {item.get('country') or '-'} - {item.get('currency') or '-'} - policy {item.get('sector_policy') or 'STANDARD'}",
         )
+        rating_stars(360, height - 41, item.get("overall_stars"))
+        pdf.setFillColor(score_color(item.get("overall_stars")))
+        pdf.setFont("Helvetica-Bold", 7.5)
+        pdf.drawString(435, height - 44, _safe(str(item.get("overall_grade_label") or ""))[:18])
         state = "good" if item.get("quality_evidence_ready") else "watch" if item.get("quality_state") in {"WATCH", "SECTOR_METRIC_REQUIRED"} else "bad"
         if item.get("group") == "Attraktivt priset kandidat":
             attractive_rank += 1
@@ -183,6 +240,13 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
             dot(42, y - 1, state)
             y = text(y, f"Aktiv: {item.get('group')} - kvalitetsstatus {item.get('quality_state')}", bold=True, size=9, x=50)
 
+        indicator(43, y + 1, "Kvalitet", item.get("quality_score"))
+        indicator(145, y + 1, "Prising", item.get("valuation_score"))
+        indicator(242, y + 1, "Trend", item.get("trend_score"))
+        indicator(330, y + 1, "Data", item.get("data_score"))
+        y -= 12
+        y = text(y, str(item.get("why_now") or ""), size=6.8)
+        y = text(y, f"Sikkerhet i graden: {item.get('grade_confidence') or '-'} - {item.get('next_star_requirement') or ''}", size=6.4)
         y = text(y, f"Kurs nå {item.get('price') or '-'} {item.get('currency') or ''} - P/E ved dagens kurs {item.get('reported_pe') or '-'} - forward P/E {item.get('forward_pe') or '-'}")
         y = text(y, f"Normalisert P/E ved dagens kurs {item.get('normalized_pe') or '-'} - normalisert EPS {item.get('normalized_eps') or '-'}")
         if item.get("entry_range_scenario"):
