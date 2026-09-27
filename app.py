@@ -79,6 +79,7 @@ from streamlit_autorefresh import st_autorefresh
 from app_version import get_app_build_label
 from app_core.context import build_renderer_context
 from services.service_registry import get_service_registry
+from quality_stability_contract import is_supported_deep_link_nav
 
 # v19.2.0 compatibility anchors for static safety and route audits.
 # UI implementation now lives in extracted modules; these markers preserve
@@ -9504,7 +9505,7 @@ def _apply_mobile_nav_query_v18646() -> None:
     if has_url_state_v18674c and not st.session_state.get("persistent_nav_bootstrap_done_v18661"):
         st.session_state["persistent_nav_bootstrap_done_v18661"] = True
         nav_from_url = str(url_state_v18674c.get("nav") or "").strip().lower()
-        if nav_from_url in {"dashboard", "analysis", "top_picks", "portfolio", "reports", "jobs", "jobber", "scheduler", "planlegger", "approvals", "godkjenninger", "alerts", "varsler", "operations", "drift", "driftssenter", "drift_center", "paper", "paper_trading", "papertrading", "long_engine", "ai", "autonomy", "autonomous", "autonomi", "fx_alerts", "currency_alerts", "valutavarsler", "settings", "innstillinger", "admin", "systemstatus", "system", "control_center"}:
+        if is_supported_deep_link_nav(nav_from_url):
             _apply_nav_target_v18658(nav_from_url)
         group_from_url = str(url_state_v18674c.get("group") or "").strip()
         panel_from_url = str(url_state_v18674c.get("panel") or "").strip()
