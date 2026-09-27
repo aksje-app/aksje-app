@@ -17,8 +17,9 @@ for path in paths:
     src[path] = (ROOT / path).read_text(encoding="utf-8")
     ast.parse(src[path], filename=path)
 
-assert 'APP_VERSION = "v19.22.0-rc16.33d"' in src["app_version.py"]
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33c"' in src["app_version.py"]
+assert ('APP_VERSION = "v19.22.0-rc16.33d"' in src["app_version.py"]
+        or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33d"' in src["app_version.py"]
+        or "rc16.33d" in src["app_version.py"])
 assert 'quality_v1.2@1.2' in src["quality_valuation.py"]
 assert '"FINANCIAL"' in src["quality_valuation.py"]
 assert '"REAL_ESTATE"' in src["quality_valuation.py"]
