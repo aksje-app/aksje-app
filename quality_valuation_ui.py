@@ -8,6 +8,7 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from html import escape
 
 from quality_valuation import GROUPS, MAX_SYMBOLS, run_screen
 from quality_valuation_data import isolated_financial_snapshot, memory_budget_ok, observed_driver_prices
@@ -37,8 +38,10 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
     page = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     palette = {
+        "dark_green": colors.HexColor("#0b6b3a"),
         "green": colors.HexColor("#16a34a"),
         "yellow": colors.HexColor("#d97706"),
+        "orange": colors.HexColor("#ea580c"),
         "red": colors.HexColor("#dc2626"),
         "blue": colors.HexColor("#2563eb"),
         "grey": colors.HexColor("#64748b"),
@@ -86,6 +89,56 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
             page.line(x + 4, y, x, y + 3)
             page.line(x + 4, y, x, y - 3)
 
+    def score_color(score: Any):
+        try:
+            score = max(1, min(5, int(score)))
+        except (TypeError, ValueError):
+            score = 1
+        return {
+            5: palette["dark_green"],
+            4: palette["green"],
+            3: palette["yellow"],
+            2: palette["orange"],
+            1: palette["red"],
+        }[score]
+
+    def star_path(cx: float, cy: float, radius: float):
+        import math
+        path = page.beginPath()
+        for index in range(10):
+            angle = -math.pi / 2 + index * math.pi / 5
+            current_radius = radius if index % 2 == 0 else radius * .45
+            x = cx + math.cos(angle) * current_radius
+            y = cy + math.sin(angle) * current_radius
+            if index == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+        path.close()
+        return path
+
+    def rating_stars(x: float, y: float, stars: Any) -> None:
+        try:
+            stars = max(1, min(5, int(stars)))
+        except (TypeError, ValueError):
+            stars = 1
+        active = score_color(stars)
+        for index in range(5):
+            page.setStrokeColor(active if index < stars else palette["grey"])
+            page.setFillColor(active if index < stars else colors.white)
+            page.drawPath(star_path(x + index * 14, y, 5.2), stroke=1, fill=1)
+
+    def indicator(x: float, y: float, label: str, score: Any) -> None:
+        try:
+            score = max(1, min(5, int(score)))
+        except (TypeError, ValueError):
+            score = 1
+        page.setFillColor(score_color(score))
+        page.circle(x, y + 2, 3.2, stroke=0, fill=1)
+        page.setFillColor(colors.black)
+        page.setFont(regular, 6.8)
+        page.drawString(x + 7, y - 1, _printable(f"{label} {score}/5"))
+
     def medal_icon(x: float, y: float, rank: int) -> None:
         if rank not in (1, 2, 3):
             return
@@ -127,7 +180,19 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
                 medal_icon(44, y + 1, rank)
             else:
                 dot(44, y - 1, state)
-            y = write(y, f"{label}{item.get('ticker')} - {item.get('name')}", font=bold, size=8.5, x=52)
+            name_text = f"{label}{item.get('ticker')} - {str(item.get('name') or '')[:44]}"
+            y = write(y, name_text, font=bold, size=8.5, x=52)
+            rating_stars(365, y + 11, item.get("overall_stars"))
+            page.setFillColor(score_color(item.get("overall_stars")))
+            page.setFont(bold, 7)
+            page.drawString(440, y + 8, _printable(str(item.get("overall_grade_label") or ""))[:20])
+            y = write(y, f"{item.get('exchange') or 'Børs ikke dokumentert'} - {item.get('country') or '-'} - {item.get('currency') or '-'}", size=7.2, x=52)
+            indicator(55, y + 1, "Kvalitet", item.get("quality_score"))
+            indicator(155, y + 1, "Prising", item.get("valuation_score"))
+            indicator(250, y + 1, "Trend", item.get("trend_score"))
+            indicator(335, y + 1, "Data", item.get("data_score"))
+            y -= 12
+            y = write(y, str(item.get("why_now") or ""), size=6.7, x=52)
             y = write(y, f"Kurs nå {item.get('price') or '-'} {item.get('currency') or ''} - P/E ved dagens kurs {item.get('reported_pe') or '-'} - forward P/E {item.get('forward_pe') or '-'}", size=7.6, x=52)
             y = write(y, f"Normalisert P/E ved dagens kurs {item.get('normalized_pe') or '-'} - normalisert EPS {item.get('normalized_eps') or '-'}", size=7.6, x=52)
 
@@ -181,8 +246,12 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
         retention = {"state": "UNAVAILABLE"}
 
     audit_fields = (
-        "ticker", "name", "country", "industry", "currency", "price", "group",
-        "quality_state", "model_version", "sector_policy", "review_reason_category",
+        "ticker", "name", "exchange", "country", "industry", "currency", "price", "group",
+        "quality_state", "model_version", "sector_policy", "sector_subtype", "review_reason_category",
+        "overall_stars", "overall_grade_label", "overall_grade_color", "quality_score", "quality_color",
+        "valuation_score", "valuation_color", "trend_score", "trend_color", "data_score", "data_color",
+        "grade_confidence", "why_now", "next_star_requirement", "grade_method",
+        "sector_specific_evidence", "cycle_valuation_evidence",
         "financial_date", "financial_age_days",
         "reported_pe", "forward_pe", "normalized_pe", "normalized_eps",
         "annual_eps_history", "fiscal_periods", "operating_margin_history", "debt_history",
@@ -208,7 +277,7 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
             "markets", "market_universe_count", "market_examined_count", "market_usable_count",
             "market_failed_count", "market_coverage_complete", "market_prescreen_stop_reason",
             "candidate_basis_generated_at", "candidate_basis_source", "prescreen_finalists", "holding_symbols")},
-        "active_quality_model": "quality_v1.2@1.2",
+        "active_quality_model": "quality_v1.3@1.3",
         "groups": {name: [{key: item.get(key) for key in audit_fields} for item in items]
                    for name, items in (result.get("groups") or {}).items()},
         "quality_v2_shadow": result.get("quality_v2_shadow") or {},
@@ -243,6 +312,28 @@ def _warning_kind(message: str) -> tuple[str, str]:
     if any(word in text for word in ("inngangsområde", "kursgrense", "p/e-forutsetning", "scenario")):
         return "◇", "Verdsettelse"
     return "⚠️", "Risiko/kvalitet"
+
+
+def _star_html(item: Mapping[str, Any]) -> str:
+    stars = max(1, min(5, int(item.get("overall_stars") or 1)))
+    color = escape(str(item.get("overall_grade_color") or "#64748b"))
+    return (
+        f'<span style="color:{color};font-weight:800;letter-spacing:1px">'
+        + ("★" * stars) + ("☆" * (5 - stars)) + "</span>"
+    )
+
+
+def _indicator_html(label: str, score: Any, color: str) -> str:
+    try:
+        number = max(1, min(5, int(score)))
+    except (TypeError, ValueError):
+        number = 1
+    safe_color = escape(str(color or "#64748b"))
+    return (
+        f'<span style="display:inline-block;margin:2px 8px 2px 0">'
+        f'<span style="color:{safe_color};font-size:1.15em">●</span> '
+        f'<b>{escape(label)}</b> {number}/5</span>'
+    )
 
 
 def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, expanded: bool = False) -> None:
@@ -349,12 +440,30 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
             visible = items if st.toggle("Vis alle", key=f"qv_all_{group}", value=False) else items[:5]
             for item in visible:
                 with st.container(border=True):
-                    st.markdown(f"**{item['ticker']} · {item['name']}**  \\n{item.get('country') or '-'} · {item.get('industry') or '-'}")
+                    st.markdown(
+                        f"<b>{escape(str(item['ticker']))} · {escape(str(item['name']))}</b> · "
+                        f"{_star_html(item)} <b>{escape(str(item.get('overall_grade_label') or ''))}</b><br>"
+                        f"<span style='color:#64748b'>{escape(str(item.get('exchange') or 'Børs ikke dokumentert'))} · "
+                        f"{escape(str(item.get('country') or '-'))} · {escape(str(item.get('currency') or '-'))}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        _indicator_html("Kvalitet", item.get("quality_score"), str(item.get("quality_color") or ""))
+                        + _indicator_html("Prising", item.get("valuation_score"), str(item.get("valuation_color") or ""))
+                        + _indicator_html("Trend", item.get("trend_score"), str(item.get("trend_color") or ""))
+                        + _indicator_html("Data", item.get("data_score"), str(item.get("data_color") or "")),
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(str(item.get("why_now") or ""))
+                    metric_name = "ROE" if item.get("sector_policy") == "FINANCIAL" else "ROCE"
+                    metric_value = item.get("roe_pct") if metric_name == "ROE" else item.get("roce_pct")
                     st.write(
                         f"Kurs {item.get('price') or '-'} {item.get('currency') or ''} · "
-                        f"ROCE {item.get('roce_pct') or '-'}% · P/E {item.get('reported_pe') or '-'} · "
+                        f"{metric_name} {metric_value if metric_value is not None else '-'}% · "
+                        f"P/E ved dagens kurs {item.get('reported_pe') or '-'} · "
                         f"normalisert P/E {item.get('normalized_pe') or '-'} · scenario {item.get('entry_range_scenario') or '-'}"
                     )
+                    st.caption(str(item.get("next_star_requirement") or ""))
                     if item.get("entry_range_scenario"):
                         st.write(
                             f"Grunnlag: {item.get('valuation_basis') or 'P/E-forutsetning valgt manuelt'} · "

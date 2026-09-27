@@ -27,6 +27,31 @@ def _annual_values(frame: Any, labels: tuple[str, ...]) -> list[float]:
     return []
 
 
+def _exchange_name(info: dict[str, Any], ticker: str) -> str:
+    raw = str(info.get("fullExchangeName") or info.get("exchange") or "").strip()
+    aliases = {
+        "OSL": "Oslo Børs",
+        "STO": "Nasdaq Stockholm",
+        "CPH": "Nasdaq Copenhagen",
+        "HEL": "Nasdaq Helsinki",
+        "NMS": "NASDAQ Global Select",
+        "NGM": "NASDAQ Global Market",
+        "NCM": "NASDAQ Capital Market",
+        "NYQ": "New York Stock Exchange",
+        "ASE": "NYSE American",
+        "PCX": "NYSE Arca",
+    }
+    if raw:
+        return aliases.get(raw.upper(), raw)
+    suffix = ticker.rpartition(".")[2].upper() if "." in ticker else ""
+    return {
+        "OL": "Oslo Børs",
+        "ST": "Nasdaq Stockholm",
+        "CO": "Nasdaq Copenhagen",
+        "HE": "Nasdaq Helsinki",
+    }.get(suffix, "")
+
+
 def _dated_values(frame: Any, labels: tuple[str, ...]) -> dict[str, float]:
     """Preserve fiscal dates so missing years cannot shift ROCE components."""
     if frame is None or getattr(frame, "empty", True):
@@ -146,6 +171,7 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "is_financial": is_financial,
         "roce": roce, "roce_history": [] if is_financial else roce_history[:10],
         "name": info.get("longName") or info.get("shortName") or ticker,
+        "exchange": _exchange_name(info, ticker),
         "country": info.get("country"), "currency": info.get("currency"),
         "industry": industry,
         # Sector-specific fields are passed through only when the provider
@@ -154,6 +180,10 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "ffo_per_share": info.get("ffoPerShare"),
         "affo_per_share": info.get("affoPerShare"),
         "nav_per_share": info.get("navPerShare"),
+        "cet1_ratio": info.get("cet1Ratio"),
+        "capital_ratio": info.get("capitalRatio"),
+        "combined_ratio": info.get("combinedRatio"),
+        "solvency_ratio": info.get("solvencyRatio"),
         "source": "Yahoo Finance: aksjekurs, selskapets regnskap og nøkkeltall",
         "provider_warnings": warnings,
         "provider_partial": bool(warnings),

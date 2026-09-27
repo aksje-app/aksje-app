@@ -76,8 +76,22 @@ def relevant_prices(industry: str, *, verified_exposure: Mapping[str, Any] | Non
     matches = [names for word, names in PROXY_BY_INDUSTRY.items() if word in text]
     return list(dict.fromkeys(name for group in matches for name in group))[:5]
 
+GRADE_COLORS = {
+    5: "#0b6b3a",  # mørk grønn
+    4: "#16a34a",  # grønn
+    3: "#d97706",  # gul/amber
+    2: "#ea580c",  # oransje
+    1: "#dc2626",  # rød
+}
+
+
 def _sector_policy(raw: Mapping[str, Any]) -> str:
-    """Route quality evidence to metrics that fit the business model."""
+    """Route quality evidence to metrics that fit the business model.
+
+    The policy deliberately avoids one universal ROCE/P-E template. Unknown
+    sectors fall back to STANDARD, while structurally different businesses are
+    routed before thresholds are applied.
+    """
     text = " ".join((
         str(raw.get("sector") or ""),
         str(raw.get("industry") or ""),
@@ -94,10 +108,180 @@ def _sector_policy(raw: Mapping[str, Any]) -> str:
         return "REAL_ESTATE"
     if any(word in text for word in (
         "shipping", "marine", "oil", "gas", "energy", "metals", "mining",
-        "steel", "commodity", "tankers", "dry bulk", "offshore",
+        "steel", "commodity", "tankers", "dry bulk", "offshore", "airline",
     )):
         return "CYCLICAL"
+    if any(word in text for word in (
+        "utilities", "electric utility", "regulated utility", "water utility",
+        "telecom services", "integrated telecom", "wireless telecom",
+        "railroad", "infrastructure",
+    )):
+        return "CAPITAL_INTENSIVE"
     return "STANDARD"
+
+
+def _financial_subtype(raw: Mapping[str, Any]) -> str:
+    text = " ".join((str(raw.get("sector") or ""), str(raw.get("industry") or ""), str(raw.get("name") or ""))).lower()
+    if "insurance" in text or "forsik" in text:
+        return "INSURANCE"
+    if "bank" in text:
+        return "BANK"
+    return "FINANCIAL_MARKETS"
+
+
+def _fallback_exchange(ticker: str) -> str:
+    suffix = ticker.rpartition(".")[2] if "." in ticker else ""
+    return {
+        "OL": "Oslo Børs",
+        "ST": "Nasdaq Stockholm",
+        "CO": "Nasdaq Copenhagen",
+        "HE": "Nasdaq Helsinki",
+    }.get(suffix, "")
+
+
+def _score_color(score: int) -> str:
+    return GRADE_COLORS.get(max(1, min(5, int(score or 1))), GRADE_COLORS[1])
+
+
+def _apply_grade(item: dict[str, Any]) -> None:
+    """Apply an explainable 1-5 quality/pricing grade without hiding evidence.
+
+    Stars summarize the screen; they never replace the sector-specific method.
+    Missing sector evidence caps the grade instead of being silently imputed.
+    """
+    policy = str(item.get("sector_policy") or "STANDARD")
+    quality_state = str(item.get("quality_state") or "")
+    roce = _number(item.get("roce_pct"))
+    roe = _number(item.get("roe_pct"))
+
+    if policy == "FINANCIAL":
+        level = (roe or 0) / 100
+        quality_score = 5 if level >= .20 else 4 if level >= .15 else 3 if level >= .10 else 2 if level >= .08 else 1
+        trend = str(item.get("roe_trend") or "")
+    elif policy == "CAPITAL_INTENSIVE":
+        level = (roce or 0) / 100
+        quality_score = 5 if level >= .12 else 4 if level >= .09 else 3 if level >= .07 else 2 if level >= .05 else 1
+        trend = str(item.get("roce_trend") or "")
+    elif policy == "CYCLICAL":
+        level = (roce or 0) / 100
+        quality_score = 5 if level >= .15 else 4 if level >= .10 else 3 if level >= .07 else 2 if level >= .05 else 1
+        trend = str(item.get("roce_trend") or "")
+    elif policy == "REAL_ESTATE":
+        quality_score = 3 if item.get("evidence_ready") else 1
+        trend = "IKKE_DOKUMENTERT"
+    else:
+        level = (roce or 0) / 100
+        quality_score = 5 if level >= .20 else 4 if level >= .12 else 3 if level >= .09 else 2 if level >= .06 else 1
+        trend = str(item.get("roce_trend") or "")
+
+    if quality_state == "INSUFFICIENT":
+        quality_score = min(quality_score, 2)
+    elif quality_state in {"WEAK", "SECTOR_METRIC_REQUIRED"}:
+        quality_score = min(quality_score, 2)
+    elif quality_state == "QUALITY_WEAKENING":
+        quality_score = min(quality_score, 4)
+
+    trend_upper = trend.upper()
+    trend_score = 5 if trend_upper in {"FORBEDRENDE", "IMPROVING"} else 3 if trend_upper in {"STABIL", "STABLE"} else 1 if trend_upper in {"SVEKKENDE", "WEAKENING"} else 2
+
+    price = _positive(item.get("price"))
+    fair = _positive(item.get("fair_price_scenario"))
+    if price and fair:
+        ratio = price / fair
+        valuation_score = 5 if ratio <= .75 else 4 if ratio <= .90 else 3 if ratio <= 1.05 else 2 if ratio <= 1.20 else 1
+    else:
+        normalized_pe = _positive(item.get("normalized_pe"))
+        reported_pe = _positive(item.get("reported_pe"))
+        # Without a valid comparable/sector scenario, absolute P/E is not
+        # rewarded as "cheap" across unrelated industries.
+        valuation_score = 3 if normalized_pe else 1
+        if normalized_pe and normalized_pe > 40:
+            valuation_score = 2
+        if normalized_pe and reported_pe and normalized_pe > reported_pe * 1.5:
+            valuation_score = min(valuation_score, 2)
+        if policy in {"CYCLICAL", "REAL_ESTATE"}:
+            valuation_score = min(valuation_score, 2 if not fair else valuation_score)
+
+    age = _number(item.get("financial_age_days"))
+    eps_years = len(item.get("annual_eps_history") or [])
+    return_years = len(item.get("roe_history") or []) if policy == "FINANCIAL" else len(item.get("roce_history_pct") or [])
+    data_score = 1
+    if price and age is not None and 0 <= age <= 480:
+        data_score = 2
+    if item.get("evidence_ready"):
+        data_score = 3
+    if item.get("evidence_ready") and eps_years >= 4 and return_years >= 4:
+        data_score = 4
+    if data_score >= 4 and age is not None and age <= 365 and not item.get("provider_partial"):
+        data_score = 5
+
+    cap = 5
+    subtype = str(item.get("sector_subtype") or "")
+    if policy == "FINANCIAL":
+        # ROE alone cannot establish bank capital adequacy or insurer
+        # underwriting/solvency. Keep the summary conservative until those
+        # sector metrics are explicitly documented.
+        sector_specific = bool(item.get("sector_specific_evidence"))
+        if not sector_specific:
+            data_score = min(data_score, 4)
+            cap = min(cap, 4)
+    if policy == "CYCLICAL" and not item.get("cycle_valuation_evidence"):
+        cap = min(cap, 4)
+    if policy == "REAL_ESTATE" and not item.get("sector_specific_evidence"):
+        data_score = min(data_score, 2)
+        cap = min(cap, 2)
+    if quality_state == "INSUFFICIENT":
+        cap = min(cap, 2)
+
+    weighted = quality_score * .35 + valuation_score * .25 + trend_score * .20 + data_score * .20
+    stars = max(1, min(cap, int(math.floor(weighted + .5))))
+    label = {5: "Svært sterk", 4: "Sterk", 3: "Middels", 2: "Svak", 1: "Svært svak"}[stars]
+
+    weakest_name, weakest_score = min(
+        (("kvalitet", quality_score), ("prising", valuation_score), ("trend", trend_score), ("datagrunnlag", data_score)),
+        key=lambda pair: pair[1],
+    )
+    next_text = {
+        "kvalitet": "For neste stjerne: sterkere og mer vedvarende sektorjustert kapitalavkastning.",
+        "prising": "For neste stjerne: bedre dokumentert prisingsmargin mot relevante sammenlignbare selskaper.",
+        "trend": "For neste stjerne: tydeligere stabilisering eller forbedring i kapitalavkastningen.",
+        "datagrunnlag": "For neste stjerne: mer komplett og ferskt sektortilpasset datagrunnlag.",
+    }[weakest_name]
+    if stars >= 5:
+        next_text = "5 stjerner krever at kvalitet, prising, trend og datagrunnlag samtidig forblir sterke."
+
+    reasons: list[str] = []
+    if trend_score == 5:
+        reasons.append("kapitalavkastningen forbedres")
+    elif trend_score == 3:
+        reasons.append("kapitalavkastningen er stabil")
+    if valuation_score >= 4:
+        reasons.append("prisingen har tydelig margin mot scenario")
+    if quality_score >= 4:
+        reasons.append("sektorjustert kvalitet er sterk")
+    if data_score >= 4:
+        reasons.append("datagrunnlaget er godt dokumentert")
+    if not reasons:
+        reasons.append("flere nøkkelforhold krever fortsatt dokumentasjon")
+    why_now = "Hvorfor nå: " + ", ".join(reasons[:3]) + "."
+
+    item.update({
+        "overall_stars": stars,
+        "overall_grade_label": label,
+        "overall_grade_color": _score_color(stars),
+        "quality_score": quality_score,
+        "quality_color": _score_color(quality_score),
+        "valuation_score": valuation_score,
+        "valuation_color": _score_color(valuation_score),
+        "trend_score": trend_score,
+        "trend_color": _score_color(trend_score),
+        "data_score": data_score,
+        "data_color": _score_color(data_score),
+        "grade_confidence": "HØY" if data_score >= 4 else "MIDDELS" if data_score == 3 else "LAV",
+        "why_now": why_now,
+        "next_star_requirement": next_text,
+        "grade_method": "1-5 stjerner: 35% sektorjustert kvalitet, 25% prising, 20% trend, 20% datagrunnlag; sektorbevis kan sette tak på graden.",
+    })
 
 
 def _effective_financial_date(raw: Mapping[str, Any]) -> datetime | None:
@@ -119,6 +303,7 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
     if not ticker:
         raise ValueError("Ugyldig ticker")
     policy = _sector_policy(raw)
+    financial_subtype = _financial_subtype(raw) if policy == "FINANCIAL" else policy
     price = _positive(raw.get("price"))
     annual_eps = [n for n in (_number(x) for x in (raw.get("annual_eps") or [])) if n is not None][:10]
     reported_eps = _positive(raw.get("trailing_eps"))
@@ -169,6 +354,10 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
             warnings.append("Finansselskap: minst tre år med ROE-historikk er ikke dokumentert.")
         if median_roe is None:
             warnings.append("Finansselskap: dokumentert ROE mangler; industriell ROCE brukes ikke som erstatning.")
+        if financial_subtype == "BANK" and not raw.get("cet1_ratio") and not raw.get("capital_ratio"):
+            warnings.append("Bank: CET1/kapitaldekning er ikke dokumentert; ROE alene gir ikke full sektorvurdering.")
+        if financial_subtype == "INSURANCE" and not raw.get("combined_ratio") and not raw.get("solvency_ratio"):
+            warnings.append("Forsikring: combined ratio/solvens er ikke dokumentert; ROE alene gir ikke full sektorvurdering.")
     elif policy == "REAL_ESTATE":
         ffo = _positive(raw.get("ffo_per_share") or raw.get("affo_per_share"))
         nav = _positive(raw.get("nav_per_share"))
@@ -242,6 +431,23 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         )
         capital_return_method = "Syklisk/råvare vurderes på flerårig ROCE, FCF gjennom syklus og trend; 12% er ikke en absolutt diskvalifikasjonsgrense."
         review_reason_category = "MISSING_DATA" if not enough else ("CYCLICAL_REVIEW" if not quality_ok else "")
+    elif policy == "CAPITAL_INTENSIVE":
+        enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3 and date_ok)
+        latest_supports = latest_roce is not None and latest_roce >= .10
+        persistent_supports = median_roce is not None and median_roce >= .08
+        improving_supports = roce_trend == "FORBEDRENDE" and latest_supports
+        capital_fcf = ((fcf_positive_ratio is not None and fcf_positive_ratio >= .50)
+                       or (fcf_positive_ratio is None and fcf is not None and fcf > 0))
+        quality_ok = bool(enough and capital_fcf and (persistent_supports or improving_supports))
+        quality_state = (
+            "INSUFFICIENT" if not enough else
+            "IMPROVING" if quality_ok and roce_trend == "FORBEDRENDE" else
+            "QUALITY_WEAKENING" if quality_ok and roce_trend == "SVEKKENDE" else
+            "QUALITY" if quality_ok else
+            "WATCH" if median_roce is not None and median_roce >= .06 else "WEAK"
+        )
+        capital_return_method = "Kapitalintensiv infrastruktur/utility/telekom vurderes med lavere ROCE-referanse, flerårig FCF og trend; standard 12% brukes ikke som absolutt grense."
+        review_reason_category = "MISSING_DATA" if not enough else "CAPITAL_INTENSIVE_REVIEW"
     else:
         enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3 and date_ok)
         latest_supports = latest_roce is not None and latest_roce >= .12
@@ -283,14 +489,21 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         "FINANCIAL": "Finans: normalisert EPS/P-E kan brukes som prisindikasjon, men kvalitet avgjøres med ROE-evidens.",
         "REAL_ESTATE": "Eiendom: P/E alene er utilstrekkelig; FFO/AFFO/NAV kreves før inngangsscenario.",
         "CYCLICAL": "Syklisk: normalisert EPS er støtteinformasjon; peer-P/E alene brukes ikke som inngangsscenario.",
+        "CAPITAL_INTENSIVE": "Kapitalintensiv: kvalitet bruker bransjetilpasset ROCE/FCF; pris vurderes mot relevante peers når grunnlaget er tilstrekkelig.",
         "STANDARD": "Standard: kvalitet vurderes før pris; verdsettelse bruker normalisert EPS og eksplisitt/peer P/E.",
     }[policy]
 
-    return {
+    result = {
         "ticker": ticker, "name": str(raw.get("name") or ticker)[:100],
+        "exchange": str(raw.get("exchange") or _fallback_exchange(ticker) or "Børs ikke dokumentert")[:100],
         "country": str(raw.get("country") or "Ukjent")[:80], "industry": industry[:100],
         "currency": str(raw.get("currency") or "")[:8], "price": price,
-        "sector_policy": policy, "review_reason_category": review_reason_category,
+        "sector_policy": policy, "sector_subtype": financial_subtype, "review_reason_category": review_reason_category,
+        "sector_specific_evidence": bool(
+            (policy == "FINANCIAL" and (raw.get("cet1_ratio") or raw.get("capital_ratio") or raw.get("combined_ratio") or raw.get("solvency_ratio")))
+            or (policy == "REAL_ESTATE" and (raw.get("ffo_per_share") or raw.get("affo_per_share")) and raw.get("nav_per_share"))
+        ),
+        "cycle_valuation_evidence": bool(raw.get("nav_per_share") or raw.get("cycle_nav") or raw.get("asset_value_per_share")),
         "roce_pct": round(median_roce * 100, 1) if median_roce is not None else None,
         "roce_latest_pct": round(latest_roce * 100, 1) if latest_roce is not None else None,
         "roce_history_pct": [round(x * 100, 2) for x in roce_history],
@@ -321,16 +534,18 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         "market_drivers": proxies, "verified_exposure": bool(raw.get("verified_exposure")),
         "valuation_method": valuation_method,
         "source": str(raw.get("source") or "Ukjent")[:140], "provider_partial": bool(raw.get("provider_partial")),
-        "observed_at": now.isoformat(timespec="seconds"), "model_version": "quality_v1.2@1.2",
+        "observed_at": now.isoformat(timespec="seconds"), "model_version": "quality_v1.3@1.3",
     }
+    _apply_grade(result)
+    return result
 
 def rank_results(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     grouped = {name: [] for name in (*GROUPS, "Ufullstendig / krever vurdering")}
     for row in rows:
         grouped[str(row.get("group")) if row.get("group") in grouped else "Ufullstendig / krever vurdering"].append(dict(row))
-    grouped[GROUPS[0]].sort(key=lambda x: ((x.get("fair_price_scenario") or 0) / max(x.get("price") or 1, .01), x.get("roce_pct") or 0), reverse=True)
-    grouped[GROUPS[1]].sort(key=lambda x: (x.get("roce_pct") or 0, -(x.get("normalized_pe") or 999)), reverse=True)
-    grouped[GROUPS[2]].sort(key=lambda x: ((x.get("price") or 999999) / max(x.get("fair_price_scenario") or 1, .01), -(x.get("roce_pct") or 0)))
+    grouped[GROUPS[0]].sort(key=lambda x: (x.get("overall_stars") or 0, (x.get("fair_price_scenario") or 0) / max(x.get("price") or 1, .01), x.get("roe_pct") or x.get("roce_pct") or 0), reverse=True)
+    grouped[GROUPS[1]].sort(key=lambda x: (x.get("overall_stars") or 0, x.get("roe_pct") or x.get("roce_pct") or 0, -(x.get("normalized_pe") or 999)), reverse=True)
+    grouped[GROUPS[2]].sort(key=lambda x: (-(x.get("overall_stars") or 0), (x.get("price") or 999999) / max(x.get("fair_price_scenario") or 1, .01), -(x.get("roe_pct") or x.get("roce_pct") or 0)))
     return grouped
 
 
@@ -366,6 +581,7 @@ def add_peer_context(results: list[dict[str, Any]]) -> None:
             valuation_basis="Median normalisert P/E hos sammenlignbare aksjer i samme land/bransje/policy",
         )
         item["warnings"].append("Peer-scenario er en sammenligning, ikke kursmål; primærkilder må kontrolleres før varsling.")
+        _apply_grade(item)
 
 def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, Any]], *, assumed_pe: float | None = None,
                progress: Callable[[dict[str, Any]], None] | None = None, deadline_seconds: int = MAX_SECONDS,
