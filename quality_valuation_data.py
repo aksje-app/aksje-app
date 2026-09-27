@@ -98,7 +98,12 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
                     for year in sorted(ebit.keys() & assets.keys() & current_liabilities.keys(), reverse=True)
                     if assets[year] > current_liabilities[year]][:5]
     sector = str(info.get("sector") or "")
-    fiscal_periods = sorted(set(eps_by_year) | set(ebit) | set(fcf_by_year) | set(revenue) | set(debt) | set(equity), reverse=True)[:10]
+    industry = str(info.get("industry") or sector)
+    fiscal_periods = sorted(
+        set(eps_by_year) | set(ebit) | set(fcf_by_year) | set(revenue) |
+        set(debt) | set(equity) | set(net_income) | set(assets),
+        reverse=True,
+    )[:10]
     fcf_history = [fcf_by_year[year] for year in sorted(fcf_by_year, reverse=True)][:10]
     operating_margin_by_year = {year: operating_income[year] / revenue[year]
                                 for year in operating_income.keys() & revenue.keys() if revenue[year]}
@@ -109,9 +114,16 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
                    for year in net_income.keys() & equity.keys() if equity[year] > 0}
     roe_history = [roe_by_year[year] for year in sorted(roe_by_year, reverse=True)][:10]
     financial = [frame for frame in (annual, balance) if frame is not None and not getattr(frame, "empty", True)]
-    period = max((year for year in ebit.keys() & assets.keys() & current_liabilities.keys()), default="") if len(financial) == 2 else ""
+    # The financial date is the newest documented fiscal period, not the newest
+    # period where industrial ROCE components happen to coexist. This matters
+    # especially for banks/insurers where ROCE is intentionally not calculated.
+    period = fiscal_periods[0] if financial and fiscal_periods else ""
     # ROCE is not comparable for banks/insurers; never reinterpret ROE as ROCE.
-    is_financial = "Financial" in sector or "Bank" in sector or "Insurance" in sector
+    financial_text = f"{sector} {industry}".lower()
+    is_financial = any(word in financial_text for word in (
+        "financial", "bank", "insurance", "forsik", "capital markets",
+        "asset management", "broker", "investment banking",
+    ))
     roce = roce_history[0] if not is_financial and roce_history else None
     price = info.get("currentPrice") or info.get("regularMarketPrice")
     if not price:
@@ -135,7 +147,13 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "roce": roce, "roce_history": [] if is_financial else roce_history[:10],
         "name": info.get("longName") or info.get("shortName") or ticker,
         "country": info.get("country"), "currency": info.get("currency"),
-        "industry": info.get("industry") or sector,
+        "industry": industry,
+        # Sector-specific fields are passed through only when the provider
+        # exposes them explicitly. Missing values remain missing; we never
+        # reinterpret book value or generic cash flow as FFO/AFFO/NAV.
+        "ffo_per_share": info.get("ffoPerShare"),
+        "affo_per_share": info.get("affoPerShare"),
+        "nav_per_share": info.get("navPerShare"),
         "source": "Yahoo Finance: aksjekurs, selskapets regnskap og nøkkeltall",
         "provider_warnings": warnings,
         "provider_partial": bool(warnings),

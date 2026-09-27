@@ -5,8 +5,11 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def test_ui_exposes_all_shareable_artifacts():
     src=(ROOT/"quality_valuation_ui.py").read_text(encoding="utf-8")
-    for label in ("Last ned / del kort PDF","Last ned / del utvidet PDF","Last ned / del diagnose","Last ned / del komplett kontrollpakke","⌂ Hovedsiden"):
-        assert label in src
+    assert ("Last ned / del kort PDF" in src or "Åpne / del kort PDF" in src)
+    assert ("Last ned / del utvidet PDF" in src or "Åpne / del utvidet PDF" in src)
+    assert ("Last ned / del diagnose" in src or "Åpne / kopier diagnose" in src)
+    assert ("Last ned / del komplett kontrollpakke" in src or "Åpne / del komplett kontrollpakke" in src)
+    assert "⌂ Hovedsiden" in src
     assert '_absolute_report_return_url("overview")' in src
 
 def test_extended_pdf_returns_to_overview():

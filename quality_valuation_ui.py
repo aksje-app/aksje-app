@@ -19,8 +19,9 @@ def _printable(value: Any) -> str:
 
 
 def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
-    """Plain PDF with no interactive app navigation on printed pages."""
+    """Compact mobile/print PDF with screen-only app return annotation."""
     from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.pdfgen import canvas
@@ -31,62 +32,137 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
         pdfmetrics.registerFont(TTFont("QVRegular", str(fonts / "NotoSans-Regular.ttf")))
         pdfmetrics.registerFont(TTFont("QVBold", str(fonts / "NotoSans-Bold.ttf")))
         regular, bold = "QVRegular", "QVBold"
+
     buffer = BytesIO()
     page = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 48
-    page.setFont(bold, 16)
-    page.drawString(40, y, "Kvalitet og verdsettelse - observasjon")
-    y -= 25
-    page.setFont(regular, 9)
-    page.drawString(40, y, _printable(f"Tid: {result.get('generated_at')}  Status: {result.get('state')}"))
-    y -= 22
-    page.drawString(40, y, "Scenariopriser er ingen kjøpsordre. Kontroller regnskapstall mot selskapets rapporter.")
-    y -= 28
-    for name, data in (result.get("driver_prices") or {}).items():
-        page.drawString(40, y, _printable(f"{name}: proxy {data.get('last_price') or '-'} · 1 måned {data.get('one_month_pct') if data.get('one_month_pct') is not None else '-'}% · {data.get('price_date') or '-'}"))
-        y -= 13
-    if result.get("driver_prices"):
-        page.drawString(40, y, "Råvareindikatorer må ikke tolkes som dokumentert prisfølsomhet i selskapet.")
-        y -= 20
-    for group, items in (result.get("groups") or {}).items():
-        if y < 95:
+    palette = {
+        "green": colors.HexColor("#16a34a"),
+        "yellow": colors.HexColor("#d97706"),
+        "red": colors.HexColor("#dc2626"),
+        "blue": colors.HexColor("#2563eb"),
+        "grey": colors.HexColor("#64748b"),
+        "light": colors.HexColor("#e2e8f0"),
+    }
+
+    def heading(title: str, subtitle: str = "") -> float:
+        page.setFillColor(colors.black)
+        page.setFont(bold, 15)
+        page.drawString(36, height - 43, _printable(title)[:82])
+        page.setFont(regular, 7.5)
+        page.drawString(36, height - 58, _printable(subtitle)[:125])
+        page.setStrokeColor(palette["light"])
+        page.line(36, height - 66, width - 36, height - 66)
+        return height - 86
+
+    def write(y: float, text: str, *, font=regular, size: float = 8, x: float = 40) -> float:
+        if y < 55:
             page.showPage()
-            y = height - 48
-        page.setFont(bold, 11)
+            y = heading("Kvalitet og verdsettelse", f"Run {result.get('run_key') or '-'}")
+        page.setFillColor(colors.black)
+        page.setFont(font, size)
+        page.drawString(x, y, _printable(text)[:126])
+        return y - (size + 4)
+
+    def dot(x: float, y: float, kind: str) -> None:
+        color = palette["green"] if kind == "good" else palette["red"] if kind == "bad" else palette["yellow"] if kind == "watch" else palette["blue"]
+        page.setFillColor(color)
+        page.circle(x, y + 2, 3.4, stroke=0, fill=1)
+
+    def arrow(x: float, y: float, kind: str) -> None:
+        color = palette["green"] if kind == "good" else palette["red"] if kind == "bad" else palette["yellow"]
+        page.setStrokeColor(color)
+        page.setFillColor(color)
+        if kind == "good":
+            page.line(x, y - 4, x, y + 5)
+            page.line(x, y + 5, x - 3, y + 1)
+            page.line(x, y + 5, x + 3, y + 1)
+        elif kind == "bad":
+            page.line(x, y + 5, x, y - 4)
+            page.line(x, y - 4, x - 3, y)
+            page.line(x, y - 4, x + 3, y)
+        else:
+            page.line(x - 4, y, x + 4, y)
+            page.line(x + 4, y, x, y + 3)
+            page.line(x + 4, y, x, y - 3)
+
+    def medal_icon(x: float, y: float, rank: int) -> None:
+        if rank not in (1, 2, 3):
+            return
+        fill = colors.HexColor("#d4af37") if rank == 1 else colors.HexColor("#9ca3af") if rank == 2 else colors.HexColor("#b87333")
+        page.setFillColor(fill)
+        page.circle(x, y, 7, stroke=0, fill=1)
+        page.setFillColor(colors.white)
+        page.setFont(bold, 7)
+        page.drawCentredString(x, y - 2.5, str(rank))
+
+    def medal(rank: int) -> str:
+        return {1: "1. plass", 2: "2. plass", 3: "3. plass"}.get(rank, "")
+
+    y = heading("Kvalitet og verdsettelse - observasjon",
+                f"Tid {result.get('generated_at') or '-'} - status {result.get('state') or '-'}")
+    y = write(y, "Scenario er sammenligning, ikke kursmål eller kjøpsordre.", font=bold, size=8.5)
+    if result.get("market_universe_count") is not None:
+        y = write(y, f"Marked: {result.get('market_examined_count') or 0}/{result.get('market_universe_count') or 0} undersøkt - {result.get('market_usable_count') or 0} med brukbare data.")
+    y -= 5
+
+    rank = 0
+    for group, items in (result.get("groups") or {}).items():
+        if y < 100:
+            page.showPage()
+            y = heading("Kvalitet og verdsettelse", f"Run {result.get('run_key') or '-'}")
+        page.setFont(bold, 10)
+        page.setFillColor(colors.black)
         page.drawString(40, y, _printable(f"{group} ({len(items)})"))
-        y -= 20
-        page.setFont(regular, 8)
+        y -= 17
         for item in items:
-            if y < 135:
+            if y < 125:
                 page.showPage()
-                y = height - 48
-                page.setFont(regular, 8)
-            line = (f"{item.get('ticker')}  {str(item.get('name') or '')[:20]}  "
-                    f"Kurs {item.get('price') or '-'} {item.get('currency') or ''}  "
-                    f"P/E {item.get('reported_pe') or '-'}  Normalisert {item.get('normalized_pe') or '-'}  "
-                    f"Scenario {item.get('entry_range_scenario') or '-'}")
-            page.drawString(45, y, _printable(line)[:113])
-            y -= 13
-            page.drawString(45, y, _printable(
-                f"Land {item.get('country') or '-'} · Bransje {item.get('industry') or '-'} · "
-                f"ROCE {item.get('roce_pct') if item.get('roce_pct') is not None else '-'}% · "
-                f"Regnskap {item.get('financial_date') or '-'}")[:107])
-            y -= 13
+                y = heading("Kvalitet og verdsettelse", f"Run {result.get('run_key') or '-'}")
+            if group == "Attraktivt priset kandidat":
+                rank += 1
+            label = medal(rank) + " - " if group == "Attraktivt priset kandidat" and rank <= 3 else ""
+            state = "good" if item.get("quality_evidence_ready") else "watch" if item.get("quality_state") in {"WATCH", "SECTOR_METRIC_REQUIRED"} else "bad"
+            if group == "Attraktivt priset kandidat" and rank <= 3:
+                medal_icon(44, y + 1, rank)
+            else:
+                dot(44, y - 1, state)
+            y = write(y, f"{label}{item.get('ticker')} - {item.get('name')}", font=bold, size=8.5, x=52)
+            y = write(y, f"Kurs nå {item.get('price') or '-'} {item.get('currency') or ''} - P/E ved dagens kurs {item.get('reported_pe') or '-'} - forward P/E {item.get('forward_pe') or '-'}", size=7.6, x=52)
+            y = write(y, f"Normalisert P/E ved dagens kurs {item.get('normalized_pe') or '-'} - normalisert EPS {item.get('normalized_eps') or '-'}", size=7.6, x=52)
+
+            policy = item.get("sector_policy") or "STANDARD"
+            if policy == "FINANCIAL":
+                trend = str(item.get("roe_trend") or "").upper()
+                trend_kind = "good" if trend == "FORBEDRENDE" else "bad" if trend == "SVEKKENDE" else "watch"
+                direction = "OPP" if trend_kind == "good" else "NED" if trend_kind == "bad" else "STABIL"
+                arrow(55, y + 1, trend_kind)
+                y = write(y, f"ROE median {item.get('roe_pct') if item.get('roe_pct') is not None else '-'}% - siste {item.get('roe_latest_pct') if item.get('roe_latest_pct') is not None else '-'}% - retning {direction}", size=7.4, x=64)
+            else:
+                trend = str(item.get("roce_trend") or "").upper()
+                trend_kind = "good" if trend == "FORBEDRENDE" else "bad" if trend == "SVEKKENDE" else "watch"
+                direction = "OPP" if trend_kind == "good" else "NED" if trend_kind == "bad" else "STABIL"
+                arrow(55, y + 1, trend_kind)
+                y = write(y, f"ROCE median {item.get('roce_pct') if item.get('roce_pct') is not None else '-'}% - siste {item.get('roce_latest_pct') if item.get('roce_latest_pct') is not None else '-'}% - retning {direction}", size=7.4, x=64)
+
+            if item.get("entry_range_scenario"):
+                y = write(y, f"Scenarioverdi {item.get('fair_price_scenario')} - inngangsscenario {item.get('entry_range_scenario')} - IKKE KURSMÅL", font=bold, size=7.4, x=52)
+                if item.get("peer_count"):
+                    y = write(y, f"Peer-median P/E {item.get('assumed_pe')} - peers {item.get('peer_count')}: {', '.join(item.get('peer_tickers') or [])}", size=6.8, x=52)
+            else:
+                y = write(y, f"Scenario: ikke beregnet ({policy}-policy / utilstrekkelig sammenligningsgrunnlag).", size=6.8, x=52)
+
+            if group == "Ufullstendig / krever vurdering":
+                y = write(y, f"Årsakstype: {item.get('review_reason_category') or 'UKJENT'}", font=bold, size=7.1, x=52)
             for warning in (item.get("warnings") or [])[:2]:
-                if y < 60:
-                    page.showPage()
-                    y = height - 48
-                    page.setFont(regular, 8)
-                page.drawString(55, y, _printable(str(warning))[:105])
-                y -= 13
-            y -= 5
-        y -= 10
+                y = write(y, f"- {warning}", size=6.4, x=58)
+            y -= 4
+        y -= 5
+
     page.save()
     from pdf_mobile_return import add_pdf_return_links
     from public_report_ui import _absolute_report_return_url
     return add_pdf_return_links(buffer.getvalue(), return_url=_absolute_report_return_url("overview"))
-
 
 def diagnostic_document(result: Mapping[str, Any]) -> bytes:
     """Secret-free reproducibility/audit document for active and shadow quality models."""
@@ -106,13 +182,16 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
 
     audit_fields = (
         "ticker", "name", "country", "industry", "currency", "price", "group",
-        "quality_state", "model_version", "financial_date", "financial_age_days",
+        "quality_state", "model_version", "sector_policy", "review_reason_category",
+        "financial_date", "financial_age_days",
         "reported_pe", "forward_pe", "normalized_pe", "normalized_eps",
         "annual_eps_history", "fiscal_periods", "operating_margin_history", "debt_history",
         "equity_history", "roe_history", "sector", "is_financial",
         "free_cash_flow", "free_cash_flow_history", "fcf_positive_ratio", "roce_pct", "roce_latest_pct", "roce_history_pct",
-        "roce_trend", "quality_evidence_ready", "evidence_ready", "assumed_pe",
+        "roce_trend", "roe_pct", "roe_latest_pct", "roe_trend",
+        "quality_evidence_ready", "evidence_ready", "assumed_pe",
         "fair_price_scenario", "entry_range_scenario", "entry_buffer_pct",
+        "peer_count", "peer_tickers", "peer_normalized_pe",
         "valuation_method", "capital_return_method", "market_drivers",
         "verified_exposure", "source", "provider_partial", "warnings", "observed_at",
     )
@@ -129,7 +208,7 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
             "markets", "market_universe_count", "market_examined_count", "market_usable_count",
             "market_failed_count", "market_coverage_complete", "market_prescreen_stop_reason",
             "candidate_basis_generated_at", "candidate_basis_source", "prescreen_finalists", "holding_symbols")},
-        "active_quality_model": "quality_v1.1@1.1",
+        "active_quality_model": "quality_v1.2@1.2",
         "groups": {name: [{key: item.get(key) for key in audit_fields} for item in items]
                    for name, items in (result.get("groups") or {}).items()},
         "quality_v2_shadow": result.get("quality_v2_shadow") or {},
@@ -289,26 +368,77 @@ def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, exp
                             rendered.append(f"- {icon} **{kind}:** {warning}")
                         st.markdown("\n".join(rendered))
         st.markdown("#### Rapporter og deling")
-        st.caption("Filene under åpnes som vanlige nedlastinger på mobil og kan derfra lagres, kopieres eller videresendes med telefonens delingsmeny.")
+        st.caption("Åpne rapportene via mobil filsiden. Appen blir tilgjengelig i bakgrunnen, og du får egen retur-, delings- og nedlastingsflyt.")
         short_pdf = build_screen_pdf(result)
         diagnosis = diagnostic_document(result)
-        st.download_button("⬇ Last ned / del kort PDF", short_pdf, "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf", use_container_width=True)
         extended_pdf = None
         try:
             from quality_extended_report import build_extended_analysis_pdf
             extended_pdf = build_extended_analysis_pdf(result)
-            st.download_button("⬇ Last ned / del utvidet PDF", extended_pdf,
-                               "kvalitet_utvidet_analyse.pdf", "application/pdf", key="qv_extended_pdf", use_container_width=True)
         except Exception:
             st.caption("Utvidet analyse-PDF er midlertidig utilgjengelig; kort PDF og diagnose er fortsatt tilgjengelig.")
-        st.download_button("⬇ Last ned / del diagnose", diagnosis, "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis", use_container_width=True)
+
         try:
-            from quality_report_package import build_manual_report_package
-            st.download_button("📦 Last ned / del komplett kontrollpakke", build_manual_report_package(result),
-                               "kvalitet_siste_manuelle_kjoring.zip", "application/zip", key="qv_package", use_container_width=True)
-            st.caption("Kontrollpakken inneholder kort PDF, utvidet PDF, diagnose og manifest fra nøyaktig samme run-id.")
+            from public_report_store import publish_durable_file, publish_durable_pdf
+            delivery_key = f"qv_delivery_{result.get('run_key') or result.get('generated_at') or 'latest'}"
+            delivery = st.session_state.get(delivery_key)
+            if not isinstance(delivery, dict):
+                report_id = str(result.get("report_id") or result.get("run_key") or "")
+                short_meta = {"report_id": report_id, "public_pdf_name": "kvalitet_verdsettelse.pdf"}
+                delivery = {
+                    "short_pdf": publish_durable_pdf(short_meta, short_pdf),
+                    "diagnosis": publish_durable_file(
+                        diagnosis,
+                        filename="kvalitet_verdsettelse_diagnose.json",
+                        mime="application/json",
+                        report_id=report_id,
+                    ),
+                }
+                if extended_pdf is not None:
+                    extended_meta = {"report_id": report_id, "public_pdf_name": "kvalitet_utvidet_analyse.pdf"}
+                    delivery["extended_pdf"] = publish_durable_pdf(extended_meta, extended_pdf)
+                try:
+                    from quality_report_package import build_manual_report_package
+                    delivery["package"] = publish_durable_file(
+                        build_manual_report_package(result),
+                        filename="kvalitet_siste_manuelle_kjoring.zip",
+                        mime="application/zip",
+                        report_id=report_id,
+                    )
+                except Exception:
+                    pass
+                st.session_state[delivery_key] = delivery
+
+            st.link_button(
+                "📄 Åpne / del kort PDF",
+                f"/?public_report_token={delivery['short_pdf']}&return_to=overview",
+                width="stretch",
+            )
+            if delivery.get("extended_pdf"):
+                st.link_button(
+                    "📊 Åpne / del utvidet PDF",
+                    f"/?public_report_token={delivery['extended_pdf']}&return_to=overview",
+                    width="stretch",
+                )
+            st.link_button(
+                "🧾 Åpne / kopier diagnose",
+                f"/?public_file_token={delivery['diagnosis']}&return_to=overview",
+                width="stretch",
+            )
+            if delivery.get("package"):
+                st.link_button(
+                    "📦 Åpne / del komplett kontrollpakke",
+                    f"/?public_file_token={delivery['package']}&return_to=overview",
+                    width="stretch",
+                )
+                st.caption("Kontrollpakken inneholder kort PDF, utvidet PDF, diagnose og manifest fra nøyaktig samme run-id.")
+            st.caption("PDF-returknappen er skjerm-only og skal ikke komme med ved utskrift.")
         except Exception:
-            st.caption("Komplett kontrollpakke kunne ikke bygges; enkeltfilene over er fortsatt tilgjengelige.")
+            st.warning("Mobil delingsside er midlertidig utilgjengelig. Bruk reserveknappene under.")
+            st.download_button("⬇ Reserve: kort PDF", short_pdf, "kvalitet_verdsettelse.pdf", "application/pdf", key="qv_pdf", use_container_width=True)
+            if extended_pdf is not None:
+                st.download_button("⬇ Reserve: utvidet PDF", extended_pdf, "kvalitet_utvidet_analyse.pdf", "application/pdf", key="qv_extended_pdf", use_container_width=True)
+            st.download_button("⬇ Reserve: diagnose", diagnosis, "kvalitet_verdsettelse_diagnose.json", "application/json", key="qv_diagnosis", use_container_width=True)
         st.caption("Siste manuelle kjøring er lagret og kan åpnes igjen etter at du har vært på andre sider.")
         if st.button("⌂ Hovedsiden", key="qv_home", use_container_width=True, type="primary"):
             st.session_state["ai_control_center_last_applied_nav_v19016"] = ""
