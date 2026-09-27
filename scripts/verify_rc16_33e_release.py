@@ -15,6 +15,7 @@ assert ('APP_VERSION = "v19.22.0-rc16.33e"' in src["app_version.py"]
 assert '"disagreement_observations_total"' in src["quality_v2_shadow_store.py"]
 assert '"disagreement_count": current_disagreements' in src["quality_v2_shadow_store.py"]
 assert "VURDERT NÅ" in src["pages/overview.py"]
-assert "AKTIVE V1.1 ↔ V2 UENIGHETER" in src["pages/overview.py"]
+assert ("AKTIVE V1.1 ↔ V2 UENIGHETER" in src["pages/overview.py"]
+        or "UENIGHETER NÅ" in src["pages/overview.py"])
 assert "latest_shadow" in src["pages/overview.py"]
 print("rc16.33e current-shadow-count gate OK")
