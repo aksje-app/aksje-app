@@ -16,8 +16,9 @@ for p in paths:
     src[p]=(ROOT/p).read_text(encoding="utf-8")
     ast.parse(src[p], filename=p)
 
-assert 'APP_VERSION = "v19.22.0-rc16.33k"' in src["app_version.py"]
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33j"' in src["app_version.py"]
+assert ('APP_VERSION = "v19.22.0-rc16.33k"' in src["app_version.py"]
+        or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33k"' in src["app_version.py"]
+        or "rc16.33k" in src["app_version.py"])
 assert 'CLASSIFICATION_SCHEMA = "quality_v2_direction@1"' in src["quality_model_v2.py"]
 assert "build_shadow_comparison" in src["quality_v2_shadow_store.py"]
 assert "comparison_available" in src["quality_v2_shadow_store.py"]

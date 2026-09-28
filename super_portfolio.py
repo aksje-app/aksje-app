@@ -26,6 +26,12 @@ VERSION = APP_VERSION
 MAX_TRAILING_STOP_PCT = 3.0
 STOP_WARNING_PCT = 1.5
 STOP_NEAR_PCT = 2.25
+PROFIT_PROTECT_TRIGGER_PCT = 2.0
+PROFIT_RETENTION_2_3_PCT = 40.0
+PROFIT_RETENTION_3_5_PCT = 55.0
+PROFIT_RETENTION_5_8_PCT = 65.0
+PROFIT_RETENTION_8_PLUS_PCT = 70.0
+PROFIT_EXIT_WATCH_BUFFER_PCT = 0.50
 # Durable background runtime; this line also invalidates old timestamp caches.
 STATE_KEY = "super_portfolio/state.json"
 STATE_PATH = runtime_data_path("super_portfolio", "state.json")
@@ -290,6 +296,12 @@ class SuperPortfolioConfig:
     risk_exit_cooldown_days: int = 1
     risk_reentry_confirmation_runs: int = 2
     stop_surveillance_minutes: int = 15
+    profit_protect_trigger_pct: float = PROFIT_PROTECT_TRIGGER_PCT
+    profit_retention_2_3_pct: float = PROFIT_RETENTION_2_3_PCT
+    profit_retention_3_5_pct: float = PROFIT_RETENTION_3_5_PCT
+    profit_retention_5_8_pct: float = PROFIT_RETENTION_5_8_PCT
+    profit_retention_8_plus_pct: float = PROFIT_RETENTION_8_PLUS_PCT
+    profit_exit_watch_buffer_pct: float = PROFIT_EXIT_WATCH_BUFFER_PCT
     auto_pushover: bool = True
     history_limit: int = 180
     transaction_cost_bps: float = 10.0
@@ -370,6 +382,12 @@ def load_state() -> dict[str, Any]:
         "risk_exit_cooldown_days": 1,
         "risk_reentry_confirmation_runs": 2,
         "stop_surveillance_minutes": 15,
+        "profit_protect_trigger_pct": PROFIT_PROTECT_TRIGGER_PCT,
+        "profit_retention_2_3_pct": PROFIT_RETENTION_2_3_PCT,
+        "profit_retention_3_5_pct": PROFIT_RETENTION_3_5_PCT,
+        "profit_retention_5_8_pct": PROFIT_RETENTION_5_8_PCT,
+        "profit_retention_8_plus_pct": PROFIT_RETENTION_8_PLUS_PCT,
+        "profit_exit_watch_buffer_pct": PROFIT_EXIT_WATCH_BUFFER_PCT,
     })
     state["config"] = config
     state.setdefault("risk_exit_cooldown", {})
@@ -1120,25 +1138,52 @@ def ranking_velocity(ticker: str, current_rank: int, history: Sequence[Mapping[s
     return {"rank_change": rank_change, "rank_velocity": round(velocity, 2), "rank_arrow": arrow}
 
 
+def _profit_retention_pct(peak_gain_pct: float, config: SuperPortfolioConfig | None = None) -> float:
+    """Return the share of maximum unrealised gain that should be protected."""
+    cfg = config or SuperPortfolioConfig()
+    peak_gain = max(0.0, _f(peak_gain_pct))
+    trigger = max(0.0, _f(getattr(cfg, "profit_protect_trigger_pct", PROFIT_PROTECT_TRIGGER_PCT), PROFIT_PROTECT_TRIGGER_PCT))
+    if peak_gain < trigger:
+        return 0.0
+    if peak_gain < 3.0:
+        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_2_3_pct", PROFIT_RETENTION_2_3_PCT), PROFIT_RETENTION_2_3_PCT)))
+    if peak_gain < 5.0:
+        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_3_5_pct", PROFIT_RETENTION_3_5_PCT), PROFIT_RETENTION_3_5_PCT)))
+    if peak_gain < 8.0:
+        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_5_8_pct", PROFIT_RETENTION_5_8_PCT), PROFIT_RETENTION_5_8_PCT)))
+    return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_8_plus_pct", PROFIT_RETENTION_8_PLUS_PCT), PROFIT_RETENTION_8_PLUS_PCT)))
+
+
 def dynamic_stop_levels(position: Mapping[str, Any], config: SuperPortfolioConfig | None = None) -> dict[str, float]:
     cfg = config or SuperPortfolioConfig()
     vol = _volatility(position)
     entry = _f(position.get("entry_price"))
     peak = _f(position.get("peak_price"))
     peak_gain = ((peak / entry) - 1.0) * 100.0 if entry > 0 and peak > 0 else 0.0
-    # The stop follows the high-water mark. It starts three percent below the
-    # entry because peak >= entry, and only moves upward as a new peak is made.
-    # Stored legacy settings and volatility can tighten, never widen, this cap.
+
     configured_hard = _f(cfg.hard_stop_drawdown_pct, MAX_TRAILING_STOP_PCT)
     hard = min(MAX_TRAILING_STOP_PCT, configured_hard if configured_hard > 0 else MAX_TRAILING_STOP_PCT)
     warning = min(STOP_WARNING_PCT, max(0.5, hard * 0.50))
     near = min(STOP_NEAR_PCT, max(warning + 0.25, hard * 0.75))
+
+    retention = _profit_retention_pct(peak_gain, cfg)
+    protected_gain = max(0.0, peak_gain * retention / 100.0)
+    profit_floor_price = entry * (1.0 + protected_gain / 100.0) if entry > 0 and retention > 0 else 0.0
+    trailing_stop_price = peak * (1.0 - hard / 100.0) if peak > 0 else 0.0
+    effective_stop_price = max(trailing_stop_price, profit_floor_price)
+
     return {
         "warning_drawdown_pct": round(warning, 2),
         "near_stop_drawdown_pct": round(near, 2),
         "hard_stop_drawdown_pct": round(hard, 2),
         "volatility_pct": round(vol, 2),
         "peak_gain_pct": round(peak_gain, 2),
+        "profit_protection_active": bool(retention > 0),
+        "profit_retention_pct": round(retention, 2),
+        "protected_gain_pct": round(protected_gain, 2),
+        "profit_floor_price": round(profit_floor_price, 4),
+        "trailing_stop_price": round(trailing_stop_price, 4),
+        "effective_stop_price": round(effective_stop_price, 4),
     }
 
 
@@ -1151,16 +1196,43 @@ def _stop_status(position: Mapping[str, Any], config: SuperPortfolioConfig) -> d
     dd_abs = abs(min(0.0, drawdown))
     levels = dynamic_stop_levels({**dict(position), "peak_price": peak}, config)
     hard, near, warning = levels["hard_stop_drawdown_pct"], levels["near_stop_drawdown_pct"], levels["warning_drawdown_pct"]
-    if dd_abs >= hard: label, icon = "STOP TRIGGERED", "🔴"
-    elif dd_abs >= near: label, icon = "NEAR STOP", "🟠"
-    elif dd_abs >= warning: label, icon = "WATCH", "🟡"
-    else: label, icon = "SAFE", "🟢"
-    distance = max(0.0, hard - dd_abs)
-    stop_price = peak * (1.0 - hard / 100.0) if peak > 0 else 0.0
+
+    profit_active = bool(levels.get("profit_protection_active"))
+    profit_floor = _f(levels.get("profit_floor_price"))
+    effective_stop = _f(levels.get("effective_stop_price"))
+    protected_gain = _f(levels.get("protected_gain_pct"))
+    peak_gain = _f(levels.get("peak_gain_pct"))
+    retained_now = (max(0.0, pnl) / peak_gain * 100.0) if peak_gain > 0 else 0.0
+    giveback_pp = max(0.0, peak_gain - pnl)
+    distance_to_effective = ((current / effective_stop) - 1.0) * 100.0 if current > 0 and effective_stop > 0 else 999.0
+    watch_buffer = max(0.10, _f(getattr(config, "profit_exit_watch_buffer_pct", PROFIT_EXIT_WATCH_BUFFER_PCT), PROFIT_EXIT_WATCH_BUFFER_PCT))
+
+    if profit_active and profit_floor > 0 and current <= profit_floor:
+        label, icon, mode = "STOP TRIGGERED", "🔴", "PROFIT_PROTECT"
+    elif dd_abs >= hard:
+        label, icon, mode = "STOP TRIGGERED", "🔴", "TRAILING_STOP"
+    elif profit_active and distance_to_effective <= watch_buffer:
+        label, icon, mode = "EXIT WATCH", "🟠", "PROFIT_PROTECT"
+    elif profit_active:
+        label, icon, mode = "PROFIT PROTECT", "🟢", "PROFIT_PROTECT"
+    elif dd_abs >= near:
+        label, icon, mode = "NEAR STOP", "🟠", "TRAILING_STOP"
+    elif dd_abs >= warning:
+        label, icon, mode = "WATCH", "🟡", "TRAILING_STOP"
+    else:
+        label, icon, mode = "SAFE", "🟢", "TRAILING_STOP"
+
+    distance = max(0.0, ((current / effective_stop) - 1.0) * 100.0) if current > 0 and effective_stop > 0 else max(0.0, hard - dd_abs)
     return {
-        "stop_status": label, "stop_icon": icon,
-        "drawdown_from_peak_pct": round(drawdown, 2), "pnl_pct": round(pnl, 2),
-        "distance_to_hard_stop_pct": round(distance, 2), "hard_stop_price": round(stop_price, 4),
+        "stop_status": label,
+        "stop_icon": icon,
+        "stop_mode": mode,
+        "drawdown_from_peak_pct": round(drawdown, 2),
+        "pnl_pct": round(pnl, 2),
+        "distance_to_hard_stop_pct": round(distance, 2),
+        "hard_stop_price": round(effective_stop, 4),
+        "profit_giveback_pct": round(giveback_pp, 2),
+        "mfe_retained_pct": round(retained_now, 1),
         **levels,
     }
 
@@ -1202,7 +1274,7 @@ def portfolio_health(positions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         sectors[sector] = sectors.get(sector, 0) + 1
     max_share = max(sectors.values()) / len(rows)
     diversification = max(0.0, min(100.0, 120.0 - max_share * 100.0))
-    stop_map = {"SAFE": 100.0, "WATCH": 70.0, "NEAR STOP": 35.0, "STOP TRIGGERED": 0.0}
+    stop_map = {"SAFE": 100.0, "PROFIT PROTECT": 100.0, "WATCH": 70.0, "EXIT WATCH": 35.0, "NEAR STOP": 35.0, "STOP TRIGGERED": 0.0}
     stop_safety = sum(stop_map.get(str(p.get("stop_status") or "SAFE"), 60.0) for p in rows) / len(rows)
     correlation = 100.0 - min(100.0, sum(_f(p.get("max_portfolio_correlation"), 0.0) for p in rows) / len(rows) * 100.0)
     score = max(0.0, min(100.0, 0.32 * quality + 0.20 * risk + 0.20 * diversification + 0.15 * stop_safety + 0.13 * correlation))
@@ -1703,16 +1775,28 @@ def _rebalance_due(state: Mapping[str, Any], now: datetime, cfg: SuperPortfolioC
 
 def _automatic_stop_exit(position: Mapping[str, Any]) -> tuple[str, str] | None:
     status = str(position.get("stop_status") or "SAFE")
+    mode = str(position.get("stop_mode") or "TRAILING_STOP")
     direction = str(position.get("stop_direction_arrow") or "→")
+    if status == "STOP TRIGGERED" and mode == "PROFIT_PROTECT":
+        return (
+            "PROFIT_PROTECTION_EXIT",
+            f"Gevinstsikring: toppen var {_f(position.get('peak_gain_pct')):.2f}% og beskyttet gevinstnivå "
+            f"{_f(position.get('protected_gain_pct')):.2f}% ble brutt",
+        )
     if status == "STOP TRIGGERED":
         return "HARD_STOP", "Maksimalt 3 % fall fra høyeste kurs eller kjøpskurs"
+    if status == "EXIT WATCH" and mode == "PROFIT_PROTECT" and direction in {"↓", "↓↓"}:
+        return (
+            "CONFIRMED_PROFIT_PROTECTION_EXIT",
+            "Raskt tilbakefall mot gevinstgulvet er bekreftet; gevinst sikres før den går tilbake mot kjøpskurs",
+        )
     if status == "NEAR STOP" and direction in {"↓", "↓↓"}:
         return "CONFIRMED_EARLY_TRAILING_EXIT", "Fall mot 3 % stop er bekreftet; gevinst/tap beskyttes før hard stop"
     return None
 
 
 def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
-    severity = {"SAFE": 0, "WATCH": 1, "NEAR STOP": 2, "STOP TRIGGERED": 3}
+    severity = {"SAFE": 0, "PROFIT PROTECT": 0, "WATCH": 1, "EXIT WATCH": 2, "NEAR STOP": 2, "STOP TRIGGERED": 3}
     alerts: list[dict[str, Any]] = []
     for ticker, row in current.items():
         old = previous.get(ticker) or {}
@@ -1732,6 +1816,9 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
                 "distance_pct": row.get("distance_to_hard_stop_pct"),
                 "distance_change_pct": row.get("stop_distance_change_pct"),
                 "direction": row.get("stop_direction_arrow"), "pressure": row.get("stop_pressure"),
+                "stop_mode": row.get("stop_mode"), "peak_gain_pct": row.get("peak_gain_pct"),
+                "protected_gain_pct": row.get("protected_gain_pct"), "mfe_retained_pct": row.get("mfe_retained_pct"),
+                "profit_giveback_pct": row.get("profit_giveback_pct"),
             })
     return alerts
 
@@ -1855,6 +1942,8 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                     "to_pct": 0.0, "reason_code": reason_code, "reason": reason,
                     "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
                     "exit_price": pos.get("last_price"), "pnl_pct": pos.get("pnl_pct"),
+                    "peak_gain_pct": pos.get("peak_gain_pct"), "profit_giveback_pct": pos.get("profit_giveback_pct"),
+                    "mfe_retained_pct": pos.get("mfe_retained_pct"), "protected_gain_pct": pos.get("protected_gain_pct"),
                     "decision_run_id": decision_run_id,
                 })
                 continue
@@ -2077,7 +2166,7 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"dynamic_weights", "status":"DONE", "label":"Dynamiske risikovektede målvekter"},
         {"key":"weekly_rebalance", "status":"DONE", "label":"Daglig analyse, ordinær rebalansering ukentlig"},
         {"key":"immediate_risk_exit", "status":"DONE", "label":"Dynamisk hard stop kan utløse umiddelbar Shadow-exit"},
-        {"key":"dynamic_stop_loss", "status":"DONE", "label":"Volatilitets- og gevinsttilpasset trailing stop"},
+        {"key":"dynamic_stop_loss", "status":"DONE", "label":"MFE-basert gevinstbeskyttelse + maks 3 % trailing stop"},
         {"key":"stop_pressure", "status":"DONE", "label":"SAFE/WATCH/NEAR STOP/STOP + retning/piler"},
         {"key":"manual_exit", "status":"DONE", "label":"Manuell exit med cooldown og fortsatt Shadow-observasjon"},
         {"key":"challengers", "status":"DONE", "label":"Challenger-liste"},
@@ -2286,8 +2375,9 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
             f"Kjøp {_f(row.get('entry_price')):.2f} · topp {_f(row.get('peak_price')):.2f} · nå {_f(row.get('current_price')):.2f}",
             f"Resultat {_f(row.get('pnl_pct')):+.2f}% · fra topp {_f(row.get('drawdown_from_peak_pct')):+.2f}%",
             f"Stop {_f(row.get('stop_price')):.2f} · {_f(row.get('distance_pct')):.2f} pp margin · siden sist {_f(row.get('distance_change_pct')):+.2f} pp {row.get('direction','→')}",
+            f"MFE {_f(row.get('peak_gain_pct')):+.2f}% · sikret gulv {_f(row.get('protected_gain_pct')):+.2f}% · beholdt {_f(row.get('mfe_retained_pct')):.0f}% av toppgevinst",
         ])
-    lines.append("Regel: varsel 1,5% · tidlig exit 2,25–3% ved fortsatt fall · maks trailing stop 3%.")
+    lines.append("Regel: gevinstbeskyttelse fra +2% MFE (40/55/65/70% beholdes etter gevinstnivå) · ellers maks trailing stop 3%.")
     response = send_pushover_alert(
         "\n".join(lines), title=title, url=report.get("report_url") or None,
         url_title="Åpne PDF", priority=priority,
@@ -2458,7 +2548,10 @@ def run_scheduled_shadow_cycle(
     if bool(cfg.get("auto_pushover", True)):
         non_stop_changes = [
             row for row in (result.get("changes") or [])
-            if str(row.get("reason_code") or "") not in {"HARD_STOP", "HARD_TRAILING_STOP", "CONFIRMED_EARLY_TRAILING_EXIT"}
+            if str(row.get("reason_code") or "") not in {
+                "HARD_STOP", "HARD_TRAILING_STOP", "CONFIRMED_EARLY_TRAILING_EXIT",
+                "PROFIT_PROTECTION_EXIT", "CONFIRMED_PROFIT_PROTECTION_EXIT",
+            }
         ]
         if non_stop_changes:
             ok, detail = notify_changes(non_stop_changes, new_state)
