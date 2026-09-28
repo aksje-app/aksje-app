@@ -222,7 +222,7 @@ def paper_counterfactual_replay() -> dict[str, Any]:
         return {"available": False, "rows": [], "coverage_pct": 0.0}
 
     trades = [dict(row) for row in list(portfolio.get("trades") or []) if isinstance(row, Mapping)]
-    open_buys: dict[str, list[dict[str, Any]]] = {}
+    active_buy: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
     min_conf = int(rules.get("min_buy_confidence", 70) or 70)
     min_score = float(rules.get("min_buy_score", 7.0) or 7.0)
@@ -234,15 +234,19 @@ def paper_counterfactual_replay() -> dict[str, Any]:
         if not ticker:
             continue
         if kind == "BUY":
-            open_buys.setdefault(ticker, []).append(trade)
+            # Keep the most recent immutable entry context for the active lot.
+            # Adds to an existing position update the replay context without
+            # consuming a closed-trade slot.
+            active_buy[ticker] = trade
             continue
         if kind != "SELL":
             continue
 
-        buys = open_buys.get(ticker) or []
-        buy = buys.pop(0) if buys else {}
+        buy = dict(active_buy.get(ticker) or {})
         pnl = _f(trade.get("pnl_pct"))
         snapshot = buy.get("decision_snapshot") if isinstance(buy.get("decision_snapshot"), Mapping) else {}
+        if _f(trade.get("remaining_shares")) <= 0:
+            active_buy.pop(ticker, None)
         base = {
             "ticker": ticker,
             "buy_trade_id": buy.get("trade_id") or "",
