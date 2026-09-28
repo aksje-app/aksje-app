@@ -10260,6 +10260,25 @@ def _render_market_room_overview_v1863cb(config: dict) -> None:
         st.caption("Eksempel fra valgt univers: " + ", ".join(tickers[:12]))
     st.info("Velg Rangering for å kjøre markedsmotoren. Heatmap, Markedsklima, Lagrede signaler, IPO, Regime, Makro og Nyheter ligger som visninger i samme Marked-panel.")
 
+    # RC16.33n: diagnostics and reports are operational follow-ups from Market,
+    # so expose direct mobile-safe shortcuts instead of making users hunt through
+    # the Autonomy workspace.
+    sp_diag, reports = st.columns(2)
+    if sp_diag.button("🔎 Super Portfolio diagnose", width="stretch", key="market_sp_diagnose_rc1633n"):
+        _apply_nav_target_v18658("autonomy")
+        st.session_state["autonomy_core_workspace_slug_v1882"] = "super_portfolio"
+        set_global_navigation_state(
+            st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab="super_portfolio"
+        )
+        st.rerun()
+    if reports.button("📚 Rapporter", width="stretch", key="market_reports_rc1633n"):
+        _apply_nav_target_v18658("autonomy")
+        st.session_state["autonomy_core_workspace_slug_v1882"] = "reports"
+        set_global_navigation_state(
+            st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab="reports"
+        )
+        st.rerun()
+
 
 def render_market_room_control_center_v1863cb() -> None:
     """Market room with toolbar, dropdowns and existing market functions grouped together."""

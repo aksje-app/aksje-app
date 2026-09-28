@@ -209,6 +209,133 @@ def _closed_paper_trades() -> list[dict[str, Any]]:
     return rows
 
 
+def paper_counterfactual_replay() -> dict[str, Any]:
+    """Replay closed Paper trades on immutable entry inputs with today's signal engine.
+
+    Legacy trades without an entry decision snapshot are explicitly marked
+    INSUFFICIENT_HISTORICAL_DATA. No current/future market data is fetched.
+    """
+    try:
+        portfolio = load_paper_portfolio() or {}
+        rules = load_paper_rules() or {}
+    except Exception:
+        return {"available": False, "rows": [], "coverage_pct": 0.0}
+
+    trades = [dict(row) for row in list(portfolio.get("trades") or []) if isinstance(row, Mapping)]
+    active_buy: dict[str, dict[str, Any]] = {}
+    rows: list[dict[str, Any]] = []
+    min_conf = int(rules.get("min_buy_confidence", 70) or 70)
+    min_score = float(rules.get("min_buy_score", 7.0) or 7.0)
+    max_open = int(rules.get("max_open_positions", 5) or 5)
+
+    for trade in trades:
+        ticker = str(trade.get("ticker") or "").upper()
+        kind = str(trade.get("type") or "").upper()
+        if not ticker:
+            continue
+        if kind == "BUY":
+            # Keep the most recent immutable entry context for the active lot.
+            # Adds to an existing position update the replay context without
+            # consuming a closed-trade slot.
+            active_buy[ticker] = trade
+            continue
+        if kind != "SELL":
+            continue
+
+        buy = dict(active_buy.get(ticker) or {})
+        pnl = _f(trade.get("pnl_pct"))
+        snapshot = buy.get("decision_snapshot") if isinstance(buy.get("decision_snapshot"), Mapping) else {}
+        if _f(trade.get("remaining_shares")) <= 0:
+            active_buy.pop(ticker, None)
+        base = {
+            "ticker": ticker,
+            "buy_trade_id": buy.get("trade_id") or "",
+            "sell_trade_id": trade.get("trade_id") or "",
+            "actual_pnl_pct": round(pnl, 2),
+            "actual_pnl_amount": round(_f(trade.get("pnl_amount")), 2),
+        }
+        candidate = snapshot.get("candidate_snapshot") if isinstance(snapshot.get("candidate_snapshot"), Mapping) else {}
+        technical = snapshot.get("technical_context") if isinstance(snapshot.get("technical_context"), Mapping) else {}
+        if not snapshot or not candidate or not technical:
+            rows.append({
+                **base,
+                "replay_decision": "INSUFFICIENT_HISTORICAL_DATA",
+                "classification": "UNTESTABLE_LEGACY",
+                "reason": "Mangler immutabelt kandidat-/teknisk snapshot fra kjøpstidspunktet",
+            })
+            continue
+
+        historical_portfolio = snapshot.get("portfolio_state") if isinstance(snapshot.get("portfolio_state"), Mapping) else {}
+        if int(historical_portfolio.get("position_count") or 0) >= max_open:
+            rows.append({
+                **base,
+                "replay_decision": "REVIEW",
+                "classification": "REPLACEMENT_REQUIRED",
+                "reason": "Historisk portefølje var full; eksakt replacement-replay krever full rangering fra kjøpstidspunktet",
+            })
+            continue
+
+        try:
+            from signal_engine import build_trading_decision
+            current = dict(build_trading_decision(dict(candidate), dict(technical)) or {})
+            signal = str(current.get("decision") or current.get("signal") or "").upper()
+            confidence = int(current.get("confidence") or 0)
+            score = _f(current.get("decision_score", current.get("final_score", current.get("score"))))
+            would_buy = ("BUY" in signal and confidence >= min_conf and score >= min_score)
+            reasons = []
+            if "BUY" not in signal:
+                reasons.append(f"signal={signal or 'UKJENT'}")
+            if confidence < min_conf:
+                reasons.append(f"confidence {confidence} < {min_conf}")
+            if score < min_score:
+                reasons.append(f"score {score:.2f} < {min_score:.2f}")
+            if would_buy:
+                classification = "RETAINED_WINNER" if pnl > 0 else ("RETAINED_LOSER" if pnl < 0 else "RETAINED_FLAT")
+                decision = "BUY"
+            else:
+                classification = "MISSED_WINNER" if pnl > 0 else ("AVOIDED_LOSER" if pnl < 0 else "REJECTED_FLAT")
+                decision = "REJECT"
+            rows.append({
+                **base,
+                "replay_decision": decision,
+                "classification": classification,
+                "current_signal": signal,
+                "current_confidence": confidence,
+                "current_score": round(score, 2),
+                "reason": " · ".join(reasons) or "Består dagens signal- og Paper entry-gater",
+                "snapshot_schema": snapshot.get("schema") or "",
+            })
+        except Exception as exc:
+            rows.append({
+                **base,
+                "replay_decision": "INSUFFICIENT_HISTORICAL_DATA",
+                "classification": "REPLAY_ERROR",
+                "reason": f"{type(exc).__name__}: {exc}"[:240],
+            })
+
+    replayable = [row for row in rows if row.get("replay_decision") in {"BUY", "REJECT"}]
+    missed = [row for row in replayable if row.get("classification") == "MISSED_WINNER"]
+    avoided = [row for row in replayable if row.get("classification") == "AVOIDED_LOSER"]
+    retained_winners = [row for row in replayable if row.get("classification") == "RETAINED_WINNER"]
+    net_counterfactual = sum(
+        (-_f(row.get("actual_pnl_amount")) if row.get("replay_decision") == "REJECT" else 0.0)
+        for row in replayable
+    )
+    return {
+        "available": True,
+        "scope": "CURRENT_SIGNAL_ENGINE_PLUS_PAPER_ENTRY_GATES",
+        "exact_full_portfolio_replay": False,
+        "rows": rows,
+        "closed_trades": len(rows),
+        "replayable_trades": len(replayable),
+        "coverage_pct": round((len(replayable) / len(rows) * 100.0) if rows else 0.0, 1),
+        "missed_winners": len(missed),
+        "avoided_losers": len(avoided),
+        "retained_winners": len(retained_winners),
+        "counterfactual_pnl_delta_amount": round(net_counterfactual, 2),
+    }
+
+
 def _paper_portfolio_learning_snapshot() -> dict[str, Any]:
     try:
         portfolio = load_paper_portfolio() or {}
@@ -284,6 +411,7 @@ def learning_evidence_summary() -> dict[str, Any]:
         "learning_closed_trades": len(learning),
         "paper_closed_trades": len(paper),
         "paper_statistics_pct": _stats(paper),
+        "paper_counterfactual": paper_counterfactual_replay(),
         "natural_learning_exits": len(natural),
         "promoted_learning_exits": len(promoted),
         "ordinary_statistics": _stats(ordinary),
@@ -949,6 +1077,21 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
             f"urealisert {paper_snapshot.get('unrealized_pnl_amount', 0):+,.0f}. "
             "Avsluttede Paper-handler inngår nå i læringsevidensen."
         )
+
+        replay = paper_counterfactual_replay()
+        st.markdown("##### Counterfactual / Replay")
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Replay-dekning", f"{float(replay.get('coverage_pct') or 0):.1f}%")
+        r2.metric("Beholdte vinnere", int(replay.get("retained_winners") or 0))
+        r3.metric("Unngåtte tapere", int(replay.get("avoided_losers") or 0))
+        r4.metric("Mistede vinnere", int(replay.get("missed_winners") or 0))
+        st.caption(
+            "Replay bruker kun immutable data lagret ved kjøpstidspunktet og dagens signalmotor + Paper entry-gater. "
+            "Legacy-handler uten snapshot vises som ikke testbare; dagens markedsdata brukes aldri som erstatning."
+        )
+        replay_rows = list(replay.get("rows") or [])
+        if replay_rows:
+            st.dataframe(pd.DataFrame(replay_rows[-50:]), width="stretch", hide_index=True, height=260)
 
     overview_tab, settings_tab, approvals_tab = st.tabs(["Læring og eksperimenter", "⚙️ Autonomy Settings", "🛡️ Godkjenninger"])
     with settings_tab:

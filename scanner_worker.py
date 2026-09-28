@@ -108,6 +108,30 @@ def _paper_candidate_context(result):
     return candidate
 
 
+def _paper_replay_snapshot(result, portfolio_state=None):
+    """Immutable entry inputs for future current-model counterfactual replay."""
+    result = result or {}
+    portfolio_state = dict(portfolio_state or {})
+    positions = portfolio_state.get("positions") if isinstance(portfolio_state.get("positions"), dict) else {}
+    return {
+        "schema": "paper_counterfactual_v1",
+        "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ticker": str(result.get("ticker") or "").upper(),
+        "candidate_snapshot": dict(result.get("candidate_snapshot") or {}),
+        "technical_context": dict(result.get("technical_context") or {}),
+        "original_decision": dict(result.get("decision") or {}),
+        "signal": str(result.get("signal") or "").upper(),
+        "confidence": int(result.get("confidence") or 0),
+        "score": float(result.get("score") or 0),
+        "market_data_at": result.get("market_data_at") or result.get("as_of") or "",
+        "portfolio_state": {
+            "cash": portfolio_state.get("cash"),
+            "position_count": len(positions or {}),
+            "positions": sorted(str(t).upper() for t in (positions or {}).keys()),
+        },
+    }
+
+
 force_schema_migration()
 
 SCANNER_MAX_TICKERS = int(os.getenv("SCANNER_MAX_TICKERS", "30"))
@@ -758,6 +782,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                                 "market_data_at": quote["market_data_at"],
                                 "execution_quote": quote,
                                 "candidate": _paper_candidate_context(result),
+                                "decision_snapshot": _paper_replay_snapshot(result, portfolio_now),
                             },
                         )
                         print(f"Auto BUY {ticker}: {msg}")

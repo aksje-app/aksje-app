@@ -330,6 +330,10 @@ class SuperPortfolioConfig:
     replacement_score_margin: float = 2.0
     candidate_persistence_runs: int = 2
     min_entry_data_coverage: float = 70.0
+    # RC16.33n: risk exits may refill only genuinely open slots with candidates
+    # that already passed the normal entry gate. No forced buying.
+    risk_exit_refill_enabled: bool = True
+    risk_exit_refill_max_per_cycle: int = 3
 
 
 def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
@@ -365,6 +369,9 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
         "regime_policy": {},
         "ai_thinks": [],
         "shadow_executed": [],
+        "vacancy_diagnostics": {},
+        "last_exit_refill": {},
+        "pending_risk_refill_slots": 0,
     }
 
 
@@ -394,6 +401,9 @@ def load_state() -> dict[str, Any]:
     state.setdefault("risk_reentry_confirmation", {})
     state.setdefault("last_stop_surveillance_at", "")
     state.setdefault("stop_surveillance_history", [])
+    state.setdefault("vacancy_diagnostics", {})
+    state.setdefault("last_exit_refill", {})
+    state.setdefault("pending_risk_refill_slots", 0)
     return state
 
 
@@ -1400,6 +1410,13 @@ def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str 
         "market_scan_summary": data.get("market_scan_summary") or {},
         "portfolio_health": data.get("portfolio_health") or {},
         "decision_confidence": data.get("decision_confidence") or {},
+        "state_updated_at": data.get("updated_at"),
+        "current_positions": list((data.get("positions") or {}).values()),
+        "current_position_count": len(data.get("positions") or {}),
+        "current_invested_weight_pct": round(sum(_f(p.get("target_weight_pct")) for p in (data.get("positions") or {}).values()), 2),
+        "vacancy_diagnostics": data.get("vacancy_diagnostics") or {},
+        "last_exit_refill": data.get("last_exit_refill") or {},
+        "last_changes": data.get("last_changes") or [],
     }
     alert_text = ", ".join(selected.get("alerts") or []) or "NONE"
     readme = [
@@ -1408,6 +1425,10 @@ def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str 
         f"Decision run: {trace.get('decision_run_id') or '-'}",
         f"Position run: {trace.get('position_source_run_id') or '-'}",
         f"Selected ticker: {key or 'ALL'}",
+        f"State updated: {data.get('updated_at') or '-'}",
+        f"Current positions: {len(data.get('positions') or {})}",
+        f"Open slots: {(data.get('vacancy_diagnostics') or {}).get('open_slots','-')}",
+        f"Vacancy status: {(data.get('vacancy_diagnostics') or {}).get('status','-')}",
     ]
     if key:
         readme += [
@@ -1423,6 +1444,11 @@ def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str 
         zf.writestr("selected_ticker.json", json.dumps(selected, ensure_ascii=False, indent=2, default=str))
         zf.writestr("state_summary.json", json.dumps(summary, ensure_ascii=False, indent=2, default=str))
         zf.writestr("ai_would_do_today.json", json.dumps(data.get("ai_would_do_today") or [], ensure_ascii=False, indent=2, default=str))
+        zf.writestr("current_positions.json", json.dumps(data.get("positions") or {}, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("last_changes.json", json.dumps(data.get("last_changes") or [], ensure_ascii=False, indent=2, default=str))
+        zf.writestr("vacancy_diagnostics.json", json.dumps(data.get("vacancy_diagnostics") or {}, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("last_exit_refill.json", json.dumps(data.get("last_exit_refill") or {}, ensure_ascii=False, indent=2, default=str))
+        zf.writestr("recent_history.json", json.dumps(list(data.get("history") or [])[-20:], ensure_ascii=False, indent=2, default=str))
     return buf.getvalue()
 
 
@@ -2048,6 +2074,120 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         state["risk_exit_cooldown"] = risk_cooldown
         state["risk_reentry_confirmation"] = risk_reentry
         candidate_persistence = persistence
+    # RC16.33n: after a risk/profit-protection exit, refill only genuinely
+    # vacant slots and only with candidates that already passed the ordinary
+    # entry gate on this same fresh decision run. Existing holdings are not
+    # rebalanced here, and an empty/blocked candidate set is allowed to remain cash.
+    refill_buys: list[dict[str, Any]] = []
+    pending_refill_slots = max(0, int(state.get("pending_risk_refill_slots") or 0))
+    refill_triggered = bool(risk_exit_positions or pending_refill_slots > 0)
+    if (
+        refill_triggered
+        and not ordinary_rebalance_allowed
+        and bool(cfg.risk_exit_refill_enabled)
+        and bool(rebalance_gate.get("allowed"))
+    ):
+        free_slots = max(0, int(cfg.target_positions) - len(positions))
+        invested_weight = sum(_f(p.get("target_weight_pct")) for p in positions.values())
+        free_weight = max(0.0, 100.0 - invested_weight)
+        refill_candidates = []
+        for row in selected_rows:
+            ticker = str(row.get("ticker") or "")
+            if not ticker or ticker in positions or ticker in risk_exit_positions or ticker in previous:
+                continue
+            gate_row = dict(entry_gate.get(ticker) or {})
+            if not gate_row.get("allowed"):
+                continue
+            desired = _f(weights.get(ticker))
+            if desired <= 0:
+                continue
+            refill_candidates.append((int(row.get("rank") or 999999), -_f(row.get("portfolio_score_adjusted", row.get("portfolio_score"))), ticker, row, desired))
+        refill_candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+        for _, __, ticker, row, desired in refill_candidates[: max(0, min(free_slots, int(cfg.risk_exit_refill_max_per_cycle)))]:
+            allocation = min(desired, free_weight)
+            if allocation < max(1.0, float(cfg.min_rebalance_pp)):
+                continue
+            pos = _position_from_row(row, allocation, {}, now_iso, cfg, history)
+            positions[ticker] = pos
+            free_weight = max(0.0, free_weight - allocation)
+            buy_change = {
+                "action": "BUY", "ticker": ticker, "from_pct": 0.0, "to_pct": round(allocation, 2),
+                "reason_code": "RISK_EXIT_REFILL",
+                "reason": "Ledig plass etter gevinst-/risikoexit; kandidaten bestod ordinær entry gate",
+                "decision_run_id": decision_run_id,
+            }
+            changes.append(buy_change)
+            refill_buys.append(buy_change)
+            for action in advisory:
+                if str(action.get("ticker") or "") == ticker and str(action.get("action") or "") == "BUY":
+                    action["execution_status"] = "EXECUTED_AFTER_RISK_EXIT"
+                    action["advisory_only"] = False
+
+    open_slots = max(0, int(cfg.target_positions) - len(positions))
+    invested_weight_pct = round(sum(_f(p.get("target_weight_pct")) for p in positions.values()), 2)
+    considered = []
+    if open_slots:
+        for action in advisory:
+            if str(action.get("action") or "") != "BUY":
+                continue
+            ticker = str(action.get("ticker") or "")
+            considered.append({
+                "ticker": ticker,
+                "status": action.get("execution_status") or "ADVISORY_ONLY",
+                "gate_reason_codes": list(action.get("gate_reason_codes") or (entry_gate.get(ticker) or {}).get("reason_codes") or []),
+                "target_weight_pct": action.get("to_pct"),
+            })
+    vacancy_diagnostics = {
+        "at": now_iso,
+        "decision_run_id": decision_run_id,
+        "target_positions": int(cfg.target_positions),
+        "position_count": len(positions),
+        "open_slots": open_slots,
+        "invested_weight_pct": invested_weight_pct,
+        "cash_pct": round(max(0.0, 100.0 - invested_weight_pct), 2),
+        "status": (
+            "FULL" if open_slots == 0
+            else "REFILLED_PARTIALLY" if refill_buys
+            else "WAITING_FOR_QUALIFIED_CANDIDATE" if refill_triggered
+            else "CASH_BY_POLICY"
+        ),
+        "risk_exits": [str(t) for t in risk_exit_positions],
+        "pending_refill_slots_before": pending_refill_slots,
+        "refill_buys": [str(row.get("ticker") or "") for row in refill_buys],
+        "considered": considered[:20],
+    }
+    if ordinary_rebalance_allowed:
+        state["pending_risk_refill_slots"] = 0
+    else:
+        state["pending_risk_refill_slots"] = max(
+            0,
+            pending_refill_slots + len(risk_exit_positions) - len(refill_buys),
+        )
+    vacancy_diagnostics["pending_refill_slots_after"] = int(state.get("pending_risk_refill_slots") or 0)
+    state["vacancy_diagnostics"] = vacancy_diagnostics
+    state["last_exit_refill"] = {
+        "at": now_iso, "decision_run_id": decision_run_id,
+        "risk_exits": [dict(row) for row in changes if row.get("action") == "SELL" and row.get("ticker") in risk_exit_positions],
+        "refill_buys": refill_buys,
+        "pending_refill_slots_before": pending_refill_slots,
+        "pending_refill_slots_after": int(state.get("pending_risk_refill_slots") or 0),
+        "rebalance_gate_allowed": bool(rebalance_gate.get("allowed")),
+    } if (risk_exit_positions or refill_buys) else dict(state.get("last_exit_refill") or {})
+
+    # Recompute portfolio summaries after any exit-refill BUYs so the persisted
+    # health, stress and turnover reflect the actual post-cycle portfolio.
+    position_rows = list(positions.values())
+    health = portfolio_health(position_rows)
+    total_weight = sum(_f(p.get("target_weight_pct")) for p in position_rows)
+    weighted_return = (
+        sum(_f(p.get("pnl_pct")) * _f(p.get("target_weight_pct")) for p in position_rows) / total_weight
+        if total_weight > 0 else 0.0
+    )
+    turnover = turnover_cost_summary(
+        changes, portfolio_value=_f(state.get("initial_cash"), cfg.start_cash),
+        gross_return_pct=weighted_return, cost_bps=cfg.transaction_cost_bps,
+    )
+    stress = stress_radar(position_rows)
     ranking_snapshot = [{"ticker": row.get("ticker"), "rank": row.get("rank"), "score": row.get("portfolio_score_adjusted"), "rank_arrow": row.get("rank_arrow")} for row in ranked_all[: max(cfg.target_positions + cfg.challenger_count, 30)]]
     snapshot = {
         "at": now_iso,
@@ -2065,6 +2205,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "shadow_executed": changes,
         "entry_gate": entry_gate,
         "candidate_persistence": candidate_persistence,
+        "vacancy_diagnostics": vacancy_diagnostics,
         "regime_policy": regime_policy,
         "changes": changes,
         "stop_alerts": stop_alerts,
@@ -2095,6 +2236,9 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "rebalance_impact": rebalance_impact,
         "market_scan_summary": dict(pipeline.get("summary") or {}),
         "insider_checks": dict(pipeline.get("insider_checks") or {}),
+        "vacancy_diagnostics": vacancy_diagnostics,
+        "last_exit_refill": state.get("last_exit_refill") or {},
+        "pending_risk_refill_slots": int(state.get("pending_risk_refill_slots") or 0),
     })
     history.append(snapshot)
     state["history"] = history[-max(10, int(cfg.history_limit)):]
@@ -2104,7 +2248,16 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             "timestamp": now_iso, "event": "EVALUATE", "changes": changes, "stop_alerts": stop_alerts,
             "portfolio_health": health, "source_run_id": snapshot["source_run_id"], "rebalance_due": rebalance_due,
             "rebalance_gate": rebalance_gate, "rebalance_impact": rebalance_impact,
+            "positions_before": len(previous), "positions_after": len(positions),
+            "vacancy_diagnostics": vacancy_diagnostics,
         })
+        print("SUPER_PORTFOLIO_DECISION " + json.dumps({
+            "run_id": decision_run_id, "positions_before": len(previous), "positions_after": len(positions),
+            "sells": [row.get("ticker") for row in changes if row.get("action") == "SELL"],
+            "buys": [row.get("ticker") for row in changes if row.get("action") == "BUY"],
+            "cash_pct": vacancy_diagnostics.get("cash_pct"), "open_slots": vacancy_diagnostics.get("open_slots"),
+            "vacancy_status": vacancy_diagnostics.get("status"),
+        }, ensure_ascii=False, default=str))
     return {
         "state": state, "ranked": ranked, "changes": changes, "snapshot": snapshot, "portfolio_health": health,
         "ai_would_do_today": advisory, "stop_alerts": stop_alerts, "rebalance_due": rebalance_due,
@@ -2112,6 +2265,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "decision_trace": decision_trace, "rebalance_gate": rebalance_gate, "rebalance_impact": rebalance_impact,
         "entry_gate": entry_gate, "candidate_persistence": candidate_persistence, "regime_policy": regime_policy,
         "ai_thinks": advisory, "shadow_executed": changes,
+        "vacancy_diagnostics": vacancy_diagnostics, "last_exit_refill": state.get("last_exit_refill") or {},
     }
 
 def manual_exit(ticker: str, note: str = "") -> dict[str, Any]:
@@ -2481,6 +2635,7 @@ def run_lightweight_stop_surveillance(
         data["risk_exit_cooldown"] = risk_cooldown
         data["risk_reentry_confirmation"] = risk_reentry
         data["candidate_persistence"] = persistence
+        data["pending_risk_refill_slots"] = max(0, int(data.get("pending_risk_refill_slots") or 0)) + len(exited)
 
     stop_history.append({
         "at": reference.isoformat(timespec="seconds"),
@@ -2489,6 +2644,22 @@ def run_lightweight_stop_surveillance(
     data["stop_surveillance_history"] = stop_history[-192:]
     data["positions"] = positions
     data["portfolio_health"] = portfolio_health(list(positions.values()))
+    invested_weight_pct = round(sum(_f(p.get("target_weight_pct")) for p in positions.values()), 2)
+    target_positions = int(getattr(cfg, "target_positions", 10) or 10)
+    data["vacancy_diagnostics"] = {
+        "at": reference.isoformat(timespec="seconds"),
+        "decision_run_id": f"STOP-{reference.strftime('%Y%m%d-%H%M%S')}",
+        "target_positions": target_positions,
+        "position_count": len(positions),
+        "open_slots": max(0, target_positions - len(positions)),
+        "invested_weight_pct": invested_weight_pct,
+        "cash_pct": round(max(0.0, 100.0 - invested_weight_pct), 2),
+        "status": "WAITING_FOR_FRESH_REFILL" if exited else ("FULL" if len(positions) >= target_positions else "CASH_BY_POLICY"),
+        "risk_exits": sorted(exited),
+        "refill_buys": [],
+        "pending_refill_slots_after": int(data.get("pending_risk_refill_slots") or 0),
+        "considered": [],
+    }
     data["last_changes"] = changes
     data["last_stop_alerts"] = alerts
     save_state(data)
@@ -2501,7 +2672,15 @@ def run_lightweight_stop_surveillance(
         "timestamp": _now(), "event": "LIGHTWEIGHT_STOP_SURVEILLANCE",
         "prices": len(prices), "changes": len(changes), "stop_alerts": len(alerts),
         "notification": notification,
+        "positions_before": len(previous), "positions_after": len(positions),
+        "vacancy_diagnostics": data.get("vacancy_diagnostics") or {},
     })
+    print("SUPER_PORTFOLIO_STOP_SURVEILLANCE " + str({
+        "positions_before": len(previous), "positions_after": len(positions),
+        "sells": sorted(exited), "cash_pct": (data.get("vacancy_diagnostics") or {}).get("cash_pct"),
+        "open_slots": (data.get("vacancy_diagnostics") or {}).get("open_slots"),
+        "pending_refill_slots": int(data.get("pending_risk_refill_slots") or 0),
+    }))
     return {
         "state": "COMPLETED", "changes": changes, "stop_alerts": alerts,
         "notification": notification, "checked_positions": len(previous),

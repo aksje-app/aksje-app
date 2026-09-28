@@ -249,6 +249,29 @@ def render_super_portfolio(_legacy_context) -> None:
         else:
             st.caption("Ingen nye challengers har vært gjennom entry-gaten i siste beslutningsrunde.")
 
+    vacancy = state.get("vacancy_diagnostics") or {}
+    if vacancy:
+        st.markdown("### 💵 Ledige plasser / kontantandel")
+        v1, v2, v3, v4 = st.columns(4)
+        v1.metric("Posisjoner", f"{int(vacancy.get('position_count') or 0)}/{int(vacancy.get('target_positions') or 0)}")
+        v2.metric("Ledige plasser", int(vacancy.get("open_slots") or 0))
+        v3.metric("Kontantandel", f"{float(vacancy.get('cash_pct') or 0):.1f}%")
+        v4.metric("Status", str(vacancy.get("status") or "-"))
+        considered = list(vacancy.get("considered") or [])
+        if considered:
+            st.caption("Hvorfor ledige plasser eventuelt ikke ble fylt:")
+            st.dataframe(pd.DataFrame([{
+                "Aksje": row.get("ticker"),
+                "Status": row.get("status"),
+                "Målvekt %": row.get("target_weight_pct"),
+                "Blokkering": " · ".join(row.get("gate_reason_codes") or []) or "Ingen gate-blokkering",
+            } for row in considered]), width="stretch", hide_index=True, height=220)
+        if vacancy.get("risk_exits") or vacancy.get("refill_buys"):
+            st.caption(
+                f"Risiko-/gevinst-exits: {', '.join(vacancy.get('risk_exits') or []) or '-'} · "
+                f"Refill-kjøp: {', '.join(vacancy.get('refill_buys') or []) or 'ingen'}"
+            )
+
     st.markdown("### 📊 Før / etter rebalansering")
     if impact:
         before = impact.get("health_before") or {}
