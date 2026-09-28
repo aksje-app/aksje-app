@@ -2147,6 +2147,21 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "risk_exits": [dict(row) for row in changes if row.get("action") == "SELL" and row.get("ticker") in risk_exit_positions],
         "refill_buys": refill_buys,
     } if risk_exit_positions else dict(state.get("last_exit_refill") or {})
+
+    # Recompute portfolio summaries after any exit-refill BUYs so the persisted
+    # health, stress and turnover reflect the actual post-cycle portfolio.
+    position_rows = list(positions.values())
+    health = portfolio_health(position_rows)
+    total_weight = sum(_f(p.get("target_weight_pct")) for p in position_rows)
+    weighted_return = (
+        sum(_f(p.get("pnl_pct")) * _f(p.get("target_weight_pct")) for p in position_rows) / total_weight
+        if total_weight > 0 else 0.0
+    )
+    turnover = turnover_cost_summary(
+        changes, portfolio_value=_f(state.get("initial_cash"), cfg.start_cash),
+        gross_return_pct=weighted_return, cost_bps=cfg.transaction_cost_bps,
+    )
+    stress = stress_radar(position_rows)
     ranking_snapshot = [{"ticker": row.get("ticker"), "rank": row.get("rank"), "score": row.get("portfolio_score_adjusted"), "rank_arrow": row.get("rank_arrow")} for row in ranked_all[: max(cfg.target_positions + cfg.challenger_count, 30)]]
     snapshot = {
         "at": now_iso,
