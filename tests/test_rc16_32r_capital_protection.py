@@ -204,7 +204,7 @@ def test_lightweight_surveillance_executes_and_notifies_confirmed_exit() -> None
         state=state, now=datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
     )
     assert result["state"] == "COMPLETED"
-    assert result["changes"][0]["reason_code"] == "CONFIRMED_EARLY_TRAILING_EXIT"
+    assert result["changes"][0]["reason_code"] == "PROFIT_PROTECTION_EXIT"
     assert saved[-1]["positions"] == {}
     assert notified and notified[0][0]["action"] == "SHADOW SELL UTFØRT"
 
