@@ -284,6 +284,7 @@ TRADE_CONTEXT_KEYS = (
     "contributing_reasons",
     "replacement_ticker",
     "replacement_score",
+    "decision_snapshot",
 )
 
 
@@ -561,6 +562,21 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     before = build_paper_state_snapshot(portfolio, rules=rules)
     ticker = str(ticker).upper()
     trade_ctx = _merge_trade_context(ticker, trade_context)
+    # RC16.33n: preserve immutable entry evidence for future counterfactual replay.
+    if not trade_ctx.get("decision_snapshot"):
+        candidate_snapshot = gate_context.get("candidate") if isinstance(gate_context.get("candidate"), Mapping) else {}
+        trade_ctx["decision_snapshot"] = {
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "ticker": str(ticker).upper(),
+            "candidate_snapshot": dict(candidate_snapshot),
+            "portfolio_action": str(candidate_snapshot.get("portfolio_action") or "").upper(),
+            "confidence": int(confidence or 0),
+            "current_score": trade_ctx.get("current_score"),
+            "market_data_at": gate_context.get("market_data_at") or trade_ctx.get("market_data_at") or "",
+            "run_id": gate_context.get("run_id") or trade_ctx.get("run_id") or "",
+            "strategy_version": trade_ctx.get("strategy_version") or "",
+            "parameter_version": trade_ctx.get("parameter_version") or "",
+        }
     manual_override_state = normalize_manual_override_state(manual_override)
     if bool(gate_context.get("automatic")):
         repeat_blocked, repeat_msg = _automatic_repeat_buy_block_v1931ay(portfolio, ticker, rules)
