@@ -2675,12 +2675,12 @@ def run_lightweight_stop_surveillance(
         "positions_before": len(previous), "positions_after": len(positions),
         "vacancy_diagnostics": data.get("vacancy_diagnostics") or {},
     })
-    print("SUPER_PORTFOLIO_STOP_SURVEILLANCE " + json.dumps({
+    print("SUPER_PORTFOLIO_STOP_SURVEILLANCE " + str({
         "positions_before": len(previous), "positions_after": len(positions),
         "sells": sorted(exited), "cash_pct": (data.get("vacancy_diagnostics") or {}).get("cash_pct"),
         "open_slots": (data.get("vacancy_diagnostics") or {}).get("open_slots"),
         "pending_refill_slots": int(data.get("pending_risk_refill_slots") or 0),
-    }, ensure_ascii=False, default=str))
+    }))
     return {
         "state": "COMPLETED", "changes": changes, "stop_alerts": alerts,
         "notification": notification, "checked_positions": len(previous),
