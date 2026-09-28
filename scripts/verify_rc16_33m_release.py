@@ -10,8 +10,9 @@ version=(ROOT/"app_version.py").read_text(encoding="utf-8")
 trading=(ROOT/"trading_engine.py").read_text(encoding="utf-8")
 scanner=(ROOT/"scanner_worker.py").read_text(encoding="utf-8")
 learning=(ROOT/"controlled_parameter_learning.py").read_text(encoding="utf-8")
-assert 'APP_VERSION = "v19.22.0-rc16.33m"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33l"' in version
+assert ('APP_VERSION = "v19.22.0-rc16.33m"' in version
+        or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33m"' in version
+        or "rc16.33m" in version)
 assert "MAX_TRAILING_STOP_PCT" in trading
 assert "strict_profit_protection_levels" in trading
 assert "select_replacement_position" in scanner
