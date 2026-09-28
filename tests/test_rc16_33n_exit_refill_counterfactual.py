@@ -209,8 +209,11 @@ def test_release_wiring_and_diagnostics_are_visible() -> None:
     super_src = (root / "super_portfolio.py").read_text(encoding="utf-8")
     page_src = (root / "pages" / "super_portfolio.py").read_text(encoding="utf-8")
     learning = (root / "controlled_parameter_learning.py").read_text(encoding="utf-8")
+    app = (root / "app.py").read_text(encoding="utf-8")
     assert "vacancy_diagnostics.json" in super_src
     assert "current_positions.json" in super_src
     assert "SUPER_PORTFOLIO_DECISION" in super_src
     assert "Ledige plasser / kontantandel" in page_src
     assert "Counterfactual / Replay" in learning
+    assert "🔎 Super Portfolio diagnose" in app
+    assert "📚 Rapporter" in app
