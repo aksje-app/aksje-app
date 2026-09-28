@@ -60,7 +60,8 @@ from paper_scanner_runtime import (
 )
 
 from paper_store import force_schema_migration
-from paper_trading import auto_trade, paper_buy, load_portfolio, portfolio_value
+from paper_trading import auto_trade, paper_buy, paper_sell, load_portfolio, portfolio_value
+from trading_engine import select_replacement_position
 from alert_state import should_send_alert, record_alert
 from market_hours import open_markets, should_process_ticker, market_status_lines, market_scan_schedule, ticker_market as _ticker_market
 from background_guard import print_market_guard_summary
@@ -680,12 +681,61 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                         allow_trade = False
 
                     if allow_trade:
+                        rules = load_rules()
+                        portfolio_now = load_portfolio() or {}
+                        max_open = int(rules.get("max_open_positions", 5) or 5)
+                        if len(portfolio_now.get("positions") or {}) >= max_open:
+                            replacement = select_replacement_position(portfolio_now, result.get("score"), rules=rules)
+                            if replacement:
+                                old_ticker = replacement["ticker"]
+                                old_quote, old_quote_error = fresh_paper_buy_quote(
+                                    old_ticker,
+                                    max_age_minutes=float(rules.get("automatic_signal_max_age_minutes", 120) or 120),
+                                )
+                                if old_quote is not None:
+                                    replaced, replace_msg = paper_sell(
+                                        old_ticker,
+                                        old_quote["price"],
+                                        f"Replacement exit for {result['ticker']}",
+                                        trade_context={
+                                            "source": "scanner_worker",
+                                            "automatic": True,
+                                            "run_id": scan_run_id,
+                                            "scan_id": scan_run_id,
+                                            "scanner_execution_id": load_scanner_status().get("execution_id"),
+                                            "market_data_at": old_quote["market_data_at"],
+                                            "rule_used": "Capital replacement",
+                                            "replacement_ticker": result["ticker"],
+                                            "replacement_score": result.get("score"),
+                                            "contributing_reasons": [
+                                                f"Ny kandidat score {result.get('score')}",
+                                                f"Erstattet {old_ticker} score {replacement.get('score')}",
+                                                f"Scorefordel {replacement.get('score_advantage')}",
+                                            ],
+                                            "trade_explanation": (
+                                                f"Solgt for utskifting: {result['ticker']} har scorefordel "
+                                                f"{replacement.get('score_advantage'):.2f} mot {old_ticker}. "
+                                                "Paper Trading bruker aktiv utskifting for å frigjøre kapital og skape læringsevidens."
+                                            ),
+                                        },
+                                    )
+                                    print(f"Replacement {old_ticker} -> {result['ticker']}: {replace_msg}")
+                                    if replaced:
+                                        trades_executed += 1
+                                else:
+                                    print(f"Replacement {old_ticker}: blokkert - {old_quote_error}")
+                            else:
+                                print(f"Auto BUY {ticker}: full portefølje og ingen klart bedre replacement")
+                                allow_trade = False
+                        if not allow_trade:
+                            continue
+
                         # The 2y daily history used for ranking is not proof
                         # of a fresh executable quote. Fetch price and time
                         # together; never stamp the current time onto it.
                         quote, quote_error = fresh_paper_buy_quote(
                             result["ticker"], max_age_minutes=float(
-                                load_rules().get("automatic_signal_max_age_minutes", 120) or 120),
+                                rules.get("automatic_signal_max_age_minutes", 120) or 120),
                         )
                         if quote is None:
                             print(f"Auto BUY {ticker}: blokkert - {quote_error}")

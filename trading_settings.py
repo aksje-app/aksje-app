@@ -42,6 +42,9 @@ DEFAULT_RULES = {
     "stagnation_days": DEFAULT_EXIT_POLICY.stagnation_days,
     "stagnation_band_pct": DEFAULT_EXIT_POLICY.stagnation_band_pct,
     "replacement_score_advantage": DEFAULT_EXIT_POLICY.replacement_score_advantage,
+    "replacement_min_score_advantage": 1.0,
+    "replacement_min_holding_days": 5,
+    "max_stagnant_holding_days": 5,
     "cash_review_days": 40,
     "cash_review_max_return_pct": 1.0,
 }

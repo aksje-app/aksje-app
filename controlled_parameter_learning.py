@@ -25,6 +25,8 @@ from autonomous_portfolio import (
 )
 from durable_runtime import append_event, read_events
 from app_version import APP_VERSION, CONTROLLED_LEARNING_POLICY_VERSION
+from paper_store import load_portfolio as load_paper_portfolio
+from trading_settings import load_rules as load_paper_rules
 
 VERSION = CONTROLLED_LEARNING_POLICY_VERSION
 ROOT = runtime_data_path("controlled_learning")
@@ -181,6 +183,68 @@ def _closed_trades() -> list[dict[str, Any]]:
     return [t for t in trades if isinstance(t, dict) and t.get("action") == "SELL"] if isinstance(trades, list) else []
 
 
+def _closed_paper_trades() -> list[dict[str, Any]]:
+    """Closed Paper Trading exits normalized as percentage-return evidence."""
+    try:
+        portfolio = load_paper_portfolio() or {}
+    except Exception:
+        return []
+    rows = []
+    seen = set()
+    for raw in list(portfolio.get("trades") or []):
+        if not isinstance(raw, Mapping) or str(raw.get("type") or "").upper() != "SELL":
+            continue
+        row = dict(raw)
+        identity = str(row.get("trade_id") or "").strip() or "|".join(map(str, (
+            row.get("ticker"), row.get("time"), row.get("price"), row.get("pnl_pct"), row.get("reason"),
+        )))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        row["action"] = "SELL"
+        row["pnl"] = _f(row.get("pnl_pct"))
+        row["learning_evidence"] = True
+        row["evidence_class"] = "PAPER_TRADING_EXIT"
+        rows.append(row)
+    return rows
+
+
+def _paper_portfolio_learning_snapshot() -> dict[str, Any]:
+    try:
+        portfolio = load_paper_portfolio() or {}
+        rules = load_paper_rules() or {}
+    except Exception:
+        return {"available": False}
+    cash = _f(portfolio.get("cash"))
+    positions_value = 0.0
+    unrealized = 0.0
+    for ticker, pos in (portfolio.get("positions") or {}).items():
+        if not isinstance(pos, Mapping):
+            continue
+        shares = _f(pos.get("shares") or pos.get("units"))
+        entry = _f(pos.get("entry_price") or pos.get("avg_price"))
+        last = _f(pos.get("last_price"), entry)
+        positions_value += shares * last
+        unrealized += shares * (last - entry)
+    total = cash + positions_value
+    start_cash = _f(rules.get("start_cash"), 100000.0)
+    closed = _closed_paper_trades()
+    realized = sum(_f(row.get("pnl_amount")) for row in closed)
+    return {
+        "available": True,
+        "open_positions": len(portfolio.get("positions") or {}),
+        "closed_trades": len(closed),
+        "cash": round(cash, 2),
+        "positions_value": round(positions_value, 2),
+        "total_value": round(total, 2),
+        "result_amount": round(total - start_cash, 2),
+        "result_pct": round(((total / start_cash) - 1.0) * 100.0, 2) if start_cash > 0 else 0.0,
+        "realized_pnl_amount": round(realized, 2),
+        "unrealized_pnl_amount": round(unrealized, 2),
+        "trade_statistics_pct": _stats(closed),
+    }
+
+
 def _closed_learning_trades() -> list[dict[str, Any]]:
     """Return deduplicated, theoretical learning exits as usable evidence.
 
@@ -212,17 +276,20 @@ def _closed_learning_trades() -> list[dict[str, Any]]:
 def learning_evidence_summary() -> dict[str, Any]:
     ordinary = _closed_trades()
     learning = _closed_learning_trades()
+    paper = _closed_paper_trades()
     natural = [row for row in learning if row.get("evidence_class") == "NATURAL_LEARNING_EXIT"]
     promoted = [row for row in learning if row.get("evidence_class") == "PROMOTED_TO_PRODUCTION"]
     return {
         "ordinary_closed_trades": len(ordinary),
         "learning_closed_trades": len(learning),
+        "paper_closed_trades": len(paper),
+        "paper_statistics_pct": _stats(paper),
         "natural_learning_exits": len(natural),
         "promoted_learning_exits": len(promoted),
         "ordinary_statistics": _stats(ordinary),
         "natural_learning_statistics": _stats(natural),
         "promoted_learning_statistics": _stats(promoted),
-        "usable_hypothesis_evidence": len(ordinary) + len(learning),
+        "usable_hypothesis_evidence": len(ordinary) + len(learning) + len(paper),
         "production_parameters_changed": False,
     }
 
@@ -312,9 +379,11 @@ def ensure_champion_version() -> dict[str, Any]:
 def generate_hypotheses() -> list[dict[str, Any]]:
     state, params, ordinary_trades = load_state(), load_parameters(), _closed_trades()
     learning_trades = _closed_learning_trades()
+    paper_trades = _closed_paper_trades()
     trades = ordinary_trades + learning_trades
+    paper_stats = _stats(paper_trades)
     observation_evidence = _mature_observation_evidence()
-    enough_trades = len(trades) >= int(state["hypothesis_min_closed_trades"])
+    enough_trades = (len(trades) + len(paper_trades)) >= int(state["hypothesis_min_closed_trades"])
     enough_observations = int(observation_evidence["mature_count"]) >= int(state.get("hypothesis_min_mature_observations", 20))
     if not enough_trades and not enough_observations:
         return []
@@ -325,7 +394,9 @@ def generate_hypotheses() -> list[dict[str, Any]]:
     recent = trades[:min(20, len(trades))]
     stop_share = sum(1 for t in recent if "STOP" in str(t.get("reason", "")).upper()) / max(1, len(recent))
     take_share = sum(1 for t in recent if "TAKE PROFIT" in str(t.get("reason", "")).upper()) / max(1, len(recent))
-    if enough_trades and (stats["expectancy"] < 0 or stats["profit_factor"] < 1.0):
+    weak_core = bool(trades) and (stats["expectancy"] < 0 or stats["profit_factor"] < 1.0)
+    weak_paper = bool(paper_trades) and (paper_stats["expectancy"] < 0 or paper_stats["profit_factor"] < 1.0)
+    if enough_trades and (weak_core or weak_paper):
         proposals.append(("minimum_investment_score", params.minimum_investment_score, min(100.0, params.minimum_investment_score + 3.0), "Negativ expectancy eller Profit Factor under 1 tilsier strengere inngang."))
         proposals.append(("maximum_position_pct", params.maximum_position_pct, max(0.5, params.maximum_position_pct * 0.75), "Reduser kapital per handel mens strategien viser svakhet."))
     if enough_trades and stop_share >= 0.40:
@@ -349,7 +420,7 @@ def generate_hypotheses() -> list[dict[str, Any]]:
             "closed_trade_statistics": stats,
             "observation_statistics": observation_evidence,
         }
-        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "NEW", "lifecycle_status": "HYPOTESE", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": {**evidence, "ordinary_closed_trades": len(ordinary_trades), "learning_closed_trades": len(learning_trades)}, "evidence_basis": "MATURE_OBSERVATIONS" if enough_observations and not enough_trades else "ORDINARY_AND_THEORETICAL_CLOSED_TRADES", "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM", "production_applied": False}
+        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "NEW", "lifecycle_status": "HYPOTESE", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": {**evidence, "ordinary_closed_trades": len(ordinary_trades), "learning_closed_trades": len(learning_trades), "paper_closed_trades": len(paper_trades), "paper_statistics_pct": paper_stats}, "evidence_basis": "MATURE_OBSERVATIONS" if enough_observations and not enough_trades else "ORDINARY_AND_THEORETICAL_CLOSED_TRADES", "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM", "production_applied": False}
         existing.insert(0, h); created.append(h); _audit("HYPOTHESIS_CREATED", h)
         _notify("Learning: ny hypotese", f"{parameter}: {before:g} → {after:g}. {reason}", h)
     _write(HYPOTHESES_PATH, existing)
@@ -628,6 +699,7 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
     observations_all = load_learning_observations()
     open_observations = [row for row in observations_all if str(row.get("status") or "OPEN") == "OPEN"]
     perf = calculate_performance()
+    paper_snapshot = _paper_portfolio_learning_snapshot()
     hypotheses = _read(HYPOTHESES_PATH, [])
     experiments = _read(EXPERIMENTS_PATH, [])
     versions = _read(VERSIONS_PATH, [])
@@ -642,13 +714,13 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
     report = {
         "report_id": "MR-" + uuid.uuid4().hex[:10], "created_at": _now(), "frequency": frequency,
         "mode": state.get("mode"), "closed_trades": len(trades), "ordinary_closed_trades": len(ordinary_trades),
-        "learning_closed_trades": len(learning_trades), "statistics": stats, "performance": perf,
+        "learning_closed_trades": len(learning_trades), "paper": paper_snapshot, "statistics": stats, "performance": perf,
         "open_hypotheses": len(open_h), "active_experiments": len(active_tests),
         "open_observations": len(open_observations),
         "mature_observations": int(observation_evidence["mature_count"]),
         "observation_measurements": int(observation_evidence["measurement_count"]),
         "next_hypothesis_requirement": {
-            "closed_trades": len(trades), "closed_trades_required": int(state.get("hypothesis_min_closed_trades", 15)),
+            "closed_trades": len(trades) + int(paper_snapshot.get("closed_trades") or 0), "closed_trades_required": int(state.get("hypothesis_min_closed_trades", 15)),
             "mature_observations": int(observation_evidence["mature_count"]),
             "mature_observations_required": int(state.get("hypothesis_min_mature_observations", 20)),
         },
@@ -671,29 +743,28 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
             f"{requirement['mature_observations']}/{requirement['mature_observations_required']} modne observasjoner "
             f"eller {requirement['closed_trades']}/{requirement['closed_trades_required']} avsluttede ordinære handler."
         )
-    fingerprint = "|".join(map(str, (
-        len(open_observations), observation_evidence["mature_count"],
-        len(open_h), len(active_tests), round(_f(perf.get("drawdown_pct")), 2),
-    )))
-    last_notice = _parse_time(state.get("last_management_notification_at"))
-    heartbeat_due = not last_notice or (now - last_notice).total_seconds() >= 7 * 24 * 3600
-    should_notify = force or fingerprint != str(state.get("last_management_notification_fingerprint") or "") or heartbeat_due
-    if should_notify:
-        _notify(
-            "Autonomi: læringsrapport",
-            "\n".join([
-                f"{len(open_observations)} åpne observasjoner, {observation_evidence['mature_count']} modne observasjoner.",
-                learning_status,
-                f"drawdown {drawdown_text} %.",
-                f"Rapport-ID: {report['report_id']}",
-                f"Programversjon: {APP_VERSION}",
-                f"Rapporttid: {report['created_at']}",
-            ]),
-            report,
-        )
-        state["last_management_notification_at"] = report["created_at"]
-        state["last_management_notification_fingerprint"] = fingerprint
-    report["notification_sent"] = should_notify
+    paper_line = (
+        f"Paper: {paper_snapshot.get('total_value', 0):,.0f} mot start, "
+        f"resultat {paper_snapshot.get('result_amount', 0):+,.0f} ({paper_snapshot.get('result_pct', 0):+.2f}%), "
+        f"{paper_snapshot.get('closed_trades', 0)} avsluttede handler."
+        if paper_snapshot.get("available") else "Paper: status utilgjengelig."
+    )
+    _notify(
+        "Autonomi: daglig Paper + læring",
+        "\n".join([
+            paper_line,
+            f"{len(open_observations)} åpne observasjoner, {observation_evidence['mature_count']} modne observasjoner.",
+            learning_status,
+            f"drawdown {drawdown_text} %.",
+            f"Neste læringsmilepæl: {requirement['closed_trades']}/{requirement['closed_trades_required']} avsluttede handler "
+            f"eller {requirement['mature_observations']}/{requirement['mature_observations_required']} modne observasjoner.",
+            f"Rapport-ID: {report['report_id']}",
+            f"Programversjon: {APP_VERSION}",
+        ]),
+        report,
+    )
+    state["last_management_notification_at"] = report["created_at"]
+    report["notification_sent"] = True
     _write(STATE_PATH, state)
     return report
 
@@ -864,6 +935,20 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
     g3.metric("Modne observasjoner", f"{guard['mature_observations']}/{guard['mature_required']}")
     if guard["warnings"]:
         st.error(" · ".join(guard["warnings"]))
+
+    paper_snapshot = _paper_portfolio_learning_snapshot()
+    if paper_snapshot.get("available"):
+        st.markdown("##### Paper + Learning Observatory")
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Paper-resultat", f"{paper_snapshot.get('result_amount', 0):+,.0f}")
+        p2.metric("Paper-avkastning", f"{paper_snapshot.get('result_pct', 0):+.2f}%")
+        p3.metric("Avsluttede Paper-handler", int(paper_snapshot.get("closed_trades") or 0))
+        p4.metric("Åpne Paper-posisjoner", int(paper_snapshot.get("open_positions") or 0))
+        st.caption(
+            f"Realisert {paper_snapshot.get('realized_pnl_amount', 0):+,.0f} · "
+            f"urealisert {paper_snapshot.get('unrealized_pnl_amount', 0):+,.0f}. "
+            "Avsluttede Paper-handler inngår nå i læringsevidensen."
+        )
 
     overview_tab, settings_tab, approvals_tab = st.tabs(["Læring og eksperimenter", "⚙️ Autonomy Settings", "🛡️ Godkjenninger"])
     with settings_tab:

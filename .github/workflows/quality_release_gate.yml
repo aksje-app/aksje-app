@@ -40,6 +40,7 @@ jobs:
           python scripts/verify_rc16_33j_release.py
           python scripts/verify_rc16_33k_release.py
           python scripts/verify_rc16_33l_release.py
+          python scripts/verify_rc16_33m_release.py
       - name: Quality regression suite
         env:
           PYTHONPATH: .
@@ -55,4 +56,5 @@ jobs:
             tests/test_rc16_33j_quality_stabilization.py \
             tests/test_rc16_33k_v2_panel_semantics.py \
             tests/test_rc16_32r_capital_protection.py \
-            tests/test_rc16_33l_profit_protection.py
+            tests/test_rc16_33l_profit_protection.py \
+            tests/test_rc16_33m_paper_learning_recovery.py
