@@ -16,6 +16,7 @@ from paper_store import load_portfolio, save_portfolio, add_trade
 from paper_trading_valuation import normalize_paper_position, paper_reason_label
 from explainability import explain_buy_decision, explain_sell_decision
 from paper_trading_professional import exit_priority_decision
+from paper_risk_policy import MAX_TRAILING_STOP_PCT, strict_profit_protection_levels
 from paper_trading_guard import check_paper_trade, record_paper_trade
 
 try:
@@ -31,9 +32,9 @@ except Exception:  # fail-safe: trading must not crash if audit helper is unavai
 
 POSITION_SIZE_PCT = 10.0
 MAX_OPEN_POSITIONS = 5
-STOP_LOSS_PCT = 7.0
+STOP_LOSS_PCT = MAX_TRAILING_STOP_PCT
 TAKE_PROFIT_PCT = 12.0
-TRAILING_STOP_PCT = 8.0
+TRAILING_STOP_PCT = MAX_TRAILING_STOP_PCT
 MIN_BUY_CONFIDENCE = 60
 
 MANUAL_OVERRIDE_STATES = {"OFF", "REVIEW_ONLY", "FORCE_ALLOW", "FORCE_BLOCK"}
@@ -171,9 +172,9 @@ def calc_levels(entry_price, highest_price=None, *, stop_loss_pct=None, take_pro
     entry_price = float(entry_price)
     highest_price = float(highest_price or entry_price)
 
-    stop_loss_pct = float(rules.get("stop_loss_pct", STOP_LOSS_PCT) if stop_loss_pct is None else stop_loss_pct)
+    stop_loss_pct = min(MAX_TRAILING_STOP_PCT, float(rules.get("stop_loss_pct", STOP_LOSS_PCT) if stop_loss_pct is None else stop_loss_pct))
     take_profit_pct = float(rules.get("take_profit_pct", TAKE_PROFIT_PCT) if take_profit_pct is None else take_profit_pct)
-    trailing_stop_pct = float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT) if trailing_stop_pct is None else trailing_stop_pct)
+    trailing_stop_pct = min(MAX_TRAILING_STOP_PCT, float(rules.get("trailing_stop_pct", TRAILING_STOP_PCT) if trailing_stop_pct is None else trailing_stop_pct))
 
     stop_loss = entry_price * (1 - stop_loss_pct / 100)
     take_profit = entry_price * (1 + take_profit_pct / 100)
@@ -194,7 +195,7 @@ def position_trailing_stop_pct_v18674d(pos: Mapping[str, Any] | None, rules: Map
     rules = rules or load_rules()
     try:
         if pos and pos.get("trailing_stop_pct") not in (None, ""):
-            return float(pos.get("trailing_stop_pct") or 0)
+            return min(MAX_TRAILING_STOP_PCT, float(pos.get("trailing_stop_pct") or 0))
     except Exception:
         pass
     try:
@@ -203,7 +204,7 @@ def position_trailing_stop_pct_v18674d(pos: Mapping[str, Any] | None, rules: Map
             return 0.0
     except Exception:
         pass
-    return float((rules or {}).get("trailing_stop_pct", TRAILING_STOP_PCT) or TRAILING_STOP_PCT)
+    return min(MAX_TRAILING_STOP_PCT, float((rules or {}).get("trailing_stop_pct", TRAILING_STOP_PCT) or TRAILING_STOP_PCT))
 
 
 def trades_today_count(portfolio=None, trade_type=None):
@@ -492,6 +493,45 @@ def _automatic_repeat_buy_block_v1931ay(portfolio, ticker, rules, now=None):
 
 
 
+def select_replacement_position(portfolio, candidate_score, *, rules=None):
+    """Select one weak Paper position only when the new candidate is clearly better."""
+    portfolio = portfolio or {}
+    rules = rules or load_rules()
+    margin = float(rules.get("replacement_min_score_advantage", 1.0) or 1.0)
+    min_age_days = float(rules.get("replacement_min_holding_days", 5.0) or 5.0)
+    candidate_score = float(candidate_score or 0.0)
+    ranked = []
+    for ticker, raw in (portfolio.get("positions") or {}).items():
+        try:
+            pos = normalize_paper_position(ticker, raw, rules=rules)
+            entry = float(pos.get("entry_price") or pos.get("avg_price") or 0.0)
+            last = float(pos.get("last_price") or entry or 0.0)
+            pnl_pct = ((last / entry) - 1.0) * 100.0 if entry > 0 and last > 0 else 0.0
+            score = float(pos.get("current_score") or pos.get("entry_score") or pos.get("confidence") or 0.0)
+            age_days = holding_days(pos)
+            # Replacement is for laggards, not healthy winners.
+            eligible = age_days >= min_age_days and (pnl_pct <= 1.0 or score <= candidate_score - margin)
+            if eligible:
+                ranked.append((score, pnl_pct, -age_days, str(ticker).upper(), pos))
+        except Exception:
+            continue
+    if not ranked:
+        return None
+    ranked.sort(key=lambda row: (row[0], row[1], row[2]))
+    score, pnl_pct, _neg_age, ticker, pos = ranked[0]
+    if candidate_score < score + margin:
+        return None
+    return {
+        "ticker": ticker,
+        "score": round(score, 2),
+        "pnl_pct": round(pnl_pct, 2),
+        "holding_days": round(holding_days(pos), 1),
+        "last_price": float(pos.get("last_price") or 0.0),
+        "candidate_score": round(candidate_score, 2),
+        "score_advantage": round(candidate_score - score, 2),
+    }
+
+
 def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None, manual_override="OFF", target_price=None, initial_risk_amount=None):
     gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
     gate = check_paper_trade(
@@ -699,6 +739,10 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         return False, "Salgsantall må være større enn 0"
     amount = shares * price
     pnl_pct = ((price-entry)/entry*100) if entry else 0
+    risk_levels = strict_profit_protection_levels({
+        **dict(pos), "entry_price": entry, "last_price": price,
+        "highest_price": max(float(pos.get("highest_price") or entry), price),
+    })
     trade_ctx["trade_explanation"] = _default_trade_explanation("SELL", reason, trade_ctx)
     trade_ctx["explain_ai"] = explain_sell_decision(reason, trade_ctx)
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) + amount, 2)
@@ -720,6 +764,10 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         "pnl_pct":round(pnl_pct,2), "reason":reason, "order_kind":"paper_partial_sell" if is_partial else "paper",
         "entry_price": round(entry, 4), "exit_price": round(price, 4),
         "pnl_amount": round((price-entry)*shares, 2),
+        "peak_gain_pct": risk_levels.get("peak_gain_pct"),
+        "profit_giveback_pct": risk_levels.get("profit_giveback_pct"),
+        "mfe_retained_pct": risk_levels.get("mfe_retained_pct"),
+        "protected_gain_pct": risk_levels.get("protected_gain_pct"),
         "entry_score": pos.get("entry_score"), "exit_score": trade_ctx.get("current_score"),
         "primary_sell_reason": trade_ctx.get("trade_explanation") or reason,
         "contributing_reasons": list(trade_ctx.get("contributing_reasons") or []),
@@ -737,6 +785,8 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
     notify_executed_trade(
         "SELL", ticker, price, shares=shares, amount=amount, confidence=pos.get("confidence"), reason=reason,
         pnl_pct=pnl_pct, pnl_amount=(price-entry)*shares, entry_price=entry, exit_price=price,
+        peak_gain_pct=risk_levels.get("peak_gain_pct"), profit_giveback_pct=risk_levels.get("profit_giveback_pct"),
+        mfe_retained_pct=risk_levels.get("mfe_retained_pct"), protected_gain_pct=risk_levels.get("protected_gain_pct"),
         trade_id=trade_id, holding_days=holding_days, holding_time_known=holding_time_known,
         entry_score=pos.get("entry_score"), exit_score=trade_ctx.get("current_score"),
         score_path=list(trade_ctx.get("score_path") or pos.get("score_path") or []),
@@ -790,21 +840,36 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
         high = max(float(pos.get("highest_price", entry) or entry), price)
         trailing_stop_pct = position_trailing_stop_pct_v18674d(pos, rules)
         sl, tp, tr = calc_levels(entry, high, trailing_stop_pct=trailing_stop_pct)
-        pos.update({"last_price": price, "highest_price": high, "stop_loss": sl, "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_stop_pct})
+        risk_levels = strict_profit_protection_levels(
+            {**dict(pos), "entry_price": entry, "last_price": price, "highest_price": high},
+            trailing_stop_pct=trailing_stop_pct,
+        )
+        effective_stop = float(risk_levels.get("effective_stop_price") or tr or sl or 0.0)
+        pos.update({
+            "last_price": price, "highest_price": high, "stop_loss": max(sl, effective_stop),
+            "take_profit": tp, "trailing_stop": effective_stop, "trailing_stop_level": effective_stop,
+            "trailing_stop_pct": trailing_stop_pct, **risk_levels,
+        })
         portfolio["positions"][ticker] = pos
         save_portfolio(portfolio)
         pnl_pct = ((price-entry)/entry*100) if entry else 0
-        stop_loss_pct = float(rules.get("stop_loss_pct", STOP_LOSS_PCT))
+        stop_loss_pct = min(MAX_TRAILING_STOP_PCT, float(rules.get("stop_loss_pct", STOP_LOSS_PCT)))
         take_profit_pct = float(rules.get("take_profit_pct", TAKE_PROFIT_PCT))
         rsi_exit_level = float(rules.get("rsi_exit_level", 75))
         rsi_must_fall = bool(rules.get("rsi_must_fall", True))
 
-        if price <= sl:
-            return paper_sell(ticker, price, f"Stop loss {pnl_pct:.2f}%", {**auto_context,
-                "rule_used": "Stop-loss",
-                "rule_limit": _format_pct(-stop_loss_pct),
-                "measured_value": _format_pct(pnl_pct),
-                "trade_explanation": f"Solgt fordi tapet var {pnl_pct:.2f}%, som er lik eller under stop-loss {stop_loss_pct:.2f}%.",
+        if price <= effective_stop:
+            mode = str(risk_levels.get("stop_mode") or "TRAILING_STOP")
+            rule_name = "Profit protection" if mode == "PROFIT_PROTECT" else "Maks 3% trailing stop"
+            return paper_sell(ticker, price, f"{rule_name} {pnl_pct:.2f}%", {**auto_context,
+                "rule_used": rule_name,
+                "rule_limit": f"{effective_stop:.2f}",
+                "measured_value": f"{price:.2f}",
+                "trade_explanation": (
+                    f"Solgt fordi kursen traff effektivt gevinst-/risikogulv {effective_stop:.2f}. "
+                    f"Toppgevinst {risk_levels.get('peak_gain_pct', 0):.2f}%, "
+                    f"beholdt MFE {risk_levels.get('mfe_retained_pct', 0):.0f}%."
+                ),
             })
         if price >= tp:
             return paper_sell(ticker, price, f"Take profit {pnl_pct:.2f}%", {**auto_context,
@@ -812,14 +877,6 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
                 "rule_limit": _format_pct(take_profit_pct),
                 "measured_value": _format_pct(pnl_pct),
                 "trade_explanation": f"Solgt fordi gevinsten var {pnl_pct:.2f}%, som er lik eller over take-profit {take_profit_pct:.2f}%.",
-            })
-        if high > entry and price <= tr:
-            drop_from_high = ((price - high) / high * 100) if high else 0
-            return paper_sell(ticker, price, f"Trailing stop {pnl_pct:.2f}%", {**auto_context,
-                "rule_used": "Trailing stop",
-                "rule_limit": _format_pct(-trailing_stop_pct),
-                "measured_value": _format_pct(drop_from_high),
-                "trade_explanation": f"Solgt fordi kursen falt {abs(drop_from_high):.2f}% fra topp etter at posisjonen hadde vaert i pluss.",
             })
         target_price = float(pos.get("target_price", 0) or 0)
         if target_price > 0 and price >= target_price:
@@ -848,6 +905,18 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
                 })
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
+        max_stagnant_days = float(rules.get("max_stagnant_holding_days", 20) or 20)
+        age_days = holding_days(pos)
+        if age_days >= max_stagnant_days and pnl_pct <= 1.0 and str(risk_levels.get("stop_status")) not in {"PROFIT PROTECT"}:
+            return paper_sell(ticker, price, f"Time exit {age_days:.0f} dager", {**auto_context,
+                "rule_used": "Time exit",
+                "rule_limit": f"{max_stagnant_days:.0f} dager",
+                "measured_value": f"{age_days:.0f} dager / P&L {pnl_pct:.2f}%",
+                "trade_explanation": (
+                    f"Solgt fordi posisjonen har brukt {age_days:.0f} dager uten å levere mer enn 1% gevinst. "
+                    "Kapital frigjøres til nye kandidater og avsluttet handel brukes som læringsevidens."
+                ),
+            })
         if "SELL" in sig or "AVOID" in sig:
             allowed_exit, age_hours, min_hours = _auto_sell_hold_guard_v18675(pos, rules, "signal")
             if not allowed_exit:
