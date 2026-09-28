@@ -19,7 +19,7 @@ def _load_stop_functions() -> dict:
     source = _source("super_portfolio.py")
     tree = ast.parse(source)
     wanted = {
-        "_f", "_volatility", "dynamic_stop_levels", "_stop_status",
+        "_f", "_volatility", "_profit_retention_pct", "dynamic_stop_levels", "_stop_status",
         "stop_pressure", "_automatic_stop_exit", "_stop_alerts",
     }
     selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
@@ -27,6 +27,12 @@ def _load_stop_functions() -> dict:
         "Any": Any, "Mapping": Mapping, "Sequence": Sequence,
         "isfinite": isfinite, "SuperPortfolioConfig": object,
         "MAX_TRAILING_STOP_PCT": 3.0, "STOP_WARNING_PCT": 1.5, "STOP_NEAR_PCT": 2.25,
+        "PROFIT_PROTECT_TRIGGER_PCT": 2.0, "PROFIT_RETENTION_2_3_PCT": 40.0,
+        "PROFIT_RETENTION_3_5_PCT": 55.0, "PROFIT_RETENTION_5_8_PCT": 65.0,
+        "PROFIT_RETENTION_8_PLUS_PCT": 70.0, "PROFIT_EXIT_WATCH_BUFFER_PCT": 0.50,
+        "PROFIT_PROTECT_TRIGGER_PCT": 2.0, "PROFIT_RETENTION_2_3_PCT": 40.0,
+        "PROFIT_RETENTION_3_5_PCT": 55.0, "PROFIT_RETENTION_5_8_PCT": 65.0,
+        "PROFIT_RETENTION_8_PLUS_PCT": 70.0, "PROFIT_EXIT_WATCH_BUFFER_PCT": 0.50,
     }
     exec(compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])), "super_portfolio.py", "exec"), namespace)
     return namespace
@@ -151,7 +157,7 @@ def test_lightweight_surveillance_executes_and_notifies_confirmed_exit() -> None
     source = _source("super_portfolio.py")
     tree = ast.parse(source)
     wanted = {
-        "_f", "_volatility", "dynamic_stop_levels", "_stop_status", "stop_pressure",
+        "_f", "_volatility", "_profit_retention_pct", "dynamic_stop_levels", "_stop_status", "stop_pressure",
         "_automatic_stop_exit", "_stop_alerts", "run_lightweight_stop_surveillance",
     }
     selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
