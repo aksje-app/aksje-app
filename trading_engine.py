@@ -497,9 +497,11 @@ def select_replacement_position(portfolio, candidate_score, *, rules=None):
     """Select one weak Paper position only when the new candidate is clearly better."""
     portfolio = portfolio or {}
     rules = rules or load_rules()
-    margin = float(rules.get("replacement_min_score_advantage", 1.0) or 1.0)
-    min_age_days = float(rules.get("replacement_min_holding_days", 5.0) or 5.0)
+    margin = float(rules.get("replacement_min_score_advantage", rules.get("replacement_score_advantage", 1.0)) or 1.0)
+    min_age_days = float(rules.get("replacement_min_holding_days", rules.get("stagnation_days", 5.0)) or 5.0)
     candidate_score = float(candidate_score or 0.0)
+    if candidate_score > 10.0:
+        candidate_score = candidate_score / 10.0
     ranked = []
     for ticker, raw in (portfolio.get("positions") or {}).items():
         try:
@@ -507,7 +509,12 @@ def select_replacement_position(portfolio, candidate_score, *, rules=None):
             entry = float(pos.get("entry_price") or pos.get("avg_price") or 0.0)
             last = float(pos.get("last_price") or entry or 0.0)
             pnl_pct = ((last / entry) - 1.0) * 100.0 if entry > 0 and last > 0 else 0.0
-            score = float(pos.get("current_score") or pos.get("entry_score") or pos.get("confidence") or 0.0)
+            raw_score = pos.get("current_score") if pos.get("current_score") not in (None, "") else pos.get("entry_score")
+            if raw_score in (None, ""):
+                continue
+            score = float(raw_score)
+            if score > 10.0:
+                score = score / 10.0
             age_days = holding_days(pos)
             # Replacement is for laggards, not healthy winners.
             eligible = age_days >= min_age_days and (pnl_pct <= 1.0 or score <= candidate_score - margin)
@@ -905,7 +912,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
                 })
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
-        max_stagnant_days = float(rules.get("max_stagnant_holding_days", 20) or 20)
+        max_stagnant_days = float(rules.get("max_stagnant_holding_days", rules.get("stagnation_days", 5)) or 5)
         age_days = holding_days(pos)
         if age_days >= max_stagnant_days and pnl_pct <= 1.0 and str(risk_levels.get("stop_status")) not in {"PROFIT PROTECT"}:
             return paper_sell(ticker, price, f"Time exit {age_days:.0f} dager", {**auto_context,
