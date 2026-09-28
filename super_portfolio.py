@@ -1142,16 +1142,16 @@ def _profit_retention_pct(peak_gain_pct: float, config: SuperPortfolioConfig | N
     """Return the share of maximum unrealised gain that should be protected."""
     cfg = config or SuperPortfolioConfig()
     peak_gain = max(0.0, _f(peak_gain_pct))
-    trigger = max(0.0, _f(cfg.profit_protect_trigger_pct, PROFIT_PROTECT_TRIGGER_PCT))
+    trigger = max(0.0, _f(getattr(cfg, "profit_protect_trigger_pct", PROFIT_PROTECT_TRIGGER_PCT), PROFIT_PROTECT_TRIGGER_PCT))
     if peak_gain < trigger:
         return 0.0
     if peak_gain < 3.0:
-        return max(0.0, min(100.0, _f(cfg.profit_retention_2_3_pct, PROFIT_RETENTION_2_3_PCT)))
+        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_2_3_pct", PROFIT_RETENTION_2_3_PCT), PROFIT_RETENTION_2_3_PCT)))
     if peak_gain < 5.0:
-        return max(0.0, min(100.0, _f(cfg.profit_retention_3_5_pct, PROFIT_RETENTION_3_5_PCT)))
+        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_3_5_pct", PROFIT_RETENTION_3_5_PCT), PROFIT_RETENTION_3_5_PCT)))
     if peak_gain < 8.0:
-        return max(0.0, min(100.0, _f(cfg.profit_retention_5_8_pct, PROFIT_RETENTION_5_8_PCT)))
-    return max(0.0, min(100.0, _f(cfg.profit_retention_8_plus_pct, PROFIT_RETENTION_8_PLUS_PCT)))
+        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_5_8_pct", PROFIT_RETENTION_5_8_PCT), PROFIT_RETENTION_5_8_PCT)))
+    return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_8_plus_pct", PROFIT_RETENTION_8_PLUS_PCT), PROFIT_RETENTION_8_PLUS_PCT)))
 
 
 def dynamic_stop_levels(position: Mapping[str, Any], config: SuperPortfolioConfig | None = None) -> dict[str, float]:
@@ -1205,7 +1205,7 @@ def _stop_status(position: Mapping[str, Any], config: SuperPortfolioConfig) -> d
     retained_now = (max(0.0, pnl) / peak_gain * 100.0) if peak_gain > 0 else 0.0
     giveback_pp = max(0.0, peak_gain - pnl)
     distance_to_effective = ((current / effective_stop) - 1.0) * 100.0 if current > 0 and effective_stop > 0 else 999.0
-    watch_buffer = max(0.10, _f(config.profit_exit_watch_buffer_pct, PROFIT_EXIT_WATCH_BUFFER_PCT))
+    watch_buffer = max(0.10, _f(getattr(config, "profit_exit_watch_buffer_pct", PROFIT_EXIT_WATCH_BUFFER_PCT), PROFIT_EXIT_WATCH_BUFFER_PCT))
 
     if profit_active and profit_floor > 0 and current <= profit_floor:
         label, icon, mode = "STOP TRIGGERED", "🔴", "PROFIT_PROTECT"
