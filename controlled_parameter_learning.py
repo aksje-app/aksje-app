@@ -936,6 +936,20 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
     if guard["warnings"]:
         st.error(" · ".join(guard["warnings"]))
 
+    paper_snapshot = _paper_portfolio_learning_snapshot()
+    if paper_snapshot.get("available"):
+        st.markdown("##### Paper + Learning Observatory")
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Paper-resultat", f"{paper_snapshot.get('result_amount', 0):+,.0f}")
+        p2.metric("Paper-avkastning", f"{paper_snapshot.get('result_pct', 0):+.2f}%")
+        p3.metric("Avsluttede Paper-handler", int(paper_snapshot.get("closed_trades") or 0))
+        p4.metric("Åpne Paper-posisjoner", int(paper_snapshot.get("open_positions") or 0))
+        st.caption(
+            f"Realisert {paper_snapshot.get('realized_pnl_amount', 0):+,.0f} · "
+            f"urealisert {paper_snapshot.get('unrealized_pnl_amount', 0):+,.0f}. "
+            "Avsluttede Paper-handler inngår nå i læringsevidensen."
+        )
+
     overview_tab, settings_tab, approvals_tab = st.tabs(["Læring og eksperimenter", "⚙️ Autonomy Settings", "🛡️ Godkjenninger"])
     with settings_tab:
         st.markdown("##### Autonomy Settings")
