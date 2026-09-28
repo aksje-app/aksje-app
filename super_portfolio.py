@@ -2645,15 +2645,16 @@ def run_lightweight_stop_surveillance(
     data["positions"] = positions
     data["portfolio_health"] = portfolio_health(list(positions.values()))
     invested_weight_pct = round(sum(_f(p.get("target_weight_pct")) for p in positions.values()), 2)
+    target_positions = int(getattr(cfg, "target_positions", 10) or 10)
     data["vacancy_diagnostics"] = {
         "at": reference.isoformat(timespec="seconds"),
         "decision_run_id": f"STOP-{reference.strftime('%Y%m%d-%H%M%S')}",
-        "target_positions": int(cfg.target_positions),
+        "target_positions": target_positions,
         "position_count": len(positions),
-        "open_slots": max(0, int(cfg.target_positions) - len(positions)),
+        "open_slots": max(0, target_positions - len(positions)),
         "invested_weight_pct": invested_weight_pct,
         "cash_pct": round(max(0.0, 100.0 - invested_weight_pct), 2),
-        "status": "WAITING_FOR_FRESH_REFILL" if exited else ("FULL" if len(positions) >= int(cfg.target_positions) else "CASH_BY_POLICY"),
+        "status": "WAITING_FOR_FRESH_REFILL" if exited else ("FULL" if len(positions) >= target_positions else "CASH_BY_POLICY"),
         "risk_exits": sorted(exited),
         "refill_buys": [],
         "pending_refill_slots_after": int(data.get("pending_risk_refill_slots") or 0),
