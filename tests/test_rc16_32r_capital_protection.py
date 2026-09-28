@@ -30,9 +30,6 @@ def _load_stop_functions() -> dict:
         "PROFIT_PROTECT_TRIGGER_PCT": 2.0, "PROFIT_RETENTION_2_3_PCT": 40.0,
         "PROFIT_RETENTION_3_5_PCT": 55.0, "PROFIT_RETENTION_5_8_PCT": 65.0,
         "PROFIT_RETENTION_8_PLUS_PCT": 70.0, "PROFIT_EXIT_WATCH_BUFFER_PCT": 0.50,
-        "PROFIT_PROTECT_TRIGGER_PCT": 2.0, "PROFIT_RETENTION_2_3_PCT": 40.0,
-        "PROFIT_RETENTION_3_5_PCT": 55.0, "PROFIT_RETENTION_5_8_PCT": 65.0,
-        "PROFIT_RETENTION_8_PLUS_PCT": 70.0, "PROFIT_EXIT_WATCH_BUFFER_PCT": 0.50,
     }
     exec(compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])), "super_portfolio.py", "exec"), namespace)
     return namespace
@@ -59,20 +56,22 @@ def test_high_volatility_cannot_widen_three_percent_stop() -> None:
     assert levels["near_stop_drawdown_pct"] == 2.25
 
 
-def test_trailing_stop_protects_profit_after_ten_percent_rise() -> None:
+def test_profit_protection_retains_seventy_percent_after_ten_percent_rise() -> None:
     functions = _load_stop_functions()
     status = functions["_stop_status"](
-        {"entry_price": 100, "peak_price": 110, "last_price": 107.0}, _cfg()
+        {"entry_price": 100, "peak_price": 110, "last_price": 107.5}, _cfg()
     )
-    assert status["hard_stop_price"] == 106.7
-    assert status["pnl_pct"] == 7.0
-    assert status["stop_status"] == "NEAR STOP"
-    assert 0 < status["distance_to_hard_stop_pct"] < 1
+    assert status["profit_protection_active"] is True
+    assert status["profit_retention_pct"] == 70.0
+    assert status["protected_gain_pct"] == 7.0
+    assert status["hard_stop_price"] == 107.0
+    assert status["pnl_pct"] == 7.5
+    assert status["stop_status"] == "EXIT WATCH"
 
 
-def test_confirmed_fall_exits_before_hard_stop() -> None:
+def test_confirmed_fall_exits_before_profit_floor_is_lost() -> None:
     functions = _load_stop_functions()
-    position = {"ticker": "TEST", "entry_price": 100, "peak_price": 110, "last_price": 107.0}
+    position = {"ticker": "TEST", "entry_price": 100, "peak_price": 105, "last_price": 103.7}
     position.update(functions["_stop_status"](position, _cfg()))
     pressure = functions["stop_pressure"](
         position, [{"positions": [{"ticker": "TEST", "distance_to_hard_stop_pct": 2.5}]}], _cfg()
@@ -82,15 +81,17 @@ def test_confirmed_fall_exits_before_hard_stop() -> None:
         "stop_distance_change_pct": pressure["distance_change_pct"],
     })
     decision = functions["_automatic_stop_exit"](position)
+    assert position["stop_status"] == "EXIT WATCH"
     assert pressure["direction_arrow"] == "↓↓"
-    assert decision and decision[0] == "CONFIRMED_EARLY_TRAILING_EXIT"
+    assert decision and decision[0] == "CONFIRMED_PROFIT_PROTECTION_EXIT"
 
 
 def test_hard_stop_triggers_at_three_percent_from_peak() -> None:
     functions = _load_stop_functions()
-    position = {"entry_price": 100, "peak_price": 110, "last_price": 106.7}
+    position = {"entry_price": 100, "peak_price": 101, "last_price": 97.97}
     position.update(functions["_stop_status"](position, _cfg()))
     assert position["stop_status"] == "STOP TRIGGERED"
+    assert position["stop_mode"] == "TRAILING_STOP"
     assert functions["_automatic_stop_exit"](position)[0] == "HARD_STOP"
 
 
