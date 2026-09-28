@@ -97,5 +97,5 @@ def test_report_delivery_shows_no_extra_return_button():
 
 
 def test_mobile_pdf_return_release_has_new_canonical_version():
-    assert APP_VERSION == "v19.22.0-rc16.33m"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33l"
+    assert APP_VERSION == "v19.22.0-rc16.33n"
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33m"
