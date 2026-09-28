@@ -1274,7 +1274,7 @@ def portfolio_health(positions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         sectors[sector] = sectors.get(sector, 0) + 1
     max_share = max(sectors.values()) / len(rows)
     diversification = max(0.0, min(100.0, 120.0 - max_share * 100.0))
-    stop_map = {"SAFE": 100.0, "WATCH": 70.0, "NEAR STOP": 35.0, "STOP TRIGGERED": 0.0}
+    stop_map = {"SAFE": 100.0, "PROFIT PROTECT": 100.0, "WATCH": 70.0, "EXIT WATCH": 35.0, "NEAR STOP": 35.0, "STOP TRIGGERED": 0.0}
     stop_safety = sum(stop_map.get(str(p.get("stop_status") or "SAFE"), 60.0) for p in rows) / len(rows)
     correlation = 100.0 - min(100.0, sum(_f(p.get("max_portfolio_correlation"), 0.0) for p in rows) / len(rows) * 100.0)
     score = max(0.0, min(100.0, 0.32 * quality + 0.20 * risk + 0.20 * diversification + 0.15 * stop_safety + 0.13 * correlation))
@@ -2548,7 +2548,10 @@ def run_scheduled_shadow_cycle(
     if bool(cfg.get("auto_pushover", True)):
         non_stop_changes = [
             row for row in (result.get("changes") or [])
-            if str(row.get("reason_code") or "") not in {"HARD_STOP", "HARD_TRAILING_STOP", "CONFIRMED_EARLY_TRAILING_EXIT"}
+            if str(row.get("reason_code") or "") not in {
+                "HARD_STOP", "HARD_TRAILING_STOP", "CONFIRMED_EARLY_TRAILING_EXIT",
+                "PROFIT_PROTECTION_EXIT", "CONFIRMED_PROFIT_PROTECTION_EXIT",
+            }
         ]
         if non_stop_changes:
             ok, detail = notify_changes(non_stop_changes, new_state)
