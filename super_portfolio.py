@@ -2081,7 +2081,12 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     refill_buys: list[dict[str, Any]] = []
     pending_refill_slots = max(0, int(state.get("pending_risk_refill_slots") or 0))
     refill_triggered = bool(risk_exit_positions or pending_refill_slots > 0)
-    if refill_triggered and not ordinary_rebalance_allowed and bool(cfg.risk_exit_refill_enabled):
+    if (
+        refill_triggered
+        and not ordinary_rebalance_allowed
+        and bool(cfg.risk_exit_refill_enabled)
+        and bool(rebalance_gate.get("allowed"))
+    ):
         free_slots = max(0, int(cfg.target_positions) - len(positions))
         invested_weight = sum(_f(p.get("target_weight_pct")) for p in positions.values())
         free_weight = max(0.0, 100.0 - invested_weight)
@@ -2140,7 +2145,12 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "open_slots": open_slots,
         "invested_weight_pct": invested_weight_pct,
         "cash_pct": round(max(0.0, 100.0 - invested_weight_pct), 2),
-        "status": "FULL" if open_slots == 0 else ("REFILLED_PARTIALLY" if refill_buys else "CASH_BY_POLICY"),
+        "status": (
+            "FULL" if open_slots == 0
+            else "REFILLED_PARTIALLY" if refill_buys
+            else "WAITING_FOR_QUALIFIED_CANDIDATE" if refill_triggered
+            else "CASH_BY_POLICY"
+        ),
         "risk_exits": [str(t) for t in risk_exit_positions],
         "pending_refill_slots_before": pending_refill_slots,
         "refill_buys": [str(row.get("ticker") or "") for row in refill_buys],
@@ -2159,7 +2169,10 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "at": now_iso, "decision_run_id": decision_run_id,
         "risk_exits": [dict(row) for row in changes if row.get("action") == "SELL" and row.get("ticker") in risk_exit_positions],
         "refill_buys": refill_buys,
-    } if risk_exit_positions else dict(state.get("last_exit_refill") or {})
+        "pending_refill_slots_before": pending_refill_slots,
+        "pending_refill_slots_after": int(state.get("pending_risk_refill_slots") or 0),
+        "rebalance_gate_allowed": bool(rebalance_gate.get("allowed")),
+    } if (risk_exit_positions or refill_buys) else dict(state.get("last_exit_refill") or {})
 
     # Recompute portfolio summaries after any exit-refill BUYs so the persisted
     # health, stress and turnover reflect the actual post-cycle portfolio.
