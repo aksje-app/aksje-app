@@ -15,7 +15,7 @@ except Exception:
 from paper_store import load_portfolio, save_portfolio, add_trade
 from paper_trading_valuation import normalize_paper_position, paper_reason_label
 from explainability import explain_buy_decision, explain_sell_decision
-from paper_trading_professional import exit_priority_decision
+from paper_trading_professional import exit_priority_decision, holding_days
 from paper_risk_policy import MAX_TRAILING_STOP_PCT, strict_profit_protection_levels
 from paper_trading_guard import check_paper_trade, record_paper_trade
 
