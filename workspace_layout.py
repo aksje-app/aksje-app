@@ -2327,6 +2327,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
     st.markdown("<div class='ptw-ai-control-anchor'></div>", unsafe_allow_html=True)
     with st.container():
         base_panels: list[Tuple[str, Callable[[], None]]] = [
+            ("🌍 Super Portfolio", _render_super_portfolio_market_panel_v1934b),
             ("Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
             ("Prognose", _render_forecast_workspace_tab),
             ("Daily Report", render_daily_ai_market_report),
