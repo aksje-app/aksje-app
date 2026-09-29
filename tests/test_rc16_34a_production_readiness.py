@@ -24,6 +24,16 @@ def test_production_market_picker_exposes_only_core_markets():
     assert "Finland" not in options
 
 
+def test_all_primary_stock_entry_surfaces_use_production_market_options():
+    top = (ROOT / "pages" / "top_picks.py").read_text(encoding="utf-8")
+    pipeline = (ROOT / "investment_pipeline.py").read_text(encoding="utf-8")
+    ai = (ROOT / "analysis_universe_ai.py").read_text(encoding="utf-8")
+    assert "production_market_scope_options(include_aggregate=True)" in top
+    assert "production_market_scope_options(include_aggregate=True)" in pipeline
+    assert "production_market_scope_options(include_aggregate=True)" in ai
+    assert "checkbox_markets = CORE_MARKET_SCOPES + [CORE_MARKET_SCOPE_LABEL]" in ai
+
+
 def test_manual_quality_ticker_is_bound_to_selected_market_universe():
     resolved, errors = resolve_market_bound_manual_tickers(
         ["ALM"], ["ALM.OL", "EQNR.OL", "DNB.OL"]
