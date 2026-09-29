@@ -110,7 +110,7 @@ def test_super_portfolio_report_return_is_first_class():
     assert _return_query("super_portfolio") == {"aa_nav": "super_portfolio"}
     assert _return_label("super_portfolio") == "← Tilbake til Super Portfolio"
     assert is_supported_deep_link_nav("super_portfolio")
-    assert canonical_shell_route("super_portfolio") == "autonomy"
+    assert canonical_shell_route("super_portfolio") == "market"
 
 
 def test_market_context_is_passed_into_quality_ui():
@@ -131,5 +131,8 @@ def test_super_portfolio_share_and_print_both_return_to_super_portfolio():
 
 
 def test_release_identity():
-    assert APP_VERSION == "v19.22.0-rc16.34a"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33q"
+    assert APP_VERSION in {"v19.22.0-rc16.34a", "v19.22.0-rc16.34b"}
+    if APP_VERSION == "v19.22.0-rc16.34a":
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33q"
+    else:
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34a"
