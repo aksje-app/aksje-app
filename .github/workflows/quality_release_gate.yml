@@ -13,7 +13,7 @@ jobs:
   verify:
     name: Release verify
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,7 +22,11 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest reportlab pypdf pandas requests
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Repository syntax
+        run: |
+          python -m compileall -q -x '(^|/)(\.git|\.venv|venv)/' .
       - name: Release contracts
         env:
           PYTHONPATH: .
@@ -84,3 +88,8 @@ jobs:
             tests/test_aurora_mobile_navigation_and_report_return.py \
             tests/test_v1915_mobile_navigation.py \
             tests/test_v19220_rc4_full_repairs.py
+      - name: Full repository pytest suite
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q tests
