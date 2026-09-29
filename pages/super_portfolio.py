@@ -176,9 +176,10 @@ def render_super_portfolio(_legacy_context) -> None:
     )
     if report_url:
         from public_report_ui import with_report_return
-        d2.link_button("🔗 Åpne / del", with_report_return(report_url, "super_portfolio"), width="stretch")
-        d3.link_button("🖨️ Print PDF", with_report_return(report_url, "super_portfolio"), width="stretch")
-        st.code(str(report_url), language=None)
+        returning_report_url = with_report_return(report_url, "super_portfolio")
+        d2.link_button("🔗 Åpne / del", returning_report_url, width="stretch")
+        d3.link_button("🖨️ Print PDF", returning_report_url, width="stretch")
+        st.code(returning_report_url, language=None)
         st.caption("Kopier lenken med kopiknappen. På iPhone/iPad: åpne PDF → Del → Skriv ut.")
     else:
         d2.caption("Publiser PDF først for delbar lenke.")
