@@ -41,5 +41,6 @@ def test_autonomy_direct_workspace_renders_super_portfolio_before_mode_gate():
     assert 'render_super_portfolio(_legacy_context)' in source[direct:mode]
 
 
-def test_release_identity():
-    assert "v19.22.0-rc16.33q" in {APP_VERSION, PREVIOUS_APP_VERSION}
+def test_rc16_33q_direct_route_contract_remains_present():
+    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    assert 'direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}' in source
