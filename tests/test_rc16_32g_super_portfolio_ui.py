@@ -9,13 +9,13 @@ def test_rc16_32g_remains_in_changelog_after_later_releases():
     assert any(str(row).startswith('v19.22.0-rc16.32g:') for row in app_version.CHANGELOG)
 
 
-def test_manual_evaluation_button_has_single_run_guard_and_progress_bar():
+def test_manual_evaluation_uses_durable_single_job_guard_and_progress():
     src = PAGE.read_text(encoding='utf-8')
-    assert 'sp_evaluation_running' in src
-    assert 'disabled=evaluation_running' in src
-    assert 'st.progress(' in src
-    assert '⏳ Jobber' in src
-    assert 'finally:' in src
+    assert 'start_job("MANUAL", True)' in src
+    assert 'ACTIVE_STATES' in src
+    assert '_render_sp_job_progress' in src
+    assert 'run_every="5s"' in src
+    assert 'SP jobbdiagnose' in src
 
 
 def test_dense_super_portfolio_sections_are_horizontal_and_collapsible():

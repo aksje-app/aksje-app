@@ -13,7 +13,7 @@ import os
 _RETURN_NAV_TARGETS = {
     "dashboard", "portfolio", "long_engine", "autonomy", "reports", "market",
     "jobs", "approvals", "paper_trading", "fx_alerts", "alerts",
-    "drift_center", "system", "overview", "quality", "quality_valuation",
+    "drift_center", "system", "overview", "quality", "quality_valuation", "super_portfolio",
 }
 _SPECIAL_RETURN_TARGETS = {"quality_reports"}
 
@@ -31,6 +31,8 @@ def _return_query(value: str) -> dict[str, str]:
         return {"aa_nav": "quality_valuation", "qv_reports": "1"}
     if nav in {"quality", "quality_valuation"}:
         return {"aa_nav": "quality_valuation"}
+    if nav == "super_portfolio":
+        return {"aa_nav": "super_portfolio"}
     return {"aa_nav": nav}
 
 
@@ -42,6 +44,8 @@ def _return_label(value: str) -> str:
         return "← Tilbake til Kvalitet"
     if nav == "overview":
         return "← Tilbake til Oversikt"
+    if nav == "super_portfolio":
+        return "← Tilbake til Super Portfolio"
     return "← Tilbake"
 
 
@@ -107,7 +111,7 @@ def _hydrate_static_file(token: str, artifact: dict) -> tuple[Path, str]:
     return target, f"/app/static/reports/{quote(target.name)}"
 
 
-def _report_landing_actions(static_url: str, *, return_href: str, return_label: str) -> str:
+def _report_landing_actions(static_url: str, *, return_href: str, return_label: str = "← Tilbake") -> str:
     """Aurora-style actions with no technical path exposed to the user."""
     safe_pdf = escape(str(static_url or ""), quote=True)
     safe_return = escape(str(return_href or "/?aa_nav=reports"), quote=True)

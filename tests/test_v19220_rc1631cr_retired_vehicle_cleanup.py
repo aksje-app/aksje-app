@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import app
 import retired_module_cleanup as cleanup
 import scheduled_runner
 
@@ -45,7 +44,7 @@ def test_cleanup_deletes_only_vehicle_namespace_and_is_idempotent(monkeypatch, t
 
 
 def test_active_application_and_scheduler_have_no_vehicle_module_route():
-    app_source = Path(app.__file__).read_text(encoding="utf-8")
+    app_source = Path("app.py").read_text(encoding="utf-8")
     scheduler_source = Path(scheduled_runner.__file__).read_text(encoding="utf-8")
     assert "render_jeep_commander_control_center" not in app_source
     assert '"🚙 Jeep Commander 2.2"' not in app_source

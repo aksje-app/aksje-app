@@ -21,7 +21,7 @@ def render_top_picks_control_center_v1863s(_legacy_context):
     except Exception:
         canonical_package = {}
     canonical_label = "Autonomi – siste gyldige"
-    scope_options = ([canonical_label] if canonical_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt univers"] + market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"]
+    scope_options = ([canonical_label] if canonical_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt univers"] + production_market_scope_options(include_aggregate=True) + ["Watchlist", "Manuell liste"]
     try:
         from autonomi_core.configuration.application_centered import application_centered_enabled
         if application_centered_enabled() and canonical_package.get("published"):
@@ -101,7 +101,7 @@ def render_top_picks_control_center_v1863s(_legacy_context):
         top_rows = _ranked_for_display(build_top_picks(ranked, min_score=min_top_pick_score, max_items=int(limit)))
         latest[storage_key] = top_rows or []
         st.session_state["dashboard2026_force_rows_v18635"] = list(top_rows or [])
-        if scope in MARKET_SCOPE_OPTIONS:
+        if scope in production_market_scope_options(include_aggregate=True):
             latest[scope] = ranked or []
         try:
             from services.analysis_pipeline_service import get_analysis_pipeline_service

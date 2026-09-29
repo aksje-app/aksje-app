@@ -1048,7 +1048,7 @@ def _candidate_entry_gates(
     return allowed_rows[: max(1, int(config.target_positions))], gates, persistence
 
 
-def _normalized_candidate(source: Mapping[str, Any]) -> dict[str, Any]:
+def _normalized_candidate(source: Mapping[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
     row = dict(source or {})
     ticker = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
     score, risk, quality = _score(row), _risk(row), _quality(row)
@@ -1065,18 +1065,23 @@ def _normalized_candidate(source: Mapping[str, Any]) -> dict[str, Any]:
         "portfolio_score": round(portfolio_score, 4),
         "volatility_pct": _volatility(row),
         "currency": _position_currency(row),
-        "data_freshness": data_freshness(row),
-        "event_risk": event_risk(row),
+        "data_freshness": data_freshness(row, now=now),
+        "event_risk": event_risk(row, now=now),
         "data_coverage": candidate_data_coverage(row),
         "raw_candidate": row,
     }
 
 
-def rank_candidates(candidates: Sequence[Mapping[str, Any]], config: SuperPortfolioConfig | None = None) -> list[dict[str, Any]]:
+def rank_candidates(
+    candidates: Sequence[Mapping[str, Any]],
+    config: SuperPortfolioConfig | None = None,
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
     cfg = config or SuperPortfolioConfig()
     rows: list[dict[str, Any]] = []
     for source in candidates:
-        row = _normalized_candidate(source)
+        row = _normalized_candidate(source, now=now)
         if not row["ticker"]:
             continue
         if row["investment_score"] < cfg.minimum_score or row["risk_score"] > cfg.maximum_risk or row["price"] <= 0:
@@ -1914,7 +1919,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         row for row in candidates
         if market_activation_level(row.get("market") or row.get("country")) == "SHADOW"
     ]
-    base_ranked = attach_return_profile_correlations(rank_candidates(production_candidates, cfg))
+    base_ranked = attach_return_profile_correlations(rank_candidates(production_candidates, cfg, now=now_dt))
     ranked_all = apply_concentration_penalties(base_ranked, cfg)
     history = list(state.get("history") or [])
     for index, row in enumerate(ranked_all, start=1):

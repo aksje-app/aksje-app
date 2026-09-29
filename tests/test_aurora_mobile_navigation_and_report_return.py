@@ -21,7 +21,10 @@ def test_mobile_shell_has_one_primary_rail_and_complete_more_menu():
 
     markup = "\n".join(st.blocks)
     assert markup.count('class="aa-mobile-nav"') == 1
-    assert 'class="aa-mobile-more"' in markup
+    assert "Mer" in markup
+    source = Path("ui_library/shell.py").read_text(encoding="utf-8")
+    assert 'key="aa_mobile_more_native"' in source
+    assert "MORE_ROUTES" in source
     for label in (
         "Autonomi",
         "Rapporter",
@@ -32,7 +35,7 @@ def test_mobile_shell_has_one_primary_rail_and_complete_more_menu():
         "Drift",
         "Innstillinger",
     ):
-        assert label in markup
+        assert label in source
 
 
 def test_aurora_mobile_css_hides_legacy_sidebar_and_keeps_nav_clickable():

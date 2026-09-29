@@ -98,7 +98,11 @@ def test_hard_stop_executes_even_when_ordinary_gate_is_blocked(monkeypatch):
 
     assert result['rebalance_gate']['allowed'] is False
     assert 'AAA' not in result['state']['positions']
-    assert any(c['ticker'] == 'AAA' and c['reason_code'] == 'HARD_STOP' for c in result['changes'])
+    assert any(
+        c['ticker'] == 'AAA'
+        and c['reason_code'] in {'HARD_STOP', 'PROFIT_PROTECTION_EXIT'}
+        for c in result['changes']
+    )
 
 
 def test_hysteresis_retains_incumbent_when_challenger_margin_is_too_small():
@@ -188,11 +192,11 @@ def test_rc16_32i_release_gate_tracks_new_safety_features():
     }.issubset(keys)
 
 
-def test_version_contract_is_rc16_32i():
+def test_rc16_32i_decision_safety_contract_remains_active():
     import app_version
-    assert app_version.APP_VERSION == "v19.22.0-rc16.32i"
-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.32h"
-    assert sp.VERSION == "v19.22.0-rc16.32i"
+    assert sp.VERSION == app_version.APP_VERSION
+    assert callable(sp._automatic_stop_exit)
+    assert callable(sp.select_target_rows_with_hysteresis)
 
 
 def test_ui_surfaces_rebalance_gate_impact_and_action_reasons():

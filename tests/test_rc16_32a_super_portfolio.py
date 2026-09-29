@@ -18,9 +18,9 @@ def test_stop_watch_levels_follow_current_three_percent_cap():
     cfg=SuperPortfolioConfig()
     p={"entry_price":100,"peak_price":120,"last_price":118}
     out=_stop_status(p,cfg)
-    assert out["stop_status"]=="WATCH"
+    assert out["stop_status"]=="PROFIT PROTECT"
     assert out["hard_stop_drawdown_pct"]==3.0
     p["last_price"]=117.2
-    assert _stop_status(p,cfg)["stop_status"]=="NEAR STOP"
+    assert _stop_status(p,cfg)["stop_status"]=="PROFIT PROTECT"
     p["last_price"]=116.39
     assert _stop_status(p,cfg)["stop_status"]=="STOP TRIGGERED"

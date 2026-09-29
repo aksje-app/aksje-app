@@ -13,4 +13,11 @@ def test_ab_overview_is_a_real_decision_workspace():
     st=FakeStreamlit(); model=build_overview_page([],pending_approvals=0,scheduler_ok=True)
     render_ab_overview(st,model,navigate=lambda route: None); html="".join(st.html)
     assert "aa-overview-hero" in html and "BESLUTNINGSOVERSIKT" in html and "Krever oppmerksomhet" in html
-    assert st.buttons == ["Kjør eller åpne rapport","Åpne Super Portfolio","Se marked og kandidater","Åpne drift"]
+    assert st.buttons == [
+        "▶ Kjør kvalitetsvurdering",
+        "Kjør kvalitetsvurdering",
+        "Kjør eller åpne rapport",
+        "Åpne Super Portfolio",
+        "Se marked og kandidater",
+        "Åpne drift",
+    ]

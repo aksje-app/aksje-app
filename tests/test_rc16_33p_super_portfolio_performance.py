@@ -58,5 +58,7 @@ def test_pdf_includes_true_theoretical_nav_summary():
     assert '"portfolio_return_pct": performance["portfolio_return_pct"]' in source
 
 
-def test_release_identity():
-    assert "v19.22.0-rc16.33p" in {APP_VERSION, PREVIOUS_APP_VERSION}
+def test_rc16_33p_nav_contract_remains_present():
+    state = default_state()
+    assert "portfolio_value" in state
+    assert "portfolio_return_pct" in state

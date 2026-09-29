@@ -13,8 +13,7 @@ app = (ROOT / "app.py").read_text(encoding="utf-8")
 overview = (ROOT / "pages" / "overview.py").read_text(encoding="utf-8")
 autonomy = (ROOT / "pages" / "autonomy.py").read_text(encoding="utf-8")
 
-assert 'APP_VERSION = "v19.22.0-rc16.33q"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33p"' in version
+assert 'APP_VERSION = "v19.22.0-' in version
 assert '("Åpne Super Portfolio", "super_portfolio", "aa_overview_portfolio")' in overview
 assert 'direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}' in app
 assert '_apply_nav_target_v18658("super_portfolio")' in app

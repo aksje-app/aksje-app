@@ -1640,7 +1640,13 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     lines.append(f"- Benchmark komplett: {'JA' if result_learning.get('benchmark_complete') else 'NEI'} · manglende/foreldede: {result_learning.get('missing_or_stale', 0)}")
     separated = result_learning.get("separate_results") or {}
     signal_alpha = separated.get("signal_20d_excess_return_pct")
-    lines.append(f"- Signalresultat 20d mot indeks: {'-' if signal_alpha is None else f'{float(signal_alpha):+.2f} %'} ({int(separated.get('signal_20d_count') or 0)} signaler) · paper-portefølje: {'-' if separated.get('paper_portfolio_return_pct') is None else f'{float(separated.get('paper_portfolio_return_pct')):+.2f} %'}")
+    paper_return = separated.get("paper_portfolio_return_pct")
+    signal_text = "-" if signal_alpha is None else f"{float(signal_alpha):+.2f} %"
+    paper_text = "-" if paper_return is None else f"{float(paper_return):+.2f} %"
+    lines.append(
+        f"- Signalresultat 20d mot indeks: {signal_text} ({int(separated.get('signal_20d_count') or 0)} signaler) · "
+        f"paper-portefølje: {paper_text}"
+    )
     lines.append("- Læringen er isolert: ingen handel eller produksjonsregel kan endres automatisk.")
     selection_quality = result_learning.get("selection_quality") if isinstance(result_learning.get("selection_quality"), Mapping) else {}
     lines.append(

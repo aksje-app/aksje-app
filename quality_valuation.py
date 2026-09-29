@@ -437,7 +437,7 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
     pe_now = price / reported_eps if price and reported_eps else None
     pe_normal = price / normalized_eps if price and normalized_eps else None
     if pe_now and pe_normal and pe_normal > pe_now * 1.40:
-        warnings.append("Lav P/E ved dagens kurs kan skyldes uvanlig høy inntjening; normalisert P/E er betydelig høyere.")
+        warnings.append("Lav rapportert P/E ved dagens kurs kan skyldes uvanlig høy inntjening; normalisert P/E er betydelig høyere.")
 
     industry = str(raw.get("industry") or "Ukjent")
     proxies = relevant_prices(industry, verified_exposure=raw.get("verified_exposure"))

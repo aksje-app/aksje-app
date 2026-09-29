@@ -120,8 +120,6 @@ def test_ui_labels_ai_thinks_and_shadow_executed():
 
 def test_rc16_32j_release_contract_and_master_gate():
     import app_version
-    assert app_version.APP_VERSION == 'v19.22.0-rc16.32j'
-    assert app_version.PREVIOUS_APP_VERSION == 'v19.22.0-rc16.32i'
-    assert sp.VERSION == 'v19.22.0-rc16.32j'
+    assert sp.VERSION == app_version.APP_VERSION
     keys = {row['key'] for row in sp.master_checklist()}
     assert {'candidate_persistence', 'regime_aware_rebalance', 'candidate_data_coverage_gate', 'broad_us_universe', 'ai_vs_shadow_separation'}.issubset(keys)

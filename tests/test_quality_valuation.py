@@ -97,7 +97,8 @@ def test_pdf_has_one_mobile_return_control_invisible_when_printed():
     annotations = PdfReader(BytesIO(pdf)).pages[0]["/Annots"]
     assert len(annotations) == 2  # One visible label and its clickable link.
     assert all(int(item.get_object().get("/F", 0)) & 4 == 0 for item in annotations)
-    assert "aa_nav=market" in str(annotations[1].get_object())
+    assert "aa_nav=quality_valuation" in str(annotations[1].get_object())
+    assert "qv_reports=1" in str(annotations[1].get_object())
 
 
 def test_quality_push_requires_verified_filings_and_change():

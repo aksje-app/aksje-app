@@ -67,7 +67,14 @@ from ui_library.shell import canonical_shell_route, render_shell, use_v2_shell
 AB_PRIMARY_ROUTES = ("overview", "portfolio", "market", "autonomy", "reports", "operations")
 # Compatibility audit anchor; implemented in ui/global_styles.py: [data-testid="stSidebarNav"] { display:none !important; }
 from market_hours import open_markets, market_status_lines, market_statuses
-from market_universe import MARKET_SCOPE_OPTIONS, NO_UNIVERSE_SELECTION_LABEL, canonical_market_scope_label, expand_market_scope, market_scope_options
+from market_universe import (
+    MARKET_SCOPE_OPTIONS,
+    NO_UNIVERSE_SELECTION_LABEL,
+    canonical_market_scope_label,
+    expand_market_scope,
+    market_scope_options,
+    production_market_scope_options,
+)
 from background_guard import market_guard_summary
 from trading_settings import load_rules, save_rules, DEFAULT_RULES
 import pandas as pd
@@ -10143,7 +10150,7 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
     except Exception:
         canonical_ranking_package = {}
     if selected_market is None:
-        ranking_options = ([canonical_ranking_label] if canonical_ranking_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, import_source_label] + market_scope_options(include_aggregate=True)
+        ranking_options = ([canonical_ranking_label] if canonical_ranking_package.get("published") else []) + [NO_UNIVERSE_SELECTION_LABEL, import_source_label] + production_market_scope_options(include_aggregate=True)
         market = st.selectbox("Velg univers", ranking_options, key="cc_ranking_market_v18535")
     else:
         market = str(selected_market or NO_UNIVERSE_SELECTION_LABEL)
@@ -10206,7 +10213,7 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
 
 def _render_market_room_toolbar_v1863cb() -> dict:
     """Mobile-safe Market toolbar with the primary view selector first."""
-    market_options = ["AI kildegrunnlag"] + market_scope_options(include_aggregate=True)
+    market_options = ["AI kildegrunnlag"] + production_market_scope_options(include_aggregate=True)
     view = st.selectbox(
         "Visning",
         ["Oversikt", "Kvalitet og prising", "Rangering", "Heatmap", "Markedsklima", "Lagrede signaler", "IPO", "Regime", "Makro", "Nyheter"],
@@ -10247,7 +10254,7 @@ def _market_room_quality_tickers_v19220_rc1632x(market: str, limit: int = 500) -
             return list(get_us_broad_tickers(limit=1600) or [])
         except Exception:
             return resolve_universe_tickers([market], max_count=500)
-    if market in MARKET_SCOPE_OPTIONS:
+    if market in production_market_scope_options(include_aggregate=True):
         return resolve_universe_tickers([market], max_count=500)
     return []
 
@@ -10304,7 +10311,12 @@ def render_market_room_control_center_v1863cb() -> None:
             "først etterpå velges inntil 20 finalister til den tyngre kvalitets-/prisingsanalysen."
         )
         from quality_valuation_ui import render_quality_valuation
-        render_quality_valuation(st, quality_tickers, expanded=True)
+        render_quality_valuation(
+            st,
+            quality_tickers,
+            selected_market=str(config.get("market") or "AI kildegrunnlag"),
+            expanded=True,
+        )
     elif view == "Rangering":
         limit_max = 60 if str(config.get("market") or "") == "AI kildegrunnlag" else 100
         limit_default = min(max(int(max_count or 30), 5), limit_max)
@@ -10937,7 +10949,7 @@ def render_alpha_radar_control_center_v1863ap():
         news_provider=get_news,
         data_enricher=enrich_alpha_radar_row,
         earnings_provider=get_earnings,
-        market_options=["Analyseflyt input"] + market_scope_options(include_aggregate=True),
+        market_options=["Analyseflyt input"] + production_market_scope_options(include_aggregate=True),
         no_selection_label=NO_UNIVERSE_SELECTION_LABEL,
     )
 
@@ -11849,7 +11861,7 @@ def render_auto_test_lab_control_center_v18536():
     with col_a:
         scope = st.selectbox(
             "Univers",
-            [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading"] + market_scope_options(include_aggregate=True) + ["Multi-marked", "Manuell liste"],
+            [NO_UNIVERSE_SELECTION_LABEL, "Analyseflyt input", "Aktivt Smart Universe", "Siste Smart AI-resultat", "Top Picks", "Watchlist", "Paper trading"] + production_market_scope_options(include_aggregate=True) + ["Multi-marked", "Manuell liste"],
             key="auto_lab_scope_v18537",
         )
     with col_b:
@@ -17371,7 +17383,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
 
     c1, c2, c3, c4 = st.columns([0.9, 0.55, 1.2, 0.9])
     with c1:
-        market = st.selectbox("Marked", market_scope_options(include_aggregate=True), index=0, key="ai_candidate_market_v1864l")
+        market = st.selectbox("Marked", production_market_scope_options(include_aggregate=True), index=0, key="ai_candidate_market_v1864l")
     with c2:
         limit = st.slider("Maks resultater", 5, 100, 30, 1, key="ai_candidate_limit_v1864l")
     with c3:
@@ -19231,9 +19243,9 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
         "Kjøp nå = kandidater som også har grønt teknisk signal akkurat nå."
     )
 
-    scan_market = st.radio("Velg marked for Top Picks", market_scope_options(include_aggregate=True), horizontal=True)
+    scan_market = st.radio("Velg marked for Top Picks", production_market_scope_options(include_aggregate=True), horizontal=True)
 
-    _market_labels_v1863j = {market: canonical_market_scope_label(market) for market in market_scope_options(include_aggregate=True)}
+    _market_labels_v1863j = {market: canonical_market_scope_label(market) for market in production_market_scope_options(include_aggregate=True)}
     source_tickers = resolve_universe_tickers([scan_market], max_count=int(max_count or 30))
 
     def _latest_market_rows_v1863j(market_name):

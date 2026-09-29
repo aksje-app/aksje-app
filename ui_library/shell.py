@@ -22,7 +22,7 @@ MORE_ROUTES=(
     ShellRoute("operations","Drift","operations"),
     ShellRoute("settings","Innstillinger","operations"),
 )
-_ALIASES={"paper":"portfolio","paper_trading":"portfolio","super_portfolio":"portfolio","long_engine":"market","analysis":"market","top_picks":"market","quality_valuation":"quality","control_center":"overview","system":"operations","settings":"operations","jobs":"operations","approvals":"autonomy","fx_alerts":"market","drift_center":"operations"}
+_ALIASES={"paper":"portfolio","paper_trading":"portfolio","super_portfolio":"autonomy","long_engine":"market","analysis":"market","top_picks":"market","quality_valuation":"quality","control_center":"overview","system":"operations","settings":"operations","jobs":"operations","approvals":"autonomy","fx_alerts":"market","drift_center":"operations"}
 _LEGACY_TARGETS={"overview":"dashboard","portfolio":"portfolio","market":"market","quality":"quality_valuation","autonomy":"autonomy","reports":"reports","operations":"drift_center","alerts":"alerts","more":"system","jobs":"jobs","approvals":"approvals","paper":"paper_trading","fx_alerts":"fx_alerts","settings":"system"}
 _NAV_ICONS={"overview":"⌂","portfolio":"▣","market":"⌁","quality":"◆","alerts":"!","more":"•••","autonomy":"◈","reports":"▤","jobs":"◷","approvals":"✓","paper":"◇","fx_alerts":"¤","operations":"⚙","settings":"⚙"}
 

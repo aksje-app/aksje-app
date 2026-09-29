@@ -14,29 +14,36 @@ def _number(value: Any) -> float:
 
 
 def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Build Start-page portfolio facts from the authoritative Super Portfolio NAV."""
     state = dict(state or {})
     positions = [dict(row) for row in (state.get("positions") or {}).values() if isinstance(row, Mapping)]
-    cash = _number(state.get("cash"))
     initial = _number(state.get("initial_cash"))
     target_weight = sum(_number(row.get("target_weight_pct") or row.get("weight_pct")) for row in positions)
-    weighted_return = (
-        sum(_number(row.get("pnl_pct") or row.get("return_pct")) * _number(row.get("target_weight_pct") or row.get("weight_pct")) for row in positions) / target_weight
-        if target_weight > 0 else None
-    )
-    priced_positions = [row for row in positions if _number(row.get("quantity") or row.get("shares")) > 0 and _number(row.get("last_price") or row.get("current_price")) > 0]
-    market_value = sum(_number(row.get("quantity") or row.get("shares")) * _number(row.get("last_price") or row.get("current_price")) for row in priced_positions)
-    if positions and target_weight > 0 and initial > 0:
-        since_start = round(float(weighted_return or 0), 4)
-        total = initial * (1 + since_start / 100)
-        cash_pct = max(0.0, min(100.0, 100.0 - target_weight))
-    elif not positions and initial > 0:
-        total, since_start, cash_pct = cash or initial, 0.0, 100.0
-    elif len(priced_positions) == len(positions) and positions and cash + market_value > 0:
-        total = cash + market_value
-        since_start = round(((total / initial) - 1) * 100, 4) if initial > 0 else None
-        cash_pct = cash / total * 100
+
+    nav_value = _number(state.get("portfolio_value"))
+    nav_return_raw = state.get("portfolio_return_pct")
+    if nav_value > 0 and initial > 0:
+        total = nav_value
+        since_start = (
+            round(_number(nav_return_raw), 4)
+            if nav_return_raw is not None
+            else round(((nav_value / initial) - 1.0) * 100.0, 4)
+        )
+    elif initial > 0:
+        # Legacy state before NAV tracking: show a conservative start value,
+        # never reconstruct realised performance from only current holdings.
+        total = initial
+        since_start = 0.0
     else:
-        total, since_start, cash_pct = None, None, None
+        total = None
+        since_start = None
+
+    vacancy = state.get("vacancy_diagnostics") if isinstance(state.get("vacancy_diagnostics"), Mapping) else {}
+    if vacancy.get("cash_pct") is not None:
+        cash_pct = max(0.0, min(100.0, _number(vacancy.get("cash_pct"))))
+    else:
+        cash_pct = max(0.0, min(100.0, 100.0 - target_weight)) if positions else 100.0
+
     confidence = state.get("decision_confidence") if isinstance(state.get("decision_confidence"), Mapping) else {}
     health = state.get("portfolio_health") if isinstance(state.get("portfolio_health"), Mapping) else {}
     health_components = health.get("components") if isinstance(health.get("components"), Mapping) else {}
@@ -51,24 +58,23 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
             "score": change.get("score") or change.get("confidence"),
             "return_pct": change.get("pnl_pct") or change.get("return_pct"),
         })
-    history_returns = []
-    history_labels = []
+
+    history_returns: list[float] = []
+    history_labels: list[str] = []
     latest_measurement_at = str(state.get("updated_at") or state.get("last_evaluated_at") or "")
     for snapshot in list(state.get("history") or [])[-12:]:
-        if not isinstance(snapshot, Mapping):
+        if not isinstance(snapshot, Mapping) or snapshot.get("portfolio_return_pct") is None:
             continue
-        rows = [row for row in list(snapshot.get("positions") or []) if isinstance(row, Mapping)]
-        weight = sum(_number(row.get("target_weight_pct") or row.get("weight_pct")) for row in rows)
-        if weight > 0:
-            history_returns.append(round(sum(_number(row.get("pnl_pct") or row.get("return_pct")) * _number(row.get("target_weight_pct") or row.get("weight_pct")) for row in rows) / weight, 4))
-            raw_at = str(snapshot.get("at") or snapshot.get("created_at") or "")
-            if raw_at:
-                latest_measurement_at = raw_at
-            try:
-                parsed_at = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
-                history_labels.append(parsed_at.strftime("%d.%m"))
-            except (TypeError, ValueError):
-                history_labels.append("")
+        history_returns.append(round(_number(snapshot.get("portfolio_return_pct")), 4))
+        raw_at = str(snapshot.get("at") or snapshot.get("created_at") or "")
+        if raw_at:
+            latest_measurement_at = raw_at
+        try:
+            parsed_at = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
+            history_labels.append(parsed_at.strftime("%d.%m"))
+        except (TypeError, ValueError):
+            history_labels.append("")
+
     if since_start is not None and (not history_returns or history_returns[-1] != since_start):
         history_returns.append(since_start)
         try:
@@ -76,14 +82,26 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
             history_labels.append(latest.astimezone(ZoneInfo("Europe/Oslo")).strftime("%d.%m"))
         except (TypeError, ValueError):
             history_labels.append("Siste")
+
     updated_label = "Ikke tilgjengelig"
     try:
         latest = datetime.fromisoformat(latest_measurement_at.replace("Z", "+00:00"))
         updated_label = latest.astimezone(ZoneInfo("Europe/Oslo")).strftime("%d.%m kl. %H:%M")
     except (TypeError, ValueError):
         pass
-    return {"value": total if total and total > 0 else None, "return_pct": since_start, "positions": len(positions), "cash_pct": cash_pct, "confidence": confidence.get("score"), "health_components": dict(health_components), "decisions": decisions, "history_returns": history_returns[-12:], "history_labels": history_labels[-12:], "last_updated": updated_label}
 
+    return {
+        "value": total if total and total > 0 else None,
+        "return_pct": since_start,
+        "positions": len(positions),
+        "cash_pct": cash_pct,
+        "confidence": confidence.get("score"),
+        "health_components": dict(health_components),
+        "decisions": decisions,
+        "history_returns": history_returns[-12:],
+        "history_labels": history_labels[-12:],
+        "last_updated": updated_label,
+    }
 
 def _sparkline_svg(values: Iterable[Any], labels: Iterable[str] | None = None) -> str:
     points = [_number(value) for value in values]
@@ -233,7 +251,7 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     st_module.markdown(
         f'''<main class="aa-overview-v2" aria-label="Oversikt">
         <section class="aa-overview-hero tone-{escape(str(hero.get('tone') or 'neutral'))}">
-          <div><span class="aa-overline">INVESTOR INTELLIGENCE</span><h1>{greeting}</h1>
+          <div><span class="aa-overline">BESLUTNINGSOVERSIKT · INVESTOR INTELLIGENCE</span><h1>{greeting}</h1>
           <p>{'Systemet har oppgaver som bør vurderes.' if attention else 'Systemet er oppdatert. Ingen kritiske oppgaver er registrert.'}</p><b class="aa-market-pill">OSLO · NESTE RAPPORT {escape(str((model.get('next_event') or {}).get('value') or '–'))}</b></div>
           <div class="aa-system-chip"><i></i>{'SYSTEMET ER KLART' if str(hero.get('tone')) == 'success' else 'KREVER OPPMERKSOMHET'}</div>
         </section></main>''', unsafe_allow_html=True,

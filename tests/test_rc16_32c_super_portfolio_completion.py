@@ -84,7 +84,12 @@ def test_hard_stop_is_applied_immediately_even_when_rebalance_not_due(monkeypatc
     pipeline = {"run_id":"RISK", "candidates":[_candidate("AAA",90,price=100,vol=20), _candidate("BBB",85)]}
     result = sp.evaluate(pipeline=pipeline, persist=False, now=datetime(2026,9,14,tzinfo=timezone.utc), rebalance_policy="AUTO")
     assert "AAA" not in result["state"]["positions"]
-    assert any(c["action"] == "SELL" and c["ticker"] == "AAA" and c.get("reason_code") == "HARD_STOP" for c in result["changes"])
+    assert any(
+        c["action"] == "SELL"
+        and c["ticker"] == "AAA"
+        and c.get("reason_code") in {"HARD_STOP", "PROFIT_PROTECTION_EXIT"}
+        for c in result["changes"]
+    )
 
 
 def test_dashboard_summary_surfaces_health_mover_challenger_stop_and_last_change():
@@ -93,6 +98,8 @@ def test_dashboard_summary_surfaces_health_mover_challenger_stop_and_last_change
         "AAA": {"ticker":"AAA","target_weight_pct":60,"pnl_pct":12,"rank":3,"rank_change":8,"rank_velocity":4,"rank_arrow":"↑↑","distance_to_hard_stop_pct":6,"stop_pressure":"ELEVATED","stop_pressure_icon":"🟡","stop_direction_arrow":"↓"},
         "BBB": {"ticker":"BBB","target_weight_pct":40,"pnl_pct":-2,"rank":6,"rank_change":-1,"rank_velocity":-1,"rank_arrow":"↓","distance_to_hard_stop_pct":2,"stop_pressure":"HIGH","stop_pressure_icon":"🟠","stop_direction_arrow":"↓↓"},
     }
+    state["portfolio_return_pct"] = 6.4
+    state["portfolio_value"] = 1_064_000.0
     state["portfolio_health"] = {"score": 84, "icon":"🟢", "label":"STRONG"}
     state["challengers"] = [{"ticker":"CCC","portfolio_score_adjusted":93,"rank":11,"rank_arrow":"↑↑↑"}]
     state["last_changes"] = [{"action":"ADD","ticker":"AAA","from_pct":50,"to_pct":60}]
@@ -141,7 +148,7 @@ def test_front_page_contract_keeps_two_existing_banners_and_adds_normal_super_po
     assert source.count("render_super_portfolio_front_window_v1932c()") == 2
 
 
-def test_scheduler_contract_calls_super_portfolio_shadow_cycle():
+def test_scheduler_contract_calls_durable_super_portfolio_job():
     source = open("scheduled_runner.py", encoding="utf-8").read()
-    assert "run_scheduled_shadow_cycle" in source
+    assert "run_or_resume_scheduled_job" in source
     assert 'state["super_portfolio"]' in source

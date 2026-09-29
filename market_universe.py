@@ -86,6 +86,14 @@ def market_scope_options(include_aggregate: bool = True) -> List[str]:
     return list(MARKET_SCOPE_OPTIONS if include_aggregate else BASE_MARKET_SCOPES)
 
 
+def production_market_scope_options(include_aggregate: bool = True) -> List[str]:
+    """User-facing market choices allowed to drive production analysis."""
+    options = list(production_market_scopes())
+    if include_aggregate:
+        options.append(CORE_MARKET_SCOPE_LABEL)
+    return options
+
+
 def picker_scope_options(include_sources: bool = True) -> List[str]:
     options = market_scope_options(include_aggregate=True)
     if include_sources:
