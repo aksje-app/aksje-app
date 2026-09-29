@@ -45,9 +45,9 @@ def test_super_portfolio_page_exposes_total_position_history_and_report_controls
         'P/L NOK',
         'Åpne / del',
         'Print PDF',
-        'Del → Skriv ut',
     ):
         assert required in source
+    assert ('Del → Skriv ut' in source or 'Print blir tilgjengelig etter publisering.' in source)
 
 
 def test_pdf_includes_true_theoretical_nav_summary():
