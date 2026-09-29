@@ -19,9 +19,9 @@ def test_navigation_helper_treats_super_portfolio_as_direct_destination():
     end = source.index("def _apply_mobile_nav_query_v18646", start)
     block = source[start:end]
     assert 'direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}' in block
-    assert 'st.session_state["autonomy_core_workspace_slug_v1882"] = "super_portfolio"' in block
+    assert 'st.session_state["autonomy_core_workspace_slug_v1882"] = ""' in block
     assert 'not direct_super_portfolio' in block
-    assert 'tab="super_portfolio"' in block
+    assert 'market_panel = "🌍 Super Portfolio" if direct_super_portfolio else "🔍 Marked – Market Scanner"' in block
 
 
 def test_front_window_uses_same_direct_super_portfolio_route():
@@ -38,7 +38,9 @@ def test_autonomy_direct_workspace_renders_super_portfolio_before_mode_gate():
     direct = source.index('if requested_direct == "super_portfolio":')
     mode = source.index("interface_mode = render_mode_selector()")
     assert direct < mode
-    assert 'render_super_portfolio(_legacy_context)' in source[direct:mode]
+    block = source[direct:mode]
+    assert 'st.session_state["active_nav_target_v18674c"] = "market"' in block
+    assert 'panel="🌍 Super Portfolio"' in block
 
 
 def test_rc16_33q_direct_route_contract_remains_present():
