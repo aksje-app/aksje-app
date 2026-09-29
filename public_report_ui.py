@@ -111,7 +111,7 @@ def _hydrate_static_file(token: str, artifact: dict) -> tuple[Path, str]:
     return target, f"/app/static/reports/{quote(target.name)}"
 
 
-def _report_landing_actions(static_url: str, *, return_href: str, return_label: str) -> str:
+def _report_landing_actions(static_url: str, *, return_href: str, return_label: str = "← Tilbake") -> str:
     """Aurora-style actions with no technical path exposed to the user."""
     safe_pdf = escape(str(static_url or ""), quote=True)
     safe_return = escape(str(return_href or "/?aa_nav=reports"), quote=True)
