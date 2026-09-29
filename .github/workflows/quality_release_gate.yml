@@ -45,6 +45,7 @@ jobs:
           python scripts/verify_rc16_33o_release.py
           python scripts/verify_rc16_33p_release.py
           python scripts/verify_rc16_33q_release.py
+          python scripts/verify_rc16_34a_release.py
       - name: Quality regression suite
         env:
           PYTHONPATH: .
@@ -65,4 +66,5 @@ jobs:
             tests/test_rc16_33n_exit_refill_counterfactual.py \
             tests/test_rc16_33o_mobile_navigation_recovery.py \
             tests/test_rc16_33p_super_portfolio_performance.py \
-            tests/test_rc16_33q_super_portfolio_direct_route.py
+            tests/test_rc16_33q_super_portfolio_direct_route.py \
+            tests/test_rc16_34a_production_readiness.py
