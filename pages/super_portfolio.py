@@ -45,17 +45,24 @@ def render_super_portfolio(_legacy_context) -> None:
     positions = list((state.get("positions") or {}).values())
     health = state.get("portfolio_health") or {}
 
-    c1,c2,c3,c4,c5 = st.columns(5)
     total_weight = sum(float(p.get("target_weight_pct") or 0) for p in positions)
     weighted_return = (
         sum(float(p.get("pnl_pct") or 0) * float(p.get("target_weight_pct") or 0) for p in positions) / total_weight
         if positions and total_weight > 0 else 0.0
     )
-    c1.metric("Posisjoner", len(positions))
-    c2.metric("📈 Siden start", f"{weighted_return:+.2f}%")
-    c3.metric("🧬 Health", f"{health.get('icon','⚪')} {float(health.get('score') or 0):.1f}/100")
-    c4.metric("Modus", "SHADOW")
-    c5.metric("Kilde", state.get("source_run_id") or "-")
+    initial_cash = float(state.get("initial_cash") or 1_000_000.0)
+    portfolio_value = float(state.get("portfolio_value") or initial_cash)
+    portfolio_return = float(state.get("portfolio_return_pct") or ((portfolio_value / max(1.0, initial_cash)) - 1.0) * 100.0)
+    c1,c2,c3,c4,c5 = st.columns(5)
+    c1.metric("Teoretisk verdi", f"NOK {portfolio_value:,.0f}")
+    c2.metric("📈 Siden NAV-start", f"{portfolio_return:+.2f}%")
+    c3.metric("Posisjoner", len(positions))
+    c4.metric("🧬 Health", f"{health.get('icon','⚪')} {float(health.get('score') or 0):.1f}/100")
+    c5.metric("Modus", "SHADOW")
+    st.caption(
+        f"Startkapital NOK {initial_cash:,.0f} · NAV-sporing fra {state.get('portfolio_tracking_started_at') or '-'} · "
+        f"Åpne posisjoner vektet fra inngang {weighted_return:+.2f}% · Kilde {state.get('source_run_id') or '-'}"
+    )
 
     if health.get("components"):
         hc = health["components"]
@@ -158,23 +165,64 @@ def render_super_portfolio(_legacy_context) -> None:
 
     report_url = st.session_state.get("sp_last_report_url")
     pdf_bytes = build_pdf(state)
-    d1,d2 = st.columns(2)
+    d1,d2,d3 = st.columns(3)
     d1.download_button(
-        "⬇️ Last ned gjeldende PDF",
+        "⬇️ Last ned PDF",
         data=pdf_bytes,
         file_name=f"SuperPortfolio_{str(state.get('updated_at') or 'latest')[:10]}.pdf",
         mime="application/pdf",
         width="stretch",
-        key="sp_download_pdf_rc1632c",
+        key="sp_download_pdf_rc1633p",
     )
     if report_url:
         from public_report_ui import with_report_return
-        d2.link_button("🔗 Åpne / del publisert PDF", with_report_return(report_url, "portfolio"), width="stretch")
+        d2.link_button("🔗 Åpne / del", with_report_return(report_url, "portfolio"), width="stretch")
+        d3.link_button("🖨️ Print PDF", with_report_return(report_url, "portfolio"), width="stretch")
+        st.code(str(report_url), language=None)
+        st.caption("Kopier lenken med kopiknappen. På iPhone/iPad: åpne PDF → Del → Skriv ut.")
     else:
         d2.caption("Publiser PDF først for delbar lenke.")
+        d3.caption("Print blir tilgjengelig etter publisering.")
+
+    st.markdown("### 📈 Superporteføljen – utvikling")
+    history_rows = []
+    for snap in state.get("history") or []:
+        if snap.get("portfolio_value") is None:
+            continue
+        history_rows.append({
+            "Tid": snap.get("at"),
+            "Porteføljeverdi": float(snap.get("portfolio_value") or 0),
+            "Avkastning %": float(snap.get("portfolio_return_pct") or 0),
+        })
+    if history_rows:
+        history_df = pd.DataFrame(history_rows).drop_duplicates(subset=["Tid"], keep="last")
+        st.line_chart(history_df.set_index("Tid")[["Porteføljeverdi"]], height=260)
+        st.dataframe(history_df.tail(20), width="stretch", hide_index=True, height=260)
+    else:
+        st.info("Utviklingskurven bygges fra og med første vurdering etter rc16.33p.")
+
+    st.markdown("### 📉 Utvikling per aksje")
+    ticker_history = {}
+    for snap in state.get("history") or []:
+        at = snap.get("at")
+        for pos in snap.get("positions") or []:
+            ticker = str(pos.get("ticker") or "")
+            if not ticker:
+                continue
+            ticker_history.setdefault(ticker, []).append({
+                "Tid": at,
+                "Fra inngang %": float(pos.get("pnl_pct") or 0),
+            })
+    available_tickers = sorted(ticker_history)
+    if available_tickers:
+        selected_ticker = st.selectbox("Velg aksje", available_tickers, key="sp_perf_ticker_rc1633p")
+        ticker_df = pd.DataFrame(ticker_history[selected_ticker]).drop_duplicates(subset=["Tid"], keep="last")
+        st.line_chart(ticker_df.set_index("Tid")[["Fra inngang %"]], height=240)
+    else:
+        st.caption("Per-aksje historikk vises etter neste Super Portfolio-vurdering.")
 
     st.markdown("### 📊 Benchmark")
-    bench = benchmark_summary(state, portfolio_return_pct=weighted_return)
+    bench = benchmark_summary(state, portfolio_return_pct=portfolio_return)
     b1,b2,b3 = st.columns(3)
     idx = bench.get("index") or {}
     aur = bench.get("aurora") or {}
@@ -320,11 +368,14 @@ def render_super_portfolio(_legacy_context) -> None:
         rows=[]
         for p in positions:
             score = float(p.get("portfolio_score_adjusted") or p.get("portfolio_score") or 0)
+            theoretical_value = portfolio_value * float(p.get("target_weight_pct") or 0) / 100.0
+            position_pnl_nok = theoretical_value * float(p.get("pnl_pct") or 0) / 100.0
             rows.append({
                 "Stop":f"{p.get('stop_icon','')} {p.get('stop_status','')}",
                 "Press":f"{p.get('stop_pressure_icon','')} {p.get('stop_pressure','')} {p.get('stop_direction_arrow','→')}",
                 "Aksje":p.get("ticker"),"Marked":p.get("market"),"Sektor":p.get("sector"),
-                "Vekt %":p.get("target_weight_pct"),"Fra inn %":p.get("pnl_pct"),"Fra topp %":p.get("drawdown_from_peak_pct"),
+                "Vekt %":p.get("target_weight_pct"),"Teoretisk verdi NOK":round(theoretical_value,0),"P/L NOK":round(position_pnl_nok,0),
+                "Fra inn %":p.get("pnl_pct"),"Fra topp %":p.get("drawdown_from_peak_pct"),
                 "Til stop %":p.get("distance_to_hard_stop_pct"),"Stopkurs":p.get("hard_stop_price"),
                 "AI-score":score,"Rank":f"#{p.get('rank','-')} {p.get('rank_arrow','→')}","Δ rank":p.get("rank_change"),
                 "Sektorstraff":p.get("sector_penalty"),"Korr.straff":p.get("correlation_penalty"),"Risiko":p.get("risk_score"),
