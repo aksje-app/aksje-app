@@ -48,6 +48,8 @@ assert '"P/L NOK": row.get("pnl_nok")' in overview
 assert 'st_module.button("🌍 Åpne hele Super Portfolio"' in overview
 
 assert 'st.markdown("### 🚦 Hva skjer nå?")' in portfolio
+assert '"Verdi NOK": round(position_value,0)' in portfolio
+assert '"P/L NOK": round(position_pnl_nok,0)' in portfolio
 assert 'st.markdown("### 📈 Utvikling – totalt")' in portfolio
 assert 'st.markdown("### 📉 Utvikling – alle aksjer")' in portfolio
 assert 'st.markdown("### 🧮 Hvem skaper resultatet?")' in portfolio
