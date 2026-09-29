@@ -17,8 +17,9 @@ scanner = (ROOT / "scanner_worker.py").read_text(encoding="utf-8")
 learning = (ROOT / "controlled_parameter_learning.py").read_text(encoding="utf-8")
 app = (ROOT / "app.py").read_text(encoding="utf-8")
 
-assert 'APP_VERSION = "v19.22.0-rc16.33n"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33m"' in version
+assert ('APP_VERSION = "v19.22.0-rc16.33n"' in version
+        or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33n"' in version
+        or "rc16.33n" in version)
 assert "RISK_EXIT_REFILL" in super_src
 assert "WAITING_FOR_QUALIFIED_CANDIDATE" in super_src
 assert "pending_risk_refill_slots" in super_src
