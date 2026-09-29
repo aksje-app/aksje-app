@@ -115,7 +115,10 @@ def test_market_context_is_passed_into_quality_ui():
 
 def test_super_portfolio_share_and_print_both_return_to_super_portfolio():
     source = (ROOT / "pages" / "super_portfolio.py").read_text(encoding="utf-8")
-    assert source.count('with_report_return(report_url, "super_portfolio")') >= 2
+    assert 'returning_report_url = with_report_return(report_url, "super_portfolio")' in source
+    assert 'd2.link_button("🔗 Åpne / del", returning_report_url' in source
+    assert 'd3.link_button("🖨️ Print PDF", returning_report_url' in source
+    assert 'st.code(returning_report_url' in source
     assert 'with_report_return(report_url, "portfolio")' not in source
 
 
