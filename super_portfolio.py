@@ -196,6 +196,45 @@ def turnover_cost_summary(changes: Sequence[Mapping[str, Any]], *, portfolio_val
     return {"turnover_pct":round(turnover,2),"traded_value":round(traded_value,2),"estimated_cost":round(cost,2),"cost_bps":round(_f(cost_bps),2),"cost_pct":round(cost_pct,4),"gross_return_pct":round(_f(gross_return_pct),4),"net_return_pct":round(_f(gross_return_pct)-cost_pct,4)}
 
 
+def portfolio_value_update(
+    previous_positions: Mapping[str, Mapping[str, Any]],
+    current_marks: Mapping[str, float],
+    *,
+    previous_value: float,
+    initial_cash: float,
+    transaction_cost: float = 0.0,
+) -> dict[str, float]:
+    """Chain-link the theoretical Super Portfolio NAV from the previous marks.
+
+    Previous target weights are the capital exposures during the interval.
+    Uninvested weight is cash with zero return. Buys made at this evaluation
+    start contributing from the next interval, while sells are marked at the
+    latest available price before they leave the portfolio.
+    """
+    nav_before = max(0.0, _f(previous_value, _f(initial_cash, 1_000_000.0)))
+    initial = max(1.0, _f(initial_cash, 1_000_000.0))
+    interval_return_pct = 0.0
+    for ticker, position in previous_positions.items():
+        weight_pct = max(0.0, _f(position.get("target_weight_pct")))
+        previous_price = _f(position.get("last_price"))
+        current_price = _f(current_marks.get(str(ticker)), previous_price)
+        if weight_pct <= 0 or previous_price <= 0 or current_price <= 0:
+            continue
+        interval_return_pct += weight_pct * ((current_price / previous_price) - 1.0)
+
+    gross_value = nav_before * (1.0 + interval_return_pct / 100.0)
+    cost = max(0.0, _f(transaction_cost))
+    nav_after = max(0.0, gross_value - cost)
+    cumulative_return_pct = ((nav_after / initial) - 1.0) * 100.0
+    return {
+        "portfolio_value_before": round(nav_before, 2),
+        "portfolio_value": round(nav_after, 2),
+        "period_return_pct": round(interval_return_pct, 6),
+        "transaction_cost": round(cost, 2),
+        "portfolio_return_pct": round(cumulative_return_pct, 6),
+    }
+
+
 def _position_currency(row: Mapping[str, Any]) -> str:
     raw=row.get("raw_candidate") if isinstance(row.get("raw_candidate"),Mapping) else row.get("raw") if isinstance(row.get("raw"),Mapping) else {}
     value=row.get("currency") or raw.get("currency")
@@ -345,6 +384,9 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
         "status": "SHADOW",
         "initial_cash": cfg.start_cash,
         "cash": cfg.start_cash,
+        "portfolio_value": cfg.start_cash,
+        "portfolio_return_pct": 0.0,
+        "portfolio_tracking_started_at": _now(),
         "positions": {},
         "challengers": [],
         "history": [],
@@ -404,6 +446,10 @@ def load_state() -> dict[str, Any]:
     state.setdefault("vacancy_diagnostics", {})
     state.setdefault("last_exit_refill", {})
     state.setdefault("pending_risk_refill_slots", 0)
+    initial_cash = max(1.0, _f(state.get("initial_cash"), SuperPortfolioConfig().start_cash))
+    state.setdefault("portfolio_value", initial_cash)
+    state.setdefault("portfolio_return_pct", ((_f(state.get("portfolio_value"), initial_cash) / initial_cash) - 1.0) * 100.0)
+    state.setdefault("portfolio_tracking_started_at", state.get("updated_at") or _now())
     return state
 
 
@@ -2183,9 +2229,27 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         sum(_f(p.get("pnl_pct")) * _f(p.get("target_weight_pct")) for p in position_rows) / total_weight
         if total_weight > 0 else 0.0
     )
+    portfolio_value_before = _f(state.get("portfolio_value"), _f(state.get("initial_cash"), cfg.start_cash))
     turnover = turnover_cost_summary(
-        changes, portfolio_value=_f(state.get("initial_cash"), cfg.start_cash),
+        changes, portfolio_value=portfolio_value_before,
         gross_return_pct=weighted_return, cost_bps=cfg.transaction_cost_bps,
+    )
+    current_marks: dict[str, float] = {}
+    for ticker, old_position in previous.items():
+        if ticker in positions:
+            current_marks[ticker] = _f(positions[ticker].get("last_price"), _f(old_position.get("last_price")))
+        elif ticker in risk_exit_positions:
+            current_marks[ticker] = _f(risk_exit_positions[ticker].get("last_price"), _f(old_position.get("last_price")))
+        elif ticker in by_ticker:
+            current_marks[ticker] = _candidate_price(by_ticker[ticker]) or _f(old_position.get("last_price"))
+        else:
+            current_marks[ticker] = _f(old_position.get("last_price"))
+    performance = portfolio_value_update(
+        previous,
+        current_marks,
+        previous_value=portfolio_value_before,
+        initial_cash=_f(state.get("initial_cash"), cfg.start_cash),
+        transaction_cost=_f(turnover.get("estimated_cost")),
     )
     stress = stress_radar(position_rows)
     ranking_snapshot = [{"ticker": row.get("ticker"), "rank": row.get("rank"), "score": row.get("portfolio_score_adjusted"), "rank_arrow": row.get("rank_arrow")} for row in ranked_all[: max(cfg.target_positions + cfg.challenger_count, 30)]]
@@ -2212,6 +2276,11 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "rebalance_due": rebalance_due,
         "rebalance_gate": rebalance_gate,
         "rebalance_impact": rebalance_impact,
+        "portfolio_value_before": performance["portfolio_value_before"],
+        "portfolio_value": performance["portfolio_value"],
+        "period_return_pct": performance["period_return_pct"],
+        "portfolio_return_pct": performance["portfolio_return_pct"],
+        "transaction_cost": performance["transaction_cost"],
     }
     state.update({
         "positions": positions,
@@ -2239,6 +2308,10 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "vacancy_diagnostics": vacancy_diagnostics,
         "last_exit_refill": state.get("last_exit_refill") or {},
         "pending_risk_refill_slots": int(state.get("pending_risk_refill_slots") or 0),
+        "portfolio_value": performance["portfolio_value"],
+        "portfolio_return_pct": performance["portfolio_return_pct"],
+        "last_period_return_pct": performance["period_return_pct"],
+        "last_portfolio_transaction_cost": performance["transaction_cost"],
     })
     history.append(snapshot)
     state["history"] = history[-max(10, int(cfg.history_limit)):]
@@ -2250,6 +2323,9 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             "rebalance_gate": rebalance_gate, "rebalance_impact": rebalance_impact,
             "positions_before": len(previous), "positions_after": len(positions),
             "vacancy_diagnostics": vacancy_diagnostics,
+            "portfolio_value": performance["portfolio_value"],
+            "portfolio_return_pct": performance["portfolio_return_pct"],
+            "period_return_pct": performance["period_return_pct"],
         })
         print("SUPER_PORTFOLIO_DECISION " + json.dumps({
             "run_id": decision_run_id, "positions_before": len(previous), "positions_after": len(positions),
@@ -2266,6 +2342,8 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         "entry_gate": entry_gate, "candidate_persistence": candidate_persistence, "regime_policy": regime_policy,
         "ai_thinks": advisory, "shadow_executed": changes,
         "vacancy_diagnostics": vacancy_diagnostics, "last_exit_refill": state.get("last_exit_refill") or {},
+        "portfolio_value": performance["portfolio_value"], "portfolio_return_pct": performance["portfolio_return_pct"],
+        "period_return_pct": performance["period_return_pct"],
     }
 
 def manual_exit(ticker: str, note: str = "") -> dict[str, Any]:
@@ -2292,6 +2370,8 @@ def dashboard_summary(state: Mapping[str, Any] | None = None) -> dict[str, Any]:
     total_weight = sum(_f(p.get("target_weight_pct")) for p in positions)
     if total_weight > 0:
         weighted = sum(_f(p.get("pnl_pct")) * _f(p.get("target_weight_pct")) for p in positions) / total_weight
+    portfolio_return = _f(data.get("portfolio_return_pct"), weighted)
+    portfolio_value = _f(data.get("portfolio_value"), _f(data.get("initial_cash"), SuperPortfolioConfig().start_cash))
     fastest = max(positions, key=lambda p: _f(p.get("rank_velocity")), default={})
     nearest = min(positions, key=lambda p: _f(p.get("distance_to_hard_stop_pct"), 999.0), default={})
     challengers = list(data.get("challengers") or [])
@@ -2299,7 +2379,10 @@ def dashboard_summary(state: Mapping[str, Any] | None = None) -> dict[str, Any]:
     changes = list(data.get("last_changes") or [])
     advisory = list(data.get("ai_would_do_today") or [])
     return {
-        "portfolio_return_pct": round(weighted, 2),
+        "portfolio_return_pct": round(portfolio_return, 2),
+        "open_positions_return_pct": round(weighted, 2),
+        "portfolio_value": round(portfolio_value, 2),
+        "initial_cash": round(_f(data.get("initial_cash"), SuperPortfolioConfig().start_cash), 2),
         "positions": len(positions),
         "health": dict(data.get("portfolio_health") or {}),
         "fastest_mover": dict(fastest or {}),
@@ -2401,6 +2484,17 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
         spaceBefore=0,
     )
     story = [Paragraph("AI Super Portfolio", styles["Title"]), Paragraph(f"{VERSION} · Shadow mode · {data.get('updated_at','-')} · Decision run {run_id}", styles["Normal"]), Spacer(1, 8)]
+    initial_cash = _f(data.get("initial_cash"), SuperPortfolioConfig().start_cash)
+    portfolio_value = _f(data.get("portfolio_value"), initial_cash)
+    portfolio_return = _f(data.get("portfolio_return_pct"), ((portfolio_value / max(1.0, initial_cash)) - 1.0) * 100.0)
+    cash_pct = _f((data.get("vacancy_diagnostics") or {}).get("cash_pct"), max(0.0, 100.0 - sum(_f(p.get("target_weight_pct")) for p in (data.get("positions") or {}).values())))
+    story.append(Paragraph(
+        f"Teoretisk verdi: NOK {portfolio_value:,.0f} · Startkapital: NOK {initial_cash:,.0f} · "
+        f"Avkastning siden NAV-sporing: {portfolio_return:+.2f}% · Kontantandel: {cash_pct:.1f}%",
+        styles["Heading2"],
+    ))
+    story.append(Paragraph(f"NAV-sporing fra: {data.get('portfolio_tracking_started_at') or '-'}", styles["Normal"]))
+    story.append(Spacer(1, 6))
     health = data.get("portfolio_health") if isinstance(data.get("portfolio_health"), Mapping) else {}
     if health:
         story.append(Paragraph(f"Portfolio Health: {health.get('icon','')} {_f(health.get('score')):.1f}/100 · {health.get('label','-')}", styles["Heading2"]))
