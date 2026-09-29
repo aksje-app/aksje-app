@@ -15,6 +15,7 @@ for path in [
     "quality_stability_contract.py",
     "ui_library/shell.py",
     "market_universe.py",
+    "market_intelligence.py",
 ]:
     ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=path)
 
