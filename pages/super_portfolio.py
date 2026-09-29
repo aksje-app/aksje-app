@@ -52,9 +52,28 @@ def render_super_portfolio(_legacy_context) -> None:
     )
     initial_cash = float(state.get("initial_cash") or 1_000_000.0)
     portfolio_value = float(state.get("portfolio_value") or initial_cash)
-    portfolio_return = float(state.get("portfolio_return_pct") or ((portfolio_value / max(1.0, initial_cash)) - 1.0) * 100.0)
+    portfolio_return = float(
+        state.get("portfolio_return_pct")
+        if state.get("portfolio_return_pct") is not None
+        else ((portfolio_value / max(1.0, initial_cash)) - 1.0) * 100.0
+    )
+    advisory = list(state.get("ai_would_do_today") or [])
+    advisory_by_ticker = {str(a.get("ticker") or ""): a for a in advisory if a.get("ticker")}
+
+    st.markdown(
+        """<style>
+        .sp-quick-note{border:1px solid rgba(56,189,248,.32);background:rgba(15,23,42,.54);
+        border-radius:12px;padding:.65rem .8rem;margin:.25rem 0 .6rem 0}
+        .sp-quick-note b{font-size:1.02rem}
+        @media (max-width: 760px){
+          div[data-testid="stDataFrame"]{font-size:.88rem!important}
+          .sp-quick-note{padding:.55rem .65rem}
+        }
+        </style>""", unsafe_allow_html=True,
+    )
+
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Teoretisk verdi", f"NOK {portfolio_value:,.0f}")
+    c1.metric("Porteføljeverdi", f"NOK {portfolio_value:,.0f}")
     c2.metric("📈 Siden NAV-start", f"{portfolio_return:+.2f}%")
     c3.metric("Posisjoner", len(positions))
     c4.metric("🧬 Health", f"{health.get('icon','⚪')} {float(health.get('score') or 0):.1f}/100")
@@ -63,6 +82,101 @@ def render_super_portfolio(_legacy_context) -> None:
         f"Startkapital NOK {initial_cash:,.0f} · NAV-sporing fra {state.get('portfolio_tracking_started_at') or '-'} · "
         f"Åpne posisjoner vektet fra inngang {weighted_return:+.2f}% · Kilde {state.get('source_run_id') or '-'}"
     )
+
+    # Beslutningsoversikt først: ticker, alvorlighet og handling - ikke interne signalnavn.
+    st.markdown("### 🚦 Hva skjer nå?")
+    quick_rows = []
+    action_nb = {"BUY":"KJØP", "ADD":"ØK", "REDUCE":"REDUSER", "SELL":"SELG", "HOLD":"HOLD"}
+    for pos in positions:
+        ticker = str(pos.get("ticker") or "-")
+        distance = pos.get("distance_to_hard_stop_pct")
+        try:
+            distance_f = float(distance) if distance is not None else None
+        except Exception:
+            distance_f = None
+        pressure = str(pos.get("stop_pressure") or "").upper()
+        if pressure == "CRITICAL" or (distance_f is not None and distance_f <= 1.0):
+            level, meaning = "🔴 KRITISK", "Nær stop - krever oppmerksomhet"
+        elif pressure in {"HIGH", "SEVERE"} or (distance_f is not None and distance_f <= 3.0):
+            level, meaning = "🟠 HANDLING", "Tett på beskyttelsesgrense"
+        elif pressure == "MEDIUM" or (distance_f is not None and distance_f <= 5.0):
+            level, meaning = "🟡 FØLG MED", "Økt stop-press"
+        else:
+            level, meaning = "🟢 OK", "Ingen akutt handling"
+        adv = advisory_by_ticker.get(ticker) or {}
+        action = action_nb.get(str(adv.get("action") or "").upper(), str(adv.get("action") or "HOLD"))
+        from_pct = adv.get("from_pct")
+        to_pct = adv.get("to_pct")
+        if adv and from_pct is not None and to_pct is not None:
+            action = f"{action} {float(from_pct):.1f}% → {float(to_pct):.1f}%"
+        quick_rows.append({
+            "Status": level, "Aksje": ticker, "Hva betyr det": meaning,
+            "Vekt %": round(float(pos.get("target_weight_pct") or 0),1),
+            "P/L %": round(float(pos.get("pnl_pct") or 0),2),
+            "Til stop %": round(distance_f,2) if distance_f is not None else None,
+            "AI nå": action,
+        })
+    quick_rows.sort(key=lambda r: ({"🔴":0,"🟠":1,"🟡":2,"🟢":3}.get(str(r["Status"])[:1],9), r.get("Til stop %") if r.get("Til stop %") is not None else 999))
+    if quick_rows:
+        st.dataframe(pd.DataFrame(quick_rows), width="stretch", hide_index=True, height=min(330, 42 + 38*len(quick_rows)))
+    else:
+        st.info("Ingen aktive Super Portfolio-posisjoner ennå.")
+
+    if advisory:
+        action_rows=[]
+        for a in advisory:
+            raw=str(a.get("action") or "HOLD").upper()
+            action_rows.append({
+                "Aksje": a.get("ticker") or "-",
+                "Handling": action_nb.get(raw, raw),
+                "Fra %": round(float(a.get("from_pct") or 0),1),
+                "Til %": round(float(a.get("to_pct") or 0),1),
+                "Hvorfor": a.get("reason") or a.get("reason_code") or "-",
+            })
+        st.markdown("**Foreslåtte handlinger nå**")
+        st.dataframe(pd.DataFrame(action_rows), width="stretch", hide_index=True, height=min(250, 42+38*len(action_rows)))
+
+    # Visuell porteføljeutvikling - totalt og alle aksjer samtidig.
+    st.markdown("### 📈 Utvikling – totalt")
+    history_rows=[]
+    per_ticker_rows=[]
+    for snap in state.get("history") or []:
+        at=snap.get("at")
+        if snap.get("portfolio_value") is not None:
+            history_rows.append({
+                "Tid": at, "Porteføljeverdi": float(snap.get("portfolio_value") or 0),
+                "Avkastning %": float(snap.get("portfolio_return_pct") or 0),
+            })
+        for hp in snap.get("positions") or []:
+            ticker=str(hp.get("ticker") or "")
+            if ticker:
+                per_ticker_rows.append({"Tid":at, "Aksje":ticker, "Fra inngang %":float(hp.get("pnl_pct") or 0)})
+    if history_rows:
+        hdf=pd.DataFrame(history_rows).drop_duplicates(subset=["Tid"],keep="last")
+        st.line_chart(hdf.set_index("Tid")[["Porteføljeverdi"]], height=260)
+        st.caption(f"Siste registrerte NAV: NOK {float(hdf.iloc[-1]['Porteføljeverdi']):,.0f} · Avkastning {float(hdf.iloc[-1]['Avkastning %']):+.2f}%")
+    else:
+        st.info("Totalgrafen bygges automatisk når NAV-historikk er registrert.")
+
+    st.markdown("### 📉 Utvikling – alle aksjer")
+    if per_ticker_rows:
+        tdf=pd.DataFrame(per_ticker_rows).drop_duplicates(subset=["Tid","Aksje"],keep="last")
+        pivot=tdf.pivot(index="Tid",columns="Aksje",values="Fra inngang %").sort_index()
+        st.line_chart(pivot, height=300)
+        selected=st.selectbox("Detalj per aksje", list(pivot.columns), key="sp_perf_ticker_ui_hotfix")
+        st.line_chart(pivot[[selected]].dropna(), height=220)
+    else:
+        st.caption("Per-aksje kurver vises etter neste vurdering som lagrer posisjonshistorikk.")
+
+    if positions:
+        contribution=[]
+        for pos in positions:
+            w=float(pos.get("target_weight_pct") or 0)
+            pnl=float(pos.get("pnl_pct") or 0)
+            contribution.append({"Aksje":pos.get("ticker"),"Bidrag pp":round(w*pnl/100.0,3)})
+        cdf=pd.DataFrame(contribution).sort_values("Bidrag pp",ascending=False)
+        st.markdown("### 🧮 Hvem skaper resultatet?")
+        st.bar_chart(cdf.set_index("Aksje")[["Bidrag pp"]], height=230)
 
     if health.get("components"):
         hc = health["components"]
@@ -167,60 +281,22 @@ def render_super_portfolio(_legacy_context) -> None:
     pdf_bytes = build_pdf(state)
     d1,d2,d3 = st.columns(3)
     d1.download_button(
-        "⬇️ Last ned PDF",
-        data=pdf_bytes,
+        "⬇️ Last ned PDF", data=pdf_bytes,
         file_name=f"SuperPortfolio_{str(state.get('updated_at') or 'latest')[:10]}.pdf",
-        mime="application/pdf",
-        width="stretch",
-        key="sp_download_pdf_rc1633p",
+        mime="application/pdf", width="stretch", key="sp_download_pdf_ui_hotfix",
     )
     if report_url:
-        from public_report_ui import with_report_return
-        returning_report_url = with_report_return(report_url, "super_portfolio")
-        d2.link_button("🔗 Åpne / del", returning_report_url, width="stretch")
-        d3.link_button("🖨️ Print PDF", returning_report_url, width="stretch")
-        st.code(returning_report_url, language=None)
-        st.caption("Kopier lenken med kopiknappen. På iPhone/iPad: åpne PDF → Del → Skriv ut.")
+        try:
+            from public_report_ui import with_report_return
+            report_link = with_report_return(report_url, "super_portfolio")
+        except Exception:
+            report_link = report_url
+        d2.link_button("🔗 Åpne / del", report_link, width="stretch")
+        d3.link_button("🖨️ Print PDF", report_link, width="stretch")
+        st.code(report_link, language=None)
     else:
         d2.caption("Publiser PDF først for delbar lenke.")
         d3.caption("Print blir tilgjengelig etter publisering.")
-
-    st.markdown("### 📈 Superporteføljen – utvikling")
-    history_rows = []
-    for snap in state.get("history") or []:
-        if snap.get("portfolio_value") is None:
-            continue
-        history_rows.append({
-            "Tid": snap.get("at"),
-            "Porteføljeverdi": float(snap.get("portfolio_value") or 0),
-            "Avkastning %": float(snap.get("portfolio_return_pct") or 0),
-        })
-    if history_rows:
-        history_df = pd.DataFrame(history_rows).drop_duplicates(subset=["Tid"], keep="last")
-        st.line_chart(history_df.set_index("Tid")[["Porteføljeverdi"]], height=260)
-        st.dataframe(history_df.tail(20), width="stretch", hide_index=True, height=260)
-    else:
-        st.info("Utviklingskurven bygges fra og med første vurdering etter rc16.33p.")
-
-    st.markdown("### 📉 Utvikling per aksje")
-    ticker_history = {}
-    for snap in state.get("history") or []:
-        at = snap.get("at")
-        for pos in snap.get("positions") or []:
-            ticker = str(pos.get("ticker") or "")
-            if not ticker:
-                continue
-            ticker_history.setdefault(ticker, []).append({
-                "Tid": at,
-                "Fra inngang %": float(pos.get("pnl_pct") or 0),
-            })
-    available_tickers = sorted(ticker_history)
-    if available_tickers:
-        selected_ticker = st.selectbox("Velg aksje", available_tickers, key="sp_perf_ticker_rc1633p")
-        ticker_df = pd.DataFrame(ticker_history[selected_ticker]).drop_duplicates(subset=["Tid"], keep="last")
-        st.line_chart(ticker_df.set_index("Tid")[["Fra inngang %"]], height=240)
-    else:
-        st.caption("Per-aksje historikk vises etter neste Super Portfolio-vurdering.")
 
     st.markdown("### 📊 Benchmark")
     bench = benchmark_summary(state, portfolio_return_pct=portfolio_return)
@@ -231,18 +307,34 @@ def render_super_portfolio(_legacy_context) -> None:
     b2.metric(str(aur.get("label") or "Aurora"), f"{float(aur.get('return_pct') or 0):+.2f}%", delta=f"Alpha {float(aur.get('alpha_pct') or 0):+.2f} pp" if aur.get("return_pct") is not None else None)
     confidence = state.get("decision_confidence") or {}
     b3.metric("🧠 Decision Confidence", f"{confidence.get('icon','⚪')} {float(confidence.get('score') or 0):.1f}/100")
-    with st.expander("🧾 Innsiderkontroll – posisjoner og finalister", expanded=False):
-        checks = state.get("insider_checks") or {}
-        st.caption("Offisielle primærkilder sjekkes etter bredskanningen. Kjøp gjennom ansattprogram vises, men gir ikke et positivt innsidermomentum.")
-        if not checks:
-            st.info("Ingen innsiderkontroll fra siste markedsskanning er tilgjengelig.")
+
+    with st.expander("🧾 Innsiderkontroll – lesbar visning", expanded=False):
+        checks=state.get("insider_checks") or {}
+        st.caption("Offisielle primærkilder. Ansattprogram vises som informasjon, ikke som positivt innsidermomentum.")
+        insider_rows=[]
+        source_rows=[]
         for ticker, check in checks.items():
-            st.markdown(f"**{ticker}** · {check.get('signal') or check.get('coverage') or 'Ukjent'}")
-            for fact in (check.get("evidence") or [])[:3]:
-                context = "Ansattprogram" if fact.get("transaction_context") == "EMPLOYEE_SHARE_PROGRAMME" else str(fact.get("type") or "Handel")
-                st.caption(f"{context}: {fact.get('insider') or 'Ukjent'} · {fact.get('shares', 0)} aksjer · {fact.get('date') or '-'}")
+            evidence=list(check.get("evidence") or [])
+            if not evidence:
+                insider_rows.append({"Aksje":ticker,"Status":check.get("signal") or check.get("coverage") or "Ingen treff","Type":"-","Innsider":"-","Aksjer":"-","Dato":"-"})
+            for fact in evidence[:5]:
+                context="Ansattprogram" if fact.get("transaction_context")=="EMPLOYEE_SHARE_PROGRAMME" else str(fact.get("type") or "Handel")
+                insider_rows.append({
+                    "Aksje":ticker,"Status":check.get("signal") or check.get("coverage") or "-",
+                    "Type":context,"Innsider":fact.get("insider") or "Ukjent",
+                    "Aksjer":fact.get("shares",0),"Dato":fact.get("date") or "-",
+                })
                 if fact.get("source_url"):
-                    st.link_button("Kildemelding", str(fact["source_url"]))
+                    source_rows.append((ticker, context, str(fact.get("source_url"))))
+        if insider_rows:
+            st.dataframe(pd.DataFrame(insider_rows), width="stretch", hide_index=True, height=min(360,60+36*len(insider_rows)))
+            if source_rows:
+                st.caption("Kildemeldinger")
+                for idx,(ticker,context,url) in enumerate(source_rows[:12]):
+                    st.link_button(f"{ticker} · {context}", url, width="stretch")
+        else:
+            st.info("Ingen innsiderkontroll fra siste markedsskanning er tilgjengelig.")
+
     with st.expander("⚙️ Benchmark-innstillinger", expanded=False):
         presets={"STOXX Europe 600":"^STOXX","S&P 500":"^GSPC","OMX Stockholm 30":"^OMX","Oslo All Share":"OSEAX.OL"}
         current_cfg=dict(state.get("config") or {})
@@ -298,28 +390,20 @@ def render_super_portfolio(_legacy_context) -> None:
         else:
             st.caption("Ingen nye challengers har vært gjennom entry-gaten i siste beslutningsrunde.")
 
-    vacancy = state.get("vacancy_diagnostics") or {}
+    vacancy=state.get("vacancy_diagnostics") or {}
     if vacancy:
         st.markdown("### 💵 Ledige plasser / kontantandel")
-        v1, v2, v3, v4 = st.columns(4)
+        v1,v2,v3,v4=st.columns(4)
         v1.metric("Posisjoner", f"{int(vacancy.get('position_count') or 0)}/{int(vacancy.get('target_positions') or 0)}")
         v2.metric("Ledige plasser", int(vacancy.get("open_slots") or 0))
         v3.metric("Kontantandel", f"{float(vacancy.get('cash_pct') or 0):.1f}%")
         v4.metric("Status", str(vacancy.get("status") or "-"))
-        considered = list(vacancy.get("considered") or [])
+        considered=list(vacancy.get("considered") or [])
         if considered:
-            st.caption("Hvorfor ledige plasser eventuelt ikke ble fylt:")
             st.dataframe(pd.DataFrame([{
-                "Aksje": row.get("ticker"),
-                "Status": row.get("status"),
-                "Målvekt %": row.get("target_weight_pct"),
-                "Blokkering": " · ".join(row.get("gate_reason_codes") or []) or "Ingen gate-blokkering",
-            } for row in considered]), width="stretch", hide_index=True, height=220)
-        if vacancy.get("risk_exits") or vacancy.get("refill_buys"):
-            st.caption(
-                f"Risiko-/gevinst-exits: {', '.join(vacancy.get('risk_exits') or []) or '-'} · "
-                f"Refill-kjøp: {', '.join(vacancy.get('refill_buys') or []) or 'ingen'}"
-            )
+                "Aksje":r.get("ticker"),"Status":r.get("status"),"Målvekt %":r.get("target_weight_pct"),
+                "Blokkering":" · ".join(r.get("gate_reason_codes") or []) or "Ingen gate-blokkering",
+            } for r in considered]), width="stretch", hide_index=True, height=220)
 
     st.markdown("### 📊 Før / etter rebalansering")
     if impact:
@@ -363,27 +447,48 @@ def render_super_portfolio(_legacy_context) -> None:
     if st.button("🔄 Oppdater ressursstatus",key="sp_resource_refresh_32d"):
         state["resource_health"]=resource_health(); save_state(state); st.rerun()
 
-    advisory = state.get("ai_would_do_today") or []
-
     if positions:
         rows=[]
-        for p in positions:
-            score = float(p.get("portfolio_score_adjusted") or p.get("portfolio_score") or 0)
-            theoretical_value = portfolio_value * float(p.get("target_weight_pct") or 0) / 100.0
-            position_pnl_nok = theoretical_value * float(p.get("pnl_pct") or 0) / 100.0
+        technical_rows=[]
+        for pos in positions:
+            ticker=str(pos.get("ticker") or "-")
+            score=float(pos.get("portfolio_score_adjusted") or pos.get("portfolio_score") or 0)
+            weight=float(pos.get("target_weight_pct") or 0)
+            pnl=float(pos.get("pnl_pct") or 0)
+            theoretical_value=portfolio_value*weight/100.0
+            pnl_nok=theoretical_value*pnl/100.0
+            dist=pos.get("distance_to_hard_stop_pct")
+            try: dist_f=float(dist) if dist is not None else None
+            except Exception: dist_f=None
+            pressure=str(pos.get("stop_pressure") or "").upper()
+            if pressure=="CRITICAL" or (dist_f is not None and dist_f<=1): status="🔴 KRITISK"
+            elif pressure in {"HIGH","SEVERE"} or (dist_f is not None and dist_f<=3): status="🟠 HANDLING"
+            elif pressure=="MEDIUM" or (dist_f is not None and dist_f<=5): status="🟡 FØLG MED"
+            else: status="🟢 OK"
+            adv=advisory_by_ticker.get(ticker) or {}
+            raw=str(adv.get("action") or "HOLD").upper()
+            action=action_nb.get(raw,raw)
+            if adv and adv.get("to_pct") is not None:
+                action=f"{action} → {float(adv.get('to_pct') or 0):.1f}%"
+            fr=pos.get("data_freshness") or {}
             rows.append({
-                "Stop":f"{p.get('stop_icon','')} {p.get('stop_status','')}",
-                "Press":f"{p.get('stop_pressure_icon','')} {p.get('stop_pressure','')} {p.get('stop_direction_arrow','→')}",
-                "Aksje":p.get("ticker"),"Marked":p.get("market"),"Sektor":p.get("sector"),
-                "Vekt %":p.get("target_weight_pct"),"Teoretisk verdi NOK":round(theoretical_value,0),"P/L NOK":round(position_pnl_nok,0),
-                "Fra inn %":p.get("pnl_pct"),"Fra topp %":p.get("drawdown_from_peak_pct"),
-                "Til stop %":p.get("distance_to_hard_stop_pct"),"Stopkurs":p.get("hard_stop_price"),
-                "AI-score":score,"Rank":f"#{p.get('rank','-')} {p.get('rank_arrow','→')}","Δ rank":p.get("rank_change"),
-                "Sektorstraff":p.get("sector_penalty"),"Korr.straff":p.get("correlation_penalty"),"Risiko":p.get("risk_score"),
-                "🕒 Data Freshness":f"{(p.get('data_freshness') or {}).get('icon','⚪')} {(p.get('data_freshness') or {}).get('status','-')}",
-                "📅 Event Risk":f"{(p.get('event_risk') or {}).get('icon','⚪')} {(p.get('event_risk') or {}).get('date','-')}"
+                "Status":status,"Aksje":ticker,"Marked":pos.get("market"),"Vekt %":round(weight,1),
+                "Verdi NOK":round(theoretical_value,0),"P/L NOK":round(pnl_nok,0),"P/L %":round(pnl,2),
+                "Til stop %":round(dist_f,2) if dist_f is not None else None,"AI nå":action,
+                "Data":f"{fr.get('icon','⚪')} {fr.get('status','-')}",
             })
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+            technical_rows.append({
+                "Aksje":ticker,"Sektor":pos.get("sector"),"Stop":f"{pos.get('stop_icon','')} {pos.get('stop_status','')}",
+                "Press":f"{pos.get('stop_pressure_icon','')} {pos.get('stop_pressure','')} {pos.get('stop_direction_arrow','→')}",
+                "Fra topp %":pos.get("drawdown_from_peak_pct"),"Stopkurs":pos.get("hard_stop_price"),
+                "AI-score":round(score,1),"Rank":f"#{pos.get('rank','-')} {pos.get('rank_arrow','→')}","Δ rank":pos.get("rank_change"),
+                "Sektorstraff":pos.get("sector_penalty"),"Korr.straff":pos.get("correlation_penalty"),"Risiko":pos.get("risk_score"),
+                "Event":f"{(pos.get('event_risk') or {}).get('icon','⚪')} {(pos.get('event_risk') or {}).get('date','-')}",
+            })
+        st.markdown("### 💼 Porteføljen nå")
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, height=min(420,60+38*len(rows)))
+        with st.expander("🔬 Tekniske kolonner / diagnose", expanded=False):
+            st.dataframe(pd.DataFrame(technical_rows), width="stretch", hide_index=True, height=300)
 
         info_row_1 = st.columns(3)
         with info_row_1[0]:
@@ -549,13 +654,18 @@ def render_super_portfolio(_legacy_context) -> None:
         st.caption("Diagnose blir tilgjengelig etter neste Super Portfolio-vurdering.")
 
     challengers=state.get("challengers") or []
-    st.markdown("### ⚔️ Challengers")
+    st.markdown("### ⚔️ Utfordrere til porteføljen")
     if challengers:
-        st.dataframe(pd.DataFrame([{
-            "Aksje":r.get("ticker"),"Marked":r.get("market"),"Sektor":r.get("sector"),
-            "AI score":r.get("portfolio_score_adjusted",r.get("portfolio_score")),"Rank":f"#{r.get('rank','-')} {r.get('rank_arrow','→')}",
-            "Δ rank":r.get("rank_change"),"Sektorstraff":r.get("sector_penalty"),"Korr.straff":r.get("correlation_penalty"),"Risiko":r.get("risk_score")
-        } for r in challengers]),width="stretch",hide_index=True)
+        challenger_rows=[]
+        for r in challengers:
+            replaces=r.get("replaces") or r.get("incumbent_ticker") or r.get("target_ticker") or "-"
+            challenger_rows.append({
+                "Aksje":r.get("ticker"),"Marked":r.get("market"),"AI-score":round(float(r.get("portfolio_score_adjusted",r.get("portfolio_score")) or 0),1),
+                "Rank":f"#{r.get('rank','-')} {r.get('rank_arrow','→')}","Δ rank":r.get("rank_change"),
+                "Utfordrer":replaces if replaces!="-" else "Kandidat til porteføljen",
+                "Risiko":r.get("risk_score"),
+            })
+        st.dataframe(pd.DataFrame(challenger_rows),width="stretch",hide_index=True,height=min(320,60+38*len(challenger_rows)))
     else:
         st.caption("Ingen challengers lagret ennå.")
 
