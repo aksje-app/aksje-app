@@ -6,7 +6,10 @@ from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 from pages.overview import _portfolio_summary
 from public_report_ui import _return_label, _return_query, _safe_return_nav
 from quality_stability_contract import is_supported_deep_link_nav
-from quality_valuation_ui import resolve_market_bound_manual_tickers
+from quality_valuation_ui import (
+    resolve_market_bound_manual_tickers,
+    validate_result_tickers_within_requested_market,
+)
 from ui_library.shell import canonical_shell_route
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +38,23 @@ def test_manual_quality_ticker_rejects_wrong_market_suffix():
     assert resolved == ["ALM.OL"]
     assert "MSFT: finnes ikke i valgt marked" in errors
     assert "VOLV-B.ST: finnes ikke i valgt marked" in errors
+
+
+def test_quality_result_cannot_escape_requested_market_boundary():
+    result = {
+        "groups": {
+            "Kvalitetsselskap": [{"ticker": "ALM"}],
+            "Ufullstendig / krever vurdering": [{"ticker": "EQNR.OL"}],
+        }
+    }
+    assert validate_result_tickers_within_requested_market(result, ["ALM.OL", "EQNR.OL"]) == ["ALM"]
+
+
+def test_quality_ui_persists_and_checks_selected_market():
+    source = (ROOT / "quality_valuation_ui.py").read_text(encoding="utf-8")
+    assert 'result["selected_market"] = str(selected_market or "")' in source
+    assert 'result_market != str(selected_market).strip()' in source
+    assert "MARKET_IDENTITY_MISMATCH" in source
 
 
 def test_start_page_uses_authoritative_super_portfolio_nav_not_open_position_pnl():
