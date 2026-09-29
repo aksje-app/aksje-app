@@ -1980,18 +1980,41 @@ def render_super_portfolio_front_window_v1932c() -> None:
         c3.metric("Posisjoner", positions)
         c4.metric("Modus", "SHADOW")
 
+        action_nb = {"BUY":"KJØP", "ADD":"ØK", "REDUCE":"REDUSER", "SELL":"SELG", "HOLD":"HOLD"}
         event_lines = []
-        if mover:
-            event_lines.append(f"🚀 **{mover.get('ticker')}** #{mover.get('rank','-')} {mover.get('rank_arrow','→')} (Δ {float(mover.get('rank_change') or 0):+g})")
-        if challenger:
-            event_lines.append(f"⚔️ **{challenger.get('ticker')}** challenger · score {float(challenger.get('portfolio_score_adjusted') or challenger.get('portfolio_score') or 0):.1f} {challenger.get('rank_arrow','→')}")
         if stop:
-            event_lines.append(f"{stop.get('stop_pressure_icon','🟢')} **{stop.get('ticker')}** {stop.get('stop_pressure','LOW')} {stop.get('stop_direction_arrow','→')} · {float(stop.get('distance_to_hard_stop_pct') or 0):.1f}% til stop")
-        if last_change:
-            event_lines.append(f"🔄 Sist: **{last_change.get('action')} {last_change.get('ticker')}** {float(last_change.get('from_pct') or 0):.1f}% → {float(last_change.get('to_pct') or 0):.1f}%")
-        elif advisory:
-            event_lines.append(f"💭 AI i dag: **{advisory.get('action')} {advisory.get('ticker')}** {float(advisory.get('from_pct') or 0):.1f}% → {float(advisory.get('to_pct') or 0):.1f}%")
+            distance = float(stop.get('distance_to_hard_stop_pct') or 0)
+            pressure = str(stop.get('stop_pressure') or 'LOW').upper()
+            if pressure == "CRITICAL" or distance <= 1.0:
+                level = "🔴 KRITISK"
+            elif pressure in {"HIGH", "SEVERE"} or distance <= 3.0:
+                level = "🟠 HANDLING"
+            else:
+                level = "🟡 FØLG MED"
+            event_lines.append(f"{level} · **{stop.get('ticker')}** · {distance:.1f}% til stop-loss")
+        if advisory:
+            raw = str(advisory.get('action') or 'HOLD').upper()
+            action = action_nb.get(raw, raw)
+            event_lines.append(
+                f"🎯 **{advisory.get('ticker')} – {action}** · "
+                f"{float(advisory.get('from_pct') or 0):.1f}% → {float(advisory.get('to_pct') or 0):.1f}%"
+            )
+        elif last_change:
+            raw = str(last_change.get('action') or '').upper()
+            action = action_nb.get(raw, raw)
+            event_lines.append(f"✅ Sist gjennomført · **{last_change.get('ticker')} – {action}** · {float(last_change.get('from_pct') or 0):.1f}% → {float(last_change.get('to_pct') or 0):.1f}%")
+        if challenger:
+            event_lines.append(
+                f"⚔️ Ny utfordrer · **{challenger.get('ticker')}** · "
+                f"AI-score {float(challenger.get('portfolio_score_adjusted') or challenger.get('portfolio_score') or 0):.1f}"
+            )
+        if mover:
+            event_lines.append(
+                f"📈 Størst rangeringendring · **{mover.get('ticker')}** · "
+                f"rank #{mover.get('rank','-')} · endring {float(mover.get('rank_change') or 0):+g}"
+            )
         if event_lines:
+            st.markdown("**Det viktigste akkurat nå**")
             st.markdown("  \n".join(event_lines[:5]))
 
 
@@ -9343,9 +9366,9 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     nav = str(nav or "").strip().lower()
     direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}
     if direct_super_portfolio:
-        nav = "autonomy"
-        st.session_state["autonomy_core_workspace_slug_v1882"] = "super_portfolio"
-        st.session_state["autonomy_core_workspace_v1880"] = "🌍 Super Portfolio"
+        nav = "market"
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        st.session_state.pop("autonomy_core_workspace_active_slug_v19220_rc7", None)
     if nav in {"autonomous", "autonomi"}:
         nav = "autonomy"
     if nav in {"jobber", "jobs", "scheduler", "planlegger", "tidsplan"}:
@@ -9424,9 +9447,10 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     elif nav in {"market", "quality_valuation"}:
         st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
         st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
-        st.session_state["ai_control_center_active_panel_v1863m"] = "🔍 Marked – Market Scanner"
-        st.session_state["ai_control_center_active_panel_v1863aj"] = "🔍 Marked – Market Scanner"
-        st.session_state["ai_control_center_active_real_panel_v18598"] = "🔍 Marked – Market Scanner"
+        market_panel = "🌍 Super Portfolio" if direct_super_portfolio else "🔍 Marked – Market Scanner"
+        st.session_state["ai_control_center_active_panel_v1863m"] = market_panel
+        st.session_state["ai_control_center_active_panel_v1863aj"] = market_panel
+        st.session_state["ai_control_center_active_real_panel_v18598"] = market_panel
         if nav == "quality_valuation":
             st.session_state["market_room_view_v1863cb"] = "Kvalitet og prising"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
@@ -9481,13 +9505,7 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     active_panel = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "")
     _persist_ui_state_v18658(nav=nav, group=active_group, panel=active_panel)
     # v18.6.74c: preserve refresh state in URL without deleting remember_token.
-    if direct_super_portfolio:
-        set_global_navigation_state(
-            st, nav="autonomy", group="Autonomi",
-            panel="🧠 Autonomi – Kontrollsenter", tab="super_portfolio",
-        )
-    else:
-        set_global_navigation_state(st, nav=nav, group=active_group, panel=active_panel)
+    set_global_navigation_state(st, nav=nav, group=active_group, panel=active_panel, tab="")
     return True
 
 

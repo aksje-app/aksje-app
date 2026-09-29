@@ -1830,6 +1830,7 @@ def _render_ai_control_center_v1863ah(extra_panels: Optional[Sequence[Tuple[str,
     """Clean quick-navigation control center without hidden selectbox widgets."""
     with st.expander("AI KONTROLLSENTER - samlet arbeidsflate", expanded=True):
         base_panels: list[Tuple[str, Callable[[], None]]] = [
+            ("🌍 Super Portfolio", _render_super_portfolio_market_panel_v1934b),
             ("Analyseunivers", lambda: render_ai_analysis_universe_workspace(expanded=True)),
             ("Prognose", _render_forecast_workspace_tab),
             ("Varsler", lambda: render_common_alert_center(location="workspace")),
@@ -2315,6 +2316,12 @@ def _pipeline_relevant_panel_labels_v1864j(active_stage: str, panels: Sequence[T
     return list(dict.fromkeys(out))
 
 
+def _render_super_portfolio_market_panel_v1934b() -> None:
+    """Render Super Portfolio as a first-class Market og signaler workspace."""
+    from pages.super_portfolio import render_super_portfolio
+    render_super_portfolio(globals())
+
+
 def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str, Callable[[], None]]]] = None) -> Optional[str]:
     """Stable card-styled control center navigation for Dashboard 2026."""
     st.markdown("<div class='ptw-ai-control-anchor'></div>", unsafe_allow_html=True)
@@ -2367,7 +2374,7 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
             "Long Engine": _matching_panel_labels("long engine"),
             "Autonomi": _matching_panel_labels("autonomi"),
             "Analyse og prognose": _matching_panel_labels("analyseunivers", "prognose", "daily report", "interaktiv analyse"),
-            "Marked og signaler": _matching_panel_labels("marked", "varsler og watchlist", "valutavarsler", "jeep commander", "top picks", "beslut", "muligheter", "alpha"),
+            "Marked og signaler": _matching_panel_labels("super portfolio", "marked", "varsler og watchlist", "valutavarsler", "jeep commander", "top picks", "beslut", "muligheter", "alpha"),
             "Testing og portefolje": _matching_panel_labels("testing", "auto test lab", "fond / etf", "portef", "paper"),
             "System": _matching_panel_labels("system/admin"),
         }
