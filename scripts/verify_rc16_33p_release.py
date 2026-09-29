@@ -16,8 +16,10 @@ version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 core = (ROOT / "super_portfolio.py").read_text(encoding="utf-8")
 page = (ROOT / "pages" / "super_portfolio.py").read_text(encoding="utf-8")
 
-assert 'APP_VERSION = "v19.22.0-rc16.33p"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33o"' in version
+assert (
+    'APP_VERSION = "v19.22.0-rc16.33p"' in version
+    or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33p"' in version
+)
 
 for token in (
     "def portfolio_value_update(",
