@@ -605,6 +605,24 @@ def resolve_market_bound_manual_tickers(
     return resolved, errors
 
 
+def validate_result_tickers_within_requested_market(
+    result: Mapping[str, Any],
+    allowed_tickers: Sequence[str],
+) -> list[str]:
+    """Reject provider/output symbols that escaped the requested market boundary."""
+    allowed = {str(value or "").strip().upper() for value in allowed_tickers if str(value or "").strip()}
+    unexpected: list[str] = []
+    groups = result.get("groups") if isinstance(result.get("groups"), Mapping) else {}
+    for items in groups.values():
+        for item in items or []:
+            if not isinstance(item, Mapping):
+                continue
+            ticker = str(item.get("ticker") or "").strip().upper()
+            if ticker and ticker not in allowed and ticker not in unexpected:
+                unexpected.append(ticker)
+    return unexpected
+
+
 def render_quality_valuation(
     st: Any,
     market_tickers: Sequence[str] = (),
@@ -682,6 +700,13 @@ def render_quality_valuation(
                         st.session_state["quality_valuation_prescreen"] = prescreen
                     result = run_screen(analysis_selected, isolated_financial_snapshot, assumed_pe=assumed_pe,
                                         progress=update, memory_guard=workload_safe)
+                    unexpected_tickers = validate_result_tickers_within_requested_market(result, analysis_selected)
+                    if unexpected_tickers:
+                        raise RuntimeError(
+                            "MARKET_IDENTITY_MISMATCH: " + ", ".join(unexpected_tickers)
+                        )
+                    result["selected_market"] = str(selected_market or "")
+                    result["requested_tickers"] = list(analysis_selected)
                     if source == "Bruk valgt markedsutvalg":
                         result["market_universe_count"] = int(prescreen.get("universe_count") or 0)
                         result["market_examined_count"] = int(prescreen.get("examined_count") or 0)
@@ -703,6 +728,14 @@ def render_quality_valuation(
         result = st.session_state.get("qv_result")
         if result is None and not run_attempted:
             result = load_latest_manual()
+        if result and selected_market:
+            result_market = str(result.get("selected_market") or "").strip()
+            if result_market != str(selected_market).strip():
+                st.info(
+                    f"Ingen kvalitetsvurdering for valgt marked ({selected_market}) ennå. "
+                    "Et resultat fra et annet eller eldre ukjent marked vises ikke som om det tilhører dette markedet."
+                )
+                result = None
         if not result:
             st.info("Ingen kvalitetsvurdering kjørt ennå.")
             return
