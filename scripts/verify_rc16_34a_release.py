@@ -55,7 +55,8 @@ assert 'snapshot.get("portfolio_return_pct")' in overview
 assert '"super_portfolio"' in report
 assert 'return {"aa_nav": "super_portfolio"}' in report
 assert 'Tilbake til Super Portfolio' in report
-assert portfolio.count('with_report_return(report_url, "super_portfolio")') >= 2
+assert 'returning_report_url = with_report_return(report_url, "super_portfolio")' in portfolio
+assert 'st.code(returning_report_url' in portfolio
 assert 'with_report_return(report_url, "portfolio")' not in portfolio
 assert '"super_portfolio":"autonomy"' in shell
 
