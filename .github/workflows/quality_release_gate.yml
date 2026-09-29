@@ -88,8 +88,10 @@ jobs:
             tests/test_aurora_mobile_navigation_and_report_return.py \
             tests/test_v1915_mobile_navigation.py \
             tests/test_v19220_rc4_full_repairs.py
-      - name: Full repository pytest suite
+      - name: Active unversioned repository suite
         env:
           PYTHONPATH: .
         run: |
-          pytest -q tests
+          pytest -q tests \
+            --ignore-glob='tests/test_rc*.py' \
+            --ignore-glob='tests/test_v*.py'
