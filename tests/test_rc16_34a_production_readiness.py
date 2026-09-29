@@ -11,8 +11,17 @@ from quality_valuation_ui import (
     validate_result_tickers_within_requested_market,
 )
 from ui_library.shell import canonical_shell_route
+from market_universe import production_market_scope_options
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_production_market_picker_exposes_only_core_markets():
+    options = production_market_scope_options(include_aggregate=True)
+    assert options == ["Norge", "Sverige", "USA", "Norge + Sverige + USA"]
+    assert "Brasil" not in options
+    assert "Danmark" not in options
+    assert "Finland" not in options
 
 
 def test_manual_quality_ticker_is_bound_to_selected_market_universe():
