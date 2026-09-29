@@ -151,12 +151,17 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
     ))
     roce = roce_history[0] if not is_financial and roce_history else None
     price = info.get("currentPrice") or info.get("regularMarketPrice")
+    try:
+        fast = security.fast_info or {}
+    except Exception:
+        fast = {}
+        warnings.append("Fast metadata utilgjengelig")
     if not price:
         try:
-            fast = security.fast_info
             price = fast.get("lastPrice") if fast else None
         except Exception:
             warnings.append("Fast kurs utilgjengelig")
+    currency = info.get("currency") or (fast.get("currency") if fast else None)
     return {
         "ticker": ticker, "price": price, "trailing_eps": info.get("trailingEps"),
         "forward_eps": info.get("forwardEps"), "annual_eps": eps,
@@ -172,7 +177,7 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "roce": roce, "roce_history": [] if is_financial else roce_history[:10],
         "name": info.get("longName") or info.get("shortName") or ticker,
         "exchange": _exchange_name(info, ticker),
-        "country": info.get("country"), "currency": info.get("currency"),
+        "country": info.get("country"), "currency": currency,
         "industry": industry,
         # Sector-specific fields are passed through only when the provider
         # exposes them explicitly. Missing values remain missing; we never
