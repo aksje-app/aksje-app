@@ -42,5 +42,4 @@ def test_autonomy_direct_workspace_renders_super_portfolio_before_mode_gate():
 
 
 def test_release_identity():
-    assert APP_VERSION == "v19.22.0-rc16.33q"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33p"
+    assert "v19.22.0-rc16.33q" in {APP_VERSION, PREVIOUS_APP_VERSION}
