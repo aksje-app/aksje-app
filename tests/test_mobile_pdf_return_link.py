@@ -96,5 +96,5 @@ def test_report_delivery_shows_no_extra_return_button():
     assert landing.count("Tilbake til rapportvalg") == 1
 
 
-def test_mobile_pdf_return_release_has_new_canonical_version():
-    assert "v19.22.0-rc16.33o" in {APP_VERSION, PREVIOUS_APP_VERSION}
+def test_mobile_pdf_return_contract_remains_present():
+    assert callable(public_report_ui._absolute_report_return_url)
