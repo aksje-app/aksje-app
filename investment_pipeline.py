@@ -18,7 +18,14 @@ from pathlib import Path
 from functools import lru_cache
 from typing import Any, Iterable, Mapping, Sequence
 
-from market_universe import BASE_MARKET_SCOPES, FULL_MARKET_SCOPE_LABEL, CORE_MARKET_SCOPE_LABEL, expand_market_scope, market_scope_options
+from market_universe import (
+    BASE_MARKET_SCOPES,
+    FULL_MARKET_SCOPE_LABEL,
+    CORE_MARKET_SCOPE_LABEL,
+    expand_market_scope,
+    market_scope_options,
+    production_market_scope_options,
+)
 from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 
@@ -309,8 +316,11 @@ class PipelineConfig:
     })
 
     def normalized(self) -> "PipelineConfig":
-        valid = market_scope_options(include_aggregate=True)
-        market = self.market_scope if self.market_scope in valid else "Alle"
+        valid = production_market_scope_options(include_aggregate=True)
+        legacy_core = {"Alle", "Kjernemarkeder", "Alle kjernemarkeder"}
+        market = CORE_MARKET_SCOPE_LABEL if self.market_scope in legacy_core else (
+            self.market_scope if self.market_scope in valid else CORE_MARKET_SCOPE_LABEL
+        )
         # Scheduled candidate-recall runs may score the complete fetched
         # universe (up to scan_limit=500).  Evidence remains independently
         # bounded, so raising this local deterministic score ceiling does not
@@ -1359,7 +1369,13 @@ def render_investment_pipeline() -> None:
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            market = st.selectbox("Markedsvalg", market_scope_options(include_aggregate=True), index=market_scope_options(True).index("Alle"), key="ip_market_v18686")
+            market_options = production_market_scope_options(include_aggregate=True)
+            market = st.selectbox(
+                "Markedsvalg",
+                market_options,
+                index=market_options.index(CORE_MARKET_SCOPE_LABEL),
+                key="ip_market_v18686",
+            )
         with c2:
             scan_limit = st.number_input("Maks kandidater å skanne", 10, 500, 25, 5, key="ip_scan_limit_v18693")
         with c3:
