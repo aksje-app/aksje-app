@@ -109,10 +109,16 @@ def render_super_portfolio(_legacy_context) -> None:
         to_pct = adv.get("to_pct")
         if adv and from_pct is not None and to_pct is not None:
             action = f"{action} {float(from_pct):.1f}% → {float(to_pct):.1f}%"
+        weight_pct = float(pos.get("target_weight_pct") or 0)
+        pnl_pct = float(pos.get("pnl_pct") or 0)
+        position_value = portfolio_value * weight_pct / 100.0
+        position_pnl_nok = position_value * pnl_pct / 100.0
         quick_rows.append({
             "Status": level, "Aksje": ticker, "Hva betyr det": meaning,
-            "Vekt %": round(float(pos.get("target_weight_pct") or 0),1),
-            "P/L %": round(float(pos.get("pnl_pct") or 0),2),
+            "Vekt %": round(weight_pct,1),
+            "Verdi NOK": round(position_value,0),
+            "P/L NOK": round(position_pnl_nok,0),
+            "P/L %": round(pnl_pct,2),
             "Til stop %": round(distance_f,2) if distance_f is not None else None,
             "AI nå": action,
         })
