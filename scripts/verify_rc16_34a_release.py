@@ -16,6 +16,9 @@ for path in [
     "ui_library/shell.py",
     "market_universe.py",
     "market_intelligence.py",
+    "pages/top_picks.py",
+    "investment_pipeline.py",
+    "analysis_universe_ai.py",
 ]:
     ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=path)
 
@@ -33,6 +36,9 @@ assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33q"' in version
 market_universe = (ROOT / "market_universe.py").read_text(encoding="utf-8")
 assert "def production_market_scope_options(" in market_universe
 assert "production_market_scope_options(include_aggregate=True)" in app
+assert "production_market_scope_options(include_aggregate=True)" in (ROOT / "pages/top_picks.py").read_text(encoding="utf-8")
+assert "production_market_scope_options(include_aggregate=True)" in (ROOT / "investment_pipeline.py").read_text(encoding="utf-8")
+assert "production_market_scope_options(include_aggregate=True)" in (ROOT / "analysis_universe_ai.py").read_text(encoding="utf-8")
 assert "def resolve_market_bound_manual_tickers(" in quality
 assert "selected_market: str = \"\"" in quality
 assert "market_errors" in quality
