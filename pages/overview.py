@@ -251,7 +251,7 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     st_module.markdown(
         f'''<main class="aa-overview-v2" aria-label="Oversikt">
         <section class="aa-overview-hero tone-{escape(str(hero.get('tone') or 'neutral'))}">
-          <div><span class="aa-overline">INVESTOR INTELLIGENCE</span><h1>{greeting}</h1>
+          <div><span class="aa-overline">BESLUTNINGSOVERSIKT · INVESTOR INTELLIGENCE</span><h1>{greeting}</h1>
           <p>{'Systemet har oppgaver som bør vurderes.' if attention else 'Systemet er oppdatert. Ingen kritiske oppgaver er registrert.'}</p><b class="aa-market-pill">OSLO · NESTE RAPPORT {escape(str((model.get('next_event') or {}).get('value') or '–'))}</b></div>
           <div class="aa-system-chip"><i></i>{'SYSTEMET ER KLART' if str(hero.get('tone')) == 'success' else 'KREVER OPPMERKSOMHET'}</div>
         </section></main>''', unsafe_allow_html=True,
