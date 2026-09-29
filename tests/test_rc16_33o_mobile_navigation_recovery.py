@@ -72,5 +72,6 @@ def test_super_portfolio_front_route_bypasses_simple_autonomy_return():
     assert 'tab="super_portfolio"' in block
 
 
-def test_release_identity():
-    assert "v19.22.0-rc16.33o" in {APP_VERSION, PREVIOUS_APP_VERSION}
+def test_rc16_33o_navigation_contract_remains_present():
+    source = (ROOT / "ui_library" / "shell.py").read_text(encoding="utf-8")
+    assert "AURORA_MOBILE_NAV_RC1633O" in source
