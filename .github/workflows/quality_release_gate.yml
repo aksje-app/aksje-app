@@ -111,7 +111,43 @@ jobs:
           git fetch origin "$BASE_REF" --depth=1 || true
           git diff --name-only "origin/$BASE_REF"...HEAD > dist/changed_files_all.txt
 
-          grep -E '\.py dist/changed_files_all.txt \
+          grep -E '\.py
+            > dist/changed_files_delta.txt || true
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            mkdir -p "delta_root/$(dirname "$file")"
+            cp "$file" "delta_root/$file"
+          done < dist/changed_files_delta.txt
+
+          (
+            cd delta_root
+            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34b_DELTA.zip .
+          )
+          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34b_FULL.zip \
+                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34b_DELTA.zip \
+            > dist/SHA256SUMS_RC16.34b.txt
+
+          echo "Clean DELTA files:"
+          cat dist/changed_files_delta.txt
+      - name: Upload FULL package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI_Aksje_Analyzer_RC16.34b_FULL
+          path: |
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34b_FULL.zip
+            dist/SHA256SUMS_RC16.34b.txt
+          if-no-files-found: error
+      - name: Upload clean DELTA package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI_Aksje_Analyzer_RC16.34b_DELTA
+          path: |
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34b_DELTA.zip
+            dist/changed_files_delta.txt
+            dist/SHA256SUMS_RC16.34b.txt
+          if-no-files-found: error
+ dist/changed_files_all.txt \
             | grep -vE '^(tests/|scripts/verify_|\.github/)' \
             > dist/changed_files_delta.txt || true
 
