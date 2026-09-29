@@ -65,8 +65,11 @@ assert 'snapshot.get("portfolio_return_pct")' in overview
 assert '"super_portfolio"' in report
 assert 'return {"aa_nav": "super_portfolio"}' in report
 assert 'Tilbake til Super Portfolio' in report
-assert 'returning_report_url = with_report_return(report_url, "super_portfolio")' in portfolio
-assert 'st.code(returning_report_url' in portfolio
+assert (
+    'returning_report_url = with_report_return(report_url, "super_portfolio")' in portfolio
+    or 'report_link = with_report_return(report_url, "super_portfolio")' in portfolio
+)
+assert ('st.code(returning_report_url' in portfolio or 'st.code(report_link' in portfolio)
 assert 'with_report_return(report_url, "portfolio")' not in portfolio
 assert ('"super_portfolio":"autonomy"' in shell or '"super_portfolio":"market"' in shell)
 
