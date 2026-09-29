@@ -67,4 +67,20 @@ jobs:
             tests/test_rc16_33o_mobile_navigation_recovery.py \
             tests/test_rc16_33p_super_portfolio_performance.py \
             tests/test_rc16_33q_super_portfolio_direct_route.py \
-            tests/test_rc16_34a_production_readiness.py
+            tests/test_rc16_34a_production_readiness.py \
+            tests/test_market_policy_and_target_consistency.py \
+            tests/test_full_market_quality_prescreen.py \
+            tests/test_quality_valuation.py \
+            tests/test_rc16_32a_super_portfolio.py \
+            tests/test_rc16_32b_super_portfolio_intelligence.py \
+            tests/test_rc16_32c_super_portfolio_completion.py \
+            tests/test_rc16_32d_super_portfolio_completion.py \
+            tests/test_rc16_32e_super_portfolio_multimarket.py \
+            tests/test_rc16_32f_super_portfolio_broad_discovery.py \
+            tests/test_rc16_32g_super_portfolio_ui.py \
+            tests/test_rc16_32h_super_portfolio_diagnostics.py \
+            tests/test_rc16_32i_super_portfolio_decision_safety.py \
+            tests/test_rc16_32j_super_portfolio_completion.py \
+            tests/test_aurora_mobile_navigation_and_report_return.py \
+            tests/test_v1915_mobile_navigation.py \
+            tests/test_v19220_rc4_full_repairs.py
