@@ -31,6 +31,10 @@ assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33q"' in version
 assert "def resolve_market_bound_manual_tickers(" in quality
 assert "selected_market: str = \"\"" in quality
 assert "market_errors" in quality
+assert "def validate_result_tickers_within_requested_market(" in quality
+assert "MARKET_IDENTITY_MISMATCH" in quality
+assert 'result["selected_market"] = str(selected_market or "")' in quality
+assert 'result_market != str(selected_market).strip()' in quality
 assert 'selected_market=str(config.get("market") or "AI kildegrunnlag")' in app
 
 assert 'state.get("portfolio_value")' in overview
