@@ -1939,9 +1939,7 @@ def render_super_portfolio_front_window_v1932c() -> None:
         return
 
     def _open_super_portfolio_v1932c() -> None:
-        _apply_nav_target_v18658("autonomy")
-        st.session_state["autonomy_core_workspace_slug_v1882"] = "super_portfolio"
-        st.session_state["autonomy_core_workspace_v1880"] = "🌍 Super Portfolio"
+        _apply_nav_target_v18658("super_portfolio")
 
     positions = int(summary.get("positions") or 0)
     health = dict(summary.get("health") or {})
@@ -9336,6 +9334,11 @@ def _clear_control_center_nav_state_v18663() -> None:
 def _apply_nav_target_v18658(nav: str) -> bool:
     """Apply one canonical navigation target to all known control-center keys."""
     nav = str(nav or "").strip().lower()
+    direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}
+    if direct_super_portfolio:
+        nav = "autonomy"
+        st.session_state["autonomy_core_workspace_slug_v1882"] = "super_portfolio"
+        st.session_state["autonomy_core_workspace_v1880"] = "🌍 Super Portfolio"
     if nav in {"autonomous", "autonomi"}:
         nav = "autonomy"
     if nav in {"jobber", "jobs", "scheduler", "planlegger", "tidsplan"}:
@@ -9355,7 +9358,11 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     # already on the requested target. This makes moving between areas feel
     # faster and reduces Streamlit reruns from stale links/query params.
     last_nav = str(st.session_state.get("ai_control_center_last_applied_nav_v19016") or "").strip().lower()
-    if last_nav == nav and str(st.session_state.get("ai_control_center_force_nav_v18663") or "").strip().lower() == nav:
+    if (
+        not direct_super_portfolio
+        and last_nav == nav
+        and str(st.session_state.get("ai_control_center_force_nav_v18663") or "").strip().lower() == nav
+    ):
         return True
     _clear_control_center_nav_state_v18663()
     st.session_state["ai_control_center_force_nav_v18663"] = nav
@@ -9467,7 +9474,13 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     active_panel = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "")
     _persist_ui_state_v18658(nav=nav, group=active_group, panel=active_panel)
     # v18.6.74c: preserve refresh state in URL without deleting remember_token.
-    set_global_navigation_state(st, nav=nav, group=active_group, panel=active_panel)
+    if direct_super_portfolio:
+        set_global_navigation_state(
+            st, nav="autonomy", group="Autonomi",
+            panel="🧠 Autonomi – Kontrollsenter", tab="super_portfolio",
+        )
+    else:
+        set_global_navigation_state(st, nav=nav, group=active_group, panel=active_panel)
     return True
 
 
@@ -10265,11 +10278,7 @@ def _render_market_room_overview_v1863cb(config: dict) -> None:
     # the Autonomy workspace.
     sp_diag, reports = st.columns(2)
     if sp_diag.button("🔎 Super Portfolio diagnose", width="stretch", key="market_sp_diagnose_rc1633n"):
-        _apply_nav_target_v18658("autonomy")
-        st.session_state["autonomy_core_workspace_slug_v1882"] = "super_portfolio"
-        set_global_navigation_state(
-            st, nav="autonomy", group="Autonomi", panel="🧠 Autonomi – Kontrollsenter", tab="super_portfolio"
-        )
+        _apply_nav_target_v18658("super_portfolio")
         st.rerun()
     if reports.button("📚 Rapporter", width="stretch", key="market_reports_rc1633n"):
         _apply_nav_target_v18658("autonomy")
