@@ -34,6 +34,14 @@ def test_all_primary_stock_entry_surfaces_use_production_market_options():
     assert "checkbox_markets = CORE_MARKET_SCOPES + [CORE_MARKET_SCOPE_LABEL]" in ai
 
 
+def test_pipeline_preserves_internal_shadow_markets_but_rejects_off_market():
+    from investment_pipeline import PipelineConfig
+    from market_universe import CORE_MARKET_SCOPE_LABEL
+    assert PipelineConfig(market_scope="Danmark").normalized().market_scope == "Danmark"
+    assert PipelineConfig(market_scope="Finland").normalized().market_scope == "Finland"
+    assert PipelineConfig(market_scope="Brasil").normalized().market_scope == CORE_MARKET_SCOPE_LABEL
+
+
 def test_manual_quality_ticker_is_bound_to_selected_market_universe():
     resolved, errors = resolve_market_bound_manual_tickers(
         ["ALM"], ["ALM.OL", "EQNR.OL", "DNB.OL"]
