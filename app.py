@@ -10304,7 +10304,12 @@ def render_market_room_control_center_v1863cb() -> None:
             "først etterpå velges inntil 20 finalister til den tyngre kvalitets-/prisingsanalysen."
         )
         from quality_valuation_ui import render_quality_valuation
-        render_quality_valuation(st, quality_tickers, expanded=True)
+        render_quality_valuation(
+            st,
+            quality_tickers,
+            selected_market=str(config.get("market") or "AI kildegrunnlag"),
+            expanded=True,
+        )
     elif view == "Rangering":
         limit_max = 60 if str(config.get("market") or "") == "AI kildegrunnlag" else 100
         limit_default = min(max(int(max_count or 30), 5), limit_max)
