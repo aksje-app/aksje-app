@@ -565,20 +565,79 @@ def _inject_quality_card_css(st: Any) -> None:
     )
 
 
-def render_quality_valuation(st: Any, market_tickers: Sequence[str] = (), *, expanded: bool = False) -> None:
+def resolve_market_bound_manual_tickers(
+    requested: Sequence[str],
+    market_tickers: Sequence[str],
+) -> tuple[list[str], list[str]]:
+    """Resolve manual symbols strictly inside the selected market universe.
+
+    A bare symbol may map to one qualified market symbol (for example EQNR ->
+    EQNR.OL) only when that base symbol is unique inside the selected universe.
+    No global/provider fallback is allowed here.
+    """
+    universe = [str(value or "").strip() for value in market_tickers if str(value or "").strip()]
+    exact = {value.upper(): value for value in universe}
+    by_base: dict[str, list[str]] = {}
+    for value in universe:
+        base = value.upper().split(".", 1)[0]
+        by_base.setdefault(base, []).append(value)
+
+    resolved: list[str] = []
+    errors: list[str] = []
+    for raw in requested:
+        token = str(raw or "").strip()
+        if not token:
+            continue
+        upper = token.upper()
+        match = exact.get(upper)
+        if match is None:
+            matches = by_base.get(upper.split(".", 1)[0], [])
+            if len(matches) == 1 and "." not in upper:
+                match = matches[0]
+            elif len(matches) > 1 and "." not in upper:
+                errors.append(f"{token}: flere treff i valgt marked – bruk full ticker")
+                continue
+        if match is None:
+            errors.append(f"{token}: finnes ikke i valgt marked")
+            continue
+        if match not in resolved:
+            resolved.append(match)
+    return resolved, errors
+
+
+def render_quality_valuation(
+    st: Any,
+    market_tickers: Sequence[str] = (),
+    *,
+    selected_market: str = "",
+    expanded: bool = False,
+) -> None:
     _inject_quality_card_css(st)
     with st.expander("Kvalitet, prising og inngangskurs · shadow", expanded=expanded):
         st.caption("Manuell observasjonsanalyse. Starter ingen handel og sender ikke Pushover. Finansdata må kontrolleres i selskapsrapporten.")
         source = st.radio("Aksjer", ["Skriv tickere", "Bruk valgt markedsutvalg"], horizontal=True, key="qv_source")
         raw = st.text_input("Tickere, adskilt med komma", placeholder="EQNR.OL, NHY.OL, YAR.OL", key="qv_tickers") if source == "Skriv tickere" else ""
-        selected = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()] if raw else list(market_tickers)
-        if source == "Bruk valgt markedsutvalg":
+        typed = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()] if raw else []
+        market_errors: list[str] = []
+        if source == "Skriv tickere":
+            selected, market_errors = resolve_market_bound_manual_tickers(typed, market_tickers)
+            if selected_market:
+                st.caption(f"Manuelt søk er låst til valgt marked: {selected_market}. Ingen global ticker-gjetting brukes.")
+            if market_errors:
+                st.error("Marked/ticker stemmer ikke: " + " · ".join(market_errors))
+        else:
+            selected = list(market_tickers)
             st.caption(f"Hele valgt univers undersøkes først: {len(selected)} aksjer. Deretter går inntil {MAX_SYMBOLS} best rangerte videre til full kvalitets-/prisingsanalyse.")
         use_scenario = st.checkbox("Vis priseksempel med P/E jeg velger", value=False, key="qv_use_assumption")
         assumed_pe = st.number_input("P/E-forutsetning (analytisk scenario, ikke fast verdi)", 4.0, 40.0, 15.0, 0.5, key="qv_assumption") if use_scenario else None
         if use_scenario:
             st.warning("Samme P/E på tvers av bransjer er kun et illustrert scenario. Det gir ikke en bekreftet inngangskurs eller automatisk kjøpssignal.")
-        run_attempted = st.button("Kjør kvalitetsvurdering", key="qv_run", type="primary", disabled=not bool(selected))
+        run_attempted = st.button(
+            "Kjør kvalitetsvurdering",
+            key="qv_run",
+            type="primary",
+            disabled=(not bool(selected)) or bool(market_errors),
+        )
         if run_attempted:
             st.session_state.pop("qv_result", None)
             from services.storage_service import get_storage_service
