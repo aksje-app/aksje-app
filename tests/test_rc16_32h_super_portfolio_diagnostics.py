@@ -103,16 +103,15 @@ def test_market_pipeline_emits_real_progress_events(monkeypatch):
     assert all(0 <= int(event["percent"]) <= 100 for event in events)
 
 
-def test_ui_forces_refresh_and_exposes_diagnostic_zip():
+def test_ui_forces_refresh_through_durable_job_and_exposes_diagnostic_zip():
     source = open("pages/super_portfolio.py", encoding="utf-8").read()
-    assert "force_refresh=True" in source
-    assert "get_or_build_super_portfolio_market_pipeline" in source
+    assert 'start_job("MANUAL", True)' in source
     assert "build_diagnostic_zip" in source
     assert "🔎 Diagnostiser valgt aksje" in source
     assert "📦 Last ned diagnose-ZIP" in source
 
 
-def test_rc16_32h_remains_immediate_previous_release_after_version_bump():
+def test_rc16_32h_contract_remains_compatible_after_later_releases():
     import app_version
-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.32h"
     assert sp.VERSION == app_version.APP_VERSION
+    assert callable(sp.build_diagnostic_zip)
