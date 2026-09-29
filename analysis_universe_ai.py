@@ -23,7 +23,17 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 
 from app_version import get_app_version
-from market_universe import BASE_MARKET_SCOPES, MARKET_SCOPE_OPTIONS, NORDIC_MARKET_SCOPES, NO_MARKET_SELECTION_LABEL, expand_market_scope, picker_scope_options
+from market_universe import (
+    BASE_MARKET_SCOPES,
+    CORE_MARKET_SCOPES,
+    CORE_MARKET_SCOPE_LABEL,
+    MARKET_SCOPE_OPTIONS,
+    NORDIC_MARKET_SCOPES,
+    NO_MARKET_SELECTION_LABEL,
+    expand_market_scope,
+    picker_scope_options,
+    production_market_scope_options,
+)
 from security_metadata import resolve_security_metadata, display_label, infer_security_listing
 
 from services.service_registry import build_service_registry
@@ -1736,7 +1746,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                     current_scope_values = [current_scope_values]
                 current_scopes = [x for x in current_scope_values if x in MARKET_SCOPES]
                 if mode == "Markedvalg":
-                    market_options = [NO_MARKET_SELECTION_LABEL] + MARKET_SCOPE_OPTIONS
+                    market_options = [NO_MARKET_SELECTION_LABEL] + production_market_scope_options(include_aggregate=True)
                     default_market = current_scopes[0] if current_scopes and current_scopes[0] in MARKET_SCOPE_OPTIONS else NO_MARKET_SELECTION_LABEL
                     market_choice = st.selectbox(
                         "Marked",
@@ -1749,7 +1759,7 @@ def render_ai_analysis_universe_workspace(expanded: bool = False) -> Dict[str, A
                 elif mode == "Multi-marked":
                     st.caption("Velg flere markeder uten nedtrekksmeny.")
                     scopes = []
-                    checkbox_markets = BASE_MARKET_SCOPES + ["Norden", "Alle"]
+                    checkbox_markets = CORE_MARKET_SCOPES + [CORE_MARKET_SCOPE_LABEL]
                     market_cols = st.columns(4)
                     for idx, market_name in enumerate(checkbox_markets):
                         with market_cols[idx % 4]:
