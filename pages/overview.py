@@ -441,7 +441,7 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
             f"Svakest siden inngang: {worst.get('ticker')} {fmt_pct(worst.get('pnl_pct'))}"
         )
     else:
-        st_module.info("Ingen aktive Super Portfolio-posisjoner er tilgjengelige i lagret tilstand.")
+        st_module.markdown('<div class="aa-empty-decisions"><strong>Ingen aktive Super Portfolio-posisjoner</strong><p>Porteføljeposisjoner vises her så snart lagret Super Portfolio-state inneholder aktive beholdninger.</p></div>', unsafe_allow_html=True)
 
     if st_module.button("🌍 Åpne hele Super Portfolio", key="aa_overview_open_super_portfolio_primary", width="stretch", type="primary"):
         navigate("super_portfolio")
