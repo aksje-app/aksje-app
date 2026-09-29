@@ -15,6 +15,7 @@ def test_ab_overview_is_a_real_decision_workspace():
     assert "aa-overview-hero" in html and "BESLUTNINGSOVERSIKT" in html and "Krever oppmerksomhet" in html
     assert st.buttons == [
         "▶ Kjør kvalitetsvurdering",
+        "🌍 Åpne hele Super Portfolio",
         "Kjør kvalitetsvurdering",
         "Kjør eller åpne rapport",
         "Åpne Super Portfolio",
