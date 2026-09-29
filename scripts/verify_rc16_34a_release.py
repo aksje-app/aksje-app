@@ -14,6 +14,7 @@ for path in [
     "public_report_ui.py",
     "quality_stability_contract.py",
     "ui_library/shell.py",
+    "market_universe.py",
 ]:
     ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=path)
 
@@ -28,6 +29,9 @@ shell = (ROOT / "ui_library" / "shell.py").read_text(encoding="utf-8")
 assert 'APP_VERSION = "v19.22.0-rc16.34a"' in version
 assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33q"' in version
 
+market_universe = (ROOT / "market_universe.py").read_text(encoding="utf-8")
+assert "def production_market_scope_options(" in market_universe
+assert "production_market_scope_options(include_aggregate=True)" in app
 assert "def resolve_market_bound_manual_tickers(" in quality
 assert "selected_market: str = \"\"" in quality
 assert "market_errors" in quality
