@@ -44,8 +44,26 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
     current=canonical_shell_route(route); status=status or {}
 
     def _navigate(target: str) -> None:
+        """Apply the requested route before rerun so the rerun guard cannot restore the old page."""
+        target = str(target or "dashboard").strip().lower() or "dashboard"
         st_module.session_state["aa_mobile_more_open"] = False
-        st_module.query_params["aa_nav"] = target
+        st_module.session_state["active_nav_target_v18674c"] = target
+        st_module.session_state["ai_control_center_force_nav_v18663"] = target
+        st_module.session_state["ai_control_center_last_applied_nav_v19016"] = target
+        st_module.session_state["mobile_nav_last_choice_v19015"] = target
+        try:
+            from navigation_state import queue_global_navigation_route_v19220_rc14
+            queue_global_navigation_route_v19220_rc14(
+                st_module,
+                source="AURORA_MOBILE_NAV_RC1633O",
+                route={"nav": target, "group": "", "panel": "", "tab": "", "subtab": ""},
+            )
+        except Exception:
+            pass
+        try:
+            st_module.query_params["aa_nav"] = target
+        except Exception:
+            pass
         try:
             st_module.rerun()
         except Exception:
