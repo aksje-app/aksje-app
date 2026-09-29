@@ -90,6 +90,8 @@ def test_start_page_visibly_renders_holdings_and_primary_open_button():
 def test_super_portfolio_page_starts_with_decision_and_visual_overview():
     source = _source("pages/super_portfolio.py")
     assert 'st.markdown("### 🚦 Hva skjer nå?")' in source
+    assert '"Verdi NOK": round(position_value,0)' in source
+    assert '"P/L NOK": round(position_pnl_nok,0)' in source
     assert 'st.markdown("### 📈 Utvikling – totalt")' in source
     assert 'st.markdown("### 📉 Utvikling – alle aksjer")' in source
     assert 'st.markdown("### 🧮 Hvem skaper resultatet?")' in source
