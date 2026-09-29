@@ -9615,6 +9615,31 @@ if use_v2_shell():
     render_shell(st, _ab_route, {})
 render_sidebar_clock_v19220_rc163(st)
 
+# RC16.34b: Super Portfolio is a true first-class Market page.
+# Do not route it through the generic control-center selector: that path can be
+# overwritten by stale radio state and was the reason the Start/Market buttons
+# appeared to do nothing. When this target is active, render the portfolio
+# directly and stop before legacy dashboard banners/control-center surfaces.
+_direct_sp_nav_v1934b = str(st.session_state.get("active_nav_target_v18674c") or "").strip().lower()
+_direct_sp_panel_v1934b = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "").strip()
+if (
+    use_v2_shell()
+    and _direct_sp_nav_v1934b in {"market", "super_portfolio", "superportfolio"}
+    and _direct_sp_panel_v1934b == "🌍 Super Portfolio"
+):
+    from pages.super_portfolio import render_super_portfolio as _render_super_portfolio_direct_v1934b
+    set_global_navigation_state(
+        st,
+        nav="market",
+        group="Marked og signaler",
+        panel="🌍 Super Portfolio",
+        tab="",
+    )
+    _render_super_portfolio_direct_v1934b(
+        get_page_context_v1950(_render_super_portfolio_direct_v1934b)
+    )
+    st.stop()
+
 # A+B Overview is a true replacement page. It reads only persisted state and
 # exits before the legacy dashboard/control-center surface can render below it.
 if use_v2_shell() and str(st.session_state.get("active_nav_target_v18674c") or "dashboard").strip().lower() in {"", "dashboard"}:
