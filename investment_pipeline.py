@@ -25,6 +25,7 @@ from market_universe import (
     expand_market_scope,
     market_scope_options,
     production_market_scope_options,
+    market_activation_level,
 )
 from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
@@ -316,11 +317,17 @@ class PipelineConfig:
     })
 
     def normalized(self) -> "PipelineConfig":
-        valid = production_market_scope_options(include_aggregate=True)
+        production_valid = production_market_scope_options(include_aggregate=True)
         legacy_core = {"Alle", "Kjernemarkeder", "Alle kjernemarkeder"}
-        market = CORE_MARKET_SCOPE_LABEL if self.market_scope in legacy_core else (
-            self.market_scope if self.market_scope in valid else CORE_MARKET_SCOPE_LABEL
-        )
+        activation = market_activation_level(self.market_scope)
+        if self.market_scope in legacy_core:
+            market = CORE_MARKET_SCOPE_LABEL
+        elif self.market_scope in production_valid or activation in {"PRODUCTION", "SHADOW"}:
+            # Internal shadow analysis may still observe Denmark/Finland.
+            # OFF markets (Brazil) never become a production pipeline scope.
+            market = self.market_scope
+        else:
+            market = CORE_MARKET_SCOPE_LABEL
         # Scheduled candidate-recall runs may score the complete fetched
         # universe (up to scan_limit=500).  Evidence remains independently
         # bounded, so raising this local deterministic score ceiling does not
