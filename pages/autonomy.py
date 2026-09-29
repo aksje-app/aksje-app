@@ -31,11 +31,24 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     a3.metric("Kjøremodus", "Kun teoretisk")
     a4.metric("Domener", len(manifest.get("domains") or []))
 
-    # RC13: all requested workspaces are applied before the radio is created;
-    # never render a requested workspace through a separate early-return
-    # path. The old path rendered the requested page once without establishing
-    # the radio state; the next rerun then defaulted to Oversikt. All requests
-    # now flow through one selector and one renderer below.
+    # RC16.33o: Super Portfolio is a first-class destination from the Start page.
+    # It must open even when Autonomy is in the simplified interface; otherwise
+    # the front-page button only changes hidden state and appears dead.
+    requested_direct = str(st.session_state.get("autonomy_core_workspace_slug_v1882") or "").strip()
+    if requested_direct == "super_portfolio":
+        st.session_state["autonomy_core_workspace_v1880"] = "🌍 Super Portfolio"
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        st.session_state["autonomy_core_workspace_active_slug_v19220_rc7"] = "super_portfolio"
+        set_global_navigation_state(
+            st, nav="autonomy", group="Autonomi",
+            panel="🧠 Autonomi – Kontrollsenter", tab="super_portfolio",
+        )
+        from pages.super_portfolio import render_super_portfolio
+        render_super_portfolio(_legacy_context)
+        return
+
+    # RC13: all other requested workspaces are applied before the radio is created;
+    # never render a requested workspace through a separate early-return path.
     from autonomy_modes import EXPERT, render_expert_console, render_mode_selector, render_simple_mode
     interface_mode = render_mode_selector()
     if interface_mode != EXPERT:
