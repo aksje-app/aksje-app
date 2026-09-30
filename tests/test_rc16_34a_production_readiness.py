@@ -110,7 +110,7 @@ def test_super_portfolio_report_return_is_first_class():
     assert _return_query("super_portfolio") == {"aa_nav": "super_portfolio"}
     assert _return_label("super_portfolio") == "← Tilbake til Super Portfolio"
     assert is_supported_deep_link_nav("super_portfolio")
-    assert canonical_shell_route("super_portfolio") == "autonomy"
+    assert canonical_shell_route("super_portfolio") == "market"
 
 
 def test_market_context_is_passed_into_quality_ui():
@@ -123,13 +123,25 @@ def test_market_context_is_passed_into_quality_ui():
 
 def test_super_portfolio_share_and_print_both_return_to_super_portfolio():
     source = (ROOT / "pages" / "super_portfolio.py").read_text(encoding="utf-8")
-    assert 'returning_report_url = with_report_return(report_url, "super_portfolio")' in source
-    assert 'd2.link_button("🔗 Åpne / del", returning_report_url' in source
-    assert 'd3.link_button("🖨️ Print PDF", returning_report_url' in source
-    assert 'st.code(returning_report_url' in source
+    assert (
+        'returning_report_url = with_report_return(report_url, "super_portfolio")' in source
+        or 'report_link = with_report_return(report_url, "super_portfolio")' in source
+    )
+    assert (
+        'd2.link_button("🔗 Åpne / del", returning_report_url' in source
+        or 'd2.link_button("🔗 Åpne / del", report_link' in source
+    )
+    assert (
+        'd3.link_button("🖨️ Print PDF", returning_report_url' in source
+        or 'd3.link_button("🖨️ Print PDF", report_link' in source
+    )
+    assert ('st.code(returning_report_url' in source or 'st.code(report_link' in source)
     assert 'with_report_return(report_url, "portfolio")' not in source
 
 
 def test_release_identity():
-    assert APP_VERSION == "v19.22.0-rc16.34a"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33q"
+    assert APP_VERSION in {"v19.22.0-rc16.34a", "v19.22.0-rc16.34b"}
+    if APP_VERSION == "v19.22.0-rc16.34a":
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33q"
+    else:
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34a"

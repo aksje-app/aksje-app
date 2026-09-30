@@ -28,12 +28,13 @@ for token in (
 ):
     assert token in core, token
 
+assert ("Teoretisk verdi" in page or "Porteføljeverdi" in page)
+assert ("Superporteføljen – utvikling" in page or "Utvikling – totalt" in page)
+assert ("Utvikling per aksje" in page or "Utvikling – alle aksjer" in page)
+assert ("Teoretisk verdi NOK" in page or '"Verdi NOK"' in page)
+
 for token in (
-    "Teoretisk verdi",
     "Siden NAV-start",
-    "Superporteføljen – utvikling",
-    "Utvikling per aksje",
-    "Teoretisk verdi NOK",
     "P/L NOK",
     "Åpne / del",
     "Print PDF",

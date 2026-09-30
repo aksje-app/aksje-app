@@ -68,8 +68,9 @@ def test_super_portfolio_front_route_bypasses_simple_autonomy_return():
     mode = source.index("interface_mode = render_mode_selector()")
     assert direct < mode
     block = source[direct:mode]
-    assert 'render_super_portfolio(_legacy_context)' in block
-    assert 'tab="super_portfolio"' in block
+    assert 'st.session_state["active_nav_target_v18674c"] = "market"' in block
+    assert 'panel="🌍 Super Portfolio"' in block
+    assert "st.rerun()" in block
 
 
 def test_rc16_33o_navigation_contract_remains_present():

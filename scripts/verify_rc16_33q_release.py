@@ -17,7 +17,7 @@ assert 'APP_VERSION = "v19.22.0-' in version
 assert '("Åpne Super Portfolio", "super_portfolio", "aa_overview_portfolio")' in overview
 assert 'direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}' in app
 assert '_apply_nav_target_v18658("super_portfolio")' in app
-assert 'tab="super_portfolio"' in app
+assert 'market_panel = "🌍 Super Portfolio" if direct_super_portfolio else "🔍 Marked – Market Scanner"' in app
 assert 'if requested_direct == "super_portfolio":' in autonomy
-assert 'render_super_portfolio(_legacy_context)' in autonomy
+assert 'panel="🌍 Super Portfolio"' in autonomy
 print("rc16.33q Super Portfolio Direct Route gate OK")

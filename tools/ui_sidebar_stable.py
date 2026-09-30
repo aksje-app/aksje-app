@@ -188,6 +188,17 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         st.session_state["ai_control_center_active_panel_v1863aj"] = "AI Kandidattest"
         st.session_state["ai_control_center_active_real_panel_v18598"] = "AI Kandidattest"
         st.session_state["ai_control_center_menu_open_v1863ag"] = False
+    elif nav in {"super_portfolio", "superportfolio"}:
+        nav = "market"
+        st.session_state["active_nav_target_v18674c"] = "market"
+        st.session_state["ai_control_center_force_nav_v18663"] = "market"
+        st.session_state["autonomy_core_workspace_slug_v1882"] = ""
+        st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
+        st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
+        st.session_state["ai_control_center_active_panel_v1863m"] = "🌍 Super Portfolio"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "🌍 Super Portfolio"
+        st.session_state["ai_control_center_active_real_panel_v18598"] = "🌍 Super Portfolio"
+        st.session_state["ai_control_center_menu_open_v1863ag"] = False
     elif nav == "top_picks":
         st.session_state["ai_control_center_group_v1863m"] = "Marked og signaler"
         st.session_state["ai_control_center_group_v1863aj"] = "Marked og signaler"
@@ -268,6 +279,8 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "dashboard": ("", ""),
         "analysis": ("AI Kandidattest", "AI Kandidattest"),
         "top_picks": ("Marked og signaler", "Top Picks"),
+        "market": ("Marked og signaler", str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "🔍 Marked – Market Scanner")),
+        "super_portfolio": ("Marked og signaler", "🌍 Super Portfolio"),
         "long_engine": ("Long Engine", "Long Engine"),
         "ai": ("Analyse og prognose", ""),
         "paper_trading": ("Testing og portefolje", "Paper Trading og kontroll"),

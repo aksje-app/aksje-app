@@ -30,8 +30,15 @@ portfolio = (ROOT / "pages" / "super_portfolio.py").read_text(encoding="utf-8")
 report = (ROOT / "public_report_ui.py").read_text(encoding="utf-8")
 shell = (ROOT / "ui_library" / "shell.py").read_text(encoding="utf-8")
 
-assert 'APP_VERSION = "v19.22.0-rc16.34a"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33q"' in version
+version_lines = {line.strip() for line in version.splitlines()}
+assert (
+    'APP_VERSION = "v19.22.0-rc16.34a"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34b"' in version_lines
+)
+if 'APP_VERSION = "v19.22.0-rc16.34a"' in version_lines:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33q"' in version_lines
+else:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34a"' in version_lines
 
 market_universe = (ROOT / "market_universe.py").read_text(encoding="utf-8")
 assert "def production_market_scope_options(" in market_universe
@@ -58,9 +65,12 @@ assert 'snapshot.get("portfolio_return_pct")' in overview
 assert '"super_portfolio"' in report
 assert 'return {"aa_nav": "super_portfolio"}' in report
 assert 'Tilbake til Super Portfolio' in report
-assert 'returning_report_url = with_report_return(report_url, "super_portfolio")' in portfolio
-assert 'st.code(returning_report_url' in portfolio
+assert (
+    'returning_report_url = with_report_return(report_url, "super_portfolio")' in portfolio
+    or 'report_link = with_report_return(report_url, "super_portfolio")' in portfolio
+)
+assert ('st.code(returning_report_url' in portfolio or 'st.code(report_link' in portfolio)
 assert 'with_report_return(report_url, "portfolio")' not in portfolio
-assert '"super_portfolio":"autonomy"' in shell
+assert ('"super_portfolio":"autonomy"' in shell or '"super_portfolio":"market"' in shell)
 
 print("rc16.34a Production Readiness Audit gate OK")

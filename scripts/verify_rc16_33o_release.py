@@ -18,7 +18,7 @@ assert 'AURORA_MOBILE_NAV_RC1633O' in shell
 assert 'active_nav_target_v18674c' in shell
 assert 'queue_global_navigation_route_v19220_rc14' in shell
 assert 'if requested_direct == "super_portfolio":' in autonomy
-assert 'render_super_portfolio(_legacy_context)' in autonomy
-assert 'tab="super_portfolio"' in autonomy
+assert 'st.session_state["active_nav_target_v18674c"] = "market"' in autonomy
+assert 'panel="🌍 Super Portfolio"' in autonomy
 assert 'front_open_super_portfolio_v1932c' in app
 print("rc16.33o Mobile Navigation Recovery gate OK")

@@ -90,10 +90,36 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
     except (TypeError, ValueError):
         pass
 
+    position_rows: list[dict[str, Any]] = []
+    for row in positions:
+        ticker = str(row.get("ticker") or row.get("symbol") or "-").upper()
+        weight = _number(row.get("target_weight_pct") or row.get("weight_pct"))
+        pnl_pct = _number(row.get("pnl_pct") or row.get("return_pct"))
+        market_value = _number(row.get("market_value") or row.get("value_nok") or row.get("position_value"))
+        if market_value <= 0 and total and weight > 0:
+            market_value = _number(total) * weight / 100.0
+        pnl_nok_raw = row.get("pnl_nok") or row.get("profit_nok")
+        pnl_nok = _number(pnl_nok_raw) if pnl_nok_raw is not None else market_value * pnl_pct / 100.0
+        distance_to_stop = row.get("distance_to_hard_stop_pct")
+        stop_pressure = str(row.get("stop_pressure") or row.get("stop_status") or "").strip().upper()
+        action = str(row.get("action") or row.get("recommended_action") or "HOLD").strip().upper()
+        position_rows.append({
+            "ticker": ticker,
+            "weight_pct": round(weight, 2),
+            "value_nok": round(market_value, 0) if market_value > 0 else None,
+            "pnl_nok": round(pnl_nok, 0),
+            "pnl_pct": round(pnl_pct, 2),
+            "distance_to_stop_pct": round(_number(distance_to_stop), 2) if distance_to_stop is not None else None,
+            "status": stop_pressure or "OK",
+            "action": action,
+        })
+    position_rows.sort(key=lambda row: (_number(row.get("weight_pct")), _number(row.get("value_nok"))), reverse=True)
+
     return {
         "value": total if total and total > 0 else None,
         "return_pct": since_start,
         "positions": len(positions),
+        "position_rows": position_rows,
         "cash_pct": cash_pct,
         "confidence": confidence.get("score"),
         "health_components": dict(health_components),
@@ -380,6 +406,47 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
       <article class="aa-confidence"><span>BESLUTNINGSRO</span><p>Samlet kvalitet på Super Portfolio sitt beslutningsgrunnlag.</p><strong>{escape(str(round(float(confidence)))) if confidence is not None else '–'}</strong><small>{'HØY TILLIT' if confidence is not None and float(confidence) >= 75 else 'SE BESLUTNINGSGRUNNLAG' if confidence is not None else 'IKKE BEREGNET'}</small><div class="aa-confidence-components">{component_html}</div></article>
     </section>
     <section class="aa-portfolio-facts"><div><strong>{portfolio.get('positions', 0)}</strong><span>POSISJONER</span></div><div><strong>{escape(fmt_pct(portfolio.get('cash_pct')).replace('+',''))}</strong><span>KONTANTER</span></div><div><strong>{escape(str((model.get('next_event') or {}).get('value') or '–'))}</strong><span>NESTE RAPPORT</span></div></section>''', unsafe_allow_html=True)
+
+    position_rows = list(portfolio.get("position_rows") or [])
+    if position_rows:
+        st_module.markdown("### Porteføljen nå")
+        quick_rows = []
+        for row in position_rows:
+            distance = row.get("distance_to_stop_pct")
+            quick_rows.append({
+                "Aksje": row.get("ticker") or "-",
+                "Vekt %": row.get("weight_pct"),
+                "Verdi NOK": row.get("value_nok"),
+                "P/L NOK": row.get("pnl_nok"),
+                "P/L %": row.get("pnl_pct"),
+                "Til stop %": distance if distance is not None else None,
+                "Status": row.get("status") or "OK",
+            })
+        try:
+            import pandas as pd
+            quick_df = pd.DataFrame(quick_rows)
+            st_module.dataframe(
+                quick_df,
+                width="stretch",
+                hide_index=True,
+                height=min(430, 72 + 35 * max(1, len(quick_df))),
+            )
+        except Exception:
+            st_module.write(quick_rows)
+
+        best = max(position_rows, key=lambda row: _number(row.get("pnl_pct")))
+        worst = min(position_rows, key=lambda row: _number(row.get("pnl_pct")))
+        st_module.caption(
+            f"Beste siden inngang: {best.get('ticker')} {fmt_pct(best.get('pnl_pct'))} · "
+            f"Svakest siden inngang: {worst.get('ticker')} {fmt_pct(worst.get('pnl_pct'))}"
+        )
+    else:
+        st_module.markdown('<div class="aa-empty-decisions"><strong>Ingen aktive Super Portfolio-posisjoner</strong><p>Porteføljeposisjoner vises her så snart lagret Super Portfolio-state inneholder aktive beholdninger.</p></div>', unsafe_allow_html=True)
+
+    if st_module.button("🌍 Åpne hele Super Portfolio", key="aa_overview_open_super_portfolio_primary", width="stretch", type="primary"):
+        navigate("super_portfolio")
+        st_module.rerun()
+
     left, right = st_module.columns([1.65, 1])
     with left:
         st_module.markdown('<h2 class="aa-section-title">Krever oppmerksomhet</h2>', unsafe_allow_html=True)

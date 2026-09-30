@@ -1981,41 +1981,54 @@ def render_super_portfolio_front_window_v1932c() -> None:
         c4.metric("Modus", "SHADOW")
 
         action_nb = {"BUY":"KJØP", "ADD":"ØK", "REDUCE":"REDUSER", "SELL":"SELG", "HOLD":"HOLD"}
-        event_lines = []
+        st.markdown("**Hva krever oppmerksomhet?**")
+        rendered_items = 0
+
         if stop:
-            distance = float(stop.get('distance_to_hard_stop_pct') or 0)
-            pressure = str(stop.get('stop_pressure') or 'LOW').upper()
+            distance = float(stop.get("distance_to_hard_stop_pct") or 0)
+            pressure = str(stop.get("stop_pressure") or "LOW").upper()
+            ticker = str(stop.get("ticker") or "-")
             if pressure == "CRITICAL" or distance <= 1.0:
-                level = "🔴 KRITISK"
+                st.error(f"{ticker} · KRITISK · {distance:.1f}% til stop-loss")
             elif pressure in {"HIGH", "SEVERE"} or distance <= 3.0:
-                level = "🟠 HANDLING"
+                st.warning(f"{ticker} · FØLG NØYE · {distance:.1f}% til stop-loss")
             else:
-                level = "🟡 FØLG MED"
-            event_lines.append(f"{level} · **{stop.get('ticker')}** · {distance:.1f}% til stop-loss")
-        if advisory:
-            raw = str(advisory.get('action') or 'HOLD').upper()
+                st.info(f"{ticker} · Stop-avstand {distance:.1f}%")
+            rendered_items += 1
+
+        if advisory and rendered_items < 3:
+            raw = str(advisory.get("action") or "HOLD").upper()
             action = action_nb.get(raw, raw)
-            event_lines.append(
-                f"🎯 **{advisory.get('ticker')} – {action}** · "
+            ticker = str(advisory.get("ticker") or "-")
+            st.info(
+                f"{ticker} · {action} · målvekt "
                 f"{float(advisory.get('from_pct') or 0):.1f}% → {float(advisory.get('to_pct') or 0):.1f}%"
             )
-        elif last_change:
-            raw = str(last_change.get('action') or '').upper()
+            rendered_items += 1
+        elif last_change and rendered_items < 3:
+            raw = str(last_change.get("action") or "").upper()
             action = action_nb.get(raw, raw)
-            event_lines.append(f"✅ Sist gjennomført · **{last_change.get('ticker')} – {action}** · {float(last_change.get('from_pct') or 0):.1f}% → {float(last_change.get('to_pct') or 0):.1f}%")
-        if challenger:
-            event_lines.append(
-                f"⚔️ Ny utfordrer · **{challenger.get('ticker')}** · "
-                f"AI-score {float(challenger.get('portfolio_score_adjusted') or challenger.get('portfolio_score') or 0):.1f}"
+            ticker = str(last_change.get("ticker") or "-")
+            st.success(
+                f"{ticker} · sist gjennomført {action} · "
+                f"{float(last_change.get('from_pct') or 0):.1f}% → {float(last_change.get('to_pct') or 0):.1f}%"
             )
-        if mover:
-            event_lines.append(
-                f"📈 Størst rangeringendring · **{mover.get('ticker')}** · "
-                f"rank #{mover.get('rank','-')} · endring {float(mover.get('rank_change') or 0):+g}"
-            )
-        if event_lines:
-            st.markdown("**Det viktigste akkurat nå**")
-            st.markdown("  \n".join(event_lines[:5]))
+            rendered_items += 1
+
+        if challenger and rendered_items < 3:
+            ticker = str(challenger.get("ticker") or "-")
+            score = float(challenger.get("portfolio_score_adjusted") or challenger.get("portfolio_score") or 0)
+            st.info(f"{ticker} · utfordrer · AI-score {score:.1f}")
+            rendered_items += 1
+
+        if rendered_items == 0:
+            st.success("Ingen registrerte hendelser krever oppfølging akkurat nå.")
+
+        st.caption(
+            f"Porteføljeverdi NOK {float(summary.get('portfolio_value') or 0):,.0f} · "
+            f"Sist oppdatert {summary.get('updated_at') or '-'} · "
+            "Åpne hele Super Portfolio for posisjoner, P/L, stop-nivåer og historikk."
+        )
 
 
 def cached_auto_rank_market(label, tickers, max_count=30, use_news=False, force_manual_fetch=False, include_insider=True):
@@ -9614,6 +9627,31 @@ if use_v2_shell():
     inject_design_system(st, module=_ab_route)
     render_shell(st, _ab_route, {})
 render_sidebar_clock_v19220_rc163(st)
+
+# RC16.34b: Super Portfolio is a true first-class Market page.
+# Do not route it through the generic control-center selector: that path can be
+# overwritten by stale radio state and was the reason the Start/Market buttons
+# appeared to do nothing. When this target is active, render the portfolio
+# directly and stop before legacy dashboard banners/control-center surfaces.
+_direct_sp_nav_v1934b = str(st.session_state.get("active_nav_target_v18674c") or "").strip().lower()
+_direct_sp_panel_v1934b = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "").strip()
+if (
+    use_v2_shell()
+    and _direct_sp_nav_v1934b in {"market", "super_portfolio", "superportfolio"}
+    and _direct_sp_panel_v1934b == "🌍 Super Portfolio"
+):
+    from pages.super_portfolio import render_super_portfolio as _render_super_portfolio_direct_v1934b
+    set_global_navigation_state(
+        st,
+        nav="market",
+        group="Marked og signaler",
+        panel="🌍 Super Portfolio",
+        tab="",
+    )
+    _render_super_portfolio_direct_v1934b(
+        get_page_context_v1950(_render_super_portfolio_direct_v1934b)
+    )
+    st.stop()
 
 # A+B Overview is a true replacement page. It reads only persisted state and
 # exits before the legacy dashboard/control-center surface can render below it.
