@@ -62,7 +62,9 @@ def test_stale_feed_blocks_ordinary_auto_rebalance_but_keeps_advisory(monkeypatc
     assert 'FRESHNESS_GATE_BLOCKED' in result['rebalance_gate']['reason_codes']
     assert set(result['state']['positions']) == {'AAA', 'BBB'}
     assert any(row['action'] == 'BUY' for row in result['ai_would_do_today'])
-    assert result['changes'] == []
+    assert {row['ticker'] for row in result['changes'] if row.get('reason_code') == 'HARD_POSITION_CAP'} == {'AAA', 'BBB'}
+    assert result['state']['positions']['AAA']['target_weight_pct'] == 15.0
+    assert result['state']['positions']['BBB']['target_weight_pct'] == 15.0
 
 
 def test_low_confidence_blocks_ordinary_rebalance(monkeypatch):

@@ -871,23 +871,48 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
             f"{requirement['mature_observations']}/{requirement['mature_observations_required']} modne observasjoner "
             f"eller {requirement['closed_trades']}/{requirement['closed_trades_required']} avsluttede ordinære handler."
         )
-    paper_line = (
-        f"Paper: {paper_snapshot.get('total_value', 0):,.0f} mot start, "
-        f"resultat {paper_snapshot.get('result_amount', 0):+,.0f} ({paper_snapshot.get('result_pct', 0):+.2f}%), "
-        f"{paper_snapshot.get('closed_trades', 0)} avsluttede handler."
-        if paper_snapshot.get("available") else "Paper: status utilgjengelig."
+    if paper_snapshot.get("available"):
+        paper_line = (
+            f"RESULTAT: Paper-porteføljen er {paper_snapshot.get('total_value', 0):,.0f} "
+            f"({paper_snapshot.get('result_amount', 0):+,.0f} / {paper_snapshot.get('result_pct', 0):+.2f}% fra start)."
+        )
+    else:
+        paper_line = "RESULTAT: Paper-status er utilgjengelig."
+
+    closed_now = int(requirement["closed_trades"])
+    closed_required = int(requirement["closed_trades_required"])
+    mature_now = int(requirement["mature_observations"])
+    mature_required = int(requirement["mature_observations_required"])
+    closed_remaining = max(0, closed_required - closed_now)
+    mature_remaining = max(0, mature_required - mature_now)
+    if closed_remaining == 0 and mature_remaining == 0:
+        milestone_line = "NESTE STEG: Begge grunnkrav er oppfylt. Vurder aktive hypoteser/skyggetester."
+    elif closed_remaining == 0:
+        milestone_line = f"NESTE STEG: Handler er tilstrekkelig. {mature_remaining} modne observasjoner gjenstår."
+    elif mature_remaining == 0:
+        milestone_line = f"NESTE STEG: Observasjoner er tilstrekkelig. {closed_remaining} avsluttede handler gjenstår."
+    else:
+        milestone_line = (
+            f"NESTE STEG: {closed_remaining} avsluttede handler eller "
+            f"{mature_remaining} modne observasjoner gjenstår."
+        )
+
+    action_line = (
+        "HANDLING: Ingen manuell handling nødvendig nå."
+        if not observations or observations == ["Ingen kritiske lærings- eller risikohendelser i perioden."]
+        else "HANDLING: " + " ".join(observations[:2])
     )
     _notify(
         "Autonomi: daglig Paper + læring",
         "\n".join([
             paper_line,
-            f"{len(open_observations)} åpne observasjoner, {observation_evidence['mature_count']} modne observasjoner.",
-            learning_status,
-            f"drawdown {drawdown_text} %.",
-            f"Neste læringsmilepæl: {requirement['closed_trades']}/{requirement['closed_trades_required']} avsluttede handler "
-            f"eller {requirement['mature_observations']}/{requirement['mature_observations_required']} modne observasjoner.",
-            f"Rapport-ID: {report['report_id']}",
-            f"Programversjon: {APP_VERSION}",
+            f"RISIKO: Drawdown {drawdown_text}%.",
+            f"LÆRING: {paper_snapshot.get('closed_trades', 0)} avsluttede Paper-handler · "
+            f"{len(open_observations)} åpne observasjoner · {observation_evidence['mature_count']} modne.",
+            f"TESTER: {len(open_h)} åpne hypoteser · {len(active_tests)} aktive skyggetester.",
+            milestone_line,
+            action_line,
+            f"Teknisk: {report['report_id']} · {APP_VERSION}",
         ]),
         report,
     )

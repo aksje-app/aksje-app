@@ -34,11 +34,14 @@ version_lines = {line.strip() for line in version.splitlines()}
 assert (
     'APP_VERSION = "v19.22.0-rc16.34a"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34b"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34c"' in version_lines
 )
 if 'APP_VERSION = "v19.22.0-rc16.34a"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33q"' in version_lines
-else:
+elif 'APP_VERSION = "v19.22.0-rc16.34b"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34a"' in version_lines
+else:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34b"' in version_lines
 
 market_universe = (ROOT / "market_universe.py").read_text(encoding="utf-8")
 assert "def production_market_scope_options(" in market_universe
