@@ -69,7 +69,9 @@ def test_daily_analysis_preserves_weights_until_weekly_rebalance(monkeypatch):
     pipeline = {"run_id":"MONDAY", "candidates":[_candidate("CCC",99), _candidate("AAA",80), _candidate("BBB",79)]}
     result = sp.evaluate(pipeline=pipeline, persist=False, now=datetime(2026,9,14,tzinfo=timezone.utc), rebalance_policy="AUTO")  # Monday
     assert set(result["state"]["positions"]) == {"AAA", "BBB"}
-    assert result["state"]["positions"]["AAA"]["target_weight_pct"] == 60.0
+    assert result["state"]["positions"]["AAA"]["target_weight_pct"] == 15.0
+    assert result["state"]["positions"]["BBB"]["target_weight_pct"] == 15.0
+    assert {row["ticker"] for row in result["changes"] if row.get("reason_code") == "HARD_POSITION_CAP"} == {"AAA", "BBB"}
     assert any(a["ticker"] == "CCC" and a["action"] == "BUY" for a in result["ai_would_do_today"])
     assert result["rebalance_due"] is False
 
