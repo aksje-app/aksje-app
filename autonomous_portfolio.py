@@ -2368,12 +2368,29 @@ def run_autonomous_cycle(
         if capital_cleanup["ordinary_buys"] == 0 else "KONTANTER ER DELVIS REINVESTERT"
     )
     if params.notify_trades:
+        action_lines = []
+        if capital_cleanup["sold_to_cash"]:
+            action_lines.append(f"{capital_cleanup['sold_to_cash']} posisjon(er) solgt til kontanter")
+        if capital_cleanup["replaced"]:
+            action_lines.append(f"{capital_cleanup['replaced']} posisjon(er) erstattet")
+        if capital_cleanup["protected"]:
+            action_lines.append(f"{capital_cleanup['protected']} posisjon(er) fikk økt beskyttelse")
+        if capital_cleanup["ordinary_buys"]:
+            action_lines.append(f"{capital_cleanup['ordinary_buys']} nye kjøp")
+        what_happened = " · ".join(action_lines) if action_lines else "Ingen kjøp, salg eller erstatninger."
+        cash_reason = (
+            "Ingen kandidat bestod alle kjøpskrav. Kontantene beholdes."
+            if capital_cleanup["ordinary_buys"] == 0
+            else "Godkjente kjøp ble gjennomført; resterende kapital beholdes som kontanter."
+        )
         _notification(
             "SUMMARY", "AUTONOMI · PORTEFØLJEKONTROLL",
-            (f"Vurdert {capital_cleanup['evaluated']} posisjoner. "
-             f"Solgt til kontanter {capital_cleanup['sold_to_cash']}, erstattet {capital_cleanup['replaced']}, "
-             f"beskyttet {capital_cleanup['protected']}, kjøpt {capital_cleanup['ordinary_buys']}. "
-             f"{capital_cleanup['cash_decision']}. Kontanter {capital_cleanup['cash_after']:,.0f}."),
+            "\n".join([
+                f"KONTROLL: {capital_cleanup['evaluated']} posisjoner er vurdert.",
+                f"HVA SKJEDDE: {what_happened}",
+                f"KONTANTER: {capital_cleanup['cash_after']:,.0f}. {cash_reason}",
+                "HANDLING: Ingen manuell handling nødvendig med mindre en separat varsling ber om det.",
+            ]),
             {"run_id": run_id, **capital_cleanup},
         )
     return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "learning_observations": observation_progress, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "capital_cleanup": capital_cleanup, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity, "full_replay": replay_snapshot_result, "replay_level": replay_snapshot_result.get("replay_level", "DECISION_REPLAY")}
