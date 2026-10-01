@@ -2109,7 +2109,10 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     # RC16.34c: max_position_pct is a hard safety limit, not a target-only hint.
     # Existing oversized shadow positions are reduced immediately even when the
     # ordinary weekly rebalance is not due. Released weight remains cash.
+    hard_cap_execution_enabled = str(rebalance_policy).upper() != "ANALYZE_ONLY"
     for ticker, pos in list(positions.items()):
+        if not hard_cap_execution_enabled:
+            break
         current_weight = _f(pos.get("target_weight_pct"))
         if current_weight <= cfg.max_position_pct + 1e-9:
             continue
@@ -2688,7 +2691,7 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
             f"Nå {current_price:.2f} · resultat {pnl:+.2f}%",
             f"Beskyttelsesnivå {stop_price:.2f} · avstand {distance:.2f}%",
             f"Sikret gevinstgulv {protected:+.2f}% · status {row.get('to') or '-'}",
-            f"Teknisk: kjøp {_f(row.get('entry_price')):.2f} · topp {_f(row.get('peak_price')):.2f} · "
+            f"Teknisk: Kjøp {_f(row.get('entry_price')):.2f} · topp {_f(row.get('peak_price')):.2f} · "
             f"Stop {_f(row.get('stop_price')):.2f} · {_f(row.get('distance_pct')):.2f} pp margin",
         ])
     lines.append("Teknisk regel: gevinstbeskyttelse fra +2% MFE; ellers maks trailing stop 3%.")
