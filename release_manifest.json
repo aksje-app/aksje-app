@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
-  "release_target": "v19.22.0-rc16.33b",
-  "baseline_version": "v19.22.0-rc16.33a",
-  "baseline_main_commit": "0dedc2c6d075fb0b79889686e9168fe9a62c4805",
+  "release_target": "v19.22.0-rc16.34c",
+  "baseline_version": "v19.22.0-rc16.34b",
+  "baseline_main_commit": "59c0e7ffbce0e0e30063922ce211e0139b246db6",
   "status_order": [
     "AGREED",
     "IMPLEMENTED",
@@ -11,7 +11,7 @@
     "DEPLOY_VERIFIED",
     "BLOCKED"
   ],
-  "production_completion_status": "DEPLOY_VERIFIED",
+  "production_completion_status": "IMPLEMENTED",
   "rules": {
     "assistant_may_call_finished_only_at": "DEPLOY_VERIFIED",
     "merge_requires_release_blockers_at_least": "TESTED",
@@ -214,6 +214,56 @@
       "evidence": [
         "quality_valuation_ui.py:qv_home",
         "GitHub Actions rc16.33b verification run 36267989271: success"
+      ]
+    },
+    {
+      "id": "SPCAP-001",
+      "title": "Hard 15% Super Portfolio position cap",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "super_portfolio.py:target_weights",
+        "tests/test_rc16_34c_position_cap_reports.py"
+      ]
+    },
+    {
+      "id": "SPCAP-002",
+      "title": "Immediate correction of existing oversized Super Portfolio positions",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "super_portfolio.py:HARD_POSITION_CAP",
+        "tests/test_rc16_34c_position_cap_reports.py"
+      ]
+    },
+    {
+      "id": "SPREP-001",
+      "title": "Plain-language daily Paper and learning notification",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "controlled_parameter_learning.py:generate_management_report",
+        "tests/test_rc16_34c_position_cap_reports.py"
+      ]
+    },
+    {
+      "id": "SPREP-002",
+      "title": "Plain-language Autonomi portfolio-control notification",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "autonomous_portfolio.py:AUTONOMI · PORTEFØLJEKONTROLL",
+        "tests/test_rc16_34c_position_cap_reports.py"
+      ]
+    },
+    {
+      "id": "SPREP-003",
+      "title": "Plain-language Super Portfolio stop notification",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "super_portfolio.py:notify_stop_alerts",
+        "tests/test_rc16_34c_position_cap_reports.py"
       ]
     }
   ]
