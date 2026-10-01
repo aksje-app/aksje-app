@@ -79,10 +79,14 @@ Never infer completion from a prior chat. Update the two contract files in the s
 
 | ID | Requirement | Current status | Acceptance evidence required |
 |---|---|---|---|
-| SPCAP-001 | Super Portfolio max_position_pct is a hard per-stock ceiling; capped weights may leave cash unallocated and are never renormalized above the cap | IMPLEMENTED | unit test with 1, 2 and 10 candidates + release verifier |
-| SPCAP-002 | Existing Super Portfolio positions above max_position_pct are automatically reduced to the hard cap on the next evaluation, including outside ordinary weekly rebalance | IMPLEMENTED | state-transition test from 50%/33.33% to 15%/15% + cash diagnostic |
-| SPREP-001 | Daily Paper/læring Pushover leads with result, risk, learning, next step and action in plain Norwegian; technical IDs are last | IMPLEMENTED | notification source/test + deploy example |
-| SPREP-002 | Autonomi portfolio-control Pushover explains what changed, why cash is held and whether user action is required | IMPLEMENTED | notification source/test + deploy example |
-| SPREP-003 | Super Portfolio stop notification explains the event and required action in plain Norwegian before technical stop details | IMPLEMENTED | notification source/test + deploy example |
+| SPCAP-001 | Super Portfolio max_position_pct is a hard per-stock ceiling; capped weights may leave cash unallocated and are never renormalized above the cap | TESTED | unit test with 1, 2 and 10 candidates + release verifier |
+| SPCAP-002 | Existing Super Portfolio positions above max_position_pct are automatically reduced to the hard cap on the next evaluation, including outside ordinary weekly rebalance | TESTED | state-transition test from 50%/33.33% to 15%/15% + cash diagnostic |
+| SPREP-001 | Daily Paper/læring Pushover leads with result, risk, learning, next step and action in plain Norwegian; technical IDs are last | TESTED | notification source/test + deploy example |
+| SPREP-002 | Autonomi portfolio-control Pushover explains what changed, why cash is held and whether user action is required | TESTED | notification source/test + deploy example |
+| SPREP-003 | Super Portfolio stop notification explains the event and required action in plain Norwegian before technical stop details | TESTED | notification source/test + deploy example |
 
 Production status remains **not DEPLOY_VERIFIED** until Render is running rc16.34c and the live notifications/portfolio weights are observed.
+
+
+### rc16.34c test evidence
+- GitHub Actions Release gate run `36931858425`: release contracts, focused quality regression, active unversioned suite, FULL packaging and clean DELTA packaging all passed.
