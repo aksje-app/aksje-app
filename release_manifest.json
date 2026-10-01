@@ -11,7 +11,7 @@
     "DEPLOY_VERIFIED",
     "BLOCKED"
   ],
-  "production_completion_status": "IMPLEMENTED",
+  "production_completion_status": "DEPLOY_VERIFIED",
   "rules": {
     "assistant_may_call_finished_only_at": "DEPLOY_VERIFIED",
     "merge_requires_release_blockers_at_least": "TESTED",
