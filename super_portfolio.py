@@ -2688,8 +2688,10 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
             f"Nå {current_price:.2f} · resultat {pnl:+.2f}%",
             f"Beskyttelsesnivå {stop_price:.2f} · avstand {distance:.2f}%",
             f"Sikret gevinstgulv {protected:+.2f}% · status {row.get('to') or '-'}",
+            f"Teknisk: kjøp {_f(row.get('entry_price')):.2f} · topp {_f(row.get('peak_price')):.2f} · "
+            f"Stop {_f(row.get('stop_price')):.2f} · {_f(row.get('distance_pct')):.2f} pp margin",
         ])
-    lines.append("Forklaring: gevinstbeskyttelse starter fra +2% toppgevinst; ellers brukes maks 3% trailing stop.")
+    lines.append("Teknisk regel: gevinstbeskyttelse fra +2% MFE; ellers maks trailing stop 3%.")
     response = send_pushover_alert(
         "\n".join(lines), title=title, url=report.get("report_url") or None,
         url_title="Åpne PDF", priority=priority,
