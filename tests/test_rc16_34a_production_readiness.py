@@ -140,8 +140,10 @@ def test_super_portfolio_share_and_print_both_return_to_super_portfolio():
 
 
 def test_release_identity():
-    assert APP_VERSION in {"v19.22.0-rc16.34a", "v19.22.0-rc16.34b"}
+    assert APP_VERSION in {"v19.22.0-rc16.34a", "v19.22.0-rc16.34b", "v19.22.0-rc16.34c"}
     if APP_VERSION == "v19.22.0-rc16.34a":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33q"
-    else:
+    elif APP_VERSION == "v19.22.0-rc16.34b":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34a"
+    else:
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34b"
