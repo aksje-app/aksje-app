@@ -219,51 +219,56 @@
     {
       "id": "SPCAP-001",
       "title": "Hard 15% Super Portfolio position cap",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "super_portfolio.py:target_weights",
-        "tests/test_rc16_34c_position_cap_reports.py"
+        "tests/test_rc16_34c_position_cap_reports.py",
+        "GitHub Actions rc16.34c verification run 36931858425: success"
       ]
     },
     {
       "id": "SPCAP-002",
       "title": "Immediate correction of existing oversized Super Portfolio positions",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "super_portfolio.py:HARD_POSITION_CAP",
-        "tests/test_rc16_34c_position_cap_reports.py"
+        "tests/test_rc16_34c_position_cap_reports.py",
+        "GitHub Actions rc16.34c verification run 36931858425: success"
       ]
     },
     {
       "id": "SPREP-001",
       "title": "Plain-language daily Paper and learning notification",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "controlled_parameter_learning.py:generate_management_report",
-        "tests/test_rc16_34c_position_cap_reports.py"
+        "tests/test_rc16_34c_position_cap_reports.py",
+        "GitHub Actions rc16.34c verification run 36931858425: success"
       ]
     },
     {
       "id": "SPREP-002",
       "title": "Plain-language Autonomi portfolio-control notification",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "autonomous_portfolio.py:AUTONOMI · PORTEFØLJEKONTROLL",
-        "tests/test_rc16_34c_position_cap_reports.py"
+        "tests/test_rc16_34c_position_cap_reports.py",
+        "GitHub Actions rc16.34c verification run 36931858425: success"
       ]
     },
     {
       "id": "SPREP-003",
       "title": "Plain-language Super Portfolio stop notification",
-      "status": "IMPLEMENTED",
+      "status": "TESTED",
       "release_blocker": true,
       "evidence": [
         "super_portfolio.py:notify_stop_alerts",
-        "tests/test_rc16_34c_position_cap_reports.py"
+        "tests/test_rc16_34c_position_cap_reports.py",
+        "GitHub Actions rc16.34c verification run 36931858425: success"
       ]
     }
   ]
