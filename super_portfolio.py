@@ -1746,27 +1746,44 @@ def build_rebalance_impact(
 
 
 def target_weights(ranked: Sequence[Mapping[str, Any]], config: SuperPortfolioConfig | None = None) -> dict[str, float]:
+    """Risk-weight selected candidates while enforcing the hard per-position cap.
+
+    Cash is a valid allocation. If too few candidates pass the gates to invest
+    100% without breaking max_position_pct, the remainder stays in cash.
+    """
     cfg = config or SuperPortfolioConfig()
     selected = list(ranked)[: cfg.target_positions]
     if not selected:
         return {}
+
+    cap = max(0.0, min(100.0, float(cfg.max_position_pct)))
     raw: dict[str, float] = {}
     for row in selected:
         risk_factor = max(0.25, 1.0 - _f(row.get("risk_score"), 50.0) / 140.0)
-        raw[str(row["ticker"])] = max(0.01, _f(row.get("portfolio_score_adjusted"), _f(row.get("portfolio_score"))) * risk_factor)
-    total = sum(raw.values()) or 1.0
-    weights = {ticker: 100.0 * value / total for ticker, value in raw.items()}
-    for _ in range(5):
-        over = {k: v for k, v in weights.items() if v > cfg.max_position_pct}
-        if not over: break
-        excess = sum(v - cfg.max_position_pct for v in over.values())
-        for k in over: weights[k] = cfg.max_position_pct
-        under = [k for k, v in weights.items() if v < cfg.max_position_pct - 1e-9]
-        base = sum(weights[k] for k in under)
-        if not under or base <= 0: break
-        for k in under: weights[k] += excess * weights[k] / base
-    norm = sum(weights.values()) or 1.0
-    return {k: round(v * 100.0 / norm, 2) for k, v in weights.items()}
+        raw[str(row["ticker"])] = max(
+            0.01,
+            _f(row.get("portfolio_score_adjusted"), _f(row.get("portfolio_score"))) * risk_factor,
+        )
+
+    remaining = 100.0
+    active = dict(raw)
+    weights: dict[str, float] = {}
+    eps = 1e-9
+    while active and remaining > eps:
+        active_total = sum(active.values()) or 1.0
+        proposed = {ticker: remaining * value / active_total for ticker, value in active.items()}
+        capped = [ticker for ticker, weight in proposed.items() if weight > cap + eps]
+        if not capped:
+            for ticker, weight in proposed.items():
+                weights[ticker] = min(cap, weight)
+            remaining = max(0.0, 100.0 - sum(weights.values()))
+            break
+        for ticker in capped:
+            weights[ticker] = cap
+            remaining = max(0.0, remaining - cap)
+            active.pop(ticker, None)
+
+    return {ticker: round(min(cap, weights.get(ticker, 0.0)), 2) for ticker in raw}
 
 
 def _cooldown_active(state: Mapping[str, Any], ticker: str, now: datetime) -> bool:
@@ -2088,6 +2105,35 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                 })
                 continue
             positions[ticker] = pos
+
+    # RC16.34c: max_position_pct is a hard safety limit, not a target-only hint.
+    # Existing oversized shadow positions are reduced immediately even when the
+    # ordinary weekly rebalance is not due. Released weight remains cash.
+    for ticker, pos in list(positions.items()):
+        current_weight = _f(pos.get("target_weight_pct"))
+        if current_weight <= cfg.max_position_pct + 1e-9:
+            continue
+        capped_weight = round(float(cfg.max_position_pct), 2)
+        pos = dict(pos)
+        pos["target_weight_pct"] = capped_weight
+        positions[ticker] = pos
+        already_recorded = any(
+            str(change.get("ticker") or "") == ticker
+            and str(change.get("action") or "").upper() == "REDUCE"
+            and abs(_f(change.get("to_pct")) - capped_weight) < 1e-9
+            for change in changes
+        )
+        if not already_recorded:
+            changes.append({
+                "action": "REDUCE",
+                "ticker": ticker,
+                "from_pct": round(current_weight, 2),
+                "to_pct": capped_weight,
+                "delta_pct": round(capped_weight - current_weight, 2),
+                "reason_code": "HARD_POSITION_CAP",
+                "reason": f"Hard maksgrense per aksje er {capped_weight:.1f}%; overskytende beholdes som kontanter",
+                "decision_run_id": decision_run_id,
+            })
 
     selected_keys = {str(row.get("ticker") or "") for row in selected_rows}
     challengers = [row for row in ranked if str(row.get("ticker") or "") not in selected_keys][: cfg.challenger_count]
@@ -2621,16 +2667,29 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
     else:
         title = f"🟢 P3 · {alert_identity} · BEDRET STOPSTATUS"
         priority = -1
-    lines = ["🛡️ SUPERPORTEFØLJE – TRAILING STOP"]
+    lines = ["🛡️ SUPERPORTEFØLJE – STOPPKONTROLL"]
     for row in list(alerts)[:8]:
+        ticker = str(row.get("ticker") or "-")
+        transition = str(row.get("transition") or "")
+        action = str(row.get("action") or "")
+        pnl = _f(row.get("pnl_pct"))
+        stop_price = _f(row.get("stop_price"))
+        current_price = _f(row.get("current_price"))
+        distance = _f(row.get("distance_pct"))
+        protected = _f(row.get("protected_gain_pct"))
+        if action == "SHADOW SELL UTFØRT":
+            headline = f"{ticker}: solgt av risikoregel"
+        elif transition == "ESCALATION":
+            headline = f"{ticker}: risikoen har økt – følg med"
+        else:
+            headline = f"{ticker}: stoppsituasjonen er forbedret – ingen handling"
         lines.extend([
-            f"{row.get('ticker')} · {row.get('from')} → {row.get('to')} · {row.get('action')}",
-            f"Kjøp {_f(row.get('entry_price')):.2f} · topp {_f(row.get('peak_price')):.2f} · nå {_f(row.get('current_price')):.2f}",
-            f"Resultat {_f(row.get('pnl_pct')):+.2f}% · fra topp {_f(row.get('drawdown_from_peak_pct')):+.2f}%",
-            f"Stop {_f(row.get('stop_price')):.2f} · {_f(row.get('distance_pct')):.2f} pp margin · siden sist {_f(row.get('distance_change_pct')):+.2f} pp {row.get('direction','→')}",
-            f"MFE {_f(row.get('peak_gain_pct')):+.2f}% · sikret gulv {_f(row.get('protected_gain_pct')):+.2f}% · beholdt {_f(row.get('mfe_retained_pct')):.0f}% av toppgevinst",
+            headline,
+            f"Nå {current_price:.2f} · resultat {pnl:+.2f}%",
+            f"Beskyttelsesnivå {stop_price:.2f} · avstand {distance:.2f}%",
+            f"Sikret gevinstgulv {protected:+.2f}% · status {row.get('to') or '-'}",
         ])
-    lines.append("Regel: gevinstbeskyttelse fra +2% MFE (40/55/65/70% beholdes etter gevinstnivå) · ellers maks trailing stop 3%.")
+    lines.append("Forklaring: gevinstbeskyttelse starter fra +2% toppgevinst; ellers brukes maks 3% trailing stop.")
     response = send_pushover_alert(
         "\n".join(lines), title=title, url=report.get("report_url") or None,
         url_title="Åpne PDF", priority=priority,
