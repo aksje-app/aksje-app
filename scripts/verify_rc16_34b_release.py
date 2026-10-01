@@ -24,8 +24,15 @@ shell = (ROOT / "ui_library" / "shell.py").read_text(encoding="utf-8")
 layout = (ROOT / "workspace_layout.py").read_text(encoding="utf-8")
 navigation = (ROOT / "navigation_state.py").read_text(encoding="utf-8")
 
-assert 'APP_VERSION = "v19.22.0-rc16.34b"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34a"' in version
+version_lines = {line.strip() for line in version.splitlines()}
+assert (
+    'APP_VERSION = "v19.22.0-rc16.34b"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34c"' in version_lines
+)
+if 'APP_VERSION = "v19.22.0-rc16.34b"' in version_lines:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34a"' in version_lines
+else:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34b"' in version_lines
 
 assert '"super_portfolio":"market"' in shell
 assert '"🌍 Super Portfolio": "market"' in navigation
