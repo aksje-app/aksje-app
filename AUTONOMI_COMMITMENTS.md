@@ -73,3 +73,16 @@ Never infer completion from a prior chat. Update the two contract files in the s
 | QUX-003 | Quality warnings distinguish real risk/quality deterioration from data-verification caveats and valuation uncertainty | IMPLEMENTED | classification test + deploy screenshot |
 | QUX-004 | Latest manual Quality run persists independently of later scheduled runs and reopens after page navigation | IMPLEMENTED | persistence test + deploy smoke test |
 | QUX-005 | Quality result has a simple "Hovedsiden" action returning to Overview without restarting the app | IMPLEMENTED | navigation test + deploy smoke test |
+
+
+## rc16.34c position-cap and notification correction contract
+
+| ID | Requirement | Current status | Acceptance evidence required |
+|---|---|---|---|
+| SPCAP-001 | Super Portfolio max_position_pct is a hard per-stock ceiling; capped weights may leave cash unallocated and are never renormalized above the cap | IMPLEMENTED | unit test with 1, 2 and 10 candidates + release verifier |
+| SPCAP-002 | Existing Super Portfolio positions above max_position_pct are automatically reduced to the hard cap on the next evaluation, including outside ordinary weekly rebalance | IMPLEMENTED | state-transition test from 50%/33.33% to 15%/15% + cash diagnostic |
+| SPREP-001 | Daily Paper/læring Pushover leads with result, risk, learning, next step and action in plain Norwegian; technical IDs are last | IMPLEMENTED | notification source/test + deploy example |
+| SPREP-002 | Autonomi portfolio-control Pushover explains what changed, why cash is held and whether user action is required | IMPLEMENTED | notification source/test + deploy example |
+| SPREP-003 | Super Portfolio stop notification explains the event and required action in plain Norwegian before technical stop details | IMPLEMENTED | notification source/test + deploy example |
+
+Production status remains **not DEPLOY_VERIFIED** until Render is running rc16.34c and the live notifications/portfolio weights are observed.
