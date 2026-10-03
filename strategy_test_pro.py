@@ -193,7 +193,7 @@ class RuleSet:
 # -------------------------------------------------------------------
 # Data og score-proxy
 # -------------------------------------------------------------------
-@st.cache_data(ttl=30 * 60, show_spinner=False)
+@st.cache_data(ttl=30 * 60, max_entries=4, show_spinner=False)
 def fetch_strategy_histories(tickers_tuple: Tuple[str, ...], period: str) -> Dict[str, pd.DataFrame]:
     """Henter historikk for en liste tickere. Cache hindrer nye kall ved hver rerun."""
     if yf is None:
