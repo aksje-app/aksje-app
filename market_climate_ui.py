@@ -52,7 +52,7 @@ def _extract_column(df: Any, name: str, symbol: str) -> list[float]:
         return []
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=900, max_entries=16, show_spinner=False)
 def _fetch_market_series(symbol: str, period: str = "2y") -> tuple[dict[str, Any], str]:
     symbol = str(symbol or "").strip()
     if not symbol:

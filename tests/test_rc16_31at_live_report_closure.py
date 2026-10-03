@@ -79,8 +79,8 @@ def test_identical_risk_proposal_is_silent_for_seven_days():
     assert learning.risk_proposal_notification_due(state, "same", now=now) is True
 
 
-def test_render_cron_checks_due_reports_every_five_minutes():
-    assert 'schedule: "*/5 * * * *"' in Path("render.yaml").read_text(encoding="utf-8")
+def test_render_cron_checks_due_reports_every_fifteen_minutes():
+    assert 'schedule: "*/15 * * * *"' in Path("render.yaml").read_text(encoding="utf-8")
 
 
 def test_diagnostic_prefers_persisted_scanner_runtime_over_web_fallback(monkeypatch):

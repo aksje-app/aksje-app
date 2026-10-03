@@ -18,8 +18,15 @@ portfolio = (ROOT / "super_portfolio.py").read_text(encoding="utf-8")
 learning = (ROOT / "controlled_parameter_learning.py").read_text(encoding="utf-8")
 autonomy = (ROOT / "autonomous_portfolio.py").read_text(encoding="utf-8")
 
-assert 'APP_VERSION = "v19.22.0-rc16.34c"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34b"' in version
+version_lines = {line.strip() for line in version.splitlines()}
+assert (
+    'APP_VERSION = "v19.22.0-rc16.34c"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34d"' in version_lines
+)
+if 'APP_VERSION = "v19.22.0-rc16.34c"' in version_lines:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34b"' in version_lines
+else:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34c"' in version_lines
 
 assert "Never renormalize capped weights" not in portfolio  # implementation, not prose dependency
 assert "remaining = 100.0" in portfolio

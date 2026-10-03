@@ -453,7 +453,7 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["super_portfolio"] = {"state": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
 
-    # Independent bounded Fresh Trend follow-up. The five-minute cron checks a
+    # Independent bounded Fresh Trend follow-up. The fifteen-minute cron checks a
     # durable 15-minute lease and refreshes only 8-12 active candidates.
     try:
         from fresh_trend_monitor import run_due_monitor
@@ -488,7 +488,7 @@ def _run_once_locked() -> dict[str, Any]:
 
     _mem("scheduler:before_currency_alerts")
 
-    # Currency alerts share the durable five-minute Render cron. They run
+    # Currency alerts share the durable fifteen-minute Render cron. They run
     # independently of report due-times, market hours and user login.
     try:
         from currency_alert_service import run_currency_alert_checks

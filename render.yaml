@@ -3,7 +3,9 @@ services:
     name: aksje-app
     autoDeployTrigger: commit
     runtime: python
-    plan: free
+    # Keep production on the current 2 GB Standard plan while memory is measured.
+    # Downsize only after live RSS stays safely below the smaller-plan ceiling.
+    plan: standard
     buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
     envVars:
@@ -67,12 +69,20 @@ services:
         value: "30"
       - key: SCAN_SLEEP_SECONDS
         value: "0.5"
+      # RC16.34d: bound web-process caches so RSS stays predictable enough for
+      # future right-sizing. The heavy scheduler already uses the same limits.
+      - key: APP_HISTORY_CACHE_MAX_ITEMS
+        value: "1"
+      - key: APP_INFO_CACHE_MAX_ITEMS
+        value: "8"
+      - key: APP_INSIDER_CACHE_MAX_ITEMS
+        value: "8"
   - type: cron
     name: aksje-app-report-scheduler
     autoDeployTrigger: commit
     runtime: python
     plan: standard
-    schedule: "*/5 * * * *"
+    schedule: "*/15 * * * *"
     buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
     startCommand: python scheduled_runner.py
     envVars:

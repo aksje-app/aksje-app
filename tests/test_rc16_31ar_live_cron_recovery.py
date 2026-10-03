@@ -129,6 +129,6 @@ def test_partial_checkpoint_is_visible_but_not_a_cron_failure(monkeypatch):
     assert scheduled_runner.main() == 0
 
 
-def test_render_cron_matches_configured_five_minute_interval():
+def test_render_cron_matches_configured_fifteen_minute_interval():
     source = Path("render.yaml").read_text(encoding="utf-8")
-    assert 'schedule: "*/5 * * * *"' in source
+    assert 'schedule: "*/15 * * * *"' in source
