@@ -8,7 +8,7 @@ from runtime_env import data_source_env_status, env_value, load_app_env, redact_
 load_app_env()
 API_KEY = env_value("FINNHUB_API_KEY")
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
 def get_earnings(ticker, months=4):
     api_key = env_value("FINNHUB_API_KEY")
     if not api_key:
