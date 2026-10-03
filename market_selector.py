@@ -3,7 +3,7 @@ import streamlit as st
 from analysis import rank_stocks, score_stock
 from background_guard import score_stock_guarded
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=900, max_entries=48, show_spinner=False)
 def cached_score_stock(ticker, use_news=False, include_insider=False):
     """
     Cache + market guard:
@@ -12,7 +12,7 @@ def cached_score_stock(ticker, use_news=False, include_insider=False):
     """
     return score_stock_guarded(score_stock, ticker, use_news=use_news, mode="background", include_insider=include_insider)
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=900, max_entries=48, show_spinner=False)
 def cached_score_stock_manual(ticker, use_news=False, include_insider=False):
     """
     Manuell UI-henting:
