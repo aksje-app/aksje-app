@@ -3,7 +3,9 @@ services:
     name: aksje-app
     autoDeployTrigger: commit
     runtime: python
-    plan: free
+    # Keep production on the current 2 GB Standard plan while memory is measured.
+    # Downsize only after live RSS stays safely below the smaller-plan ceiling.
+    plan: standard
     buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
     envVars:
