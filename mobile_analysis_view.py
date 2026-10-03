@@ -367,7 +367,7 @@ def _resample_4h(df):
         return df
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, max_entries=12, show_spinner=False)
 def fetch_timeframe_data(ticker, timeframe, period_choice=None):
     if yf is None:
         return pd.DataFrame()
