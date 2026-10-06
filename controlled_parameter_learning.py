@@ -769,6 +769,21 @@ def resolve_risk_reduction_proposal(
             raise ValueError(f"Direkte godkjenning er ikke implementert for {parameter}.")
         current = load_parameters()
         current_value = float(current.maximum_position_pct)
+        if abs(current_value - before) > 1e-6:
+            item.update({
+                "status": "STALE",
+                "production_applied": False,
+                "decided_at": _now(),
+                "decided_by": actor,
+                "decision_note": (
+                    f"Forslaget gjaldt {before:.2f}%, men aktiv verdi er nå {current_value:.2f}%. "
+                    "Ingen endring ble utført; ny evaluering kreves."
+                ),
+                "updated_at": _now(),
+            })
+            _save_risk_proposals(rows)
+            _audit("RISK_REDUCTION_PROPOSAL_STALE", item)
+            return item
         data = asdict(current)
         data[parameter] = after
         save_parameters(AutonomousParameters(**data))
@@ -1353,11 +1368,13 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                     actor="streamlit_user",
                 )
                 st.session_state.pop(_k("risk_proposal_confirm_v1934e"), None)
-                if choice == "APPROVE":
+                if choice == "APPROVE" and str(result.get("status") or "").upper() == "APPROVED":
                     st.success(
                         f"Iverksatt: maks posisjon i Autonomi-produksjon er nå "
                         f"{float(result.get('applied_to') or proposal.get('after') or 0):.2f}%."
                     )
+                elif choice == "APPROVE":
+                    st.warning(str(result.get("decision_note") or "Forslaget kunne ikke iverksettes og må evalueres på nytt."))
                 else:
                     st.success(f"Beslutning registrert: {result.get('status')}.")
                 st.rerun()
