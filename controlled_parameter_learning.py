@@ -1327,7 +1327,7 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         )
         decision_note = st.text_input("Kommentar til beslutningen", key=_k("risk_proposal_note_v1934e"))
         approve, reject, defer, block = st.columns(4)
-        if approve.button("Godkjenn", type="primary", width="stretch", key=_k("risk_proposal_approve_v1934e")):
+        if approve.button("Godkjenn forslag", type="primary", width="stretch", key=_k("risk_proposal_approve_v1934e")):
             st.session_state[_k("risk_proposal_confirm_v1934e")] = "APPROVE"
         if reject.button("Avvis nå", width="stretch", key=_k("risk_proposal_reject_v1934e")):
             st.session_state[_k("risk_proposal_confirm_v1934e")] = "REJECT"
