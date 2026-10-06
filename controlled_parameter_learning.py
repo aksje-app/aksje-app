@@ -1542,6 +1542,21 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
             st.dataframe(pd.DataFrame(history_rows), width="stretch", hide_index=True)
         else:
             st.caption("Ingen risikoforslag er registrert ennå.")
+        blocked_params = list(load_state().get("blocked_risk_parameters") or [])
+        if blocked_params:
+            st.markdown("##### Permanent blokkerte læringsforslag")
+            st.caption("Disse parameterne ble valgt som «Ikke foreslå igjen». Blokkeringen kan oppheves manuelt.")
+            st.write(", ".join(blocked_params))
+            unblock = st.selectbox("Parameter som skal tillates igjen", blocked_params, key=_k("risk_unblock_parameter_v1934e"))
+            if st.button("Tillat læringsforslag igjen", width="stretch", key=_k("risk_unblock_v1934e")):
+                latest_state = load_state()
+                latest_state["blocked_risk_parameters"] = [
+                    p for p in list(latest_state.get("blocked_risk_parameters") or []) if p != unblock
+                ]
+                save_state(latest_state)
+                _audit("RISK_PROPOSAL_PARAMETER_UNBLOCKED", {"parameter": unblock, "actor": "streamlit_user"})
+                st.success(f"Nye læringsforslag for {unblock} er tillatt igjen.")
+                st.rerun()
 
     with overview_tab:
         lifecycle_rows = proposal_lifecycle()
