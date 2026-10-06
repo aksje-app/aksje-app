@@ -90,3 +90,9 @@ Production status remains **not DEPLOY_VERIFIED** until Render is running rc16.3
 
 ### rc16.34c test evidence
 - GitHub Actions Release gate run `36931858425`: release contracts, focused quality regression, active unversioned suite, FULL packaging and clean DELTA packaging all passed.
+
+## rc16.34e Autonomi Parameter & Learning UX
+
+APUX-001: Production parameters directly below the persistent-lock notice; pending decisions above parameters; explicit approval, rejection, seven-day deferral, reversible permanent block; per-parameter cooldown (7 days AND 25 new closed trades OR 20 newly mature observations); durable proposal state and atomic parameter/history/status write; stale proposal/manual-save checks; confirmed rollback with before/after/actor/time; separate PAPER / PRODUKSJON / LÆRING datasets; scoped single-column mobile layout.
+
+Status: TESTED locally; live deployment NOT_VERIFIED. No claim of production completion before Render smoke verification. Evidence: `tests/test_rc16_34e_parameter_learning_ux.py` and `scripts/verify_rc16_34e_release.py`. Super Portfolio and portfolio/history documents are not mutated by the decision flow. Existing positions remain unchanged when position sizing is approved. New Autonomi decisions reload stored parameters. The atomic approval snapshot is checked by parameter integrity.

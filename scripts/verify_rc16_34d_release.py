@@ -21,8 +21,10 @@ version = (ROOT / "app_version.py").read_text(encoding="utf-8")
 render = (ROOT / "render.yaml").read_text(encoding="utf-8")
 runner = (ROOT / "scheduled_runner.py").read_text(encoding="utf-8")
 
-assert 'APP_VERSION = "v19.22.0-rc16.34d"' in version
-assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34c"' in version
+from app_version import APP_VERSION, PREVIOUS_APP_VERSION
+assert APP_VERSION.startswith("v19.22.0-rc16.34") and APP_VERSION.split("34", 1)[1] >= "d"
+if APP_VERSION == "v19.22.0-rc16.34d":
+    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34c"
 
 web, cron = render.split("  - type: cron", 1)
 assert "plan: standard" in web

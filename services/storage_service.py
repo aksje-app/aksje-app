@@ -454,6 +454,48 @@ class StorageService:
         self._atomic_write_text(self.base_dir / name, json.dumps(data, ensure_ascii=False, indent=2, default=str))
         return False
 
+    def mutate_json(self, name: str, transform, default=None):
+        """Serialize a read/modify/write; DB failures never fall back locally.
+
+        The callback must be pure. Its exception aborts the transaction.
+        """
+        name = _safe_name(name)
+        if self.using_postgres():
+            self.init_db()
+            conn = self._conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (name,))
+                    cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR UPDATE", (name,))
+                    row = cur.fetchone()
+                    current = json.loads(row[0]) if row else default
+                    result = transform(current)
+                    cur.execute("""INSERT INTO app_kv_store (name, payload, updated_at)
+                        VALUES (%s, %s, NOW()::TEXT) ON CONFLICT (name)
+                        DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at""",
+                        (name, json.dumps(result, ensure_ascii=False, default=str)))
+                conn.commit()
+                return result
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+        self._require_local_allowed("mutate_json")
+        path = self.base_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # flock also serializes separate UI/worker processes on Linux.
+        import fcntl
+        with _path_lock(path), path.with_suffix(path.suffix + ".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                current = json.loads(path.read_text()) if path.exists() else default
+                result = transform(current)
+                self._atomic_write_text(path, json.dumps(result, ensure_ascii=False, indent=2, default=str))
+                return result
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
     def delete_json(self, name: str) -> bool:
         name = _safe_name(name)
         used_postgres = False
