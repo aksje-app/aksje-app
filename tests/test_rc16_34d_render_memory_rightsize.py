@@ -11,9 +11,12 @@ def _source(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_release_identity_rc16_34d():
-    assert APP_VERSION == "v19.22.0-rc16.34d"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34c"
+def test_release_identity_rc16_34d_or_successor():
+    assert APP_VERSION in {"v19.22.0-rc16.34d", "v19.22.0-rc16.34e"}
+    if APP_VERSION == "v19.22.0-rc16.34d":
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34c"
+    else:
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34d"
 
 
 def test_render_blueprint_matches_current_safe_capacity_and_live_cadence():
