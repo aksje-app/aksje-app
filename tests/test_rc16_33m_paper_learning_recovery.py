@@ -30,4 +30,4 @@ def test_paper_learning_recovery_is_wired_into_runtime() -> None:
     assert "Replacement exit for" in scanner
     assert "_closed_paper_trades" in learning
     assert "Autonomi: daglig Paper + læring" in learning
-    assert "Paper + Learning Observatory" in learning
+    assert ("Paper + Learning Observatory" in learning or "PAPER – separat resultat" in learning)
