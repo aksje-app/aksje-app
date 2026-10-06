@@ -2816,10 +2816,12 @@ def _render_production_parameter_controls_v1934e(st: Any, pd: Any, params: Auton
                         actor="streamlit_user",
                     )
                     st.session_state.pop("alp_risk_confirm_v1934e", None)
-                    if rp_choice == "APPROVE":
+                    if rp_choice == "APPROVE" and str(result.get("status") or "").upper() == "APPROVED":
                         st.success(
                             f"Iverksatt: Maks posisjon er nå {float(result.get('applied_to') or proposal.get('after') or 0):.2f}%."
                         )
+                    elif rp_choice == "APPROVE":
+                        st.warning(str(result.get("decision_note") or "Forslaget kunne ikke iverksettes og må evalueres på nytt."))
                     else:
                         st.success(f"Beslutning registrert: {result.get('status')}.")
                     st.rerun()
