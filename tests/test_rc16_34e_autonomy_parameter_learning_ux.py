@@ -134,6 +134,30 @@ def test_block_choice_can_disable_future_learning_proposals(monkeypatch):
     assert "maximum_position_pct" in state["blocked_risk_parameters"]
 
 
+
+def test_stale_risk_proposal_never_overwrites_newer_manual_value(monkeypatch):
+    rows = [{
+        "proposal_id": "RP-STALE",
+        "status": "PENDING",
+        "parameter": "maximum_position_pct",
+        "before": 3.0,
+        "after": 1.5,
+        "reason": "reason",
+    }]
+    saved = []
+    monkeypatch.setattr(cpl, "_risk_proposals", lambda: rows)
+    monkeypatch.setattr(cpl, "_save_risk_proposals", lambda value: None)
+    monkeypatch.setattr(cpl, "_audit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cpl, "_notify", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cpl, "load_parameters", lambda: AutonomousParameters(maximum_position_pct=2.0))
+    monkeypatch.setattr(cpl, "save_parameters", lambda p: saved.append(p) or p)
+
+    result = cpl.resolve_risk_reduction_proposal("RP-STALE", "APPROVE", note="approve")
+    assert result["status"] == "STALE"
+    assert result["production_applied"] is False
+    assert saved == []
+    assert "aktiv verdi er nå 2.00%" in result["decision_note"]
+
 def test_ui_exposes_approve_reject_defer_and_block_choices():
     autonomy = _source("autonomous_portfolio.py")
     learning = _source("controlled_parameter_learning.py")
