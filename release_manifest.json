@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
-  "release_target": "v19.22.0-rc16.34c",
-  "baseline_version": "v19.22.0-rc16.34b",
-  "baseline_main_commit": "59c0e7ffbce0e0e30063922ce211e0139b246db6",
+  "release_target": "v19.22.0-rc16.34e",
+  "baseline_version": "v19.22.0-rc16.34d",
+  "baseline_main_commit": "9efd117b5cd3a689ad8d49e754b3f2828fabd41b",
   "status_order": [
     "AGREED",
     "IMPLEMENTED",
@@ -11,7 +11,7 @@
     "DEPLOY_VERIFIED",
     "BLOCKED"
   ],
-  "production_completion_status": "DEPLOY_VERIFIED",
+  "production_completion_status": "TESTED",
   "rules": {
     "assistant_may_call_finished_only_at": "DEPLOY_VERIFIED",
     "merge_requires_release_blockers_at_least": "TESTED",
@@ -270,6 +270,17 @@
         "tests/test_rc16_34c_position_cap_reports.py",
         "GitHub Actions rc16.34c verification run 36931858425: success"
       ]
+    },
+    {
+      "id": "APUX-001",
+      "title": "Autonomi Parameter & Learning UX",
+      "status": "TESTED",
+      "release_blocker": true,
+      "evidence": [
+        "tests/test_rc16_34e_parameter_learning_ux.py: decisions, persistence, cooldown, rollback, isolation and concurrency",
+        "scripts/verify_rc16_34e_release.py: UI ordering and dataset contract"
+      ],
+      "deploy_status": "NOT_VERIFIED"
     }
   ]
 }

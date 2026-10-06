@@ -35,7 +35,14 @@ def write_approved_seal(*, approval_id: str, reason: str) -> dict[str, Any]:
 
 def verify_parameter_integrity(*, notify: bool = False) -> dict[str, Any]:
     current = _snapshot()
-    sealed = read_persistent_json(KEY, default=None)
+    # This approval snapshot commits atomically with values/history/proposal status.
+    from services.storage_service import get_storage_service
+    doc = get_storage_service().read_json("autonomous_portfolio/parameters.json", {})
+    approved = (doc.get("_governance") or {}).get("approved_parameters")
+    if approved is not None and approved == current["parameters"]:
+        return {**current, "status": "APPROVED", "approval_id": "PARAMETER_GOVERNANCE"}
+    sealed = ({"fingerprint": "GOVERNED_PARAMETER_MISMATCH"} if approved is not None
+              else read_persistent_json(KEY, default=None))
     if not isinstance(sealed, Mapping):
         return write_approved_seal(approval_id="BOOTSTRAP", reason="Første integritetsforsegling")
     if str(sealed.get("fingerprint")) == current["fingerprint"]:

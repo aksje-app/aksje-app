@@ -539,8 +539,19 @@ def generate_hypotheses() -> list[dict[str, Any]]:
         ))
     created = []
     open_keys = {(h.get("parameter"), h.get("status")) for h in existing if h.get("status") in {"NEW", "READY", "TESTING", "TRIAL"}}
+    from autonomy_parameter_governance import evidence_snapshot, renewal_allowed, snapshot as parameter_snapshot
+    decision_evidence = evidence_snapshot(trades, load_learning_observations(), stats, calculate_performance().get("drawdown_pct", 0))
+    blocked_parameters = set(parameter_snapshot().get("_governance", {}).get("blocked_parameters", []))
     for parameter, before, after, reason in proposals:
         if any(k[0] == parameter for k in open_keys): continue
+        if parameter in blocked_parameters:
+            continue
+        prior = next((h for h in existing if h.get("parameter") == parameter and h.get("status") == "REJECTED"), None)
+        if prior:
+            if not prior.get("decision_evidence"):
+                prior["decision_evidence"] = decision_evidence
+            if not renewal_allowed(prior, decision_evidence)[0]:
+                continue
         # Preserve the historical direct statistics contract while adding the
         # new observation evidence alongside it.
         evidence = {
@@ -548,7 +559,7 @@ def generate_hypotheses() -> list[dict[str, Any]]:
             "closed_trade_statistics": stats,
             "observation_statistics": observation_evidence,
         }
-        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "created_at": _now(), "status": "NEW", "lifecycle_status": "HYPOTESE", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": {**evidence, "ordinary_closed_trades": len(ordinary_trades), "learning_closed_trades": len(learning_trades), "paper_closed_trades": len(paper_trades), "paper_statistics_pct": paper_stats}, "evidence_basis": "MATURE_OBSERVATIONS" if enough_observations and not enough_trades else "ORDINARY_AND_THEORETICAL_CLOSED_TRADES", "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM", "production_applied": False}
+        h = {"hypothesis_id": "H-" + uuid.uuid4().hex[:10], "decision_evidence": decision_evidence, "created_at": _now(), "status": "NEW", "lifecycle_status": "HYPOTESE", "parameter": parameter, "before": round(before, 6), "after": round(after, 6), "reason": reason, "evidence": {**evidence, "ordinary_closed_trades": len(ordinary_trades), "learning_closed_trades": len(learning_trades), "paper_closed_trades": len(paper_trades), "paper_statistics_pct": paper_stats}, "evidence_basis": "MATURE_OBSERVATIONS" if enough_observations and not enough_trades else "ORDINARY_AND_THEORETICAL_CLOSED_TRADES", "risk_level": "LOW" if parameter in {"minimum_investment_score", "minimum_data_quality", "maximum_position_pct"} else "MEDIUM", "production_applied": False}
         existing.insert(0, h); created.append(h); _audit("HYPOTHESIS_CREATED", h)
         _notify("Learning: ny hypotese", f"{parameter}: {before:g} → {after:g}. {reason}", h)
     _write(HYPOTHESES_PATH, existing)
@@ -615,6 +626,8 @@ def promote_trial(*, explicit_user_approval: bool = False, approval_id: str = ""
     if not approval:
         raise PermissionError("Gyldig ventende brukergodkjenning ble ikke funnet.")
     previous = asdict(load_parameters())
+    if any(previous.get(k) != v for k, v in (trial.get("previous_parameters") or {}).items()):
+        raise PermissionError("Skyggetestens utgangspunkt er utdatert. Opprett en ny test før godkjenning.")
     save_parameters(AutonomousParameters(**dict(trial.get("parameters") or {})))
     old = next((v for v in versions if v.get("status") == "CHAMPION"), None)
     if old: old["status"] = "ARCHIVED_CHAMPION"
@@ -703,11 +716,24 @@ def _queue_promotion_approval(trial: Mapping[str, Any], guard: Mapping[str, Any]
     existing = next((a for a in approvals if a.get("version_id") == trial.get("version_id") and a.get("status") == "PENDING"), None)
     if existing:
         return existing
+    from autonomy_parameter_governance import evidence_snapshot, renewal_allowed
+    decision_trades = _closed_trades() + _closed_learning_trades()
+    decision_evidence = evidence_snapshot(decision_trades, load_learning_observations(), _stats(decision_trades), calculate_performance().get("drawdown_pct", 0))
+    prior = next((a for a in approvals if a.get("version_id") == trial.get("version_id") and a.get("status") == "REJECTED"), None)
+    if prior:
+        # Pre-UX rejections have no identity-based evidence snapshot. Establish
+        # a baseline once; historical counts must not masquerade as new data.
+        if not prior.get("decision_evidence"):
+            prior["decision_evidence"] = decision_evidence
+            _write(APPROVALS_PATH, approvals)
+        if not renewal_allowed(prior, decision_evidence)[0]:
+            return prior
     before = dict(trial.get("previous_parameters") or ensure_champion_version().get("parameters") or {})
     after = dict(trial.get("parameters") or {})
     changes = [{"parameter": key, "before": before.get(key), "after": after.get(key)}
                for key in sorted(set(before) | set(after)) if before.get(key) != after.get(key)]
     item = {
+        "decision_evidence": decision_evidence,
         "approval_id": "PA-" + uuid.uuid4().hex[:10],
         "created_at": _now(),
         "status": "PENDING",
@@ -764,7 +790,8 @@ def resolve_promotion_approval(approval_id: str, approve: bool, *, note: str = "
         hypotheses = _read(HYPOTHESES_PATH, [])
         if isinstance(hypotheses, list):
             h = next((x for x in hypotheses if x.get("hypothesis_id") == item.get("hypothesis_id")), None)
-            if h: h["lifecycle_status"] = "AVVIST"; h["status"] = "REJECTED"
+            if h:
+                h.update(lifecycle_status="AVVIST", status="REJECTED", resolved_at=item["resolved_at"], decision_evidence=item.get("decision_evidence"))
             _write(HYPOTHESES_PATH, hypotheses)
         _audit("CHAMPION_PROMOTION_REJECTED", item)
         _notify("Autonomi: promotering avvist", f"Champion-promotering {item.get('version_id')} ble avvist.", item)
@@ -835,11 +862,17 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
     open_h = [h for h in hypotheses if h.get("status") in {"NEW", "TESTING", "TRIAL"}] if isinstance(hypotheses, list) else []
     champion = next((v for v in versions if v.get("status") == "CHAMPION"), None) if isinstance(versions, list) else None
     observations = []
-    if stats["expectancy"] < 0: observations.append("Negativ expectancy krever forsiktig kapitalbruk.")
-    if stats["profit_factor"] < 1 and stats["trades"] >= int(state.get("warning_min_closed_trades", 10)): observations.append("Profit Factor er under 1,0.")
+    if stats["expectancy"] < 0: observations.append("Autonomi-produksjon + læringshandler har negativ expectancy; forsiktig kapitalbruk foreslås.")
+    if stats["profit_factor"] < 1 and stats["trades"] >= int(state.get("warning_min_closed_trades", 10)): observations.append("Autonomi-produksjon + læringshandler: Profit Factor er under 1,0 (Paper er separat).")
     if _f(perf.get("drawdown_pct")) >= load_parameters().maximum_drawdown_pct * 0.75: observations.append("Drawdown nærmer seg maksimalgrensen.")
     if not observations: observations.append("Ingen kritiske lærings- eller risikohendelser i perioden.")
+    from autonomy_parameter_governance import snapshot as parameter_snapshot
+    pending_parameters = [p for p in parameter_snapshot().get("_governance", {}).get("proposals", []) if p["status"] in {"PENDING", "DEFERRED"}]
     report = {
+        "datasets": {"PAPER": paper_snapshot, "PRODUKSJON": {"statistics": _stats(ordinary_trades), "performance": perf},
+                     "LÆRING": {"statistics": _stats(learning_trades), "mature_observations": observation_evidence["mature_count"]}},
+        "pending_parameter_proposals": pending_parameters,
+        "statistics_basis": "Autonomi-produksjon + separate læringshandler (uten Paper)",
         "report_id": "MR-" + uuid.uuid4().hex[:10], "created_at": _now(), "frequency": frequency,
         "mode": state.get("mode"), "closed_trades": len(trades), "ordinary_closed_trades": len(ordinary_trades),
         "learning_closed_trades": len(learning_trades), "paper": paper_snapshot, "statistics": stats, "performance": perf,
@@ -873,11 +906,11 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
         )
     if paper_snapshot.get("available"):
         paper_line = (
-            f"RESULTAT: Paper-porteføljen er {paper_snapshot.get('total_value', 0):,.0f} "
+            f"PAPER / RESULTAT: Paper-porteføljen er {paper_snapshot.get('total_value', 0):,.0f} "
             f"({paper_snapshot.get('result_amount', 0):+,.0f} / {paper_snapshot.get('result_pct', 0):+.2f}% fra start)."
         )
     else:
-        paper_line = "RESULTAT: Paper-status er utilgjengelig."
+        paper_line = "PAPER: Paper-status er utilgjengelig."
 
     closed_now = int(requirement["closed_trades"])
     closed_required = int(requirement["closed_trades_required"])
@@ -902,11 +935,16 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
         if not observations or observations == ["Ingen kritiske lærings- eller risikohendelser i perioden."]
         else "HANDLING: " + " ".join(observations[:2])
     )
+    if pending_parameters:
+        action_line = "HANDLING: Krever beslutning – " + " · ".join(
+            f"Maks posisjon {p['before']:.1f}% → {p['after']:.1f}% ({'UTSATT' if p['status'] == 'DEFERRED' else 'VENTER PÅ GODKJENNING'})" for p in pending_parameters)
     _notify(
         "Autonomi: daglig Paper + læring",
         "\n".join([
             paper_line,
-            f"RISIKO: Drawdown {drawdown_text}%.",
+            f"PRODUKSJON: {len(ordinary_trades)} avsluttede Autonomi-handler · PF {_stats(ordinary_trades)['profit_factor']:.2f}.",
+            f"PRODUKSJON / RISIKO: Drawdown {drawdown_text}%.",
+            f"LÆRING: {len(learning_trades)} separate læringshandler · PF {_stats(learning_trades)['profit_factor']:.2f}.",
             f"LÆRING: {paper_snapshot.get('closed_trades', 0)} avsluttede Paper-handler · "
             f"{len(open_observations)} åpne observasjoner · {observation_evidence['mature_count']} modne.",
             f"TESTER: {len(open_h)} åpne hypoteser · {len(active_tests)} aktive skyggetester.",
@@ -1008,19 +1046,29 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
                 p = load_parameters(); reduced = max(0.5, p.maximum_position_pct * float(state["risk_reduction_factor"]))
                 if reduced < p.maximum_position_pct:
                     action = {"type": "RISK_REDUCTION_PROPOSED", "parameter": "maximum_position_pct", "before": p.maximum_position_pct, "after": reduced, "reason": "Drawdown/negativ expectancy trigger", "applied": False, "requires_explicit_user_approval": True}
+                    from autonomy_parameter_governance import queue_proposal, evidence_snapshot
+                    evidence = evidence_snapshot(trades, load_learning_observations(), stats, perf.get("drawdown_pct", 0))
+                    proposal = queue_proposal(action["parameter"], action["before"], action["after"], action["reason"], evidence)
+                    if not proposal:
+                        actions.append({"type": "RISK_PROPOSAL_COOLDOWN_OR_BLOCKED", "applied": False})
+                        continue_risk_notification = False
+                    else:
+                        action["proposal_id"] = proposal["proposal_id"]
+                        continue_risk_notification = proposal["status"] == "PENDING"
                     risk_fingerprint = "|".join(map(str, (
                         action["parameter"], round(float(action["before"]), 6),
                         round(float(action["after"]), 6), action["reason"],
                     )))
-                    notify_risk = risk_proposal_notification_due(state, risk_fingerprint)
+                    notify_risk = continue_risk_notification and risk_proposal_notification_due(state, risk_fingerprint)
                     action["notification_sent"] = notify_risk
-                    actions.append(action)
+                    if proposal:
+                        actions.append(action)
                     if notify_risk:
                         _audit("RISK_PROTECTION_PROPOSAL", action)
                         _notify("Learning: risikoforslag", f"Forslag: maks posisjon {p.maximum_position_pct:.2f}% → {reduced:.2f}%. Ingen automatisk endring er utført.", action)
                         state["last_risk_proposal_notification_at"] = _now()
                         state["last_risk_proposal_fingerprint"] = risk_fingerprint
-                    else:
+                    elif proposal:
                         _audit("RISK_PROTECTION_PROPOSAL_DUPLICATE_SUPPRESSED", action)
         hypotheses = _read(HYPOTHESES_PATH, []); hypotheses = hypotheses if isinstance(hypotheses, list) else []
         if policy["auto_challenger"] and len(trades) >= int(state["challenger_min_closed_trades"]):
@@ -1043,10 +1091,12 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
                     guard = _promotion_guard(trial, state)
                     if guard["requires_confirmation"]:
                         approval = _queue_promotion_approval(trial, guard)
-                        actions.append({"type": "CHAMPION_APPROVAL_REQUIRED", "approval_id": approval["approval_id"], "guard": guard})
+                        if approval.get("status") == "PENDING":
+                            actions.append({"type": "CHAMPION_APPROVAL_REQUIRED", "approval_id": approval["approval_id"], "guard": guard})
                     else:
                         approval = _queue_promotion_approval(trial, guard)
-                        actions.append({"type": "CHAMPION_APPROVAL_REQUIRED", "approval_id": approval["approval_id"], "guard": guard})
+                        if approval.get("status") == "PENDING":
+                            actions.append({"type": "CHAMPION_APPROVAL_REQUIRED", "approval_id": approval["approval_id"], "guard": guard})
         # Roll back a trial quickly when drawdown materially worsens.
         if policy["auto_rollback"]:
             versions = _read(VERSIONS_PATH, []); versions = versions if isinstance(versions, list) else []
@@ -1068,6 +1118,8 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         # Stable keys are required so Streamlit keeps the selected value across reruns.
         # The caller supplies a unique namespace when the panel can be rendered elsewhere.
         return f"{namespace}_{name}"
+    from autonomous_portfolio import _render_responsive_portfolio_css
+    _render_responsive_portfolio_css(st)
     st.markdown("#### 🧪 Controlled Parameter Learning")
     storage_info = persistence_status()
     if storage_info.get("persistent"):
@@ -1075,12 +1127,18 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
     else:
         st.caption("⚠ Lokal lagring er aktiv; DATABASE_URL kreves for å overleve ny Render-deploy.")
     st.caption("Fast Learning / Safe Promotion. Rask risikobeskyttelse, trinnvis testing og varslede endringer. Kun teoretisk autonom portefølje.")
-    state = load_state(); trades = _closed_trades(); stats = _stats(trades)
     run_automatic_learning_if_due(trigger="UI_RENDER", force=False)
+    from autonomy_parameter_governance import render_decisions
+    render_decisions(st, namespace=namespace)
+    state = load_state(); trades = _closed_trades(); stats = _stats(trades)
+    st.markdown("##### PRODUKSJON – ordinære Autonomi-handler")
     c1,c2,c3,c4,c5 = st.columns(5)
     c1.metric("Læring", "NØDSTOPP" if state.get("emergency_stop") else ("AKTIV" if state["enabled"] else "AV"))
     c2.metric("Lukkede handler", len(trades)); c3.metric("Expectancy", f"{stats['expectancy']:,.0f}")
     c4.metric("Profit Factor", f"{stats['profit_factor']:.2f}"); c5.metric("Siste evaluering", str(state.get("last_evaluation_at") or "–")[:16])
+    st.markdown("##### LÆRING – separate læringshandler og observasjoner")
+    learning_stats = _stats(_closed_learning_trades())
+    st.caption(f"Læringshandler: {int(learning_stats['trades'])} · PF {learning_stats['profit_factor']:.2f} · expectancy {learning_stats['expectancy']:,.0f}")
     guard = learning_guard_snapshot(notify=False)
     g1, g2, g3 = st.columns(3)
     g1.metric("Læringsvakt", guard["status"])
@@ -1091,7 +1149,7 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
 
     paper_snapshot = _paper_portfolio_learning_snapshot()
     if paper_snapshot.get("available"):
-        st.markdown("##### Paper + Learning Observatory")
+        st.markdown("##### PAPER – Paper Trading, eget datasett")
         p1, p2, p3, p4 = st.columns(4)
         p1.metric("Paper-resultat", f"{paper_snapshot.get('result_amount', 0):+,.0f}")
         p2.metric("Paper-avkastning", f"{paper_snapshot.get('result_pct', 0):+.2f}%")
@@ -1163,7 +1221,7 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                 set_status(False, "Nødstopp aktivert i Autonomy Settings")
             except Exception:
                 pass
-        st.caption({"OBSERVER":"Observerer, varsler og foreslår – endrer ingen parametere.", "ASSISTED":"Starter Challengers og prøvemodus automatisk; Champion krever godkjenning.", "FULL":"Kan starte tester, aktivere prøvemodus og promotere Champion, men store eller vesentlige risikoendringer krever bekreftelse."}[selected_mode])
+        st.caption({"OBSERVER":"Observerer, varsler og foreslår – endrer ingen parametere.", "ASSISTED":"Starter Challengers og prøvemodus automatisk; Champion krever godkjenning.", "FULL":"Kan starte skyggetester automatisk og foreslå Champion. Alle produksjonsendringer krever eksplisitt godkjenning."}[selected_mode])
 
         st.markdown("###### Tillatte automatiske handlinger")
         p1,p2,p3,p4,p5 = st.columns(5)
@@ -1186,7 +1244,7 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         interval = int(e2.number_input("Evaluer hvert minutt", 1, 10080, int(state.get("evaluation_interval_minutes", 60)), 5, key=_k("cpl_interval_v18689b")))
         report_freq = e3.selectbox("AI-sjef rapport", ["OFF", "DAILY", "WEEKLY"], index=["OFF", "DAILY", "WEEKLY"].index(str(state.get("management_report_frequency") or "DAILY")), format_func=lambda x: {"OFF":"Av", "DAILY":"Daglig", "WEEKLY":"Ukentlig"}[x], key=_k("cpl_report_freq_v18689b"))
         notification_level = e4.selectbox("Varslingsnivå", ["ALL", "IMPORTANT", "CRITICAL"], index=["ALL", "IMPORTANT", "CRITICAL"].index(str(state.get("notification_level") or "ALL")), format_func=lambda x: {"ALL":"Alle hendelser", "IMPORTANT":"Viktige", "CRITICAL":"Kun kritiske"}[x], key=_k("cpl_notification_v18689b"))
-        risk = st.toggle("Automatisk risikobeskyttelse", value=bool(state["auto_risk_protection"]), key=_k("cpl_risk_v18689b"))
+        risk = st.toggle("Foreslå risikobeskyttelse automatisk", value=bool(state["auto_risk_protection"]), key=_k("cpl_risk_v18689b"))
 
         with st.expander("Adaptive læringsterskler", expanded=False):
             cols = st.columns(5)
@@ -1270,7 +1328,7 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                     if p.button("Start Challenger", key=_k("cpl_start_ch_v18689b")):
                         start_challenger(h["hypothesis_id"]); st.success("Challenger startet."); st.rerun()
                     if q.button("Aktiver i prøvemodus", key=_k("cpl_trial_v18689b")):
-                        apply_trial(h["hypothesis_id"]); st.success("Midlertidig parameterendring aktivert og varslet."); st.rerun()
+                        apply_trial(h["hypothesis_id"]); st.success("Parallell skyggetest er aktivert og varslet."); st.rerun()
             else: st.info("Ingen hypoteser ennå. Modulen venter på nok lukkede handler eller manuell evaluering.")
         with t2:
             if experiments: st.dataframe(pd.DataFrame(experiments), width="stretch", hide_index=True)
@@ -1283,7 +1341,11 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                     trial = next((v for v in versions if v.get("status") == "TRIAL"), None)
                     if not trial: raise ValueError("Ingen aktiv parallelltest.")
                     approval = _queue_promotion_approval(trial, _promotion_guard(trial, state))
-                    st.success(f"Godkjenning opprettet: {approval.get('approval_id')}"); st.rerun()
+                    if approval.get("status") == "PENDING":
+                        st.success(f"Godkjenning opprettet: {approval.get('approval_id')}")
+                    else:
+                        st.info("Tidligere avvist. Venter på cooldown og vesentlig nytt datagrunnlag.")
+                    st.rerun()
                 except (ValueError, PermissionError) as exc: st.warning(str(exc))
         with t4:
             reports = _read(REPORTS_PATH, [])

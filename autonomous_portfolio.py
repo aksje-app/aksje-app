@@ -376,7 +376,7 @@ def load_parameters() -> AutonomousParameters:
             "trailing_stop_pct": 4.5,
             "take_profit_pct": 14.0,
         }
-        if raw and all(
+        if raw and not raw.get("_governance", {}).get("approved_parameters") and all(
             key in raw and abs(_f(raw.get(key), expected) - expected) < 0.0001
             for key, expected in legacy_signature.items()
         ):
@@ -395,10 +395,8 @@ def load_parameters() -> AutonomousParameters:
 
 def save_parameters(params: AutonomousParameters) -> AutonomousParameters:
     params = params.normalized()
-    previous = _read(PARAMETERS_PATH, {})
-    _write(PARAMETERS_PATH, asdict(params))
-    if previous and previous != asdict(params):
-        _append_audit("PARAMETERS_CHANGED_BY_USER", {"before": previous, "after": asdict(params)})
+    from autonomy_parameter_governance import save_manual
+    save_manual(params)
     return params
 
 
@@ -2745,12 +2743,19 @@ def _render_responsive_portfolio_css(st: Any) -> None:
     .autonomous-log-card-v1940 strong{color:#7dd3fc}.autonomous-log-card-v1940 div{display:flex;justify-content:space-between;gap:.8rem;padding:.2rem 0}
     .autonomous-log-card-v1940 span{color:#94a3b8;font-size:.76rem}.autonomous-log-card-v1940 footer{border-top:1px solid rgba(148,163,184,.18);margin-top:.45rem;padding-top:.45rem;color:#cbd5e1}
     @media(max-width:760px){
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stHorizontalBlock"]{flex-direction:column!important;align-items:stretch!important;gap:1rem!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stColumn"]{width:100%!important;flex:1 1 100%!important;min-width:0!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h1,
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h2,
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h3,
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h4,
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h5{height:auto!important;line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere}
       .autonomous-mobile-log-cards-v1940{display:block!important}
       [class*="st-key-autonomous-desktop-positions-v1940"],
       [class*="st-key-autonomous-desktop-trades-v1940"],
       [class*="st-key-autonomous-desktop-decisions-v1940"]{display:none!important}
     }
-    </style>''', unsafe_allow_html=True)
+    </style><span class="autonomy-responsive-marker"></span>''', unsafe_allow_html=True)
 
 def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
     st.markdown("##### 🧪 Aktiveringsanalyse og strategikontoer")
@@ -2918,12 +2923,95 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         _navigate_autonomy_workspace("overview")
     storage_info = persistence_status()
     if storage_info.get("persistent"):
-        st.success("🔒 Parameterlås aktiv: lagrede innstillinger hentes fra persistent database og beholdes ved refresh, omstart og ny versjon.")
+        st.success("🔒 Parameterlås aktiv. Lagret permanent i PostgreSQL. Verdiene kan endres nedenfor og beholdes ved restart/deploy.")
     else:
         st.warning("⚠ Parameterne lagres bare lokalt. Sett DATABASE_URL på Render for å beholde dem ved ny deploy.")
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
+
+    from autonomy_parameter_governance import render_decisions, render_history, save_manual, actor_from_ui
+    render_decisions(st)
+    current_widget_values = asdict(params)
+    if st.session_state.get("autonomy_parameter_widget_values") != current_widget_values:
+        for key in list(st.session_state):
+            if key.startswith("alp_") and any(part in key for part in ("_v18688", "_v19018", "_v19220_rc1626")):
+                del st.session_state[key]
+        st.session_state["autonomy_parameter_widget_values"] = current_widget_values
+    st.caption("Motor: Autonomi-produksjon · Super Portfolio har egen hard posisjonsgrense (normalt 15 %). Læringskontoene har egne grenser.")
+    with st.expander("Produksjonsparametre – Autonomi", expanded=True):
+        portfolio_initial_cash = _f(portfolio.get("initial_cash"), params.initial_cash)
+        st.info(
+            "Disse grensene styrer nye teoretiske beslutninger. Startkapital er bare reset-verdi for en ny konto; "
+            "den endrer aldri avkastningsgrunnlaget til en eksisterende portefølje."
+        )
+        st.caption(
+            f"Faktisk avkastningsgrunnlag for aktiv konto: {_fmt_nb_money(portfolio_initial_cash)} · "
+            f"valgt reset-verdi: {_fmt_nb_money(params.initial_cash)}."
+        )
+        if abs(float(params.initial_cash) - portfolio_initial_cash) > 0.01:
+            st.warning("Reset-verdien avviker fra aktiv kontos startkapital. Dette er tillatt, men får først virkning etter en uttrykkelig RESET.")
+        p1, p2, p3, p4 = st.columns(4)
+        initial_cash = p1.number_input("Startkapital ved neste RESET", 1000.0, 100000000.0, float(params.initial_cash), 10000.0, key="alp_initial_v18688")
+        min_score = p2.slider("Minimum investeringsscore", 0.0, 100.0, float(params.minimum_investment_score), 1.0, key="alp_minscore_v18688")
+        min_quality = p3.slider("Minimum datakvalitet", 0.0, 100.0, float(params.minimum_data_quality), 1.0, key="alp_quality_v18688")
+        max_risk = p4.slider("Maks risikoscore", 0.0, 100.0, float(params.maximum_risk_score), 1.0, key="alp_risk_v18688")
+        q1, q2, q3, q4 = st.columns(4)
+        max_pos = q1.slider("Maks posisjon % – Autonomi-produksjon", 0.1, 25.0, float(params.maximum_position_pct), 0.1, key="alp_pos_v18688")
+        q1.caption("Gjelder nye Autonomi-produksjonsposisjoner. Endrer ikke Super Portfolio. Nullstiller ikke historikk.")
+        max_sector = q2.slider("Maks sektor %", 1.0, 100.0, float(params.maximum_sector_pct), 1.0, key="alp_sector_v18688")
+        max_open = q3.number_input("Maks åpne posisjoner", 1, 100, int(params.maximum_open_positions), 1, key="alp_open_v18688")
+        reserve = q4.slider("Kontantreserve %", 0.0, 95.0, float(params.reserve_cash_pct), 1.0, key="alp_reserve_v18688")
+        r1, r2, r3, r4 = st.columns(4)
+        stop = r1.slider("Stop loss %", 0.5, 50.0, float(params.stop_loss_pct), 0.5, key="alp_stop_v18688")
+        trail = r2.slider("Trailing stop %", 0.5, 50.0, float(params.trailing_stop_pct), 0.5, key="alp_trail_v18688")
+        target = r3.slider("Take profit %", 0.5, 300.0, float(params.take_profit_pct), 0.5, key="alp_target_v18688")
+        score_exit = r4.slider("Score-exit under", 0.0, 100.0, float(params.score_exit_threshold), 1.0, key="alp_scoreexit_v18688")
+        max_dd = st.slider("Maks drawdown %", 0.5, 80.0, float(params.maximum_drawdown_pct), 0.5, key="alp_dd_v18688")
+        st.markdown("**Separate læringsgrenser – gjelder kun læringsporteføljen**")
+        s2, s3, s4 = st.columns(3)
+        learning_enabled = s2.checkbox("Aktiver læringskjøp", params.enable_learning_probe_buys, key="alp_learning_probe_enabled_v19018")
+        learning_min_score = s3.slider("Minimum læringsscore", 60.0, 65.0, float(params.learning_probe_minimum_score), 1.0, key="alp_learning_probe_min_v19018")
+        learning_max_buys = s4.number_input("Maks læringskjøp", 0, 10, int(params.learning_probe_max_buys), 1, key="alp_learning_probe_max_v19018")
+        u1, u2 = st.columns(2)
+        learning_notional = u1.number_input("Notional per læringsposisjon", 100.0, 100000.0, float(params.learning_probe_notional_value), 100.0, key="alp_learning_notional_v19018b")
+        learning_horizon = u2.number_input("Læringshorisont (dager)", 1, 365, int(params.learning_probe_horizon_days), 1, key="alp_learning_horizon_v19018b")
+        learning_max_risk = st.slider("Maksimal risiko for kun læringskjøp", 0.0, 75.0, float(params.learning_probe_maximum_risk_score), 1.0, key="alp_learning_risk_v19220_rc1626")
+        notify = st.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
+        if st.button("Lagre parametere", key="alp_save_params_v18688"):
+            save_manual(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, stagnation_days=params.stagnation_days, stagnation_band_pct=params.stagnation_band_pct, cash_review_days=params.cash_review_days, cash_review_max_return_pct=params.cash_review_max_return_pct, reentry_cooldown_days=params.reentry_cooldown_days, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_maximum_risk_score=learning_max_risk, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=params.notify_risk_events), actor=actor_from_ui(st), expected=asdict(params))
+            st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
+
+        st.markdown("**Kontrollert anbefalt produksjonsprofil**")
+        st.caption("Profilen endrer ikke startkapital, læringskonto, historikk eller eksisterende posisjoner. Den må godkjennes eksplisitt.")
+        recommended = recommended_production_profile(params)
+        profile_rows = [
+            {"Parameter": "Minimum investeringsscore", "Nå": params.minimum_investment_score, "Anbefalt": recommended.minimum_investment_score},
+            {"Parameter": "Minimum datakvalitet", "Nå": params.minimum_data_quality, "Anbefalt": recommended.minimum_data_quality},
+            {"Parameter": "Maks risikoscore", "Nå": params.maximum_risk_score, "Anbefalt": recommended.maximum_risk_score},
+            {"Parameter": "Maks posisjon %", "Nå": params.maximum_position_pct, "Anbefalt": recommended.maximum_position_pct},
+            {"Parameter": "Maks sektor %", "Nå": params.maximum_sector_pct, "Anbefalt": recommended.maximum_sector_pct},
+            {"Parameter": "Maks åpne posisjoner", "Nå": params.maximum_open_positions, "Anbefalt": recommended.maximum_open_positions},
+            {"Parameter": "Kontantreserve %", "Nå": params.reserve_cash_pct, "Anbefalt": recommended.reserve_cash_pct},
+            {"Parameter": "Stop-loss %", "Nå": params.stop_loss_pct, "Anbefalt": recommended.stop_loss_pct},
+            {"Parameter": "Trailing stop %", "Nå": params.trailing_stop_pct, "Anbefalt": recommended.trailing_stop_pct},
+            {"Parameter": "Take profit %", "Nå": params.take_profit_pct, "Anbefalt": recommended.take_profit_pct},
+            {"Parameter": "Score-exit under", "Nå": params.score_exit_threshold, "Anbefalt": recommended.score_exit_threshold},
+            {"Parameter": "Maks drawdown %", "Nå": params.maximum_drawdown_pct, "Anbefalt": recommended.maximum_drawdown_pct},
+        ]
+        profile_view = pd.DataFrame(profile_rows)
+        profile_view[["Nå", "Anbefalt"]] = profile_view[["Nå", "Anbefalt"]].astype(float).round(2)
+        st.dataframe(profile_view, width="stretch", hide_index=True)
+        production_approval = st.text_input("Skriv GODKJENN for å bruke anbefalt produksjonsprofil", key="alp_recommended_profile_approval_v1931h")
+        if st.button("Bruk anbefalt produksjonsprofil", key="alp_apply_recommended_profile_v1931h"):
+            if production_approval.strip().upper() != "GODKJENN":
+                st.error("Skriv GODKJENN før produksjonsprofilen endres.")
+            else:
+                save_manual(recommended, actor=actor_from_ui(st), expected=asdict(params), source="APPROVED_PRODUCTION_PROFILE")
+                st.success("Anbefalt produksjonsprofil er lagret og auditført. Aktiv portefølje og historikk er ikke nullstilt.")
+                st.rerun()
+
+    render_history(st)
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Status", portfolio.get("status", "PAUSED"))
@@ -3023,76 +3111,6 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         pass
 
     _render_activation_analysis_v1980(st, pd)
-
-    with st.expander("Faste parametere", expanded=False):
-        portfolio_initial_cash = _f(portfolio.get("initial_cash"), params.initial_cash)
-        st.info(
-            "Disse grensene styrer nye teoretiske beslutninger. Startkapital er bare reset-verdi for en ny konto; "
-            "den endrer aldri avkastningsgrunnlaget til en eksisterende portefølje."
-        )
-        st.caption(
-            f"Faktisk avkastningsgrunnlag for aktiv konto: {_fmt_nb_money(portfolio_initial_cash)} · "
-            f"valgt reset-verdi: {_fmt_nb_money(params.initial_cash)}."
-        )
-        if abs(float(params.initial_cash) - portfolio_initial_cash) > 0.01:
-            st.warning("Reset-verdien avviker fra aktiv kontos startkapital. Dette er tillatt, men får først virkning etter en uttrykkelig RESET.")
-        p1, p2, p3, p4 = st.columns(4)
-        initial_cash = p1.number_input("Startkapital ved neste RESET", 1000.0, 100000000.0, float(params.initial_cash), 10000.0, key="alp_initial_v18688")
-        min_score = p2.slider("Minimum investeringsscore", 0.0, 100.0, float(params.minimum_investment_score), 1.0, key="alp_minscore_v18688")
-        min_quality = p3.slider("Minimum datakvalitet", 0.0, 100.0, float(params.minimum_data_quality), 1.0, key="alp_quality_v18688")
-        max_risk = p4.slider("Maks risikoscore", 0.0, 100.0, float(params.maximum_risk_score), 1.0, key="alp_risk_v18688")
-        q1, q2, q3, q4 = st.columns(4)
-        max_pos = q1.slider("Maks posisjon %", 0.5, 25.0, float(params.maximum_position_pct), 0.5, key="alp_pos_v18688")
-        max_sector = q2.slider("Maks sektor %", 1.0, 100.0, float(params.maximum_sector_pct), 1.0, key="alp_sector_v18688")
-        max_open = q3.number_input("Maks åpne posisjoner", 1, 100, int(params.maximum_open_positions), 1, key="alp_open_v18688")
-        reserve = q4.slider("Kontantreserve %", 0.0, 95.0, float(params.reserve_cash_pct), 1.0, key="alp_reserve_v18688")
-        r1, r2, r3, r4 = st.columns(4)
-        stop = r1.slider("Stop loss %", 0.5, 50.0, float(params.stop_loss_pct), 0.5, key="alp_stop_v18688")
-        trail = r2.slider("Trailing stop %", 0.5, 50.0, float(params.trailing_stop_pct), 0.5, key="alp_trail_v18688")
-        target = r3.slider("Take profit %", 0.5, 300.0, float(params.take_profit_pct), 0.5, key="alp_target_v18688")
-        score_exit = r4.slider("Score-exit under", 0.0, 100.0, float(params.score_exit_threshold), 1.0, key="alp_scoreexit_v18688")
-        s1, s2, s3, s4 = st.columns(4)
-        max_dd = s1.slider("Maks drawdown %", 0.5, 80.0, float(params.maximum_drawdown_pct), 0.5, key="alp_dd_v18688")
-        learning_enabled = s2.checkbox("Aktiver læringskjøp", params.enable_learning_probe_buys, key="alp_learning_probe_enabled_v19018")
-        learning_min_score = s3.slider("Minimum læringsscore", 60.0, 65.0, float(params.learning_probe_minimum_score), 1.0, key="alp_learning_probe_min_v19018")
-        learning_max_buys = s4.number_input("Maks læringskjøp", 0, 10, int(params.learning_probe_max_buys), 1, key="alp_learning_probe_max_v19018")
-        u1, u2 = st.columns(2)
-        learning_notional = u1.number_input("Notional per læringsposisjon", 100.0, 100000.0, float(params.learning_probe_notional_value), 100.0, key="alp_learning_notional_v19018b")
-        learning_horizon = u2.number_input("Læringshorisont (dager)", 1, 365, int(params.learning_probe_horizon_days), 1, key="alp_learning_horizon_v19018b")
-        learning_max_risk = st.slider("Maksimal risiko for kun læringskjøp", 0.0, 75.0, float(params.learning_probe_maximum_risk_score), 1.0, key="alp_learning_risk_v19220_rc1626")
-        notify = st.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
-        if st.button("Lagre parametere", key="alp_save_params_v18688"):
-            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, stagnation_days=params.stagnation_days, stagnation_band_pct=params.stagnation_band_pct, cash_review_days=params.cash_review_days, cash_review_max_return_pct=params.cash_review_max_return_pct, reentry_cooldown_days=params.reentry_cooldown_days, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_maximum_risk_score=learning_max_risk, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
-            st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
-
-        st.markdown("**Kontrollert anbefalt produksjonsprofil**")
-        st.caption("Profilen endrer ikke startkapital, læringskonto, historikk eller eksisterende posisjoner. Den må godkjennes eksplisitt.")
-        recommended = recommended_production_profile(params)
-        profile_rows = [
-            {"Parameter": "Minimum investeringsscore", "Nå": params.minimum_investment_score, "Anbefalt": recommended.minimum_investment_score},
-            {"Parameter": "Minimum datakvalitet", "Nå": params.minimum_data_quality, "Anbefalt": recommended.minimum_data_quality},
-            {"Parameter": "Maks risikoscore", "Nå": params.maximum_risk_score, "Anbefalt": recommended.maximum_risk_score},
-            {"Parameter": "Maks posisjon %", "Nå": params.maximum_position_pct, "Anbefalt": recommended.maximum_position_pct},
-            {"Parameter": "Maks sektor %", "Nå": params.maximum_sector_pct, "Anbefalt": recommended.maximum_sector_pct},
-            {"Parameter": "Maks åpne posisjoner", "Nå": params.maximum_open_positions, "Anbefalt": recommended.maximum_open_positions},
-            {"Parameter": "Kontantreserve %", "Nå": params.reserve_cash_pct, "Anbefalt": recommended.reserve_cash_pct},
-            {"Parameter": "Stop-loss %", "Nå": params.stop_loss_pct, "Anbefalt": recommended.stop_loss_pct},
-            {"Parameter": "Trailing stop %", "Nå": params.trailing_stop_pct, "Anbefalt": recommended.trailing_stop_pct},
-            {"Parameter": "Take profit %", "Nå": params.take_profit_pct, "Anbefalt": recommended.take_profit_pct},
-            {"Parameter": "Score-exit under", "Nå": params.score_exit_threshold, "Anbefalt": recommended.score_exit_threshold},
-            {"Parameter": "Maks drawdown %", "Nå": params.maximum_drawdown_pct, "Anbefalt": recommended.maximum_drawdown_pct},
-        ]
-        profile_view = pd.DataFrame(profile_rows)
-        profile_view[["Nå", "Anbefalt"]] = profile_view[["Nå", "Anbefalt"]].astype(float).round(2)
-        st.dataframe(profile_view, width="stretch", hide_index=True)
-        production_approval = st.text_input("Skriv GODKJENN for å bruke anbefalt produksjonsprofil", key="alp_recommended_profile_approval_v1931h")
-        if st.button("Bruk anbefalt produksjonsprofil", key="alp_apply_recommended_profile_v1931h"):
-            if production_approval.strip().upper() != "GODKJENN":
-                st.error("Skriv GODKJENN før produksjonsprofilen endres.")
-            else:
-                save_parameters(recommended)
-                st.success("Anbefalt produksjonsprofil er lagret og auditført. Aktiv portefølje og historikk er ikke nullstilt.")
-                st.rerun()
 
     with st.expander("🔐 Konfigurasjonsrammeverk", expanded=False):
         cfg = configuration_status()

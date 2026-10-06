@@ -12,8 +12,9 @@ def _source(path: str) -> str:
 
 
 def test_release_identity_rc16_34d():
-    assert APP_VERSION == "v19.22.0-rc16.34d"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34c"
+    assert APP_VERSION.startswith("v19.22.0-rc16.34") and APP_VERSION.split("34", 1)[1] >= "d"
+    if APP_VERSION == "v19.22.0-rc16.34d":
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34c"
 
 
 def test_render_blueprint_matches_current_safe_capacity_and_live_cadence():
