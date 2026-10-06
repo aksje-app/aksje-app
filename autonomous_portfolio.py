@@ -2752,6 +2752,197 @@ def _render_responsive_portfolio_css(st: Any) -> None:
     }
     </style>''', unsafe_allow_html=True)
 
+
+def _render_production_parameter_controls_v1934e(st: Any, pd: Any, params: AutonomousParameters, portfolio: Mapping[str, Any]) -> None:
+    """Production controls must stay visible before the long activation analysis."""
+    portfolio_initial_cash = _f(portfolio.get("initial_cash"), params.initial_cash)
+    st.markdown("##### ⚙️ Produksjonsparametere")
+    st.caption(
+        "Gjelder Autonomi hovedstrategi (PRODUCTION). Verdiene lagres permanent i PostgreSQL. "
+        "Super Portfolio, Paper og autonomy_learning har egne grenser og endres ikke her."
+    )
+
+    # Surface any pending learning-driven risk proposal next to the parameter it affects.
+    try:
+        from controlled_parameter_learning import pending_risk_proposals, resolve_risk_reduction_proposal
+        pending = pending_risk_proposals()
+    except Exception:
+        pending = []
+        resolve_risk_reduction_proposal = None
+
+    if pending:
+        proposal = pending[0]
+        src = dict(proposal.get("source_statistics") or {})
+        st.warning(
+            f"Krever beslutning: Maks posisjon {float(proposal.get('before') or 0):.2f}% → "
+            f"{float(proposal.get('after') or 0):.2f}% · "
+            f"PF {float(src.get('profit_factor') or 0):.2f} · expectancy {float(src.get('expectancy') or 0):+,.0f}."
+        )
+        st.caption(
+            "Forslaget gjelder nye Autonomi-produksjonsbeslutninger. Eksisterende posisjoner selges ikke automatisk, "
+            "historikk nullstilles ikke, og Super Portfolio sin 15 %-grense påvirkes ikke."
+        )
+        rp_note = st.text_input("Kommentar til læringsforslaget", key="alp_risk_proposal_note_v1934e")
+        rp1, rp2, rp3, rp4 = st.columns(4)
+        if rp1.button("Godkjenn forslag", type="primary", width="stretch", key="alp_risk_approve_v1934e"):
+            st.session_state["alp_risk_confirm_v1934e"] = "APPROVE"
+        if rp2.button("Avvis nå", width="stretch", key="alp_risk_reject_v1934e"):
+            st.session_state["alp_risk_confirm_v1934e"] = "REJECT"
+        if rp3.button("Utsett", width="stretch", key="alp_risk_defer_v1934e"):
+            st.session_state["alp_risk_confirm_v1934e"] = "DEFER"
+        if rp4.button("Ikke foreslå igjen", width="stretch", key="alp_risk_block_v1934e"):
+            st.session_state["alp_risk_confirm_v1934e"] = "BLOCK"
+        rp_choice = st.session_state.get("alp_risk_confirm_v1934e")
+        if rp_choice:
+            messages = {
+                "APPROVE": (
+                    f"Bekreft: Maks posisjon i Autonomi-produksjon endres fra "
+                    f"{float(proposal.get('before') or 0):.2f}% til {float(proposal.get('after') or 0):.2f}%."
+                ),
+                "REJECT": "Bekreft avvisning. Et nytt eller tilnærmet forslag kan fremmes igjen når datagrunnlaget er vesentlig nyere.",
+                "DEFER": "Bekreft utsettelse. Forslaget kan komme tilbake etter ny evidens eller cooldown.",
+                "BLOCK": "Bekreft permanent blokkering av nye læringsforslag for denne parameteren.",
+            }
+            st.warning(messages[rp_choice])
+            c_yes, c_no = st.columns(2)
+            if c_yes.button("Bekreft beslutning", type="primary", width="stretch", key="alp_risk_confirm_yes_v1934e"):
+                if resolve_risk_reduction_proposal is None:
+                    st.error("Godkjenningsmotoren kunne ikke lastes.")
+                else:
+                    result = resolve_risk_reduction_proposal(
+                        str(proposal.get("proposal_id") or ""),
+                        rp_choice,
+                        note=rp_note,
+                        actor="streamlit_user",
+                    )
+                    st.session_state.pop("alp_risk_confirm_v1934e", None)
+                    if rp_choice == "APPROVE" and str(result.get("status") or "").upper() == "APPROVED":
+                        st.success(
+                            f"Iverksatt: Maks posisjon er nå {float(result.get('applied_to') or proposal.get('after') or 0):.2f}%."
+                        )
+                    elif rp_choice == "APPROVE":
+                        st.warning(str(result.get("decision_note") or "Forslaget kunne ikke iverksettes og må evalueres på nytt."))
+                    else:
+                        st.success(f"Beslutning registrert: {result.get('status')}.")
+                    st.rerun()
+            if c_no.button("Avbryt", width="stretch", key="alp_risk_confirm_no_v1934e"):
+                st.session_state.pop("alp_risk_confirm_v1934e", None)
+                st.rerun()
+
+    with st.expander("Endre produksjonsparametere", expanded=True):
+        st.info(
+            "Disse grensene styrer nye teoretiske produksjonsbeslutninger. "
+            "Startkapital er kun reset-verdi for en ny konto og endrer ikke aktiv kontos avkastningsgrunnlag."
+        )
+        st.caption(
+            f"Aktiv kontos startgrunnlag: {_fmt_nb_money(portfolio_initial_cash)} · "
+            f"valgt reset-verdi: {_fmt_nb_money(params.initial_cash)}."
+        )
+        p1, p2 = st.columns(2)
+        min_score = p1.slider("Minimum investeringsscore", 0.0, 100.0, float(params.minimum_investment_score), 1.0, key="alp_top_minscore_v1934e")
+        min_quality = p2.slider("Minimum datakvalitet", 0.0, 100.0, float(params.minimum_data_quality), 1.0, key="alp_top_quality_v1934e")
+        p3, p4 = st.columns(2)
+        max_risk = p3.slider("Maks risikoscore", 0.0, 100.0, float(params.maximum_risk_score), 1.0, key="alp_top_risk_v1934e")
+        max_pos = p4.slider("Maks posisjon %", 0.5, 25.0, float(params.maximum_position_pct), 0.5, key="alp_top_pos_v1934e")
+        st.caption(
+            f"Maks posisjon {float(params.maximum_position_pct):.1f}% gjelder nye Autonomi-produksjonsposisjoner. "
+            "Den er uavhengig av Super Portfolio (hard maks 15 %) og læringskontoen."
+        )
+        p5, p6 = st.columns(2)
+        max_sector = p5.slider("Maks sektor %", 1.0, 100.0, float(params.maximum_sector_pct), 1.0, key="alp_top_sector_v1934e")
+        max_open = p6.number_input("Maks åpne posisjoner", 1, 100, int(params.maximum_open_positions), 1, key="alp_top_open_v1934e")
+        p7, p8 = st.columns(2)
+        reserve = p7.slider("Kontantreserve %", 0.0, 95.0, float(params.reserve_cash_pct), 1.0, key="alp_top_reserve_v1934e")
+        max_dd = p8.slider("Maks drawdown %", 0.5, 80.0, float(params.maximum_drawdown_pct), 0.5, key="alp_top_dd_v1934e")
+        p9, p10 = st.columns(2)
+        stop = p9.slider("Stop loss %", 0.5, 50.0, float(params.stop_loss_pct), 0.5, key="alp_top_stop_v1934e")
+        trail = p10.slider("Trailing stop %", 0.5, 50.0, float(params.trailing_stop_pct), 0.5, key="alp_top_trail_v1934e")
+        p11, p12 = st.columns(2)
+        target = p11.slider("Take profit %", 0.5, 300.0, float(params.take_profit_pct), 0.5, key="alp_top_target_v1934e")
+        score_exit = p12.slider("Score-exit under", 0.0, 100.0, float(params.score_exit_threshold), 1.0, key="alp_top_scoreexit_v1934e")
+        save_reason = st.text_input(
+            "Begrunnelse for manuell parameterendring",
+            key="alp_top_save_reason_v1934e",
+            placeholder="Eksempel: godkjenner risikoreduksjon etter læringsrapport",
+        )
+        if st.button("Lagre produksjonsparametere", type="primary", width="stretch", key="alp_top_save_v1934e"):
+            if not save_reason.strip():
+                st.error("Skriv en kort begrunnelse før parameterne lagres.")
+            else:
+                before = asdict(params)
+                updated = AutonomousParameters(
+                    **{
+                        **before,
+                        "minimum_investment_score": min_score,
+                        "minimum_data_quality": min_quality,
+                        "maximum_risk_score": max_risk,
+                        "maximum_position_pct": max_pos,
+                        "maximum_sector_pct": max_sector,
+                        "maximum_open_positions": int(max_open),
+                        "reserve_cash_pct": reserve,
+                        "maximum_drawdown_pct": max_dd,
+                        "stop_loss_pct": stop,
+                        "trailing_stop_pct": trail,
+                        "take_profit_pct": target,
+                        "score_exit_threshold": score_exit,
+                    }
+                )
+                saved = save_parameters(updated)
+                _append_audit("PRODUCTION_PARAMETERS_SAVED_WITH_REASON", {
+                    "reason": save_reason.strip(), "before": before, "after": asdict(saved), "actor": "streamlit_user",
+                })
+                st.success("Produksjonsparameterne er permanent lagret. Historikk og aktive posisjoner er beholdt.")
+                st.rerun()
+
+    with st.expander("Endringshistorikk og rollback", expanded=False):
+        audit_rows = [
+            row for row in load_audit(250)
+            if str(row.get("event") or "") in {"PARAMETERS_CHANGED_BY_USER", "PRODUCTION_PARAMETERS_SAVED_WITH_REASON"}
+        ]
+        audit_rows = list(reversed(audit_rows[-25:]))
+        if audit_rows:
+            history = []
+            for row in audit_rows:
+                payload = dict(row.get("payload") or {})
+                before = dict(payload.get("before") or {})
+                after = dict(payload.get("after") or {})
+                changed = [
+                    f"{key}: {before.get(key)} → {after.get(key)}"
+                    for key in sorted(set(before) | set(after))
+                    if before.get(key) != after.get(key)
+                ]
+                history.append({
+                    "Tid": row.get("timestamp"),
+                    "Begrunnelse": payload.get("reason") or row.get("event"),
+                    "Endringer": " · ".join(changed[:8]),
+                })
+            st.dataframe(pd.DataFrame(history), width="stretch", hide_index=True)
+            last = audit_rows[0]
+            last_payload = dict(last.get("payload") or {})
+            rollback_target = dict(last_payload.get("before") or {})
+            if rollback_target:
+                rollback_text = st.text_input(
+                    "Skriv GODKJENN ROLLBACK for å gjenopprette forrige parameterprofil",
+                    key="alp_top_rollback_confirm_v1934e",
+                )
+                if st.button("Rollback siste parameterendring", width="stretch", key="alp_top_rollback_v1934e"):
+                    if rollback_text.strip().upper() != "GODKJENN ROLLBACK":
+                        st.error("Skriv GODKJENN ROLLBACK før tilbakeføring.")
+                    else:
+                        current = asdict(load_parameters())
+                        restored = save_parameters(AutonomousParameters(**rollback_target))
+                        _append_audit("PRODUCTION_PARAMETERS_ROLLED_BACK", {
+                            "reason": "Manuell rollback fra Autonomi UI",
+                            "before": current,
+                            "after": asdict(restored),
+                            "source_timestamp": last.get("timestamp"),
+                        })
+                        st.success("Forrige parameterprofil er gjenopprettet.")
+                        st.rerun()
+        else:
+            st.caption("Ingen manuelle produksjonsendringer er registrert ennå.")
+
+
 def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
     st.markdown("##### 🧪 Aktiveringsanalyse og strategikontoer")
     st.caption("Resultatene vises direkte her. Hovedstrategien endres ikke automatisk; læringskontoen bruker små, separate paper-posisjoner og samme harde data- og risikogrenser.")
@@ -2825,23 +3016,21 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
                     st.success("Teknisk bidragsprofil er lagret med rollback. Harde Autonomi-porter er uendret.")
                     st.rerun()
 
-        left, right = st.columns(2)
         blockers = list(analysis.get("top_blockers") or [])
-        with left:
-            st.markdown("**Vanligste blokkeringer**")
-            st.caption("Viser første registrerte stoppårsak. Koden er sporbar diagnose; Årsak er forklaringen som skal brukes i vurderingen.")
-            if blockers:
-                st.dataframe(pd.DataFrame(blockers).rename(columns={"label":"Årsak","count":"Antall","share_pct":"Andel %","code":"Kode"}), width="stretch", hide_index=True)
-            else:
-                st.caption("Ingen blokkeringer registrert.")
-        with right:
-            st.markdown("**Simulerte scoregrenser**")
-            st.caption("En følsomhetsanalyse av scorekravet – ikke et kjøpssignal. Data-, risiko-, kapital-, sektor-, timing- og ordrekrav gjelder fortsatt.")
-            simulations = list(analysis.get("threshold_simulations") or [])
-            if simulations:
-                st.dataframe(pd.DataFrame(simulations)[["minimum_score","eligible_candidates","tickers"]].rename(columns={"minimum_score":"Minimum score","eligible_candidates":"Mulige kandidater","tickers":"Toppkandidater"}), width="stretch", hide_index=True)
-            else:
-                st.caption("Ingen kandidater å simulere.")
+        st.markdown("**Vanligste blokkeringer**")
+        st.caption("Viser første registrerte stoppårsak. Koden er sporbar diagnose; Årsak er forklaringen som skal brukes i vurderingen.")
+        if blockers:
+            st.dataframe(pd.DataFrame(blockers).rename(columns={"label":"Årsak","count":"Antall","share_pct":"Andel %","code":"Kode"}), width="stretch", hide_index=True)
+        else:
+            st.caption("Ingen blokkeringer registrert.")
+
+        st.markdown("**Simulerte scoregrenser**")
+        st.caption("En følsomhetsanalyse av scorekravet – ikke et kjøpssignal. Data-, risiko-, kapital-, sektor-, timing- og ordrekrav gjelder fortsatt.")
+        simulations = list(analysis.get("threshold_simulations") or [])
+        if simulations:
+            st.dataframe(pd.DataFrame(simulations)[["minimum_score","eligible_candidates","tickers"]].rename(columns={"minimum_score":"Minimum score","eligible_candidates":"Mulige kandidater","tickers":"Toppkandidater"}), width="stretch", hide_index=True)
+        else:
+            st.caption("Ingen kandidater å simulere.")
 
         accounts = get_strategy_account_service()
         accounts.ensure_defaults()
@@ -2918,12 +3107,13 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         _navigate_autonomy_workspace("overview")
     storage_info = persistence_status()
     if storage_info.get("persistent"):
-        st.success("🔒 Parameterlås aktiv: lagrede innstillinger hentes fra persistent database og beholdes ved refresh, omstart og ny versjon.")
+        st.success("🔒 Parameterlagring aktiv: verdiene kan endres nedenfor, lagres permanent i PostgreSQL og beholdes ved refresh, omstart og ny versjon.")
     else:
         st.warning("⚠ Parameterne lagres bare lokalt. Sett DATABASE_URL på Render for å beholde dem ved ny deploy.")
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
+    _render_production_parameter_controls_v1934e(st, pd, params, portfolio)
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Status", portfolio.get("status", "PAUSED"))
@@ -3023,76 +3213,6 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         pass
 
     _render_activation_analysis_v1980(st, pd)
-
-    with st.expander("Faste parametere", expanded=False):
-        portfolio_initial_cash = _f(portfolio.get("initial_cash"), params.initial_cash)
-        st.info(
-            "Disse grensene styrer nye teoretiske beslutninger. Startkapital er bare reset-verdi for en ny konto; "
-            "den endrer aldri avkastningsgrunnlaget til en eksisterende portefølje."
-        )
-        st.caption(
-            f"Faktisk avkastningsgrunnlag for aktiv konto: {_fmt_nb_money(portfolio_initial_cash)} · "
-            f"valgt reset-verdi: {_fmt_nb_money(params.initial_cash)}."
-        )
-        if abs(float(params.initial_cash) - portfolio_initial_cash) > 0.01:
-            st.warning("Reset-verdien avviker fra aktiv kontos startkapital. Dette er tillatt, men får først virkning etter en uttrykkelig RESET.")
-        p1, p2, p3, p4 = st.columns(4)
-        initial_cash = p1.number_input("Startkapital ved neste RESET", 1000.0, 100000000.0, float(params.initial_cash), 10000.0, key="alp_initial_v18688")
-        min_score = p2.slider("Minimum investeringsscore", 0.0, 100.0, float(params.minimum_investment_score), 1.0, key="alp_minscore_v18688")
-        min_quality = p3.slider("Minimum datakvalitet", 0.0, 100.0, float(params.minimum_data_quality), 1.0, key="alp_quality_v18688")
-        max_risk = p4.slider("Maks risikoscore", 0.0, 100.0, float(params.maximum_risk_score), 1.0, key="alp_risk_v18688")
-        q1, q2, q3, q4 = st.columns(4)
-        max_pos = q1.slider("Maks posisjon %", 0.5, 25.0, float(params.maximum_position_pct), 0.5, key="alp_pos_v18688")
-        max_sector = q2.slider("Maks sektor %", 1.0, 100.0, float(params.maximum_sector_pct), 1.0, key="alp_sector_v18688")
-        max_open = q3.number_input("Maks åpne posisjoner", 1, 100, int(params.maximum_open_positions), 1, key="alp_open_v18688")
-        reserve = q4.slider("Kontantreserve %", 0.0, 95.0, float(params.reserve_cash_pct), 1.0, key="alp_reserve_v18688")
-        r1, r2, r3, r4 = st.columns(4)
-        stop = r1.slider("Stop loss %", 0.5, 50.0, float(params.stop_loss_pct), 0.5, key="alp_stop_v18688")
-        trail = r2.slider("Trailing stop %", 0.5, 50.0, float(params.trailing_stop_pct), 0.5, key="alp_trail_v18688")
-        target = r3.slider("Take profit %", 0.5, 300.0, float(params.take_profit_pct), 0.5, key="alp_target_v18688")
-        score_exit = r4.slider("Score-exit under", 0.0, 100.0, float(params.score_exit_threshold), 1.0, key="alp_scoreexit_v18688")
-        s1, s2, s3, s4 = st.columns(4)
-        max_dd = s1.slider("Maks drawdown %", 0.5, 80.0, float(params.maximum_drawdown_pct), 0.5, key="alp_dd_v18688")
-        learning_enabled = s2.checkbox("Aktiver læringskjøp", params.enable_learning_probe_buys, key="alp_learning_probe_enabled_v19018")
-        learning_min_score = s3.slider("Minimum læringsscore", 60.0, 65.0, float(params.learning_probe_minimum_score), 1.0, key="alp_learning_probe_min_v19018")
-        learning_max_buys = s4.number_input("Maks læringskjøp", 0, 10, int(params.learning_probe_max_buys), 1, key="alp_learning_probe_max_v19018")
-        u1, u2 = st.columns(2)
-        learning_notional = u1.number_input("Notional per læringsposisjon", 100.0, 100000.0, float(params.learning_probe_notional_value), 100.0, key="alp_learning_notional_v19018b")
-        learning_horizon = u2.number_input("Læringshorisont (dager)", 1, 365, int(params.learning_probe_horizon_days), 1, key="alp_learning_horizon_v19018b")
-        learning_max_risk = st.slider("Maksimal risiko for kun læringskjøp", 0.0, 75.0, float(params.learning_probe_maximum_risk_score), 1.0, key="alp_learning_risk_v19220_rc1626")
-        notify = st.checkbox("Varsle ved teoretiske handler", params.notify_trades, key="alp_notify_v18688")
-        if st.button("Lagre parametere", key="alp_save_params_v18688"):
-            save_parameters(AutonomousParameters(initial_cash=initial_cash, minimum_investment_score=min_score, minimum_data_quality=min_quality, maximum_risk_score=max_risk, maximum_position_pct=max_pos, maximum_sector_pct=max_sector, maximum_open_positions=int(max_open), reserve_cash_pct=reserve, stop_loss_pct=stop, trailing_stop_pct=trail, take_profit_pct=target, score_exit_threshold=score_exit, stagnation_days=params.stagnation_days, stagnation_band_pct=params.stagnation_band_pct, cash_review_days=params.cash_review_days, cash_review_max_return_pct=params.cash_review_max_return_pct, reentry_cooldown_days=params.reentry_cooldown_days, maximum_drawdown_pct=max_dd, daily_loss_limit_pct=params.daily_loss_limit_pct, allow_additions=params.allow_additions, enable_learning_probe_buys=learning_enabled, learning_probe_minimum_score=learning_min_score, learning_probe_maximum_risk_score=learning_max_risk, learning_probe_max_buys=int(learning_max_buys), learning_probe_notional_value=learning_notional, learning_probe_horizon_days=int(learning_horizon), notify_trades=notify, notify_risk_events=True))
-            st.success("Parameterne er permanent lagret. De beholdes ved refresh, omstart og ny programversjon."); st.rerun()
-
-        st.markdown("**Kontrollert anbefalt produksjonsprofil**")
-        st.caption("Profilen endrer ikke startkapital, læringskonto, historikk eller eksisterende posisjoner. Den må godkjennes eksplisitt.")
-        recommended = recommended_production_profile(params)
-        profile_rows = [
-            {"Parameter": "Minimum investeringsscore", "Nå": params.minimum_investment_score, "Anbefalt": recommended.minimum_investment_score},
-            {"Parameter": "Minimum datakvalitet", "Nå": params.minimum_data_quality, "Anbefalt": recommended.minimum_data_quality},
-            {"Parameter": "Maks risikoscore", "Nå": params.maximum_risk_score, "Anbefalt": recommended.maximum_risk_score},
-            {"Parameter": "Maks posisjon %", "Nå": params.maximum_position_pct, "Anbefalt": recommended.maximum_position_pct},
-            {"Parameter": "Maks sektor %", "Nå": params.maximum_sector_pct, "Anbefalt": recommended.maximum_sector_pct},
-            {"Parameter": "Maks åpne posisjoner", "Nå": params.maximum_open_positions, "Anbefalt": recommended.maximum_open_positions},
-            {"Parameter": "Kontantreserve %", "Nå": params.reserve_cash_pct, "Anbefalt": recommended.reserve_cash_pct},
-            {"Parameter": "Stop-loss %", "Nå": params.stop_loss_pct, "Anbefalt": recommended.stop_loss_pct},
-            {"Parameter": "Trailing stop %", "Nå": params.trailing_stop_pct, "Anbefalt": recommended.trailing_stop_pct},
-            {"Parameter": "Take profit %", "Nå": params.take_profit_pct, "Anbefalt": recommended.take_profit_pct},
-            {"Parameter": "Score-exit under", "Nå": params.score_exit_threshold, "Anbefalt": recommended.score_exit_threshold},
-            {"Parameter": "Maks drawdown %", "Nå": params.maximum_drawdown_pct, "Anbefalt": recommended.maximum_drawdown_pct},
-        ]
-        profile_view = pd.DataFrame(profile_rows)
-        profile_view[["Nå", "Anbefalt"]] = profile_view[["Nå", "Anbefalt"]].astype(float).round(2)
-        st.dataframe(profile_view, width="stretch", hide_index=True)
-        production_approval = st.text_input("Skriv GODKJENN for å bruke anbefalt produksjonsprofil", key="alp_recommended_profile_approval_v1931h")
-        if st.button("Bruk anbefalt produksjonsprofil", key="alp_apply_recommended_profile_v1931h"):
-            if production_approval.strip().upper() != "GODKJENN":
-                st.error("Skriv GODKJENN før produksjonsprofilen endres.")
-            else:
-                save_parameters(recommended)
-                st.success("Anbefalt produksjonsprofil er lagret og auditført. Aktiv portefølje og historikk er ikke nullstilt.")
-                st.rerun()
 
     with st.expander("🔐 Konfigurasjonsrammeverk", expanded=False):
         cfg = configuration_status()

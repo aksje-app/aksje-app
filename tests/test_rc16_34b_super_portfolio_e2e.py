@@ -14,13 +14,15 @@ def _source(path: str) -> str:
 
 
 def test_release_identity_rc16_34b():
-    assert APP_VERSION in {"v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d"}
+    assert APP_VERSION in {"v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d", "v19.22.0-rc16.34e"}
     if APP_VERSION == "v19.22.0-rc16.34b":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34a"
     elif APP_VERSION == "v19.22.0-rc16.34c":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34b"
-    else:
+    elif APP_VERSION == "v19.22.0-rc16.34d":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34c"
+    else:
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34d"
 
 
 def test_super_portfolio_is_canonical_market_route():
