@@ -37,6 +37,7 @@ VERSIONS_PATH = ROOT / "parameter_versions.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
 REPORTS_PATH = ROOT / "management_reports.json"
 APPROVALS_PATH = ROOT / "promotion_approvals.json"
+RISK_PROPOSALS_PATH = ROOT / "risk_proposals.json"
 
 LEARNING_LIFECYCLE = (
     "HYPOTESE", "SIMULERT", "PARALLELLTESTET", "KLAR_FOR_VURDERING",
@@ -62,6 +63,7 @@ _PERSISTENT_PATH_KEYS = {
     VERSIONS_PATH: "controlled_learning/parameter_versions.json",
     REPORTS_PATH: "controlled_learning/management_reports.json",
     APPROVALS_PATH: "controlled_learning/promotion_approvals.json",
+    RISK_PROPOSALS_PATH: "controlled_learning/risk_proposals.json",
 }
 
 
@@ -144,6 +146,10 @@ def default_state() -> dict[str, Any]:
         "risk_reduction_factor": 0.5,
         "rollback_drawdown_delta_pct": 3.0,
         "cooldown_days": 7,
+        "risk_reproposal_min_new_closed_trades": 20,
+        "risk_reproposal_min_new_mature_observations": 10,
+        "risk_reproposal_min_days": 7,
+        "blocked_risk_parameters": [],
         "last_evaluation_at": None,
         "last_action": None,
     }
@@ -632,6 +638,190 @@ def promote_trial(*, explicit_user_approval: bool = False, approval_id: str = ""
 
 
 
+
+def _risk_proposals() -> list[dict[str, Any]]:
+    rows = _read(RISK_PROPOSALS_PATH, [])
+    return [dict(row) for row in rows] if isinstance(rows, list) else []
+
+
+def _save_risk_proposals(rows: list[Mapping[str, Any]]) -> None:
+    _write(RISK_PROPOSALS_PATH, [dict(row) for row in rows][:500])
+
+
+def _current_evidence_counts() -> tuple[int, int]:
+    ordinary = _closed_trades()
+    learning = _closed_learning_trades()
+    paper = _paper_portfolio_learning_snapshot()
+    mature = _mature_observation_evidence()
+    return (
+        len(ordinary) + len(learning) + int(paper.get("closed_trades") or 0),
+        int(mature.get("mature_count") or 0),
+    )
+
+
+def _risk_fingerprint(parameter: str, before: float, after: float, reason: str) -> str:
+    return "|".join(map(str, (
+        str(parameter), round(float(before), 6), round(float(after), 6), str(reason or ""),
+    )))
+
+
+def _proposal_reeligible(previous: Mapping[str, Any], state: Mapping[str, Any], *, now: datetime | None = None) -> tuple[bool, str]:
+    status = str(previous.get("status") or "").upper()
+    if status not in {"REJECTED", "DEFERRED"}:
+        return False, "Eksisterende forslag er fortsatt aktivt."
+    current = now or datetime.now(timezone.utc).astimezone()
+    decided_at = _parse_time(previous.get("decided_at") or previous.get("updated_at") or previous.get("created_at"))
+    current_closed, current_mature = _current_evidence_counts()
+    base_closed = int(previous.get("evidence_closed_trades") or 0)
+    base_mature = int(previous.get("evidence_mature_observations") or 0)
+    new_closed = max(0, current_closed - base_closed)
+    new_mature = max(0, current_mature - base_mature)
+    age_days = ((current - decided_at).total_seconds() / 86400.0) if decided_at else 9999.0
+    if new_closed >= int(state.get("risk_reproposal_min_new_closed_trades", 20)):
+        return True, f"{new_closed} nye avsluttede handler siden forrige beslutning."
+    if new_mature >= int(state.get("risk_reproposal_min_new_mature_observations", 10)):
+        return True, f"{new_mature} nye modne observasjoner siden forrige beslutning."
+    if age_days >= float(state.get("risk_reproposal_min_days", 7)):
+        return True, f"{age_days:.0f} dager siden forrige beslutning."
+    return False, (
+        f"Avvist/utsatt tidligere. Ny vurdering krever enten "
+        f"{int(state.get('risk_reproposal_min_new_closed_trades', 20))} nye handler, "
+        f"{int(state.get('risk_reproposal_min_new_mature_observations', 10))} nye modne observasjoner "
+        f"eller {int(state.get('risk_reproposal_min_days', 7))} dager."
+    )
+
+
+def register_risk_reduction_proposal(
+    *,
+    parameter: str,
+    before: float,
+    after: float,
+    reason: str,
+    source_statistics: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    state = load_state()
+    if parameter in set(state.get("blocked_risk_parameters") or []):
+        return None
+    fingerprint = _risk_fingerprint(parameter, before, after, reason)
+    rows = _risk_proposals()
+    existing = next((row for row in rows if str(row.get("fingerprint") or "") == fingerprint), None)
+    if existing:
+        status = str(existing.get("status") or "").upper()
+        if status == "PENDING":
+            return existing
+        if status == "APPROVED":
+            return None
+        eligible, why = _proposal_reeligible(existing, state)
+        if not eligible:
+            existing["suppressed_reason"] = why
+            existing["last_checked_at"] = _now()
+            _save_risk_proposals(rows)
+            return None
+    closed_count, mature_count = _current_evidence_counts()
+    proposal = {
+        "proposal_id": "RP-" + uuid.uuid4().hex[:10],
+        "fingerprint": fingerprint,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "status": "PENDING",
+        "parameter": str(parameter),
+        "before": float(before),
+        "after": float(after),
+        "reason": str(reason),
+        "source": "CONTROLLED_LEARNING_RISK",
+        "source_statistics": dict(source_statistics or {}),
+        "evidence_closed_trades": closed_count,
+        "evidence_mature_observations": mature_count,
+        "requires_explicit_user_approval": True,
+        "production_applied": False,
+    }
+    rows.insert(0, proposal)
+    _save_risk_proposals(rows)
+    _audit("RISK_REDUCTION_PROPOSAL_QUEUED", proposal)
+    return proposal
+
+
+def pending_risk_proposals() -> list[dict[str, Any]]:
+    return [row for row in _risk_proposals() if str(row.get("status") or "").upper() == "PENDING"]
+
+
+def resolve_risk_reduction_proposal(
+    proposal_id: str,
+    decision: str,
+    *,
+    note: str = "",
+    actor: str = "streamlit_user",
+) -> dict[str, Any]:
+    decision = str(decision or "").upper()
+    if decision not in {"APPROVE", "REJECT", "DEFER", "BLOCK"}:
+        raise ValueError("Ugyldig beslutning.")
+    rows = _risk_proposals()
+    item = next((row for row in rows if row.get("proposal_id") == proposal_id), None)
+    if not item:
+        raise ValueError("Risikoforslaget finnes ikke.")
+    if str(item.get("status") or "").upper() != "PENDING":
+        return item
+    parameter = str(item.get("parameter") or "")
+    before = float(item.get("before") or 0.0)
+    after = float(item.get("after") or 0.0)
+    if decision == "APPROVE":
+        if parameter != "maximum_position_pct":
+            raise ValueError(f"Direkte godkjenning er ikke implementert for {parameter}.")
+        current = load_parameters()
+        current_value = float(current.maximum_position_pct)
+        data = asdict(current)
+        data[parameter] = after
+        save_parameters(AutonomousParameters(**data))
+        item.update({
+            "status": "APPROVED",
+            "production_applied": True,
+            "applied_at": _now(),
+            "applied_by": actor,
+            "applied_from": current_value,
+            "applied_to": after,
+        })
+        try:
+            from parameter_integrity import write_approved_seal
+            item["parameter_integrity"] = write_approved_seal(
+                approval_id=proposal_id,
+                reason=f"Godkjent læringsforslag {parameter} {current_value} -> {after}",
+            )
+        except Exception:
+            pass
+        _audit("RISK_REDUCTION_PROPOSAL_APPROVED", item)
+        _notify(
+            "Autonomi: risikoforslag godkjent",
+            f"Maks posisjon er endret fra {current_value:.2f}% til {after:.2f}% for Autonomi-produksjon. Super Portfolio er uendret.",
+            item,
+        )
+    else:
+        closed_count, mature_count = _current_evidence_counts()
+        status_map = {"REJECT": "REJECTED", "DEFER": "DEFERRED", "BLOCK": "BLOCKED"}
+        item.update({
+            "status": status_map[decision],
+            "production_applied": False,
+            "decided_at": _now(),
+            "decided_by": actor,
+            "decision_note": str(note or ""),
+            "evidence_closed_trades": closed_count,
+            "evidence_mature_observations": mature_count,
+        })
+        if decision == "BLOCK":
+            state = load_state()
+            blocked = set(state.get("blocked_risk_parameters") or [])
+            blocked.add(parameter)
+            state["blocked_risk_parameters"] = sorted(blocked)
+            save_state(state)
+        _audit(f"RISK_REDUCTION_PROPOSAL_{status_map[decision]}", item)
+    item["updated_at"] = _now()
+    _save_risk_proposals(rows)
+    return item
+
+
+def recent_risk_proposal_history(limit: int = 25) -> list[dict[str, Any]]:
+    return _risk_proposals()[:max(1, int(limit))]
+
+
 def _parse_time(value: Any) -> datetime | None:
     try:
         return datetime.fromisoformat(str(value)) if value else None
@@ -842,7 +1032,8 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
     report = {
         "report_id": "MR-" + uuid.uuid4().hex[:10], "created_at": _now(), "frequency": frequency,
         "mode": state.get("mode"), "closed_trades": len(trades), "ordinary_closed_trades": len(ordinary_trades),
-        "learning_closed_trades": len(learning_trades), "paper": paper_snapshot, "statistics": stats, "performance": perf,
+        "learning_closed_trades": len(learning_trades), "paper": paper_snapshot, "paper_statistics": dict(paper_snapshot.get("trade_statistics_pct") or {}),
+        "learning_statistics": stats, "statistics": stats, "performance": perf,
         "open_hypotheses": len(open_h), "active_experiments": len(active_tests),
         "open_observations": len(open_observations),
         "mature_observations": int(observation_evidence["mature_count"]),
@@ -853,6 +1044,7 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
             "mature_observations_required": int(state.get("hypothesis_min_mature_observations", 20)),
         },
         "champion_version_id": champion.get("version_id") if champion else None,
+        "pending_risk_proposals": pending_risk_proposals(),
         "observations": observations,
         "recommendation": "Fortsett kontrollert testing" if active_tests else "Samle flere observasjoner og vurder nye hypoteser",
     }
@@ -906,12 +1098,21 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
         "Autonomi: daglig Paper + læring",
         "\n".join([
             paper_line,
+            (
+                f"PAPER: treffrate {float((paper_snapshot.get('trade_statistics_pct') or {}).get('win_rate_pct') or 0):.1f}% · "
+                f"Profit Factor {float((paper_snapshot.get('trade_statistics_pct') or {}).get('profit_factor') or 0):.2f} · "
+                f"expectancy {float((paper_snapshot.get('trade_statistics_pct') or {}).get('expectancy') or 0):+.2f}%."
+            ),
+            f"PRODUKSJON/LÆRING: Profit Factor {float(stats.get('profit_factor') or 0):.2f} · expectancy {float(stats.get('expectancy') or 0):+,.0f}.",
             f"RISIKO: Drawdown {drawdown_text}%.",
             f"LÆRING: {paper_snapshot.get('closed_trades', 0)} avsluttede Paper-handler · "
             f"{len(open_observations)} åpne observasjoner · {observation_evidence['mature_count']} modne.",
             f"TESTER: {len(open_h)} åpne hypoteser · {len(active_tests)} aktive skyggetester.",
             milestone_line,
-            action_line,
+            (
+                f"FORSLAG: Maks posisjon {pending_risk_proposals()[0].get('before'):.2f}% → {pending_risk_proposals()[0].get('after'):.2f}% · venter på godkjenning."
+                if pending_risk_proposals() else action_line
+            ),
             f"Teknisk: {report['report_id']} · {APP_VERSION}",
         ]),
         report,
@@ -1007,21 +1208,40 @@ def evaluate_learning(trigger: str = "MANUAL") -> dict[str, Any]:
             else:
                 p = load_parameters(); reduced = max(0.5, p.maximum_position_pct * float(state["risk_reduction_factor"]))
                 if reduced < p.maximum_position_pct:
-                    action = {"type": "RISK_REDUCTION_PROPOSED", "parameter": "maximum_position_pct", "before": p.maximum_position_pct, "after": reduced, "reason": "Drawdown/negativ expectancy trigger", "applied": False, "requires_explicit_user_approval": True}
-                    risk_fingerprint = "|".join(map(str, (
-                        action["parameter"], round(float(action["before"]), 6),
-                        round(float(action["after"]), 6), action["reason"],
-                    )))
-                    notify_risk = risk_proposal_notification_due(state, risk_fingerprint)
-                    action["notification_sent"] = notify_risk
-                    actions.append(action)
-                    if notify_risk:
-                        _audit("RISK_PROTECTION_PROPOSAL", action)
-                        _notify("Learning: risikoforslag", f"Forslag: maks posisjon {p.maximum_position_pct:.2f}% → {reduced:.2f}%. Ingen automatisk endring er utført.", action)
-                        state["last_risk_proposal_notification_at"] = _now()
-                        state["last_risk_proposal_fingerprint"] = risk_fingerprint
-                    else:
-                        _audit("RISK_PROTECTION_PROPOSAL_DUPLICATE_SUPPRESSED", action)
+                    reason = "Drawdown/negativ expectancy trigger"
+                    proposal = register_risk_reduction_proposal(
+                        parameter="maximum_position_pct",
+                        before=p.maximum_position_pct,
+                        after=reduced,
+                        reason=reason,
+                        source_statistics={"profit_factor": stats.get("profit_factor"), "expectancy": stats.get("expectancy"), "drawdown_pct": perf.get("drawdown_pct")},
+                    )
+                    if proposal:
+                        action = {
+                            "type": "RISK_REDUCTION_PROPOSED",
+                            "proposal_id": proposal.get("proposal_id"),
+                            "parameter": "maximum_position_pct",
+                            "before": p.maximum_position_pct,
+                            "after": reduced,
+                            "reason": reason,
+                            "applied": False,
+                            "requires_explicit_user_approval": True,
+                        }
+                        risk_fingerprint = str(proposal.get("fingerprint") or _risk_fingerprint("maximum_position_pct", p.maximum_position_pct, reduced, reason))
+                        notify_risk = risk_proposal_notification_due(state, risk_fingerprint)
+                        action["notification_sent"] = notify_risk
+                        actions.append(action)
+                        if notify_risk:
+                            _audit("RISK_PROTECTION_PROPOSAL", action)
+                            _notify(
+                                "Learning: risikoforslag",
+                                f"Forslag: maks posisjon {p.maximum_position_pct:.2f}% → {reduced:.2f}%. Godkjenn eller avvis i Autonomi; ingen automatisk endring er utført.",
+                                action,
+                            )
+                            state["last_risk_proposal_notification_at"] = _now()
+                            state["last_risk_proposal_fingerprint"] = risk_fingerprint
+                        else:
+                            _audit("RISK_PROTECTION_PROPOSAL_DUPLICATE_SUPPRESSED", action)
         hypotheses = _read(HYPOTHESES_PATH, []); hypotheses = hypotheses if isinstance(hypotheses, list) else []
         if policy["auto_challenger"] and len(trades) >= int(state["challenger_min_closed_trades"]):
             candidate = next((h for h in hypotheses if h.get("status") == "NEW"), None)
@@ -1089,9 +1309,65 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
     if guard["warnings"]:
         st.error(" · ".join(guard["warnings"]))
 
+    pending_risk = pending_risk_proposals()
+    if pending_risk:
+        proposal = pending_risk[0]
+        source_stats = dict(proposal.get("source_statistics") or {})
+        st.markdown("##### ⚠️ Krever beslutning")
+        st.warning(
+            f"Forslag fra kontrollert læring: Maks posisjon i Autonomi-produksjon "
+            f"{float(proposal.get('before') or 0):.2f}% → {float(proposal.get('after') or 0):.2f}%."
+        )
+        st.caption(
+            f"Kilde: {proposal.get('reason') or 'kontrollert læring'} · "
+            f"Profit Factor {float(source_stats.get('profit_factor') or 0):.2f} · "
+            f"expectancy {float(source_stats.get('expectancy') or 0):+,.0f} · "
+            f"drawdown {float(source_stats.get('drawdown_pct') or 0):.2f}%. "
+            "Gjelder kun nye beslutninger i Autonomi-produksjon. Super Portfolio (15 %-grensen), Paper, historikk og eksisterende posisjoner endres ikke direkte."
+        )
+        decision_note = st.text_input("Kommentar til beslutningen", key=_k("risk_proposal_note_v1934e"))
+        approve, reject, defer, block = st.columns(4)
+        if approve.button("Godkjenn", type="primary", width="stretch", key=_k("risk_proposal_approve_v1934e")):
+            st.session_state[_k("risk_proposal_confirm_v1934e")] = "APPROVE"
+        if reject.button("Avvis nå", width="stretch", key=_k("risk_proposal_reject_v1934e")):
+            st.session_state[_k("risk_proposal_confirm_v1934e")] = "REJECT"
+        if defer.button("Utsett", width="stretch", key=_k("risk_proposal_defer_v1934e")):
+            st.session_state[_k("risk_proposal_confirm_v1934e")] = "DEFER"
+        if block.button("Ikke foreslå igjen", width="stretch", key=_k("risk_proposal_block_v1934e")):
+            st.session_state[_k("risk_proposal_confirm_v1934e")] = "BLOCK"
+        choice = st.session_state.get(_k("risk_proposal_confirm_v1934e"))
+        if choice:
+            text_map = {
+                "APPROVE": f"Bekreft at maks posisjon i Autonomi-produksjon endres fra {float(proposal.get('before') or 0):.2f}% til {float(proposal.get('after') or 0):.2f}%.",
+                "REJECT": "Bekreft avvisning. Samme eller lignende forslag kan fremmes på nytt når datagrunnlaget har endret seg vesentlig.",
+                "DEFER": "Bekreft utsettelse. Forslaget kan vurderes igjen etter ny evidens eller cooldown.",
+                "BLOCK": "Bekreft permanent blokkering av nye læringsforslag for denne parameteren.",
+            }
+            st.warning(text_map[choice])
+            yes, cancel = st.columns(2)
+            if yes.button("Bekreft beslutning", type="primary", width="stretch", key=_k("risk_proposal_confirm_yes_v1934e")):
+                result = resolve_risk_reduction_proposal(
+                    str(proposal.get("proposal_id") or ""),
+                    choice,
+                    note=decision_note,
+                    actor="streamlit_user",
+                )
+                st.session_state.pop(_k("risk_proposal_confirm_v1934e"), None)
+                if choice == "APPROVE":
+                    st.success(
+                        f"Iverksatt: maks posisjon i Autonomi-produksjon er nå "
+                        f"{float(result.get('applied_to') or proposal.get('after') or 0):.2f}%."
+                    )
+                else:
+                    st.success(f"Beslutning registrert: {result.get('status')}.")
+                st.rerun()
+            if cancel.button("Avbryt", width="stretch", key=_k("risk_proposal_confirm_cancel_v1934e")):
+                st.session_state.pop(_k("risk_proposal_confirm_v1934e"), None)
+                st.rerun()
+
     paper_snapshot = _paper_portfolio_learning_snapshot()
     if paper_snapshot.get("available"):
-        st.markdown("##### Paper + Learning Observatory")
+        st.markdown("##### PAPER – separat resultat")
         p1, p2, p3, p4 = st.columns(4)
         p1.metric("Paper-resultat", f"{paper_snapshot.get('result_amount', 0):+,.0f}")
         p2.metric("Paper-avkastning", f"{paper_snapshot.get('result_pct', 0):+.2f}%")
@@ -1100,8 +1376,16 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
         st.caption(
             f"Realisert {paper_snapshot.get('realized_pnl_amount', 0):+,.0f} · "
             f"urealisert {paper_snapshot.get('unrealized_pnl_amount', 0):+,.0f}. "
-            "Avsluttede Paper-handler inngår nå i læringsevidensen."
+            "Dette er Paper-resultatet. Tallene under PRODUKSJON/LÆRING er et annet datagrunnlag og skal ikke tolkes som samme portefølje."
         )
+
+        st.markdown("##### PRODUKSJON/LÆRING – separat evidens")
+        l1, l2, l3, l4 = st.columns(4)
+        l1.metric("Handler i evidens", int(stats.get("trades") or 0))
+        l2.metric("Treffrate", f"{float(stats.get('win_rate_pct') or 0):.1f}%")
+        l3.metric("Profit Factor", f"{float(stats.get('profit_factor') or 0):.2f}")
+        l4.metric("Expectancy", f"{float(stats.get('expectancy') or 0):+,.0f}")
+        st.caption("Disse tallene brukes av den kontrollerte læringsmotoren og er ikke det samme som Paper-porteføljens resultat.")
 
         replay = paper_counterfactual_replay()
         st.markdown("##### Counterfactual / Replay")
@@ -1242,6 +1526,22 @@ def render_controlled_learning(namespace: str = "controlled_learning") -> None:
                 render_approval_card(enriched, key_prefix="learning_portfolio", compact=False)
         if approvals:
             st.dataframe(pd.DataFrame(approvals), width="stretch", hide_index=True)
+        risk_history = recent_risk_proposal_history(50)
+        st.markdown("##### Risikoforslag – beslutningshistorikk")
+        if risk_history:
+            history_rows = [{
+                "Forslag": row.get("proposal_id"),
+                "Parameter": row.get("parameter"),
+                "Fra": row.get("before"),
+                "Til": row.get("after"),
+                "Status": row.get("status"),
+                "Opprettet": row.get("created_at"),
+                "Besluttet": row.get("decided_at") or row.get("applied_at"),
+                "Kommentar": row.get("decision_note") or "",
+            } for row in risk_history]
+            st.dataframe(pd.DataFrame(history_rows), width="stretch", hide_index=True)
+        else:
+            st.caption("Ingen risikoforslag er registrert ennå.")
 
     with overview_tab:
         lifecycle_rows = proposal_lifecycle()
