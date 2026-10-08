@@ -971,7 +971,15 @@ def _candidate_entry_gates(
                 allowed_rows.append(row)
         return allowed_rows, gates, persistence
     fresh_run = bool(run_id) and age <= float(config.max_rebalance_data_age_minutes)
-    proposed_new = {str(row.get("ticker") or "").upper() for row in rows if str(row.get("ticker") or "").upper() not in previous}
+    # Track qualified alternatives as well as the preferred top-N. Otherwise a
+    # blocked top-N can permanently starve every lower-ranked candidate of the
+    # fresh observations it needs to become executable.
+    proposed_keys = {str(row.get("ticker") or "").upper() for row in rows}
+    alternatives = [dict(row) for row in ranked
+                    if str(row.get("ticker") or "").upper() not in proposed_keys
+                    and str(row.get("ticker") or "").upper() not in previous]
+    proposed_new = {str(row.get("ticker") or "").upper() for row in rows + alternatives
+                    if str(row.get("ticker") or "").upper() not in previous}
     if fresh_run:
         for ticker, item in persistence.items():
             if ticker not in proposed_new and str(item.get("last_run_id") or "") != run_id:
@@ -981,8 +989,9 @@ def _candidate_entry_gates(
     gates: dict[str, dict[str, Any]] = {}
     allowed_rows: list[dict[str, Any]] = []
     blocked_tickers: set[str] = set()
+    allowed_alternatives: list[dict[str, Any]] = []
 
-    for row in rows:
+    for row in rows + alternatives:
         ticker = str(row.get("ticker") or "").upper()
         if ticker in previous:
             gates[ticker] = {"allowed": True, "reason_codes": [], "incumbent": True}
@@ -1029,7 +1038,10 @@ def _candidate_entry_gates(
             "risk_reentry_required": max(2, int(config.risk_reentry_confirmation_runs)) if risk_record else None,
         }
         if allowed:
-            allowed_rows.append(row)
+            if ticker in proposed_keys:
+                allowed_rows.append(row)
+            else:
+                allowed_alternatives.append(row)
         else:
             blocked_tickers.add(ticker)
 
@@ -1043,6 +1055,16 @@ def _candidate_entry_gates(
             if ticker in previous and ticker not in selected_keys:
                 allowed_rows.append(dict(row)); selected_keys.add(ticker)
                 gates.setdefault(ticker, {"allowed": True, "reason_codes": [], "incumbent": True, "retained_due_to_blocked_challenger": True})
+        # Preserve incumbents first; fill only remaining vacancies, in ranking
+        # order, with alternatives that passed the exact same entry gates.
+        for row in allowed_alternatives:
+            if len(allowed_rows) >= target_n:
+                break
+            ticker = str(row.get("ticker") or "").upper()
+            if ticker not in selected_keys:
+                allowed_rows.append(row)
+                selected_keys.add(ticker)
+                gates[ticker]["selected_as_fallback"] = True
     if isinstance(state, dict):
         state["risk_reentry_confirmation"] = risk_reentry
     return allowed_rows[: max(1, int(config.target_positions))], gates, persistence

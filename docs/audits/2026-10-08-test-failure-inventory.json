@@ -1,0 +1,499 @@
+{
+  "baseline_commit": "b2e66a060496dfff0b7e50274cb222eea8e76bc2",
+  "broad_run": {
+    "passed": 1522,
+    "failed": 96,
+    "per_test_timeout_seconds": 5
+  },
+  "baseline_run": {
+    "passed": 1509,
+    "failed": 98,
+    "per_test_timeout_seconds": 5
+  },
+  "failures": [
+    {
+      "test": "tests.test_rc16_31_notification_text_closure::test_learning_report_uses_norwegian_number_and_version",
+      "message": "AssertionError: assert 'drawdown 0,12 %.' in 'PAPER / RESULTAT: Paper-porteføljen er 100,000 (+0 / +0.00% fra start).\\nPRODUKSJON: 0 avsluttede Autonomi-handler · ...ne observasjoner gjenstår.\\nHANDLING: Ingen manuell handling nødvendig nå.\\nTeknisk: MR-80197fa3a4 · v19.22.0-rc16.34f'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ab_report_delivery_evidence_baseline::test_technical_report_contains_all_tasks_and_clear_coverage_language",
+      "message": "assert 'Kontrollandel måler kontrolluniversets andel' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ad_stabilization::test_release_identity_is_stabilization_only",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ae_deterministic_deploy::test_production_roots_and_complete_lock_are_exact_and_installed",
+      "message": "RuntimeError: {\"direct_dependency_count\": 19, \"incompatible_with_target\": [], \"installed_mismatches\": [{\"actual\": \"6.3.0\", \"expected\": \"6.2.2\", \"package\": \"altair\"}, {\"actual\": \"4.15.1\", \"expected\": \"4.14.2\", \"package\": \"anyio\"}, {\"actual\": \"7.2.1\", \"expected\": \"7.1.7\", \"package\": \"cachetools\"}, {\"actual\": \"3.5.2\", \"expected\": \"3.5.1\", \"package\": \"charset-normalizer\"}, {\"actual\": \"8.5.0\", \"expected\": \"8.4.2\", \"package\": \"click\"}, {\"actual\": \"0.16.3\", \"expected\": \"0.16.0\", \"package\": \"curl_cffi\"}, {\"actual\": \"3.2.0\", \"expected\": \"3.1.59\", \"package\": \"GitPython\"}, {\"actual\": \"3.20\", \"expected\": \"3.18\", \"package\": \"idna\"}, {\"actual\": \"3.0.4\", \"expected\": \"3.0.3\", \"package\": \"MarkupSafe\"}, {\"actual\": \"2.26.0\", \"expected\": \"2.24.0\", \"package\": \"narwhals\"}, {\"actual\": \"4.5.3\", \"expected\": \"4.3.0",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ae_deterministic_deploy::test_release_identity_advances_only_deploy_stabilization",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31al_end_to_end_stabilization::test_mobile_report_actions_are_above_iframe_and_keep_return_path",
+      "message": "ValueError: substring not found",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ar_current_contract_replacements::test_one_canonical_release_identity_replaces_old_literal_version_tests",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31at_live_report_closure::test_scanner_configuration_defaults_to_standard_service_capacity",
+      "message": "assert 1450.0 == 1700.0",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31au_end_to_end_closure::test_release_identity_and_mobile_safe_diagnostic_delivery",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31av_production_learning_closure::test_learning_horizons_and_caps_are_fail_closed",
+      "message": "assert (1, 3, 5, 20, 60) == (1, 5, 20, 60)\n  \n  At index 1 diff: 3 != 5\n  Left contains one more item: 60\n  Use -v to get more diff",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31av_production_learning_closure::test_release_identity_is_av_over_au",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31aw_controlled_observation_learning::test_az_version_lineage",
+      "message": "AssertionError: assert ('v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^)",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31aw_controlled_observation_learning::test_scheduler_nonblocking_before_scanner",
+      "message": "assert (27502 < 25214)",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31aw_controlled_observation_learning::test_weekly_survives_pushover_failure",
+      "message": "AssertionError: assert ('PUSHOVER_FAILED' == 'COMPLETED'\n  \n  - COMPLETED\n  + PUSHOVER_FAILED)",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ax_production_stabilization::test_ax_version_lineage",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ay_trade_safety_rotation::test_40_day_weak_position_is_cash_review_without_replacement",
+      "message": "AssertionError: assert 'SELL' == 'CASH_REVIEW'\n  \n  - CASH_REVIEW\n  + SELL",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31be_production_closure::test_retention_release_default_applies_when_render_omits_single_env",
+      "message": "assert False is True",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bf_trend_discovery::test_norway_stabilization_source_contracts_present",
+      "message": "assert 'AUTOMATED_SCANNER_MARKETS = ((\"NORGE\",)' in 'import logging\\nimport os\\nlogging.getLogger(\"yfinance\").setLevel(logging.CRITICAL)\\nfrom cron_control import should_...alerts)\\n\\n    return run_coordinated(coordinated_impl, force=force)\\n\\n\\nif __name__ == \"__main__\":\\n    run_once()\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bk_norway_scope_trend_ui::test_full_universe_report_does_not_claim_70_20_10_rotation",
+      "message": "assert 'Hele det konfigurerte universet grovskannes før shortlist.' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bk_norway_scope_trend_ui::test_trend_details_cover_top_1_to_10_and_have_period_toggle",
+      "message": "assert 'Trenddetaljer 1–10' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bl_ui_memory_closure::test_trend_chart_uses_tight_normalized_plotly_and_rsi_reference_lines",
+      "message": "assert '\"Indeks (start = 100)\"' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bl_ui_memory_closure::test_version_is_bl_and_builds_on_bk",
+      "message": "assert 'APP_VERSION = \"v19.22.0-rc16.31bl\"' in 'from __future__ import annotations\\n\\nfrom dataclasses import asdict, dataclass\\nfrom typing import Any\\n\\nAPP_VERSIO...; venstremeny og Lukk oppgave skal fungere uten ny login, mens refresh/new login fortsatt huskes via fil-state.\",\\n]\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bn_fresh_trend_opportunity::test_pipeline_source_reserves_fresh_evidence_lane",
+      "message": "AssertionError: assert False\n +  where False = <built-in method endswith of str object at 0x7f7d6fbd9870>('31bn')\n +    where <built-in method endswith of str object at 0x7f7d6fbd9870> = 'v19.22.0-rc16.31cj'.endswith",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bo_short_report_fresh_alert::test_bo_version_contract",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bo'\n  \n  - v19.22.0-rc16.31bo\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bo_short_report_fresh_alert::test_short_report_is_limited_and_points_to_technical_details",
+      "message": "assert 'fresh_watch_short = [row for row in fresh_watch_short if isinstance(row, Mapping)][:3]' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bp_topbar_status_closure::test_version_bumped_to_bp",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bp'\n  \n  - v19.22.0-rc16.31bp\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bq_manual_memory_terminal_status::test_version_bumped_to_bq",
+      "message": "assert 'APP_VERSION = \"v19.22.0-rc16.31bq\"' in 'from __future__ import annotations\\n\\nfrom dataclasses import asdict, dataclass\\nfrom typing import Any\\n\\nAPP_VERSIO...; venstremeny og Lukk oppgave skal fungere uten ny login, mens refresh/new login fortsatt huskes via fil-state.\",\\n]\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31br_complete_norway_universe::test_trend_discovery_reads_full_stage1_screening_pool",
+      "message": "assert '\"full_stage1_universe\":len(pool)' in '\"\"\"Trend discovery and early-opportunity intelligence for RC16.31bn.\\n\\nObservational only: this module may prioritis...pansjon. Sterke ferske signaler kan få tidligere evidenskontroll, men kan aldri alene utløse kjøp.\"}\\n    return run\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31br_complete_norway_universe::test_version_is_br",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31br'\n  \n  - v19.22.0-rc16.31br\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bs_evidence_semantics::test_version_is_bs",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bs'\n  \n  - v19.22.0-rc16.31bs\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bt_euronext_live_source::test_version_is_bt",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bt'\n  \n  - v19.22.0-rc16.31bt\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bv_official_csv_universe::test_official_csv_fetch_prefers_oslo_specific_variant",
+      "message": "assert 0 == 160\n +  where 0 = len([])",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bv_official_csv_universe::test_official_csv_fetch_uses_all_stock_variant_when_specific_export_empty",
+      "message": "AssertionError: assert ['XOSL', 'MERK', 'XOAS'] == ['XOSL,MERK,X...dm_all_stock']\n  \n  At index 0 diff: 'XOSL' != 'XOSL,MERK,XOAS'\n  Left contains one more item: 'XOAS'\n  Use -v to get more diff",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bv_official_csv_universe::test_version_is_bv",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bv'\n  \n  - v19.22.0-rc16.31bv\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bw_euronext_real_payload_parser::test_version_is_bw",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bw'\n  \n  - v19.22.0-rc16.31bw\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bx_stabilization_ui::test_bx_version",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bx'\n  \n  - v19.22.0-rc16.31bx\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31bx_stabilization_ui::test_ui_workflow_closure_is_present_in_sources",
+      "message": "assert '📄 Standardrapport PDF' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31ca_closure::test_market_intelligence_uses_exchange_helper_for_recommendation_table_source",
+      "message": "assert 'render_report_file_center(\\n                st, latest' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31cg_whole_chain_alert_integrity::test_line_safe_compaction_keeps_one_footer_and_no_partial_data_line",
+      "message": "AssertionError: assert 0 == 1\n +  where 0 = <built-in method count of str object at 0x421d0550>('v19.22.0-rc16.31cg')\n +    where <built-in method count of str object at 0x421d0550> = 'WWI.OL · Et svært langt selskapsnavn Et svært langt selskapsnavn Et svært…\\nKANDIDAT – IKKE EID · VIKTIG VURDERING\\nO...68.0% av 31\\n… flere detaljer i rapportlenken\\nData: FERSK_INNHENTET · 1 min gammel\\nv19.22.0-rc16.34f · commit ukjent'.count",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31cg_whole_chain_alert_integrity::test_stagnation_never_names_an_implicit_replacement",
+      "message": "AssertionError: assert 'OPPORTUNITY_COST_CASH_EXIT' == 'CAPITAL_STAGNATION'\n  \n  - CAPITAL_STAGNATION\n  + OPPORTUNITY_COST_CASH_EXIT",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31e_observable_learning::test_observations_are_isolated_idempotent_and_mature",
+      "message": "assert [1, 3, 5, 20, 60] == [1, 5, 20, 60]\n  \n  At index 1 diff: 3 != 5\n  Left contains one more item: 60\n  Use -v to get more diff",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31g_universe_coverage::test_packaged_universe_is_nonempty_but_not_claimed_as_exchange_master",
+      "message": "assert True is False",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31h_autonomy_clarity::test_currency_alerts_use_three_decimals_end_to_end",
+      "message": "AssertionError: assert 'Kurs: {rate:.3f}' in 'from __future__ import annotations\\n\\nfrom contextlib import contextmanager\\nfrom datetime import datetime, timedelta...d.pop(key, None)\\n            else:\\n                restored[key] = original_value\\n        save_settings(restored)\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31h_autonomy_clarity::test_currency_notification_rounds_rate_and_limit_to_three_decimals",
+      "message": "AssertionError: assert 'Kurs: 1.838' in 'BRL/NOK har brutt grensen\\nKurs: 1.8376\\nGrense: 1.8376 <= 1.8400\\nStatus: breach_lower'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31j_stability_observatory.StabilityObservatoryTests::test_mobile_delivery_makes_download_primary_and_external_secondary",
+      "message": "AssertionError: 'Ekstern offentlig PDF' not found in '\"\"\"Operational Autonomy overview for v18.8.3.\\n\\nThis module is deliberately a read/command facade over existing durable\\nservices.  It contains no candidate, ranking, portfolio or scheduler logic.\\n\"\"\"\\nfrom __future__ import annotations\\n\\nfrom datetime import datetime, timedelta, timezone\\nfrom html import escape\\nimport json\\nfrom typing import Any, Mapping\\nfrom urllib.parse import urlparse\\nfrom zoneinfo import ZoneInfo\\n\\nimport pandas as pd\\nimport streamlit as st\\n\\nfrom autonomous_portfolio import (\\n    DECISIONS_PATH, NOTIFICATIONS_PATH, PERFORMANCE_PATH,\\n    load_parameters, load_portfolio, portfolio_equity, portfolio_status_summary,\\n)\\nfrom controlled_parameter_learning import APPROVALS_PATH\\nfrom durable_runtime import ",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31l_decision_chain_integrity.DecisionChainIntegrityTests::test_version",
+      "message": "AssertionError: 'v19.22.0-rc16.34f' != 'v19.22.0-rc16.31bd'\n- v19.22.0-rc16.34f\n?                ^^\n+ v19.22.0-rc16.31bd\n?                ^^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31m_capital_allocation_integrity::test_version_is_rc16_31m",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31n_report_reconciliation.ReportReconciliationTests::test_pdf_renderer_contains_every_promised_portfolio_field",
+      "message": "ValueError: substring not found",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31n_report_reconciliation.ReportReconciliationTests::test_version_includes_rc16_31o_reconciliation_contract",
+      "message": "AssertionError: 'v19.22.0-rc16.34f' != 'v19.22.0-rc16.31bd'\n- v19.22.0-rc16.34f\n?                ^^\n+ v19.22.0-rc16.31bd\n?                ^^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31p_candidate_short_learning::test_version_contract_and_production_threshold_are_not_recalibrated_here",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31s_public_report_mobile_return::test_public_report_action_escapes_untrusted_url_content",
+      "message": "TypeError: _report_landing_actions() missing 1 required keyword-only argument: 'return_href'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31s_public_report_mobile_return::test_public_report_landing_preserves_program_tab_and_has_return_action",
+      "message": "TypeError: _report_landing_actions() missing 1 required keyword-only argument: 'return_href'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31u_export_precision_technical_delivery::test_ui_does_not_require_local_technical_file",
+      "message": "ValueError: substring not found",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31v_report_center_navigation_hotfix::test_release_identity_is_directly_based_on_rc16_31u",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.31bd'\n  \n  - v19.22.0-rc16.31bd\n  ?                ^^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_31w_insider_short_sources::test_report_ui_prioritises_full_pdf_and_explains_zip",
+      "message": "assert '📘 Last ned full rapport med vedlegg' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32b_version_contract::test_current_release_is_canonical_runtime_version",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.32c'\n  \n  - v19.22.0-rc16.32c\n  ?                ^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32c_version_contract::test_rc16_32c_is_canonical_runtime_version",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.32c'\n  \n  - v19.22.0-rc16.32c\n  ?                ^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32d_version_contract::test_rc16_32d_is_canonical_runtime_version",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.32d'\n  \n  - v19.22.0-rc16.32d\n  ?                ^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32e_super_portfolio_multimarket::test_build_market_pipeline_collects_candidates_from_all_configured_markets",
+      "message": "Failed: Timeout (>5.0s) from pytest-timeout.",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32f_version_contract::test_rc16_32f_is_canonical_runtime_version",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.32f'\n  \n  - v19.22.0-rc16.32f\n  ?                ^\n  + v19.22.0-rc16.34f\n  ?                ^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32h_super_portfolio_diagnostics::test_market_pipeline_emits_real_progress_events",
+      "message": "Failed: Timeout (>5.0s) from pytest-timeout.",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32q_priority_reporting::test_release_version_and_safety_statement_are_current",
+      "message": "assert 'APP_VERSION = \"v19.22.0-rc16.32t\"' in 'from __future__ import annotations\\n\\nfrom dataclasses import asdict, dataclass\\nfrom typing import Any\\n\\nAPP_VERSIO...; venstremeny og Lukk oppgave skal fungere uten ny login, mens refresh/new login fortsatt huskes via fil-state.\",\\n]\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32w_scheduled_quality_reports::test_due_scheduled_screen_persists_partial_result_and_pdf",
+      "message": "Failed: Timeout (>5.0s) from pytest-timeout.",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32w_scheduled_quality_reports::test_release_version_is_scheduled_quality_reports",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.32x'\n  \n  - v19.22.0-rc16.32x\n  ?                ^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32w_scheduled_quality_reports::test_scheduled_selection_prioritizes_holdings_then_ranked_candidates",
+      "message": "AssertionError: assert ['HIGH.OL', 'LOW.OL'] == ['OWN.OL', 'H...OL', 'LOW.OL']\n  \n  At index 0 diff: 'HIGH.OL' != 'OWN.OL'\n  Right contains one more item: 'LOW.OL'\n  Use -v to get more diff",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32x_mobile_market_quality_view::test_market_toolbar_is_mobile_safe_and_quality_is_a_first_class_view",
+      "message": "AssertionError: assert 'render_quality_valuation(st, quality_tickers, expanded=True)' in 'import logging\\n# v18.5.12 Render import-path guard\\nimport os as _render_os\\nimport sys as _render_sys\\n_render_root...py.\\n\\n\\n# v19.22.0 RC16: final CSS cascade lock after every legacy style block.\\ninject_rc16_final_sidebar_lock(st)\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32x_mobile_market_quality_view::test_quality_panel_can_be_opened_directly",
+      "message": "assert '*, expanded: bool = False' in '\"\"\"Manual shadow screen with bounded acquisition, PDF and diagnostic export.\"\"\"\\nfrom __future__ import annotations\\n...ng}\")\\n                        st.markdown(\"\\\\n\".join(rendered))\\n        _render_quality_report_choices(st, result)\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32x_mobile_market_quality_view::test_release_identity_for_mobile_market_quality_view",
+      "message": "AssertionError: assert 'v19.22.0-rc16.34f' == 'v19.22.0-rc16.32x'\n  \n  - v19.22.0-rc16.32x\n  ?                ^^\n  + v19.22.0-rc16.34f\n  ?                ^^",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32za_quality_mobile_return::test_quality_mobile_rows_are_isolated_and_warning_is_explicit",
+      "message": "assert 'st.markdown(\"\\\\n\".join(f\"- ⚠️ {warning}\"' in '\"\"\"Manual shadow screen with bounded acquisition, PDF and diagnostic export.\"\"\"\\nfrom __future__ import annotations\\n...ng}\")\\n                        st.markdown(\"\\\\n\".join(rendered))\\n        _render_quality_report_choices(st, result)\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32za_quality_mobile_return::test_quality_ui_parses_and_uses_native_return_navigation",
+      "message": "assert 'st.button(\"← Tilbake til Marked\"' in '\"\"\"Manual shadow screen with bounded acquisition, PDF and diagnostic export.\"\"\"\\nfrom __future__ import annotations\\n...ng}\")\\n                        st.markdown(\"\\\\n\".join(rendered))\\n        _render_quality_report_choices(st, result)\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_rc16_32zb_quality_full_market_automation::test_quality_pdf_labels_deep_vs_market_coverage",
+      "message": "assert 'dybdeanalyse' in '\"\"\"Manual shadow screen with bounded acquisition, PDF and diagnostic export.\"\"\"\\nfrom __future__ import annotations\\n...ng}\")\\n                        st.markdown(\"\\\\n\".join(rendered))\\n        _render_quality_report_choices(st, result)\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v18693d_none_loader::test_pipeline_continues_when_candidate_has_none_fields",
+      "message": "Failed: Timeout (>5.0s) from pytest-timeout.",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v18694_executive_diversity::test_weekend_reason_is_consistent_across_timezones",
+      "message": "AssertionError: assert {'Helg', 'Ute...r åpningstid'} == {'Helg'}\n  \n  Extra items in the left set:\n  'Utenfor ordinær åpningstid'\n  Use -v to get more diff",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v18710_cancellation_scan_progress::test_started_status_records_actual_scan_limit_and_total",
+      "message": "assert 250 == 750",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1902_live_progress_performance_decision_evidence.LiveProgressPerformanceDecisionEvidenceTests::test_overview_uses_isolated_live_fragment",
+      "message": "AssertionError: 'fragment(run_every=\"5s\")' not found in '\"\"\"Operational Autonomy overview for v18.8.3.\\n\\nThis module is deliberately a read/command facade over existing durable\\nservices.  It contains no candidate, ranking, portfolio or scheduler logic.\\n\"\"\"\\nfrom __future__ import annotations\\n\\nfrom datetime import datetime, timedelta, timezone\\nfrom html import escape\\nimport json\\nfrom typing import Any, Mapping\\nfrom urllib.parse import urlparse\\nfrom zoneinfo import ZoneInfo\\n\\nimport pandas as pd\\nimport streamlit as st\\n\\nfrom autonomous_portfolio import (\\n    DECISIONS_PATH, NOTIFICATIONS_PATH, PERFORMANCE_PATH,\\n    load_parameters, load_portfolio, portfolio_equity, portfolio_status_summary,\\n)\\nfrom controlled_parameter_learning import APPROVALS_PATH\\nfrom durable_runtime impo",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1904_report_notification_control.ReportNotificationControlTests::test_polling_exists_only_for_running_status",
+      "message": "AssertionError: 'fragment(run_every=\"5s\")' not found in '\"\"\"Operational Autonomy overview for v18.8.3.\\n\\nThis module is deliberately a read/command facade over existing durable\\nservices.  It contains no candidate, ranking, portfolio or scheduler logic.\\n\"\"\"\\nfrom __future__ import annotations\\n\\nfrom datetime import datetime, timedelta, timezone\\nfrom html import escape\\nimport json\\nfrom typing import Any, Mapping\\nfrom urllib.parse import urlparse\\nfrom zoneinfo import ZoneInfo\\n\\nimport pandas as pd\\nimport streamlit as st\\n\\nfrom autonomous_portfolio import (\\n    DECISIONS_PATH, NOTIFICATIONS_PATH, PERFORMANCE_PATH,\\n    load_parameters, load_portfolio, portfolio_equity, portfolio_status_summary,\\n)\\nfrom controlled_parameter_learning import APPROVALS_PATH\\nfrom durable_runtime impo",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1907_unattended_scheduler.UnattendedSchedulerTests::test_report_repair_failure_cannot_block_scheduler",
+      "message": "Failed: Timeout (>5.0s) from pytest-timeout.",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1909_pdf_ticker_repair.PdfTickerRepairTests::test_autonomy_overview_has_current_run_download_card",
+      "message": "AssertionError: 'Ferdig rapport' not found in '\"\"\"Operational Autonomy overview for v18.8.3.\\n\\nThis module is deliberately a read/command facade over existing durable\\nservices.  It contains no candidate, ranking, portfolio or scheduler logic.\\n\"\"\"\\nfrom __future__ import annotations\\n\\nfrom datetime import datetime, timedelta, timezone\\nfrom html import escape\\nimport json\\nfrom typing import Any, Mapping\\nfrom urllib.parse import urlparse\\nfrom zoneinfo import ZoneInfo\\n\\nimport pandas as pd\\nimport streamlit as st\\n\\nfrom autonomous_portfolio import (\\n    DECISIONS_PATH, NOTIFICATIONS_PATH, PERFORMANCE_PATH,\\n    load_parameters, load_portfolio, portfolio_equity, portfolio_status_summary,\\n)\\nfrom controlled_parameter_learning import APPROVALS_PATH\\nfrom durable_runtime import read_js",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1911_evidence_integrity.EvidenceIntegrityTests::test_newsapi_is_fallback_when_yfinance_has_enough_news",
+      "message": "Failed: Timeout (>5.0s) from pytest-timeout.",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1911_evidence_integrity.EvidenceIntegrityTests::test_version_and_current_release_notes_are_available_in_source_repository",
+      "message": "FileNotFoundError: [Errno 2] No such file or directory: 'RELEASE_NOTES_v19.22.0_RC16.34f.md'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1914_scheduler_progress_exports::test_job_ui_contains_progress_bar_and_safe_test_buttons",
+      "message": "assert 'Last ned rapport som tekst' in '\"\"\"Scheduled Market Intelligence & PDF Reports v19.16.0.\\n\\nJob profiles combine multiple markets, schedules, pipelin...ure_ascii=False, indent=2, default=str))\\n    return 0\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19150_full_system_stabilization::test_full_system_release_audit_is_clean",
+      "message": "AssertionError: [{'code': 'DOCUMENTATION', 'detail': 'Mangler RELEASE_NOTES_v19.22.0_RC16.34f.md'}, {'code': 'DOCUMENTATION', 'detail': 'Mangler DEPLOY_v19.22.0_RC16.34f.md'}]\nassert False is True",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19160_quality_production::test_streamlit_deprecations_removed_from_runtime_python",
+      "message": "AssertionError: assert ['public_repo...ary/shell.py'] == []\n  \n  Left contains 3 more items, first extra item: 'public_report_ui.py'\n  Use -v to get more diff",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19167_stability_only::test_distribution_keeps_only_current_root_release_contract",
+      "message": "AssertionError: assert {'ACCEPTANCE_...31bh.md', ...} == {'ACCEPTANCE_..._RC16.34f.md'}\n  \n  Extra items in the left set:\n  'ACCEPTANCE_v19.22.0_RC16.34e.md'\n  'DEPLOY_v19.22.0_RC16.31cl.md'\n  'RELEASE_NOTES_v19.22.0_RC16.31ch.md'\n  'RELEASE_NOTES_v19.22.0_RC16.31bq.md'\n  'DEPLOY_v19.22.0_RC16.31cq.md'...\n  \n  ...Full output truncated (135 lines hidden), use '-vv' to show",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1921_decision_report::test_pdf_has_one_page_decision_section_before_full_technical_appendix",
+      "message": "AssertionError: assert 'Oppgaver til neste kjøring' in 'AI Aksje Analyzer Pro · v19.22.0-rc16.34f\\nInvestor Edition · Kveldsrapport\\nMI-1921-TEST · R1\\nSide 1\\nAI Aksje Anal...handelsdag\\nEndringer siden forrige rapport\\nEndring\\nResultat\\nSammenligning\\nIngen sammenlignbar tidligere rapport\\n'\n +  where 'AI Aksje Analyzer Pro · v19.22.0-rc16.34f\\nInvestor Edition · Kveldsrapport\\nMI-1921-TEST · R1\\nSide 1\\nAI Aksje Anal...handelsdag\\nEndringer siden forrige rapport\\nEndring\\nResultat\\nSammenligning\\nIngen sammenlignbar tidligere rapport\\n' = <built-in method join of str object at 0x1556e10>(['AI Aksje Analyzer Pro · v19.22.0-rc16.34f\\nInvestor Edition · Kveldsrapport\\nMI-1921-TEST · R1\\nSide 1\\nAI Aksje Ana...andelsdag\\nEndringer siden forrige rapport\\nEndring\\nResultat\\nSammenligning\\nIn",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc1611_visible_package_progress.VisiblePackageProgressTests::test_archived_report_button_uses_same_visible_progress_helper",
+      "message": "ValueError: substring not found",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc1611_visible_package_progress.VisiblePackageProgressTests::test_latest_report_button_uses_visible_progress_helper",
+      "message": "ValueError: substring not found",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc161_progress_hotfix::test_poll_snapshot_observes_successive_worker_updates",
+      "message": "assert 100 == 5",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc161_progress_hotfix::test_poll_snapshot_reads_process_memory_without_durable_storage",
+      "message": "AssertionError: assert 'MBJ-20261008-134333-7839CD' == 'MBJ-POLL-1'\n  \n  - MBJ-POLL-1\n  + MBJ-20261008-134333-7839CD",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc161_progress_hotfix::test_report_center_reuses_overview_progress_fragment",
+      "message": "assert 'get_active_status()' in 'def _live_progress_panel(*, allow_quick_start: bool = True, refresh_app_on_terminal: bool = True) -> None:\\n    \"\"\"Po...(\\n        allow_quick_start=allow_quick_start,\\n        refresh_app_on_terminal=refresh_app_on_terminal,\\n    )\\n\\n\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc1622_scheduler_stabilization::test_cron_has_narrow_report_lock_cadence_and_production_capacity",
+      "message": "assert 'The report lock must never cover paper scanning' in '\"\"\"One-shot unattended scheduler entry point for Render Cron Jobs.\\n\\nThis process has no Streamlit or login dependen..., \"DEGRADED_STORAGE\", \"MEMORY_DEFERRED\",\\n    } else 1\\n\\n\\nif __name__ == \"__main__\":\\n    raise SystemExit(main())\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc1623_report_test_and_public_pdf::test_public_renderer_uses_native_static_pdf_not_optional_st_pdf",
+      "message": "assert 'Åpne PDF i ny fane' in '\"\"\"Unauthenticated bridge from durable report tokens to a mobile-friendly viewer.\"\"\"\\nfrom __future__ import annotati...n_href,\\n            return_label=return_label,\\n        ),\\n        unsafe_allow_html=True,\\n    )\\n    return True\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc162_shared_progress::test_reports_and_overview_use_one_progress_implementation",
+      "message": "assert 'fragment(run_every=\"5s\")(_live_progress_panel)' in '\"\"\"Operational Autonomy overview for v18.8.3.\\n\\nThis module is deliberately a read/command facade over existing dura...  if c2.button(\"↻ Oppdater oversikten\", width=\"stretch\", key=\"autonomy_overview_refresh_v1883\"):\\n        st.rerun()\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc168_shared_draft_zip_progress::test_reports_and_overview_share_the_exact_draft_starter",
+      "message": "AssertionError: assert '_rerun_reports_v19220_rc11' not in 'if q1.butto...t)\\n        '\n  \n  '_rerun_reports_v19220_rc11' is contained here:\n              _rerun_reports_v19220_rc11(st)",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v19220_rc6_currency_navigation::test_currency_route_has_one_stable_group_in_all_navigation_sources",
+      "message": "assert '\"valutavarsler\", \"top picks\"' in '\"\"\"\\nworkspace_layout.py\\n\\nv18.5.35 Professional Trading Workspace.\\nSamler AI-moduler i ett kontrollsenter og redus... unsafe_allow_html=True,\\n        )\\n        _run_control_panel(active_label, renderer)\\n        return active_label\\n'",
+      "also_fails_on_main": true
+    },
+    {
+      "test": "tests.test_v1950_modular_strategy_versioning::test_app_monolith_is_reduced_and_style_layers_are_external",
+      "message": "AssertionError: assert 19744 < 19600\n +  where 19744 = len(['import logging', '# v18.5.12 Render import-path guard', 'import os as _render_os', 'import sys as _render_sys', '_render_root = _render_os.path.dirname(_render_os.path.abspath(__file__))', 'if _render_root not in _render_sys.path:', ...])\n +    where ['import logging', '# v18.5.12 Render import-path guard', 'import os as _render_os', 'import sys as _render_sys', '_render_root = _render_os.path.dirname(_render_os.path.abspath(__file__))', 'if _render_root not in _render_sys.path:', ...] = <built-in method splitlines of str object at 0x41b2dd40>()\n +      where <built-in method splitlines of str object at 0x41b2dd40> = 'import logging\\n# v18.5.12 Render import-path guard\\nimport os as _render_os\\nimport sys as _render_sys\\n_render_",
+      "also_fails_on_main": true
+    }
+  ],
+  "baseline_only": [
+    "tests.test_rc16_31as_production_stabilization::test_diagnostic_bundle_contains_current_scanner_evidence_without_payload",
+    "tests.test_rc16_32c_super_portfolio_completion::test_scheduled_shadow_cycle_skips_same_pipeline_and_notifies_changes"
+  ]
+}
