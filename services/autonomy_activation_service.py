@@ -245,11 +245,11 @@ class AutonomyActivationService:
         return analysis
 
     def latest(self) -> dict[str, Any] | None:
-        rows = sorted(self.analyses.list(), key=lambda row: str(row.get("created_at") or ""), reverse=True)
+        rows = self.analyses.list(limit=1)
         return rows[0] if rows else None
 
-    def history(self, limit: int = 100) -> list[dict[str, Any]]:
-        return sorted(self.analyses.list(), key=lambda row: str(row.get("created_at") or ""), reverse=True)[: max(0, int(limit))]
+    def history(self, limit: int = 100, *, offset: int = 0) -> list[dict[str, Any]]:
+        return self.analyses.list(limit=limit, offset=offset)
 
 
 _default: AutonomyActivationService | None = None

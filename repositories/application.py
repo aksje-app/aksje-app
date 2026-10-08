@@ -200,7 +200,102 @@ class StrategyAccountSnapshotRepository(_BoundedIndexedRepository):
     INDEX_KEY="repositories/strategy_account_snapshots_index.json"; ITEM_PREFIX="repositories/strategy_account_snapshots/items"; INDEX_LIMIT=2000; LEGACY_READ_LIMIT=500
     def __init__(self, storage=None): super().__init__("strategy_account_snapshots", storage=storage, id_field="account_snapshot_id")
 class ActivationAnalysisRepository(JsonRepository):
-    def __init__(self, storage=None): super().__init__("activation_analyses", storage=storage, id_field="analysis_id")
+    """Independent analyses and metadata index, with paged legacy compatibility.
+
+    The legacy document is never rewritten or read wholesale. Keep every new
+    ID in the compact index so old analyses remain discoverable across pages.
+    """
+    INDEX_KEY = "repositories/activation_analyses_index.json"
+    ITEM_PREFIX = "repositories/activation_analyses/items"
+    PAGE_LIMIT = 500
+
+    def __init__(self, storage=None):
+        super().__init__("activation_analyses", storage=storage, id_field="analysis_id")
+
+    @classmethod
+    def _item_key(cls, record_id: str) -> str:
+        return f"{cls.ITEM_PREFIX}/{hashlib.sha256(str(record_id).encode('utf-8')).hexdigest()}.json"
+
+    def _index(self) -> list[dict[str, Any]]:
+        value = self.storage.read_json(self.INDEX_KEY, [])
+        return [dict(row) for row in value if isinstance(row, Mapping)] if isinstance(value, list) else []
+
+    def upsert(self, row: Mapping[str, Any]) -> bool:
+        value = dict(row)
+        record_id = str(value.get(self.id_field) or "")
+        if not record_id:
+            raise ValueError("Missing repository id field: analysis_id")
+        item_key = self._item_key(record_id)
+        self.storage.write_json(item_key, value)
+        entry = {self.id_field: record_id, "item_key": item_key,
+                 "created_at": str(value.get("created_at") or "")}
+
+        def update_index(current):
+            index = [dict(item) for item in (current or [])
+                     if isinstance(item, Mapping) and str(item.get(self.id_field) or "") != record_id]
+            index.append(entry)
+            return sorted(index, key=lambda item: str(item.get("created_at") or ""), reverse=True)
+
+        self.storage.mutate_json(self.INDEX_KEY, update_index, [])
+        return True
+
+    def get(self, record_id: Any) -> dict[str, Any] | None:
+        record_id = str(record_id or "")
+        if not record_id:
+            return None
+        direct = self.storage.read_json(self._item_key(record_id), None)
+        if isinstance(direct, Mapping):
+            return dict(direct)
+        legacy = self.storage.read_json_array_item(self.key, self.id_field, record_id, None)
+        return dict(legacy) if isinstance(legacy, Mapping) else None
+
+    def list(self, limit: int = 100, *, offset: int = 0) -> list[dict[str, Any]]:
+        wanted = max(0, min(int(limit), self.PAGE_LIMIT))
+        offset = max(0, int(offset))
+        if not wanted:
+            return []
+        index = sorted(self._index(), key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        excluded = [str(entry.get(self.id_field) or "") for entry in index]
+        rows = []
+        new_cursor = legacy_offset = skipped = 0
+        legacy_page = []
+        legacy_cursor = 0
+        legacy_done = False
+        while len(rows) < wanted:
+            if legacy_cursor >= len(legacy_page) and not legacy_done:
+                legacy_page = self.storage.read_json_array_page(
+                    self.key, limit=min(64, offset + wanted - skipped - len(rows)),
+                    offset=legacy_offset, exclude_ids=excluded,
+                )
+                legacy_cursor = 0
+                legacy_offset += len(legacy_page)
+                legacy_done = not legacy_page
+            new = index[new_cursor] if new_cursor < len(index) else None
+            old = legacy_page[legacy_cursor] if legacy_cursor < len(legacy_page) else None
+            if new is None and old is None:
+                break
+            take_new = new is not None and (old is None or str(new.get("created_at") or "") >= str(old.get("created_at") or ""))
+            if take_new:
+                new_cursor += 1
+                if skipped < offset:
+                    skipped += 1
+                    continue
+                row = self.storage.read_json(str(new["item_key"]), None)
+                if isinstance(row, Mapping):
+                    rows.append(dict(row))
+            else:
+                legacy_cursor += 1
+                if skipped < offset:
+                    skipped += 1
+                    continue
+                rows.append(dict(old))
+        return rows
+
+    def replace_all(self, rows: Iterable[Mapping[str, Any]]) -> bool:
+        # Compatibility import: retain existing history rather than rewriting it.
+        for row in rows:
+            self.upsert(row)
+        return True
 class EvaluationExportRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("evaluation_exports", storage=storage, id_field="export_id")
 class StrategyLabExperimentRepository(JsonRepository):
