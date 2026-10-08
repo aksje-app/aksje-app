@@ -16,6 +16,24 @@ def render_paper_trading_dashboard(_legacy_context):
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
+    st.caption("Automatiske aksjekjøp krever to kvalifiserte skanninger med ulike kursbarer, minst 10 minutter fra hverandre. Dette er gjentatte tekniske kontroller. Kjøp og salg bruker tidsstemplet ujustert intradagkurs, maksimalt 15 minutter gammel.")
+    st.caption("Gevinstsikring: 40 % av toppgevinsten ved 2–3 %, 55 % ved 3–5 %, 65 % ved 5–6 %, 70 % fra 6 %. Stopgrensen garanterer ikke utførelseskurs.")
+    try:
+        from services.storage_service import get_storage_service
+        from paper_entry_confirmation import KEY, WINDOW_MINUTES
+        from datetime import datetime, timezone
+        confirmations = get_storage_service().read_json(KEY, {}) or {}
+        cutoff = datetime.now(timezone.utc).timestamp() - WINDOW_MINUTES * 60
+        pending = [dict(value) for key, value in confirmations.items()
+                   if key not in portfolio.get("positions", {}) and value.get("observed_epoch", 0) >= cutoff]
+        if pending:
+            with st.expander("Kandidater som venter på kjøpsbekreftelse", expanded=True):
+                for value in pending[:20]:
+                    samples = value.get("samples") or []
+                    status = "BEKREFTET – øvrige kjøpsgrenser gjelder fortsatt" if len(samples) >= 2 else "VENTER PÅ NY KVALIFISERT SKANNING"
+                    st.write(f"{value.get('ticker')} · {len(samples)}/2 bekreftelser · {status}")
+    except Exception:
+        st.warning("Kunne ikke hente status for kjøpsbekreftelser. Automatisk handel krever fortsatt gyldig bevis.")
     _paper_rules = load_rules()
     paper_gate_v19143 = paper_trading_decision()
     if not paper_gate_v19143.allowed:

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 import uuid
 from signal_engine import score_signal
@@ -26,7 +26,7 @@ except Exception:  # fail-safe: trading must not crash if audit helper is unavai
         portfolio = portfolio or {}
         return {"cash": float(portfolio.get("cash", 0) or 0), "open_positions": len(portfolio.get("positions", {}) or {})}
     def validate_buy_order(portfolio, **kwargs):
-        return True, "OK"
+        return False, "Ordrekontroll er utilgjengelig; kjøp er utsatt"
     def audit_state_transition(event, before, after=None, detail=None, level="INFO"):
         return {}
 
@@ -285,6 +285,8 @@ TRADE_CONTEXT_KEYS = (
     "replacement_ticker",
     "replacement_score",
     "decision_snapshot",
+    "execution_quote",
+    "entry_confirmation",
 )
 
 
@@ -356,8 +358,20 @@ def _parse_trade_time_v18660(value):
         raw = str(value or "").strip()
         if not raw:
             return None
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
     except Exception:
+        return None
+
+
+def _holding_minutes(pos, now=None):
+    from datetime import timezone
+    try:
+        opened = datetime.fromisoformat(str(pos.get("opened_at") or pos.get("entry_time")).replace("Z", "+00:00"))
+        if opened.tzinfo is None:
+            opened = opened.replace(tzinfo=timezone.utc)
+        return max(0, int(((now or datetime.now(timezone.utc)) - opened).total_seconds() / 60))
+    except (ValueError, TypeError):
         return None
 
 
@@ -395,7 +409,10 @@ def _automatic_signal_fresh_v1931ay(trade_context, rules, now=None):
         max_age = max(1.0, float((rules or {}).get("automatic_signal_max_age_minutes", 120) or 120))
     except Exception:
         max_age = 120.0
-    age_minutes = ((now or datetime.now()) - stamp).total_seconds() / 60.0
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo:
+        reference = reference.astimezone(timezone.utc).replace(tzinfo=None)
+    age_minutes = (reference - stamp).total_seconds() / 60.0
     if age_minutes < -5.0 or age_minutes > max_age:
         return False, f"Automatisk handel blokkert: markedsdata er {age_minutes:.1f} minutter gamle (maks {max_age:.0f})."
     return True, ""
@@ -551,6 +568,14 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     if not gate.allowed:
         return False, explain_blocked_action([gate.message], action="Kjøp")
     rules = load_rules()
+    if gate_context.get("automatic"):
+        from scanner_fresh_quote import validate_execution_quote
+        from paper_entry_confirmation import entry_is_confirmed
+        valid, message = validate_execution_quote(price, gate_context)
+        if not valid:
+            return False, message
+        if not entry_is_confirmed(ticker, gate_context.get("execution_quote"), gate_context.get("entry_confirmation") or {}):
+            return False, "Automatisk kjøp venter på to kvalifiserte skanninger med nye kursdata"
     fresh, freshness_msg = _automatic_signal_fresh_v1931ay(gate_context, rules)
     if not fresh:
         return False, explain_blocked_action([freshness_msg], action="Kjøp")
@@ -633,7 +658,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         amount=amount,
         confidence=int(confidence or 0),
         min_confidence=0 if force_allow else min_buy_confidence,
-        allow_existing=True,
+        allow_existing=bool(existing_pos),
         max_open_positions=None if (force_allow or existing_pos) else max_open_positions,
         max_buys_per_day=None if force_allow else max_trades_per_day,
         safety_mode=_settings_bool("auto_buy_safety_mode", True),
@@ -692,7 +717,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "ticker": ticker, "shares": shares, "entry_price": price, "avg_price": price,
             "last_price": price, "highest_price": price, "stop_loss": sl,
             "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_pct_for_position, "confidence": int(confidence or 0), "reason": reason,
-            "opened_at": datetime.now().isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
+            "opened_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
             "target_price": float(target_price or 0), "initial_risk_amount": float(initial_risk_amount or 0),
             "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
             "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
@@ -702,6 +727,11 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
         }
         order_kind = "paper"
         result_label = "PAPER-KJØP"
+    positions[ticker].update({"market_data_at": trade_ctx.get("market_data_at"), "execution_quote": trade_ctx.get("execution_quote")})
+    if not existing_pos:
+        positions[ticker].update({"decision_snapshot": trade_ctx.get("decision_snapshot"),
+                                 "entry_confirmation": trade_ctx.get("entry_confirmation"),
+                                 "contributing_reasons": trade_ctx.get("contributing_reasons")})
     portfolio["cash"] = round(float(portfolio.get("cash", 0)) - amount, 2)
     trade_id = uuid.uuid4().hex
     add_trade(portfolio, {
@@ -748,6 +778,11 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
     if not pos:
         audit_state_transition("paper_sell_blocked", before, detail={"ticker": ticker, "reason": "missing_position"}, level="WARNING")
         return False, f"Ingen posisjon i {ticker}"
+    if gate_context.get("automatic"):
+        from scanner_fresh_quote import validate_execution_quote
+        valid, message = validate_execution_quote(price, gate_context, not_before=pos.get("market_data_at"))
+        if not valid:
+            return False, message
     reason = paper_reason_label(reason, "SELL") or "PAPER-SALG"
     trade_ctx = _merge_trade_context(ticker, trade_context, source=pos)
     normalized_pos = normalize_paper_position(ticker, pos, latest_price=price)
@@ -781,6 +816,9 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         del portfolio["positions"][ticker]
     trade_id = uuid.uuid4().hex
     holding_days, holding_time_known = _holding_period(pos, ticker)
+    holding_minutes = _holding_minutes(pos)
+    stop_trigger = risk_levels.get("effective_stop_price") if "stop" in reason.lower() or "protection" in reason.lower() else None
+    execution_gap_pct = (price / stop_trigger - 1) * 100 if stop_trigger else None
     add_trade(portfolio, {
         "type":"SELL", "ticker":ticker, "price":round(price,2), "shares":round(shares,6),
         "amount":round(amount,2), "confidence":int(pos.get("confidence",0) or 0),
@@ -800,6 +838,7 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         "remaining_shares": round(remaining_shares, 6),
         "asset_type": pos.get("asset_type", "Aksje"),
         "trade_id": trade_id, "holding_days": holding_days, "holding_time_known": holding_time_known,
+        "holding_minutes": holding_minutes, "stop_trigger_price": stop_trigger, "execution_gap_pct": execution_gap_pct,
         **{key: trade_ctx.get(key, "") for key in TRADE_CONTEXT_KEYS},
     })
     after = build_paper_state_snapshot(portfolio)
@@ -811,6 +850,8 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         peak_gain_pct=risk_levels.get("peak_gain_pct"), profit_giveback_pct=risk_levels.get("profit_giveback_pct"),
         mfe_retained_pct=risk_levels.get("mfe_retained_pct"), protected_gain_pct=risk_levels.get("protected_gain_pct"),
         trade_id=trade_id, holding_days=holding_days, holding_time_known=holding_time_known,
+        holding_minutes=holding_minutes, stop_trigger_price=stop_trigger, execution_gap_pct=execution_gap_pct,
+        market_data_at=trade_ctx.get("market_data_at"),
         entry_score=pos.get("entry_score"), exit_score=trade_ctx.get("current_score"),
         score_path=list(trade_ctx.get("score_path") or pos.get("score_path") or []),
         primary_sell_reason=trade_ctx.get("trade_explanation") or reason,
@@ -856,6 +897,11 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
     rules = load_rules()
     ticker = str(ticker).upper()
     price = float(price)
+    from scanner_fresh_quote import validate_execution_quote
+    previous_pos = portfolio.get("positions", {}).get(ticker) or {}
+    valid, message = validate_execution_quote(price, auto_context, not_before=previous_pos.get("market_data_at"))
+    if not valid:
+        return False, message
     sig = str(signal or "").upper()
     pos = portfolio.get("positions", {}).get(ticker)
     if pos:
@@ -870,6 +916,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
         effective_stop = float(risk_levels.get("effective_stop_price") or tr or sl or 0.0)
         pos.update({
             "last_price": price, "highest_price": high, "stop_loss": max(sl, effective_stop),
+            "market_data_at": auto_context.get("market_data_at"), "execution_quote": auto_context.get("execution_quote"),
             "take_profit": tp, "trailing_stop": effective_stop, "trailing_stop_level": effective_stop,
             "trailing_stop_pct": trailing_stop_pct, **risk_levels,
         })
@@ -1110,7 +1157,7 @@ def paper_buy_instrument(
             "trailing_stop_pct": trailing_pct_for_position,
             "confidence": int(confidence or 0),
             "reason": reason,
-            "opened_at": datetime.now().isoformat(timespec="seconds"),
+            "opened_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "asset_type": asset_type,
             "units_label": units_label,
             "currency": currency,

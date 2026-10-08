@@ -48,7 +48,7 @@ def test_profit_retention_tightens_as_peak_gain_grows() -> None:
     cases = [
         (102.5, 40.0, 1.0),
         (104.0, 55.0, 2.2),
-        (106.0, 65.0, 3.9),
+        (106.0, 70.0, 4.2),
         (110.0, 70.0, 7.0),
     ]
     for peak, retention, protected in cases:

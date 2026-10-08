@@ -83,6 +83,8 @@ from services.paper_quality_enrichment_service import get_paper_quality_enrichme
 from runtime_safety import paper_trading_decision
 from ticker_health import quarantine_status, record_ticker_failure, record_ticker_success
 from scanner_fresh_quote import fresh_paper_buy_quote
+from paper_entry_confirmation import observe_entry, entry_is_confirmed
+from paper_trading_guard import check_paper_trade
 from trading_settings import load_rules
 
 
@@ -659,7 +661,16 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
 
             result = analyze_ticker(ticker, market_snapshot_id=market_snapshot_id, run_id=scan_run_id)
             if result is None:
-                continue
+                held = (load_portfolio() or {}).get("positions", {}).get(str(ticker).upper())
+                if held:
+                    # Risk exits remain available even when a new analysis failed.
+                    result = {"ticker": str(ticker).upper(), "price": held.get("last_price", 0),
+                              "signal": "HOLD", "confidence": held.get("confidence", 0),
+                              "score": None, "risk_only": True}
+                else:
+                    if auto_trading_enabled:
+                        observe_entry(ticker, {}, None, scan_run_id, min_score=min_buy_score, min_confidence=min_buy_confidence)
+                    continue
 
             latest_prices[ticker] = result["price"]
             if isinstance(result.get("candidate_snapshot"), dict):
@@ -668,7 +679,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
             print(
                 f"{ticker}: {result['signal']} "
                 f"conf={result['confidence']} "
-                f"score={result['score']:.2f} "
+                f"score={result.get('score') if result.get('score') is not None else 'Ikke registrert'} "
                 f"price={result['price']:.2f}"
             )
 
@@ -680,14 +691,19 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                 has_existing_position = str(result["ticker"]).upper() in {str(t).upper() for t in open_positions.keys()}
 
                 if has_existing_position:
+                    quote, quote_error = fresh_paper_buy_quote(result["ticker"])
+                    if quote is None:
+                        print(f"Auto risk check {ticker}: utsatt - {quote_error}")
+                        continue
+                    latest_prices[ticker] = quote["price"]
                     traded, msg = auto_trade(
                         result["ticker"],
-                        result["price"],
+                        quote["price"],
                         result["signal"],
                         confidence=result["confidence"],
                         rsi=result.get("rsi"),
                         prev_rsi=result.get("prev_rsi"),
-                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "scan_id": scan_run_id, "scanner_execution_id": load_scanner_status().get("execution_id"), "market_data_at": result.get("market_data_at") or result.get("as_of") or "", "candidate": _paper_candidate_context(result)},
+                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "scan_id": scan_run_id, "scanner_execution_id": load_scanner_status().get("execution_id"), "market_data_at": quote["market_data_at"], "execution_quote": quote, "current_score": result.get("score"), "candidate": _paper_candidate_context(result)},
                     )
                     print(f"Auto risk check {ticker}: {msg}")
 
@@ -706,6 +722,33 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
 
                     if allow_trade:
                         rules = load_rules()
+                        # The 2y daily history used for ranking is not proof
+                        # of a fresh executable quote. Fetch price and time
+                        # together; never stamp the current time onto it.
+                        quote, quote_error = fresh_paper_buy_quote(
+                            result["ticker"],
+                        )
+                        if quote is None:
+                            observe_entry(ticker, {}, None, scan_run_id, min_score=min_buy_score, min_confidence=min_buy_confidence)
+                            print(f"Auto BUY {ticker}: blokkert - {quote_error}")
+                            continue
+                        if result["price"] <= 0 or abs(quote["price"] / result["price"] - 1) > 0.03:
+                            observe_entry(ticker, {}, None, scan_run_id, min_score=min_buy_score, min_confidence=min_buy_confidence)
+                            print(f"Auto BUY {ticker}: blokkert - kursen endret seg mer enn 3% siden signalgrunnlaget")
+                            continue
+                        confirmation = observe_entry(
+                            ticker, result, quote, scan_run_id,
+                            min_score=min_buy_score, min_confidence=min_buy_confidence,
+                        )
+                        if not entry_is_confirmed(ticker, quote, confirmation):
+                            print(f"Auto BUY {ticker}: VENTER PÅ BEKREFTELSE - to kvalifiserte skanninger med nye kursdata kreves")
+                            continue
+                        entry_gate = check_paper_trade("BUY", ticker=ticker, source="scanner_worker", run_id=scan_run_id,
+                                                       automatic=True, candidate=_paper_candidate_context(result))
+                        if not entry_gate.allowed:
+                            print(f"Auto BUY {ticker}: blokkert - {entry_gate.message}")
+                            continue
+                        latest_prices[ticker] = quote["price"]
                         portfolio_now = load_portfolio() or {}
                         max_open = int(rules.get("max_open_positions", 5) or 5)
                         if len(portfolio_now.get("positions") or {}) >= max_open:
@@ -714,7 +757,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                                 old_ticker = replacement["ticker"]
                                 old_quote, old_quote_error = fresh_paper_buy_quote(
                                     old_ticker,
-                                    max_age_minutes=float(rules.get("automatic_signal_max_age_minutes", 120) or 120),
+
                                 )
                                 if old_quote is not None:
                                     replaced, replace_msg = paper_sell(
@@ -728,6 +771,8 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                                             "scan_id": scan_run_id,
                                             "scanner_execution_id": load_scanner_status().get("execution_id"),
                                             "market_data_at": old_quote["market_data_at"],
+                                            "execution_quote": old_quote,
+                                            "current_score": replacement.get("score"),
                                             "rule_used": "Capital replacement",
                                             "replacement_ticker": result["ticker"],
                                             "replacement_score": result.get("score"),
@@ -746,7 +791,10 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                                     print(f"Replacement {old_ticker} -> {result['ticker']}: {replace_msg}")
                                     if replaced:
                                         trades_executed += 1
+                                    else:
+                                        allow_trade = False
                                 else:
+                                    allow_trade = False
                                     print(f"Replacement {old_ticker}: blokkert - {old_quote_error}")
                             else:
                                 print(f"Auto BUY {ticker}: full portefølje og ingen klart bedre replacement")
@@ -754,19 +802,6 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                         if not allow_trade:
                             continue
 
-                        # The 2y daily history used for ranking is not proof
-                        # of a fresh executable quote. Fetch price and time
-                        # together; never stamp the current time onto it.
-                        quote, quote_error = fresh_paper_buy_quote(
-                            result["ticker"], max_age_minutes=float(
-                                rules.get("automatic_signal_max_age_minutes", 120) or 120),
-                        )
-                        if quote is None:
-                            print(f"Auto BUY {ticker}: blokkert - {quote_error}")
-                            continue
-                        if result["price"] <= 0 or abs(quote["price"] / result["price"] - 1) > 0.03:
-                            print(f"Auto BUY {ticker}: blokkert - kursen endret seg mer enn 3% siden signalgrunnlaget")
-                            continue
                         print(f"✅ {ticker}: BUY-kandidat godkjent med tidsstemplet intradagkurs, prøver paper_buy")
                         traded, msg = paper_buy(
                             result["ticker"],
@@ -781,6 +816,9 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                                 "scanner_execution_id": load_scanner_status().get("execution_id"),
                                 "market_data_at": quote["market_data_at"],
                                 "execution_quote": quote,
+                                "entry_confirmation": confirmation,
+                                "current_score": result.get("score"),
+                                "contributing_reasons": [f"BUY score {result.get('score')} ≥ {min_buy_score}", f"Confidence {result.get('confidence')} ≥ {min_buy_confidence}", "To kvalifiserte skanninger med ulike intradagbarer"],
                                 "candidate": _paper_candidate_context(result),
                                 "decision_snapshot": _paper_replay_snapshot(result, portfolio_now),
                             },
@@ -791,23 +829,12 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
                             trades_executed += 1
                             print("Trade-varsling håndteres av trading_engine")
                     else:
+                        observe_entry(ticker, {}, None, scan_run_id, min_score=min_buy_score, min_confidence=min_buy_confidence)
                         print(f"Auto BUY {ticker}: blokkert av regler")
 
                 else:
-                    traded, msg = auto_trade(
-                        result["ticker"],
-                        result["price"],
-                        result["signal"],
-                        confidence=result["confidence"],
-                        rsi=result.get("rsi"),
-                        prev_rsi=result.get("prev_rsi"),
-                        trade_context={"source": "scanner_worker", "automatic": True, "run_id": scan_run_id, "scan_id": scan_run_id, "scanner_execution_id": load_scanner_status().get("execution_id"), "market_data_at": result.get("market_data_at") or result.get("as_of") or "", "candidate": _paper_candidate_context(result)},
-                    )
-                    print(f"Auto trade {ticker}: {msg}")
-
-                    if traded:
-                        trades_executed += 1
-                        print("Trade-varsling håndteres av trading_engine")
+                    observe_entry(ticker, {}, None, scan_run_id, min_score=min_buy_score, min_confidence=min_buy_confidence)
+                    print(f"Auto trade {ticker}: ingen ny kvalifisert BUY")
 
             elif not paper_gate.allowed:
                 print(f"⏸ {paper_gate.reason}")

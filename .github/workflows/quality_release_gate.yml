@@ -14,6 +14,20 @@ jobs:
     name: Release verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: entry_exit_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d entry_exit_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,6 +103,8 @@ jobs:
             tests/test_program_audit_learning_evidence.py \
             tests/test_program_audit_scheduler_truth.py \
             tests/test_market_event_discovery.py \
+            tests/test_entry_exit_evidence.py \
+            tests/test_rc16_31o_exit_policy.py \
             tests/test_market_policy_and_target_consistency.py \
             tests/test_full_market_quality_prescreen.py \
             tests/test_quality_valuation.py \
@@ -112,12 +128,17 @@ jobs:
           pytest -q tests \
             --ignore-glob='tests/test_rc*.py' \
             --ignore-glob='tests/test_v*.py'
+      - name: PostgreSQL evidence round trips
+        env:
+          PYTHONPATH: .
+          TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
+        run: pytest -q tests/test_entry_exit_postgres.py
       - name: Build FULL and clean DELTA packages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist delta_root
-          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34f_FULL.zip HEAD
+          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_FULL.zip HEAD
 
           BASE_REF="${{ github.base_ref }}"
           if [ -z "$BASE_REF" ]; then BASE_REF="main"; fi
@@ -136,28 +157,28 @@ jobs:
 
           (
             cd delta_root
-            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34f_DELTA.zip .
+            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_DELTA.zip .
           )
-          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34f_FULL.zip \
-                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34f_DELTA.zip \
-            > dist/SHA256SUMS_RC16.34f.txt
+          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_FULL.zip \
+                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_DELTA.zip \
+            > dist/SHA256SUMS_RC16.34g.txt
 
           echo "Clean DELTA files:"
           cat dist/changed_files_delta.txt
       - name: Upload FULL package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34f_FULL
+          name: AI_Aksje_Analyzer_RC16.34g_FULL
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34f_FULL.zip
-            dist/SHA256SUMS_RC16.34f.txt
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_FULL.zip
+            dist/SHA256SUMS_RC16.34g.txt
           if-no-files-found: error
       - name: Upload clean DELTA package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34f_DELTA
+          name: AI_Aksje_Analyzer_RC16.34g_DELTA
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34f_DELTA.zip
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_DELTA.zip
             dist/changed_files_delta.txt
-            dist/SHA256SUMS_RC16.34f.txt
+            dist/SHA256SUMS_RC16.34g.txt
           if-no-files-found: error

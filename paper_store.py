@@ -3,7 +3,7 @@ from utils import using_postgres  # v18.6.3 centralized helpers
 
 import json, os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from paper_trading_guard import require_paper_trade
 try:
     import psycopg2
@@ -14,6 +14,14 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STORE_FILE = Path("paper_portfolio.json")  # legacy fallback only; new runtime storage uses StorageService.
 STORAGE_KEY = "paper_trading/portfolio.json"
 DEFAULT_PORTFOLIO = {"cash": 100000.0, "positions": {}, "trades": [], "fund_savings_plans": [], "review_queue": []}
+
+
+def _metadata_load(value):
+    try:
+        parsed = json.loads(value or "{}") if isinstance(value, str) else value
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    except (ValueError, TypeError):
+        return {}
 
 
 def _nullable_float(value):
@@ -123,6 +131,8 @@ def init_db():
 
     # Add all possible columns used by old/new versions
     migrations = [
+        "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS evidence_metadata TEXT;",
+        "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS evidence_metadata TEXT;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_price REAL;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS avg_price REAL;",
         "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS last_price REAL;",
@@ -275,7 +285,8 @@ def load_portfolio():
                    COALESCE(initial_risk_amount, 0) AS initial_risk_amount,
                    COALESCE(exchange, '') AS exchange,
                    entry_score,
-                   COALESCE(score_path, '[]') AS score_path
+                   COALESCE(score_path, '[]') AS score_path,
+                   evidence_metadata
             FROM paper_positions
             ORDER BY ticker
         """)
@@ -284,6 +295,7 @@ def load_portfolio():
             entry = float(r[2] or r[3] or 0)
             last = float(r[3] or entry)
             positions[r[0]] = {
+                **_metadata_load(r[27]),
                 "ticker": r[0],
                 "shares": float(r[1] or 0),
                 "entry_price": entry,
@@ -331,7 +343,8 @@ def load_portfolio():
                    COALESCE(exchange, '') AS exchange,
                    entry_score,
                    exit_score,
-                   COALESCE(trade_id, '') AS trade_id
+                   COALESCE(trade_id, '') AS trade_id,
+                   evidence_metadata
             FROM paper_trades
             ORDER BY id DESC
             LIMIT 300
@@ -339,6 +352,7 @@ def load_portfolio():
         trades = []
         for r in cur.fetchall():
             trades.append({
+                **_metadata_load(r[25]),
                 "time": r[0],
                 "type": r[1],
                 "ticker": r[2],
@@ -381,12 +395,6 @@ def load_portfolio():
             "fund_savings_plans": (persisted_extra or {}).get("fund_savings_plans", []),
             "review_queue": (persisted_extra or {}).get("review_queue", []),
         })
-        storage = _storage()
-        if storage is not None:
-            try:
-                storage.write_json(STORAGE_KEY, portfolio)
-            except Exception as e:
-                logging.warning("Silenced exception restored in v18.6.3: %s", e)
         return portfolio
     except Exception as e:
         # Production must fail closed. A recovering PostgreSQL instance may not
@@ -419,8 +427,8 @@ def save_portfolio(portfolio):
                 (ticker, shares, entry_price, avg_price, last_price, stop_loss, take_profit,
                  trailing_stop, trailing_stop_level, trailing_stop_pct, highest_price, confidence, reason, opened_at, asset_type, units_label, currency, nav_date, purchase_mode,
                  country, market, sector, industry, target_price, initial_risk_amount,
-                 exchange, entry_score, score_path)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 exchange, entry_score, score_path, evidence_metadata)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 ticker,
                 float(pos.get("shares", 0)),
@@ -450,6 +458,7 @@ def save_portfolio(portfolio):
                 pos.get("exchange", ""),
                 _nullable_float(pos.get("entry_score")),
                 _score_path_json(pos.get("score_path")),
+                json.dumps(pos, ensure_ascii=False, default=str),
             ))
 
         conn.commit()
@@ -475,7 +484,7 @@ def add_trade(portfolio, trade):
         source="paper_store.add_trade",
         run_id=str((trade or {}).get("run_id") or (trade or {}).get("execution_id") or ""),
     )
-    trade["time"] = datetime.now().isoformat(timespec="seconds")
+    trade["time"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     portfolio["trades"].insert(0, trade)
 
     if using_postgres():
@@ -490,8 +499,8 @@ def add_trade(portfolio, trade):
             INSERT INTO paper_trades
             (id, time, type, ticker, price, shares, amount, confidence, pnl_pct, reason, asset_type, currency, nav_date, order_kind,
              country, market, sector, industry, rule_used, rule_limit, measured_value, trade_explanation,
-             exchange, entry_score, exit_score, trade_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             exchange, entry_score, exit_score, trade_id, evidence_metadata)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             next_id,
             trade["time"],
@@ -519,6 +528,7 @@ def add_trade(portfolio, trade):
             _nullable_float(trade.get("entry_score")),
             _nullable_float(trade.get("exit_score")),
             trade.get("trade_id", ""),
+            json.dumps(trade, ensure_ascii=False, default=str),
         ))
         conn.commit()
         conn.close()

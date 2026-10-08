@@ -365,12 +365,24 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
     if details.get("holding_time_known") is False:
         lines.append("Eiertid: ukjent – kjøpstidspunkt mangler")
     elif details.get("holding_days") is not None:
-        lines.append(f"Eiertid: {int(details.get('holding_days') or 0)} børsdager")
+        elapsed = details.get("holding_minutes")
+        duration = f" · {int(elapsed)} minutter" if elapsed is not None and elapsed < 1440 else (f" · {elapsed / 60:.1f} timer" if elapsed is not None else "")
+        lines.append(f"Eiertid: {int(details.get('holding_days') or 0)} børsdager{duration}")
+    def score_label(value):
+        try:
+            from math import isfinite
+            return f"{float(value):.1f}" if value not in (None, "") and isfinite(float(value)) else "Ikke registrert"
+        except (ValueError, TypeError):
+            return "Ikke registrert"
     entry_score, exit_score = details.get("entry_score"), details.get("exit_score")
-    if trade_type == "BUY" and entry_score is not None:
-        lines.append(f"Score ved kjøp: {float(entry_score):.1f}")
-    elif entry_score is not None or exit_score is not None:
-        lines.append(f"Score: {float(entry_score or 0):.1f} → {float(exit_score or 0):.1f}")
+    if trade_type == "BUY":
+        lines.append(f"Score ved kjøp: {score_label(entry_score)}")
+    else:
+        lines.append(f"Score: {score_label(entry_score)} → {score_label(exit_score)}")
+    if details.get("stop_trigger_price") is not None:
+        lines.append(f"Utløsningsgrense: {details['stop_trigger_price']:.2f} · kursavvik {details.get('execution_gap_pct', 0):+.2f}%")
+    if details.get("market_data_at"):
+        lines.append(f"Kurstidspunkt: {details['market_data_at']}")
     score_path = [float(value) for value in (details.get("score_path") or []) if value is not None]
     if score_path:
         lines.append("Scorebane: " + " → ".join(f"{value:.0f}" for value in score_path[-8:]))
