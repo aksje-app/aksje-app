@@ -218,6 +218,7 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         return "FAILED"
     warnings = []
     for key, field in (
+        ("super_portfolio", "state"),
         ("quality_valuation_schedule", "state"),
         ("learning_observation_maintenance", "status"),
         ("report_repair", "state"),

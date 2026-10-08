@@ -39,8 +39,13 @@ def test_build_market_pipeline_collects_candidates_from_all_configured_markets(m
     monkeypatch.setattr(ip, "_load_candidate_rows_from_app", fake_load)
     monkeypatch.setattr(ip, "_prepare_candidate_rows", fake_prepare)
     monkeypatch.setattr(ip, "score_candidate", fake_score)
+    monkeypatch.setattr(sp, "_refresh_official_events", lambda now: {})
     monkeypatch.setattr(sp, "write_json", lambda *args, **kwargs: None)
     monkeypatch.setattr(sp, "read_json", lambda *args, **kwargs: {})
+    # This scenario verifies market routing, not live Yahoo/insider endpoints.
+    # Keep fictional symbols local so the result cannot depend on rate limits.
+    monkeypatch.setattr(sp, "_coarse_market_snapshot", lambda *args, **kwargs: {})
+    monkeypatch.setattr(sp, "_bounded_insider_checks", lambda *args, **kwargs: {})
 
     cfg = sp.SuperPortfolioConfig(market_scan_limit_per_market=3, market_candidates_per_market=2)
     payload = sp.build_super_portfolio_market_pipeline(cfg, now=datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc), force_refresh=True)

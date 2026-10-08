@@ -84,6 +84,11 @@ jobs:
             tests/test_rc16_34d_render_memory_rightsize.py \
             tests/test_rc16_34e_parameter_learning_ux.py \
             tests/test_rc16_34f_activation_history_memory.py \
+            tests/test_program_audit_candidate_fallback.py \
+            tests/test_program_audit_autonomy_accounting.py \
+            tests/test_program_audit_learning_evidence.py \
+            tests/test_program_audit_scheduler_truth.py \
+            tests/test_market_event_discovery.py \
             tests/test_market_policy_and_target_consistency.py \
             tests/test_full_market_quality_prescreen.py \
             tests/test_quality_valuation.py \

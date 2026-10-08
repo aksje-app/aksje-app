@@ -250,7 +250,7 @@ def production_buy_authorization(candidate: Mapping[str, Any]) -> tuple[bool, li
 
 def _validate_execution_integrity(
     trades: Sequence[Mapping[str, Any]], candidates: Mapping[str, Mapping[str, Any]],
-    portfolio: Mapping[str, Any],
+    portfolio: Mapping[str, Any], *, starting_portfolio: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     actions_by_ticker: dict[str, set[str]] = {}
@@ -273,6 +273,25 @@ def _validate_execution_integrity(
     for ticker, actions in actions_by_ticker.items():
         if {"BUY", "SELL"} <= actions:
             errors.append(f"{ticker}: både kjøp og salg i samme kjøring")
+    if starting_portfolio is not None:
+        expected = {str(t).upper(): _f(p.get("quantity"))
+                    for t, p in (starting_portfolio.get("positions") or {}).items()}
+        expected_cash = _f(starting_portfolio.get("cash"))
+        for trade in trades:
+            action = str(trade.get("action") or "").upper()
+            if action not in {"BUY", "SELL", "SELL_PARTIAL"}:
+                continue
+            ticker = str(trade.get("ticker") or "").upper()
+            direction = 1 if action == "BUY" else -1
+            expected[ticker] = expected.get(ticker, 0.0) + direction * _f(trade.get("quantity"))
+            expected_cash -= direction * _f(trade.get("value"))
+        final = {str(t).upper(): _f(p.get("quantity"))
+                 for t, p in (portfolio.get("positions") or {}).items()}
+        for ticker in expected.keys() | final.keys():
+            if abs(expected.get(ticker, 0.0) - final.get(ticker, 0.0)) > 0.0001:
+                errors.append(f"{ticker}: beholdningen stemmer ikke med kjøp og salg")
+        if abs(expected_cash - _f(portfolio.get("cash"))) > 0.01:
+            errors.append("Kontantbeholdningen stemmer ikke med kjøp og salg")
     return {
         "ok": not errors,
         "errors": errors,
@@ -1875,8 +1894,8 @@ def run_autonomous_cycle(
                 continue
             base_score = _candidate_score(candidate)
             score = _candidate_entry_score(candidate)
-            quality = _candidate_quality(candidate)
-            risk = _candidate_risk(candidate)
+            quality = _candidate_quality(candidate, default=float("nan"))
+            risk = _candidate_risk(candidate, default=float("nan"))
             price = _candidate_price(candidate)
             if ticker in portfolio["positions"] and not params.allow_additions:
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP",
@@ -1887,13 +1906,15 @@ def run_autonomous_cycle(
                 continue
             rejection = None
             execution_stage = "ENTRY_GATE_STOPPED"
-            if quality < params.minimum_data_quality:
+            if not math.isfinite(quality) or not math.isfinite(risk):
+                rejection = "Mangler målt datakvalitet eller risiko"
+            elif quality < params.minimum_data_quality:
                 rejection = f"Datakvalitet {quality:.1f} under terskel"
             elif risk > params.maximum_risk_score:
                 rejection = f"Risiko {risk:.1f} over grense"
             elif price <= 0:
                 rejection = "Mangler gyldig markedspris"
-            elif len(portfolio["positions"]) >= params.maximum_open_positions:
+            elif ticker not in portfolio["positions"] and len(portfolio["positions"]) >= params.maximum_open_positions:
                 rejection = "Maks antall åpne posisjoner"
             elif bool(candidate.get("technical_entry_wait")):
                 rejection = str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir VENT")
@@ -1915,7 +1936,11 @@ def run_autonomous_cycle(
             reserve = equity * params.reserve_cash_pct / 100
             available = max(0.0, _f(portfolio.get("cash")) - reserve)
             proposed = min(params.maximum_position_pct, max(0.5, _f(candidate.get("proposed_position_pct"), params.maximum_position_pct)))
-            target_value = equity * proposed / 100
+            existing_position = dict(portfolio["positions"].get(ticker) or {})
+            existing_quantity = _f(existing_position.get("quantity"))
+            existing_value = existing_quantity * price
+            # Position sizing is a cap on the TOTAL holding, not on each order.
+            target_value = max(0.0, equity * proposed / 100 - existing_value)
             sector = str(candidate.get("sector") or "Unknown")
             sector_room = max(0.0, equity * params.maximum_sector_pct / 100 - _sector_value(portfolio, sector))
             value = min(target_value, available, sector_room)
@@ -1931,7 +1956,7 @@ def run_autonomous_cycle(
                     learning_trades.append(promoted)
                     learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "PROMOTED", "reason": "Kandidaten bestod ordinære kjøpsporter og ble flyttet til Autonom portefølje", "price": price, "score": score, "learning_probe": True})
             portfolio["cash"] = _f(portfolio.get("cash")) - value
-            portfolio["positions"][ticker] = {
+            new_position = {
                 "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
                 "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
                 "opened_at": _now(), "strategy": _candidate_strategy(candidate),
@@ -1949,6 +1974,19 @@ def run_autonomous_cycle(
                     "risk_adjustment": 100.0 - risk,
                 },
             }
+            if existing_position:
+                total_quantity = existing_quantity + quantity
+                existing_position.update({
+                    "quantity": total_quantity,
+                    "average_price": (existing_quantity * _f(existing_position.get("average_price")) + value) / total_quantity,
+                    "last_price": price,
+                    "highest_price": max(price, _f(existing_position.get("highest_price"), price)),
+                    "last_addition_run_id": run_id,
+                })
+                # Preserve original entry, stop/profit flags and provenance.
+                portfolio["positions"][ticker] = existing_position
+            else:
+                portfolio["positions"][ticker] = new_position
             trade = {
                 "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
                 "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
@@ -2143,7 +2181,9 @@ def run_autonomous_cycle(
 
     emit_progress(6, progress_total, "Kjøps- og læringsbeslutninger er ferdige")
 
-    execution_integrity = _validate_execution_integrity(trades, candidate_map, portfolio)
+    execution_integrity = _validate_execution_integrity(
+        trades, candidate_map, portfolio, starting_portfolio=starting_portfolio
+    )
     if not execution_integrity["ok"]:
         # Atomic safety fallback: no ordinary portfolio mutation or order ledger is
         # committed when the completed cycle is internally inconsistent.

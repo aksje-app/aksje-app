@@ -385,7 +385,7 @@ def _closed_learning_trades() -> list[dict[str, Any]]:
         if not isinstance(raw, Mapping) or str(raw.get("action") or "").upper() != "SELL":
             continue
         row = dict(raw)
-        identity = str(row.get("trade_id") or "|").strip() or "|".join(map(str, (
+        identity = str(row.get("trade_id") or "").strip() or "|".join(map(str, (
             row.get("ticker"), row.get("timestamp"), row.get("price"), row.get("pnl"), row.get("reason"),
         )))
         if identity in seen:

@@ -89,6 +89,8 @@ def test_market_pipeline_emits_real_progress_events(monkeypatch):
     monkeypatch.setattr(ip, "_prepare_candidate_rows", fake_prepare)
     monkeypatch.setattr(ip, "score_candidate", lambda row, cfg: Assessment(row, cfg.market_scope))
     monkeypatch.setattr(sp, "_coarse_rank_market_rows", fake_coarse)
+    monkeypatch.setattr(sp, "_bounded_insider_checks", lambda *args: {})
+    monkeypatch.setattr(sp, "_refresh_official_events", lambda now: {})
     monkeypatch.setattr(sp, "write_json", lambda *args, **kwargs: None)
 
     cfg = sp.SuperPortfolioConfig(market_scopes=("Norge", "USA"), market_universe_limit_per_market=10, market_coarse_shortlist_per_market=3, market_deep_analysis_per_market=2, market_candidates_per_market=1)
