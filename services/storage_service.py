@@ -73,6 +73,7 @@ class OversizedJsonReadError(RuntimeError):
 
 
 _LEGACY_MONOLITH_KEYS = {
+    "repositories/activation_analyses.json",
     "repositories/market_snapshots.json",
     "repositories/strategy_decisions.json",
     "repositories/strategy_runs.json",
@@ -423,10 +424,112 @@ class StorageService:
                 logging.warning("Postgres bounded JSON item read feilet for %s: %s", name, exc)
                 if not self._local_allowed(): raise StorageUnavailableError(f"read_json_array_item({name}) feilet") from exc
         self._require_local_allowed("read_json_array_item")
-        value=self.read_json(name, [])
-        if isinstance(value, list):
-            return next((dict(x) for x in value if isinstance(x, dict) and str(x.get(id_field) or "") == wanted), default)
+        path = self.base_dir / name
+        if path.exists():
+            return next((dict(x) for x in self._iter_local_json_array(path)
+                         if isinstance(x, dict) and str(x.get(id_field) or "") == wanted), default)
         return default
+
+    def read_json_array_page(
+        self, name: str, *, limit: int = 100, offset: int = 0,
+        order_field: str = "created_at", id_field: str = "analysis_id",
+        exclude_ids: Iterable[str] = (),
+    ) -> list[dict[str, Any]]:
+        """Return one ordered legacy page; PostgreSQL keeps the monolith server-side."""
+        name = _safe_name(name)
+        limit = max(0, min(int(limit), 500))
+        offset = max(0, int(offset))
+        excluded = [str(value) for value in exclude_ids]
+        if not limit:
+            return []
+        if self.using_postgres():
+            try:
+                self.init_db()
+                conn = self._conn()
+                try:
+                    cur = conn.cursor()
+                    # Field names and excluded IDs are bound values, never SQL fragments.
+                    cur.execute("""SELECT elem::text FROM app_kv_store,
+                        LATERAL jsonb_array_elements(payload::jsonb)
+                        WITH ORDINALITY AS x(elem, ord)
+                        WHERE name=%s AND jsonb_typeof(elem)='object'
+                        AND NOT (COALESCE(elem ->> %s, '') = ANY(%s::text[]))
+                        ORDER BY COALESCE(elem ->> %s, '') DESC, ord
+                        LIMIT %s OFFSET %s""",
+                        (name, id_field, excluded, order_field, limit, offset))
+                    rows = cur.fetchall()
+                finally:
+                    conn.close()
+                return [json.loads(row[0]) for row in rows]
+            except Exception as exc:
+                logging.warning("Postgres JSON page read feilet for %s: %s", name, exc)
+                if not self._local_allowed():
+                    raise StorageUnavailableError(f"read_json_array_page({name}) feilet") from exc
+        self._require_local_allowed("read_json_array_page")
+        path = self.base_dir / name
+        if not path.exists():
+            return []
+        # Development fallback also avoids decoding the entire collection.
+        # Sort compact metadata, then read only the selected full records.
+        excluded_set = set(excluded)
+        entries = [(str(row.get(order_field) or ""), ordinal)
+                   for ordinal, row in enumerate(self._iter_local_json_array(path))
+                   if isinstance(row, dict) and str(row.get(id_field) or "") not in excluded_set]
+        entries.sort(key=lambda entry: entry[0], reverse=True)
+        ordinals = [entry[1] for entry in entries[offset:offset + limit]]
+        selected = set(ordinals)
+        rows = {ordinal: row for ordinal, row in enumerate(self._iter_local_json_array(path))
+                if ordinal in selected}
+        return [rows[ordinal] for ordinal in ordinals]
+
+    @staticmethod
+    def _iter_local_json_array(path: Path):
+        """Decode at most one array element plus a 64 KiB input buffer at a time."""
+        decoder = json.JSONDecoder()
+        with path.open(encoding="utf-8") as handle:
+            buffer = ""
+            eof = False
+            def fill():
+                nonlocal buffer, eof
+                chunk = handle.read(65536)
+                buffer += chunk
+                eof = not chunk
+            fill()
+            buffer = buffer.lstrip()
+            while not buffer and not eof:
+                fill()
+                buffer = buffer.lstrip()
+            if not buffer.startswith("["):
+                raise ValueError(f"Expected JSON array: {path}")
+            buffer = buffer[1:]
+            first = True
+            while True:
+                buffer = buffer.lstrip()
+                while not buffer and not eof:
+                    fill()
+                    buffer = buffer.lstrip()
+                if buffer.startswith("]"):
+                    return
+                if not first:
+                    if not buffer.startswith(","):
+                        raise ValueError(f"Invalid JSON array separator: {path}")
+                    buffer = buffer[1:].lstrip()
+                while True:
+                    try:
+                        buffer = buffer.lstrip()
+                        value, end = decoder.raw_decode(buffer)
+                        # A primitive number might end at the current chunk boundary.
+                        if end == len(buffer) and not eof:
+                            fill()
+                            continue
+                        break
+                    except json.JSONDecodeError:
+                        if eof:
+                            raise
+                        fill()
+                buffer = buffer[end:]
+                first = False
+                yield value
 
     def write_json(self, name: str, data: Any) -> bool:
         name = _safe_name(name)

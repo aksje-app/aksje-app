@@ -2,8 +2,9 @@ from pathlib import Path
 import ast
 from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 root=Path(__file__).resolve().parents[1]
-assert APP_VERSION == 'v19.22.0-rc16.34e'
-assert PREVIOUS_APP_VERSION == 'v19.22.0-rc16.34d'
+assert APP_VERSION.startswith('v19.22.0-rc16.34') and APP_VERSION.split('34', 1)[1] >= 'e'
+if APP_VERSION == 'v19.22.0-rc16.34e':
+    assert PREVIOUS_APP_VERSION == 'v19.22.0-rc16.34d'
 for name in ('autonomous_portfolio.py','controlled_parameter_learning.py','autonomy_parameter_governance.py','parameter_integrity.py','services/storage_service.py'):
     ast.parse((root/name).read_text())
 s=(root/'autonomous_portfolio.py').read_text().split('def render_autonomous_portfolio',1)[1]
