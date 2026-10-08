@@ -542,7 +542,8 @@ class StorageService:
                     cur.execute(
                         """INSERT INTO app_kv_store (name, payload, updated_at)
                            VALUES (%s, %s, NOW()::TEXT)
-                           ON CONFLICT (name) DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at""",
+                           ON CONFLICT (name) DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at
+                           WHERE app_kv_store.payload IS DISTINCT FROM EXCLUDED.payload""",
                         (name, payload),
                     )
                     conn.commit()
@@ -763,6 +764,8 @@ class StorageService:
                 capacity_pct = round(database_bytes * 100.0 / capacity_bytes, 2)
                 return {
                     "backend": "postgres", "database_bytes": database_bytes,
+                    "usage_scope": "current_database_relations", "provider_disk_usage_measured": False,
+                    "usage_note": "Databasestørrelse inkluderer tabeller og indekser. Render diskbruk inkluderer også øvrige databasefiler; WAL er ikke målt her.",
                     "capacity_bytes": capacity_bytes, "capacity_pct": capacity_pct,
                     "capacity_state": "CRITICAL" if capacity_pct >= 85 else "WARNING" if capacity_pct >= 70 else "OK",
                     "kv_rows": int(kv_count or 0), "kv_payload_bytes": int(kv_payload or 0),

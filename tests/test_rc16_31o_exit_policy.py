@@ -17,7 +17,7 @@ def test_hard_loss_and_trailing_stop_sell_all():
     loss = evaluate_exit(entry_price=100, current_price=94.9, highest_price=100)
     trail = evaluate_exit(entry_price=100, current_price=111.5, highest_price=120)
     assert (loss["action"], loss["reason_code"], loss["sell_pct"]) == ("SELL", "STOP_LOSS", 100.0)
-    assert (trail["action"], trail["reason_code"], trail["sell_pct"]) == ("SELL", "TRAILING_STOP", 100.0)
+    assert (trail["action"], trail["reason_code"], trail["sell_pct"]) == ("SELL", "PROFIT_PROTECT", 100.0)
 
 
 def test_take_profit_is_partial_once_then_winner_can_run():
@@ -35,16 +35,16 @@ def test_score_exit_and_falling_rsi_are_distinct_exits():
 
 
 def test_stagnation_goes_to_cash_or_named_superior_replacement():
-    review = evaluate_exit(entry_price=100, current_price=100.5, highest_price=102, entry_score=78, current_score=70,
+    review = evaluate_exit(entry_price=100, current_price=100.5, highest_price=101.5, entry_score=78, current_score=70,
                            holding_days=25, best_replacement_score=74)
-    replace = evaluate_exit(entry_price=100, current_price=100.5, highest_price=102, entry_score=78, current_score=69,
+    replace = evaluate_exit(entry_price=100, current_price=100.5, highest_price=101.5, entry_score=78, current_score=69,
                             holding_days=25, best_replacement_score=76, replacement_ticker="NEW")
     assert review["reason_code"] == "OPPORTUNITY_COST_CASH_EXIT"
     assert replace["reason_code"] == "CAPITAL_REPLACEMENT"
 
 
 def test_long_flat_position_is_sold_to_cash_without_replacement():
-    result = evaluate_exit(entry_price=100, current_price=100.7, highest_price=102,
+    result = evaluate_exit(entry_price=100, current_price=100.7, highest_price=101.5,
                            entry_score=74, current_score=74.5, holding_days=31)
     assert result["action"] == "SELL"
     assert result["reason_code"] == "OPPORTUNITY_COST_CASH_EXIT"
@@ -52,7 +52,7 @@ def test_long_flat_position_is_sold_to_cash_without_replacement():
 
 
 def test_long_flat_position_with_clearly_improving_score_is_protected():
-    result = evaluate_exit(entry_price=100, current_price=100.7, highest_price=102,
+    result = evaluate_exit(entry_price=100, current_price=100.7, highest_price=101.5,
                            entry_score=70, current_score=74, holding_days=31)
     assert result["action"] == "REVIEW"
     assert result["reason_code"] == "FLAT_POSITION_PROTECTED"
@@ -61,7 +61,7 @@ def test_long_flat_position_with_clearly_improving_score_is_protected():
 def test_report_names_the_replacement_and_exposes_active_policy():
     portfolio = {"initial_cash": 100000, "cash": 90000, "realized_pnl": 0, "reserve_cash_pct": 10,
                  "positions": {"OLD": {"ticker": "OLD", "quantity": 100, "average_price": 100,
-                                              "last_price": 100.5, "highest_price": 102, "entry_score": 78,
+                                              "last_price": 100.5, "highest_price": 101.5, "entry_score": 78,
                                               "opened_at": "2026-07-01T00:00:00+00:00"}}}
     candidates = [
         {"ticker": "OLD", "investment_score": 69, "valid_for_decision": True, "evidence_valid_for_decision": True},

@@ -7,6 +7,7 @@ same decision can be replayed and shown in the PDF before any mutation occurs.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from paper_risk_policy import strict_profit_protection_levels
 from typing import Any, Mapping
 
 
@@ -19,7 +20,7 @@ def _f(value: Any, default: float = 0.0) -> float:
 
 @dataclass(frozen=True)
 class ExitPolicy:
-    policy_version: str = "1.2"
+    policy_version: str = "1.3"
     stop_loss_pct: float = 5.0
     take_profit_pct: float = 14.0
     trailing_stop_pct: float = 7.0
@@ -72,7 +73,8 @@ def policy_from(source: Mapping[str, Any] | Any | None = None) -> ExitPolicy:
 
 def evaluate_exit(*, entry_price: float, current_price: float, highest_price: float,
                   entry_score: float = 0.0, current_score: float | None = None,
-                  holding_days: int = 0, rsi: float | None = None,
+                  holding_days: int = 0, previous_stop_distance_pct: float | None = None,
+                  rsi: float | None = None,
                   previous_rsi: float | None = None, take_profit_taken: bool = False,
                   best_replacement_score: float | None = None,
                   replacement_ticker: str = "", replacement_risk: float | None = None,
@@ -112,8 +114,22 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
               "transaction_cost_pct": round(max(0.0, _f(transaction_cost_pct)), 4)}
     if entry <= 0 or price <= 0:
         return {**result, "reason_code": "PRICE_INVALID", "reason": "Mangler gyldig inngangs- eller markedskurs"}
+    levels = strict_profit_protection_levels(
+        {"entry_price": entry, "last_price": price, "highest_price": high},
+        trailing_stop_pct=p.trailing_stop_pct,
+    )
+    result.update(levels)
     if pnl_pct <= -p.stop_loss_pct:
         return {**result, "action": "SELL", "reason_code": "STOP_LOSS", "reason": f"Tap {pnl_pct:.2f}%", "sell_pct": 100.0}
+    if price <= levels["effective_stop_price"]:
+        mode = levels["stop_mode"]
+        label = "Gevinstsikring" if mode == "PROFIT_PROTECT" else "Maks 3% trailing stop"
+        return {**result, "action": "SELL", "reason_code": mode, "sell_pct": 100.0,
+                "reason": f"{label}: kurs {price:.2f}, utløsningsgrense {levels['effective_stop_price']:.2f}; toppgevinst {levels['peak_gain_pct']:.2f}%"}
+    if (levels["stop_status"] == "EXIT WATCH" and previous_stop_distance_pct is not None
+            and _f(previous_stop_distance_pct) - levels["distance_to_effective_stop_pct"] > 0.25):
+        return {**result, "action": "SELL", "reason_code": "CONFIRMED_PROFIT_PROTECTION_EXIT", "sell_pct": 100.0,
+                "reason": f"Bekreftet fall mot gevinstgulv {levels['effective_stop_price']:.2f}; toppgevinst {levels['peak_gain_pct']:.2f}%"}
     if high > entry and drawdown_from_high <= -p.trailing_stop_pct:
         return {**result, "action": "SELL", "reason_code": "TRAILING_STOP", "reason": f"Fall {drawdown_from_high:.2f}% fra topp", "sell_pct": 100.0}
     if score and score < p.score_exit_threshold:

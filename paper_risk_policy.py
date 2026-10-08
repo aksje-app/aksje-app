@@ -6,8 +6,10 @@ MAX_TRAILING_STOP_PCT = 3.0
 PROFIT_PROTECT_TRIGGER_PCT = 2.0
 PROFIT_RETENTION_2_3_PCT = 40.0
 PROFIT_RETENTION_3_5_PCT = 55.0
-PROFIT_RETENTION_5_8_PCT = 65.0
-PROFIT_RETENTION_8_PLUS_PCT = 70.0
+PROFIT_RETENTION_5_6_PCT = 65.0
+PROFIT_RETENTION_5_8_PCT = PROFIT_RETENTION_5_6_PCT  # persisted-key compatibility
+PROFIT_RETENTION_6_PLUS_PCT = 70.0
+PROFIT_RETENTION_8_PLUS_PCT = PROFIT_RETENTION_6_PLUS_PCT  # persisted-key compatibility
 PROFIT_EXIT_WATCH_BUFFER_PCT = 0.50
 
 
@@ -18,17 +20,17 @@ def _f(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
-def profit_retention_pct(peak_gain_pct: float) -> float:
+def profit_retention_pct(peak_gain_pct: float, *, trigger: float = PROFIT_PROTECT_TRIGGER_PCT, retentions: tuple = (40.0, 55.0, 65.0, 70.0)) -> float:
     peak_gain = max(0.0, _f(peak_gain_pct))
-    if peak_gain < PROFIT_PROTECT_TRIGGER_PCT:
+    if peak_gain + 1e-9 < trigger:
         return 0.0
-    if peak_gain < 3.0:
-        return PROFIT_RETENTION_2_3_PCT
-    if peak_gain < 5.0:
-        return PROFIT_RETENTION_3_5_PCT
-    if peak_gain < 8.0:
-        return PROFIT_RETENTION_5_8_PCT
-    return PROFIT_RETENTION_8_PLUS_PCT
+    if peak_gain + 1e-9 < 3.0:
+        return retentions[0]
+    if peak_gain + 1e-9 < 5.0:
+        return retentions[1]
+    if peak_gain + 1e-9 < 6.0:
+        return retentions[2]
+    return retentions[3]
 
 
 def strict_profit_protection_levels(position: Mapping[str, Any], *, trailing_stop_pct: float = MAX_TRAILING_STOP_PCT) -> dict[str, Any]:

@@ -1264,17 +1264,13 @@ def ranking_velocity(ticker: str, current_rank: int, history: Sequence[Mapping[s
 def _profit_retention_pct(peak_gain_pct: float, config: SuperPortfolioConfig | None = None) -> float:
     """Return the share of maximum unrealised gain that should be protected."""
     cfg = config or SuperPortfolioConfig()
-    peak_gain = max(0.0, _f(peak_gain_pct))
-    trigger = max(0.0, _f(getattr(cfg, "profit_protect_trigger_pct", PROFIT_PROTECT_TRIGGER_PCT), PROFIT_PROTECT_TRIGGER_PCT))
-    if peak_gain < trigger:
-        return 0.0
-    if peak_gain < 3.0:
-        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_2_3_pct", PROFIT_RETENTION_2_3_PCT), PROFIT_RETENTION_2_3_PCT)))
-    if peak_gain < 5.0:
-        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_3_5_pct", PROFIT_RETENTION_3_5_PCT), PROFIT_RETENTION_3_5_PCT)))
-    if peak_gain < 8.0:
-        return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_5_8_pct", PROFIT_RETENTION_5_8_PCT), PROFIT_RETENTION_5_8_PCT)))
-    return max(0.0, min(100.0, _f(getattr(cfg, "profit_retention_8_plus_pct", PROFIT_RETENTION_8_PLUS_PCT), PROFIT_RETENTION_8_PLUS_PCT)))
+    from paper_risk_policy import profit_retention_pct
+    # Legacy parameter names remain readable; the shared strongest tier now starts at 6%.
+    retention_keys = ("profit_retention_2_3_pct", "profit_retention_3_5_pct", "profit_retention_5_8_pct", "profit_retention_8_plus_pct")
+    values = tuple(max(0.0, min(100.0, _f(getattr(cfg, key, default), default)))
+                   for key, default in zip(retention_keys, (40.0, 55.0, 65.0, 70.0)))
+    return profit_retention_pct(peak_gain_pct, trigger=max(0.0, _f(getattr(cfg, "profit_protect_trigger_pct", 2.0), 2.0)), retentions=values)
+
 
 
 def dynamic_stop_levels(position: Mapping[str, Any], config: SuperPortfolioConfig | None = None) -> dict[str, float]:

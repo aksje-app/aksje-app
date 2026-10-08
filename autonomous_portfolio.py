@@ -1794,7 +1794,7 @@ def run_autonomous_cycle(
         exit_result = evaluate_exit(
             entry_price=avg, current_price=price, highest_price=_f(pos.get("highest_price"), price),
             entry_score=_f(pos.get("entry_score"), score), current_score=score if candidate else None,
-            holding_days=holding_days,
+            holding_days=holding_days, previous_stop_distance_pct=pos.get("distance_to_effective_stop_pct"),
             rsi=candidate.get("rsi") if candidate else None,
             previous_rsi=pos.get("last_rsi"), take_profit_taken=bool(pos.get("partial_take_profit_taken")),
             best_replacement_score=_candidate_entry_score(best_replacement) if best_replacement else None,
@@ -1810,6 +1810,8 @@ def run_autonomous_cycle(
             event_protection_reason=event_protection_reason,
             policy=policy_from(params),
         )
+        pos.update({key: exit_result.get(key) for key in (
+            "peak_gain_pct", "profit_retention_pct", "protected_gain_pct", "effective_stop_price", "profit_floor_price", "distance_to_effective_stop_pct")})
         if candidate.get("rsi") is not None:
             pos["last_rsi"] = candidate.get("rsi")
         if exit_result["action"] in {"SELL", "SELL_PARTIAL", "REPLACE_REVIEW"}:
@@ -1821,6 +1823,8 @@ def run_autonomous_cycle(
                     capital_cleanup["replaced"] += 1
                     trade["replacement_ticker"] = str(best_replacement.get("ticker") or "")
                     trade["replacement_score"] = round(_candidate_entry_score(best_replacement), 2)
+                trade.update({key: exit_result.get(key) for key in (
+                    "peak_gain_pct", "profit_retention_pct", "protected_gain_pct", "effective_stop_price", "profit_floor_price", "distance_to_effective_stop_pct")})
                 trades.append(trade)
                 if trade["action"] == "SELL":
                     exited_this_cycle.add(ticker)
@@ -2964,6 +2968,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     storage_info = persistence_status()
     if storage_info.get("persistent"):
         st.success("🔒 Parameterlås aktiv. Lagret permanent i PostgreSQL. Verdiene kan endres nedenfor og beholdes ved restart/deploy.")
+        st.caption("Autonomi-produksjon: effektiv trailing stop er maksimalt 3 %. Gevinstsikring fra 2 % toppgevinst: 40 % ved 2–3 %, 55 % ved 3–5 %, 65 % ved 5–6 %, 70 % fra 6 %. Utløsningsgrensen garanterer ikke salgskurs. Læringsobservasjoner har egne regler.")
     else:
         st.warning("⚠ Parameterne lagres bare lokalt. Sett DATABASE_URL på Render for å beholde dem ved ny deploy.")
     params = load_parameters()
