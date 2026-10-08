@@ -296,3 +296,11 @@ def purchase_clusters(events, now):
                  value_90d=sum(e['quantity']*e['price'] for e in rows),
                  source_urls=sorted({e['source_url'] for e in rows}))
             for (issuer, actor, currency), rows in groups.items()]
+
+
+def event_revision(mapped):
+    """Semantic digest: same-day register revisions matter, poll timestamps do not."""
+    fields = ('id', 'kind', 'current_pct', 'previous_pct', 'public_aggregate_pct',
+              'quantity', 'price', 'currency', 'actor', 'related_person')
+    rows = sorted([{k: e.get(k) for k in fields} for events in mapped.values() for e in events], key=lambda e: e['id'])
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

@@ -150,6 +150,7 @@ def test_new_event_invalidates_fresh_pipeline_cache(monkeypatch):
     monkeypatch.setattr(sp, 'build_super_portfolio_market_pipeline', lambda *a, **k: {'rebuilt': True})
     assert sp.get_or_build_super_portfolio_market_pipeline(now=NOW)['rebuilt']
     cached['summary']['official_event_discovery']['event_ids'] = [events[0]['id']]
+    cached['summary']['official_event_discovery']['event_revision'] = ev.event_revision({'BORR.OL': events})
     assert sp.get_or_build_super_portfolio_market_pipeline(now=NOW) is cached
 
 
@@ -216,3 +217,19 @@ def test_failed_details_rotate_so_other_notifications_are_not_starved():
     ev.refresh_events(now=NOW, storage=storage, request_json=fetch)
     ev.refresh_events(now=NOW+timedelta(hours=1), storage=storage, request_json=fetch)
     assert len(set(details)) == 12
+
+
+def test_same_day_short_change_invalidates_cache_without_new_event_identity(monkeypatch):
+    import super_portfolio as sp
+    event = ev.short_events(short_history(), NOW)[0]
+    old = {'A.OL': [event]}
+    cached = {'created_at': NOW.isoformat(), 'candidates': [{'ticker': 'A.OL'}],
+              'summary': {'event_universe': [{'ticker': 'A.OL', 'isin': 'TESTISIN'}],
+                          'official_event_discovery': {'event_ids': [event['id']], 'event_revision': ev.event_revision(old)}}}
+    updated = {**event, 'current_pct': 1.9}
+    assert ev.event_id(event) == ev.event_id(updated)
+    monkeypatch.setattr(sp, 'load_latest_super_portfolio_market_pipeline', lambda: cached)
+    monkeypatch.setattr(sp, '_refresh_official_events', lambda now: {'events': [updated]})
+    monkeypatch.setattr(sp, 'build_super_portfolio_market_pipeline', lambda *a, **k: {'rebuilt': True})
+    assert sp.get_or_build_super_portfolio_market_pipeline(now=NOW)['rebuilt']
+    assert ev.event_revision(old) == ev.event_revision({'A.OL': [{**event, 'observed_at': '2026-10-08T11:59:00Z'}]})

@@ -31,9 +31,9 @@ endpoints because its fictional symbols previously caused rate-limit timeouts.
 
 ## Verification
 
-- All 17 original audit scenario/accounting tests and 18 event-discovery tests pass.
+- All 17 original audit scenario/accounting tests and 19 event-discovery tests pass.
 - Existing release contracts pass.
-- Final release regression: 284 passed. Final active unversioned tests: 97
+- Final release regression: 285 passed. Final active unversioned tests: 98
   passed. The suites overlap, so these counts must not be added together as
   a count of unique tests.
 - Syntax checks and `git diff --check` pass.
@@ -69,7 +69,7 @@ international/attachment-only discovery gaps or all historical test failures hav
 `market_event_discovery.py` polls the official Oslo NewsWeb PDMR category and
 Finanstilsynet's public short register before portfolio finalist selection.
 The scheduler checks the persisted feed on its normal cycle, with a 15-minute
-poll cache. New matched events invalidate an otherwise fresh 12-hour portfolio
+poll cache. New matched events and same-day short-register revisions invalidate an otherwise fresh 12-hour portfolio
 feed. No source query depends on a ticker reaching the shortlist first.
 
 - Resolve Oslo issuer symbols, exact ISINs or unique normalized issuer names
@@ -139,9 +139,9 @@ Short disappearance can reflect falling below the public threshold and must
 remain unknown as to actual remaining exposure. More than ten event issuers
 can be deferred; no complete latency SLA is claimed.
 
-Eighteen deterministic event tests cover primary Borr replay, unboosted finalist
+Nineteen deterministic event tests cover primary Borr replay, unboosted finalist
 selection, real entry-persistence rejection, short actor changes/unknown exits,
 ambiguous issuer matching, observed-time replay protection, correction/deduplication,
 currency-separated aggregation, failed-source retention, partial feeds, request
-limits, failed-detail rotation and cache invalidation. The test module is included
+limits, failed-detail rotation, same-day register corrections and cache invalidation. The test module is included
 in the release gate. UI rendering on a real mobile browser has not been certified.

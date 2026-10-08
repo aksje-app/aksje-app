@@ -701,7 +701,7 @@ def build_super_portfolio_market_pipeline(
     now_dt = now or _now_dt()
     from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, _prepare_candidate_rows, score_candidate
 
-    from market_event_discovery import candidate_events, prioritize_analysis, purchase_clusters
+    from market_event_discovery import candidate_events, prioritize_analysis, purchase_clusters, event_revision
     official_events = dict(event_state) if event_state is not None else _refresh_official_events(now_dt)
     event_analysis = []
     event_universe = []
@@ -873,6 +873,7 @@ def build_super_portfolio_market_pipeline(
                 "sources": official_events.get("sources", {}),
                 "checked_at": official_events.get("checked_at"),
                 "event_ids": sorted(event_ids), "analysis": event_analysis,
+                "event_revision": event_revision(candidate_events(event_universe, official_events, now_dt)),
                 "purchase_clusters": purchase_clusters(official_events.get("events", []), now_dt),
                 "unsupported_markets": [m for m in markets if m != "Norge"],
             },
@@ -906,11 +907,12 @@ def get_or_build_super_portfolio_market_pipeline(
     now_dt = now or _now_dt()
     cached = load_latest_super_portfolio_market_pipeline()
     events = _refresh_official_events(now_dt)
-    from market_event_discovery import candidate_events
+    from market_event_discovery import candidate_events, event_revision
     matched = candidate_events(cached.get("summary", {}).get("event_universe", []), events, now_dt)
     fresh_ids = sorted(e["id"] for rows in matched.values() for e in rows)
     old_ids = cached.get("summary", {}).get("official_event_discovery", {}).get("event_ids")
-    events_changed = old_ids is None or fresh_ids != old_ids
+    old_revision = cached.get("summary", {}).get("official_event_discovery", {}).get("event_revision")
+    events_changed = old_ids is None or fresh_ids != old_ids or old_revision != event_revision(matched)
     if not force_refresh and not events_changed and _market_pipeline_is_fresh(cached, config, now_dt):
         if progress_callback:
             try:
