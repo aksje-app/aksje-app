@@ -42,6 +42,7 @@ def test_super_portfolio_broad_discovery_scans_full_available_universe_before_sh
     monkeypatch.setattr(ip, "score_candidate", fake_score)
     monkeypatch.setattr(sp, "_coarse_rank_market_rows", fake_coarse)
     monkeypatch.setattr(sp, "_bounded_insider_checks", lambda candidates, config: {})
+    monkeypatch.setattr(sp, "_refresh_official_events", lambda now: {})
     monkeypatch.setattr(sp, "write_json", lambda *args, **kwargs: None)
 
     cfg = sp.SuperPortfolioConfig(

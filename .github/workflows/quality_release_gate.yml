@@ -88,6 +88,7 @@ jobs:
             tests/test_program_audit_autonomy_accounting.py \
             tests/test_program_audit_learning_evidence.py \
             tests/test_program_audit_scheduler_truth.py \
+            tests/test_market_event_discovery.py \
             tests/test_market_policy_and_target_consistency.py \
             tests/test_full_market_quality_prescreen.py \
             tests/test_quality_valuation.py \

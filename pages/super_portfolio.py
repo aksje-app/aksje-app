@@ -42,6 +42,27 @@ def render_super_portfolio(_legacy_context) -> None:
         "myke sektor-/korrelasjonsstraffer, Ranking Velocity og Stop Pressure. Ingen ekte ordre sendes."
     )
     state = load_state()
+    with st.expander("Offisielle innside- og short-hendelser", expanded=False):
+        from services.storage_service import get_storage_service
+        from market_event_discovery import KEY, purchase_clusters
+        from datetime import datetime, timezone
+        event_state = get_storage_service().read_json(KEY, {}) or {}
+        st.caption("Norske primærkilder kontrolleres før finalistutvelgelsen. Hendelser utløser analyse; ordinære kjøps- og risikokrav gjelder fortsatt. Øvrige markeder har foreløpig ikke denne oppdagelsen.")
+        for source, source_health in event_state.get("sources", {}).items():
+            st.write(f"{source}: {source_health.get('status', 'UKJENT')} · siste kontroll {source_health.get('checked_at', 'ukjent')}")
+        st.caption("Offentlig short er ikke total short interest. Bortfall fra registeret betyr under publiseringsgrensen / ukjent, og beviser ikke full inndekning.")
+        analysis = state.get("market_scan_summary", {}).get("official_event_discovery", {}).get("analysis", [])
+        if analysis:
+            st.dataframe(pd.DataFrame([{"Aksje": r["ticker"], "Analyse": r["status"], "Finalist": r.get("finalist", False), "Hendelser": ", ".join(sorted({e["kind"] for e in r["events"]}))} for r in analysis]), use_container_width=True, hide_index=True)
+        recent = event_state.get("events", [])[:50]
+        if recent:
+            st.dataframe(pd.DataFrame([{"Selskap": e["issuer"], "Hendelse": e["kind"], "Aktør": e.get("actor", "Uklassifisert"), "Dato": e["occurred_at"], "Offentlig short %": e.get("current_pct"), "Kilde": e["source_url"]} for e in recent]), use_container_width=True, hide_index=True)
+        else:
+            st.info("Ingen hendelser lastet. Dette bekrefter ikke at det ikke finnes innsidehandel eller short.")
+        clusters = purchase_clusters(event_state.get("events", []), datetime.now(timezone.utc))
+        if clusters:
+            st.caption("Gjentatte eksplisitt bekreftede kjøp, gruppert per selskap, kjøper og valuta. Historikken bygges fra oppstart; dette er ikke en komplett 90-dagers tilbakefylling.")
+            st.dataframe(pd.DataFrame(clusters), use_container_width=True, hide_index=True)
     positions = list((state.get("positions") or {}).values())
     health = state.get("portfolio_health") or {}
 

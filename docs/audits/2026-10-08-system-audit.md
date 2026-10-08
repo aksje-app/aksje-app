@@ -1,4 +1,4 @@
-# System audit: decision flow, accounting and test coverage
+# System audit: decision flow, accounting, insider/short discovery and tests
 
 Date: 2026-10-08. Baseline: `b2e66a060496dfff0b7e50274cb222eea8e76bc2`.
 
@@ -31,9 +31,9 @@ endpoints because its fictional symbols previously caused rate-limit timeouts.
 
 ## Verification
 
-- All 17 new scenario/accounting tests pass.
+- All 17 original audit scenario/accounting tests and 18 event-discovery tests pass.
 - Existing release contracts pass.
-- Final release regression: 266 passed. Final active unversioned tests: 79
+- Final release regression: 284 passed. Final active unversioned tests: 97
   passed. The suites overlap, so these counts must not be added together as
   a count of unique tests.
 - Syntax checks and `git diff --check` pass.
@@ -52,7 +52,7 @@ The current gate runs a selected regression suite plus unversioned tests.
 
 | ID | Finding | Required resolution |
 | --- | --- | --- |
-| O1 | Insider discovery runs after coarse/finalist selection and only checks held names plus five finalists per market. Borr was absent from the live 75 finalists examined on 8 October. A 24-hour cache also limits repeated-purchase detection. | Add bounded official announcement ingestion independent of ranking, entity/ticker alias resolution, repeated-purchase aggregation and candidate re-analysis. Do not lower risk gates or automatically buy because of an insider purchase. This architecture change is not implemented in this patch. |
+| O1 | Insider discovery previously depended on being held or reaching the finalist shortlist. Borr was absent from the 75 live finalists examined on 8 October. | This PR now adds independent Norwegian official insider and short discovery before deep/finalist selection. Borr primary-message replay passes. Remaining coverage limits: other jurisdictions, attachment-only purchase parsing, full historical backfill and exact trade-level aggregation. See the implementation section below. |
 | O2 | 96 retained tests fail on both main and the audit tree. Many assert historical versions or literal UI source strings; others involve changed contracts, network calls, environment/package mismatch or behavior requiring further investigation. | Triage individual failures against current documented behavior. Replace stale textual checks with behavior tests where appropriate. Do not delete or blanket-ignore the failures to make the suite green. The inventory records exact test names and messages. |
 | O3 | The broad test collection can access live providers, reuse local process/storage state, and hang in external calls. This can hide defects and make results depend on test order or provider availability. | Isolate external providers and runtime storage for deterministic tests; retain separate bounded integration checks. The audit uses explicit timeouts and a clean baseline checkout. |
 | O4 | Transitive dependencies installed from requirements.txt differ from requirements.lock. The deterministic dependency check failed in the audit environment. | Run that check in a lock-installed environment and verify CI/web/cron installation consistency before treating dependency closure as proven. No service configuration or package upgrades were made here. |
@@ -61,4 +61,87 @@ The current gate runs a selected regression suite plus unversioned tests.
 
 The fixes are prepared for review. This report does not certify the entire
 program as error-free or production-ready, and it does not claim that the open
-insider-discovery gap or all historical test failures have been resolved.
+international/attachment-only discovery gaps or all historical test failures have been resolved.
+
+
+## Added to PR #65: independent insider and short event discovery
+
+`market_event_discovery.py` polls the official Oslo NewsWeb PDMR category and
+Finanstilsynet's public short register before portfolio finalist selection.
+The scheduler checks the persisted feed on its normal cycle, with a 15-minute
+poll cache. New matched events invalidate an otherwise fresh 12-hour portfolio
+feed. No source query depends on a ticker reaching the shortlist first.
+
+- Resolve Oslo issuer symbols, exact ISINs or unique normalized issuer names
+  against the investable Norwegian universe. Ambiguous identities remain unmatched.
+- Reserve at most ten slots within the existing deep-analysis budget. Alternate
+  insider and short families so bearish short activity can also trigger analysis.
+  Events beyond the budget are explicitly `DEFERRED_ANALYSIS_LIMIT`; this is not
+  a guarantee that every event receives immediate analysis.
+- Keep normal investment scores, finalist ranking, production-market policy,
+  position caps, persistence, freshness, coverage and risk/re-entry gates. An
+  insider purchase or reduced short does not authorize a purchase.
+- Classify a purchase only from an explicit supported official purchase sentence.
+  Keep other PDMR notifications unclassified. Extract close-associate evidence
+  from that sentence rather than hardcoding a Trøim/Borr exception. Group repeated
+  confirmed purchase announcements over 30/90 days by issuer, buyer and currency;
+  these are announcement counts, not inferred individual fills. Use publication
+  time, not a guessed trade time. Never sum different currencies together.
+- Compare each short actor between consecutive official snapshots: new public
+  position, increased, reduced, or below-public-threshold/unknown. First snapshot
+  is a baseline. Actor disappearance is not reported as zero or full covering.
+  Public aggregated positions are not total short interest or short-sale volume.
+- Deduplicate official identities, supersede corrected insider disclosures,
+  rotate failed detail requests, retain previous evidence on source failure,
+  and prevent evidence observed after a replay time from entering that replay.
+- Persist with StorageService's atomic document mutation. Bound responses to
+  2 MB, requests to 15 seconds, each refresh to a 45-second request budget, and
+  detail fetches to six. Retain at most 2,000 events for 90 days. Overflow,
+  outstanding details and unavailable sources remain visible; absence of data
+  is not proof of absence of transactions.
+- Display source status, official events, analysis/finalist status and repeated
+  purchase clusters in one expandable Super Portfolio section.
+
+### Primary-source replay and live read-only verification
+
+The fixture `tests/fixtures/market_events/borr_683610.json` was obtained from
+NewsWeb's official message endpoint, using the API URL published by NewsWeb's
+`urls.json`. Message 683610, published 6 October 2026, explicitly identifies
+Drew Holdings Ltd. as Trøim's close associate and reports 1,500,000 purchased
+shares at USD 4.1314. The replay proves that BORR.OL reaches fresh analysis even
+when absent from the coarse shortlist, while a better-scoring ordinary candidate
+still wins the single finalist slot. It does not claim that historical production
+would have bought Borr or quantify financial impact.
+
+A read-only live adapter check on 8 October fetched 639 normalized events in
+memory, with short source `OK` and insider source `PARTIAL` (detail failures and
+remaining documents). Two Borr disclosures were classified as explicit purchases;
+two remained notifications awaiting detail classification. No production database
+or portfolio was written by that check. The short timeout experiment initially
+failed at four seconds; the final bounded adapter uses the limits above.
+
+Primary sources:
+- https://newsweb.oslobors.no/urls.json
+- https://newsweb.oslobors.no/message/683610
+- https://ssr.finanstilsynet.no/api/v2/openapi.json
+- https://ssr.finanstilsynet.no/api/v2/instruments
+
+### Explicit remaining limits
+
+This independent event feed currently covers Norway only; Sweden, Denmark,
+Finland and USA still use the existing finalist/held-name checks. Insider polling
+covers the last seven days and accumulates retained history after deployment;
+there is no complete 90-day initial backfill. Generic PDMR PDFs/tables, option
+exercise, grants, buybacks, loans, redelivery and ambiguous transfers are not
+converted into verified discretionary purchases. Exact transaction dates,
+individual fills and global entity aliases need additional verified adapters.
+Short disappearance can reflect falling below the public threshold and must
+remain unknown as to actual remaining exposure. More than ten event issuers
+can be deferred; no complete latency SLA is claimed.
+
+Eighteen deterministic event tests cover primary Borr replay, unboosted finalist
+selection, real entry-persistence rejection, short actor changes/unknown exits,
+ambiguous issuer matching, observed-time replay protection, correction/deduplication,
+currency-separated aggregation, failed-source retention, partial feeds, request
+limits, failed-detail rotation and cache invalidation. The test module is included
+in the release gate. UI rendering on a real mobile browser has not been certified.

@@ -679,23 +679,33 @@ def _bounded_insider_checks(candidates: list[dict[str, Any]], config: "SuperPort
     return checks
 
 
+def _refresh_official_events(now):
+    from market_event_discovery import refresh_events
+    return refresh_events(now=now)
+
+
 def build_super_portfolio_market_pipeline(
     cfg: "SuperPortfolioConfig" | None = None, *, now: datetime | None = None,
     force_refresh: bool = False, progress_callback: Any | None = None,
     control_callback: Any | None = None, checkpoint_callback: Any | None = None,
-    job_id: str = "",
+    job_id: str = "", event_state: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a bounded Norden+USA candidate feed independent of production Norway-only policy.
 
     This deliberately does not mutate Investment Pipeline's canonical latest_run.json.
-    It uses the same local market enrichment and scoring primitives with expensive
-    evidence modules disabled in the broad pass; a bounded primary-source
-    insider check runs for held positions and final candidates afterward.
+    Official Norwegian insider/short events reserve bounded analysis slots before
+    the deep/finalist pass. Scoring and entry gates remain unchanged. The separate
+    held/finalist insider verification remains in place afterward.
     """
     config = cfg or SuperPortfolioConfig()
     now_dt = now or _now_dt()
     from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app, _prepare_candidate_rows, score_candidate
 
+    from market_event_discovery import candidate_events, prioritize_analysis, purchase_clusters
+    official_events = dict(event_state) if event_state is not None else _refresh_official_events(now_dt)
+    event_analysis = []
+    event_universe = []
+    event_ids = set()
     candidates: list[dict[str, Any]] = []
     market_stats: list[dict[str, Any]] = []
     provider_health: dict[str, dict[str, Any]] = {}
@@ -788,7 +798,13 @@ def build_super_portfolio_market_pipeline(
         )
         provider_health[str(market)] = health
         emit("COARSE_COMPLETE", base_pct + max(2, (span_pct * 2) // 5), market=market, count=len(coarse_rows), message=f"{market}: grovscan ferdig ({len(coarse_rows)})")
-        deep_rows = coarse_rows[:deep_limit]
+        mapped_events = candidate_events(raw_rows, official_events, now_dt) if str(market) == "Norge" else {}
+        if str(market) == "Norge":
+            event_universe = [{k: row[k] for k in ("ticker", "symbol", "isin", "company", "name", "longName", "shortName") if k in row} for row in raw_rows]
+            event_ids.update(e["id"] for events in mapped_events.values() for e in events)
+        deep_rows = prioritize_analysis(coarse_rows, raw_rows, mapped_events, deep_limit)
+        selected_event_tickers = {str(r.get("ticker") or r.get("symbol") or "").upper() for r in deep_rows if r.get("official_market_events")}
+        event_analysis.extend({"ticker": ticker, "events": mapped_events[ticker], "status": "SCHEDULED_FOR_ANALYSIS" if ticker in selected_event_tickers else "DEFERRED_ANALYSIS_LIMIT"} for ticker in sorted(mapped_events))
 
         def deep_progress(completed: int, total: int, ticker: str) -> None:
             frac = (completed / max(1, total))
@@ -804,6 +820,8 @@ def build_super_portfolio_market_pipeline(
             try:
                 assessment = score_candidate(row, pcfg)
                 compact = _compact_market_candidate(assessment, row)
+                if compact["ticker"] in mapped_events:
+                    compact["official_market_events"] = mapped_events[compact["ticker"]]
                 if compact["ticker"] and compact["price"] > 0:
                     scored.append((_f(compact["investment_score"]), compact))
             except Exception:
@@ -811,6 +829,11 @@ def build_super_portfolio_market_pipeline(
         scored.sort(key=lambda item: item[0], reverse=True)
         selected = [row for _, row in scored[: max(1, int(config.market_candidates_per_market))]]
         candidates.extend(selected)
+        scored_tickers = {r["ticker"] for _, r in scored}
+        for event_row in event_analysis:
+            if event_row["ticker"] in selected_event_tickers:
+                event_row["status"] = "ANALYZED" if event_row["ticker"] in scored_tickers else "ANALYSIS_INCOMPLETE"
+                event_row["finalist"] = event_row["ticker"] in {r["ticker"] for r in selected}
         market_stat = {
             "market": market,
             "universe_loaded": len(raw_rows),
@@ -845,6 +868,15 @@ def build_super_portfolio_market_pipeline(
             "markets": market_stats,
             "selection_funnel": "FULL_AVAILABLE_UNIVERSE -> COARSE_SHORTLIST -> DEEP_ANALYSIS -> GLOBAL_TOP",
             "country_quotas": False,
+            "official_event_discovery": {
+                "coverage": official_events.get("coverage", "NORWAY_OFFICIAL_ONLY"),
+                "sources": official_events.get("sources", {}),
+                "checked_at": official_events.get("checked_at"),
+                "event_ids": sorted(event_ids), "analysis": event_analysis,
+                "purchase_clusters": purchase_clusters(official_events.get("events", []), now_dt),
+                "unsupported_markets": [m for m in markets if m != "Norge"],
+            },
+            "event_universe": event_universe,
         },
     }
     payload["outcome"] = "DEGRADED" if payload["degraded_markets"] else "COMPLETED"
@@ -873,14 +905,20 @@ def get_or_build_super_portfolio_market_pipeline(
     config = cfg or SuperPortfolioConfig()
     now_dt = now or _now_dt()
     cached = load_latest_super_portfolio_market_pipeline()
-    if not force_refresh and _market_pipeline_is_fresh(cached, config, now_dt):
+    events = _refresh_official_events(now_dt)
+    from market_event_discovery import candidate_events
+    matched = candidate_events(cached.get("summary", {}).get("event_universe", []), events, now_dt)
+    fresh_ids = sorted(e["id"] for rows in matched.values() for e in rows)
+    old_ids = cached.get("summary", {}).get("official_event_discovery", {}).get("event_ids")
+    events_changed = old_ids is None or fresh_ids != old_ids
+    if not force_refresh and not events_changed and _market_pipeline_is_fresh(cached, config, now_dt):
         if progress_callback:
             try:
                 progress_callback({"stage":"CACHE_HIT","percent":100,"message":"Bruker fersk market-feed cache"})
             except Exception:
                 pass
         return cached
-    return build_super_portfolio_market_pipeline(config, now=now_dt, force_refresh=force_refresh, progress_callback=progress_callback)
+    return build_super_portfolio_market_pipeline(config, now=now_dt, force_refresh=force_refresh, progress_callback=progress_callback, event_state=events)
 
 
 def candidate_data_coverage(source: Mapping[str, Any]) -> dict[str, Any]:
