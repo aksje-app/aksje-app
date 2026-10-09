@@ -49,7 +49,8 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
         st_module.session_state["aa_mobile_more_open"] = False
         st_module.session_state["active_nav_target_v18674c"] = target
         st_module.session_state["ai_control_center_force_nav_v18663"] = target
-        st_module.session_state["ai_control_center_last_applied_nav_v19016"] = target
+        # The legacy router owns this marker after it has applied the target.
+        st_module.session_state.pop("ai_control_center_last_applied_nav_v19016", None)
         st_module.session_state["mobile_nav_last_choice_v19015"] = target
         try:
             from navigation_state import queue_global_navigation_route_v19220_rc14

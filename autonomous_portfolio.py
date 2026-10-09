@@ -2787,13 +2787,17 @@ def _render_responsive_portfolio_css(st: Any) -> None:
     .autonomous-log-card-v1940 strong{color:#7dd3fc}.autonomous-log-card-v1940 div{display:flex;justify-content:space-between;gap:.8rem;padding:.2rem 0}
     .autonomous-log-card-v1940 span{color:#94a3b8;font-size:.76rem}.autonomous-log-card-v1940 footer{border-top:1px solid rgba(148,163,184,.18);margin-top:.45rem;padding-top:.45rem;color:#cbd5e1}
     @media(max-width:760px){
-      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stHorizontalBlock"]{flex-direction:column!important;align-items:stretch!important;gap:1rem!important}
-      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stColumn"]{width:100%!important;flex:1 1 100%!important;min-width:0!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stHorizontalBlock"]:not(.st-key-aa_mobile_nav_native *, .st-key-aa_mobile_more_native *){flex-direction:column!important;align-items:stretch!important;gap:1rem!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stColumn"]:not(.st-key-aa_mobile_nav_native *, .st-key-aa_mobile_more_native *){width:100%!important;flex:1 1 100%!important;min-width:0!important}
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h1,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h2,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h3,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h4,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h5{height:auto!important;line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stVerticalBlock"]:not(.st-key-aa_mobile_nav_native *, .st-key-aa_mobile_more_native *){gap:.75rem!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stMarkdownContainer"],
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stCaptionContainer"]{height:auto!important;min-height:0!important;max-height:none!important;line-height:1.5!important;white-space:normal!important;overflow-wrap:anywhere}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stMarkdownContainer"] p{height:auto!important;line-height:1.5!important;margin:0!important}
       .autonomous-mobile-log-cards-v1940{display:block!important}
       [class*="st-key-autonomous-desktop-positions-v1940"],
       [class*="st-key-autonomous-desktop-trades-v1940"],

@@ -215,7 +215,26 @@ def actor_from_ui(st):
     return str(user.get('username') or user.get('email') or user.get('id') or 'USER')
 
 
+def decide_from_ui(st, proposal_id, decision, confirmation_key):
+    """Commit in Streamlit's callback, before costly page reads/rendering.
+
+    The transaction remains authoritative; success is shown only after commit.
+    Streamlit reruns automatically after a callback, so no nested rerun is needed.
+    """
+    try:
+        result = decide(proposal_id, decision, actor=actor_from_ui(st),
+                        confirmed=bool(st.session_state.get(confirmation_key)))
+        st.session_state['autonomy_decision_feedback'] = ('success',
+            f"{STATUSES[result['status']]} · {LABELS.get(result['parameter'], result['parameter'])}: "
+            f"{result['before']:g} % → {result['after']:g} %")
+    except (ValueError, PermissionError, RuntimeError) as exc:
+        st.session_state['autonomy_decision_feedback'] = ('error', str(exc))
+
+
 def render_decisions(st, namespace='autonomy_params'):
+    feedback = st.session_state.pop('autonomy_decision_feedback', None)
+    if feedback:
+        getattr(st, feedback[0])(feedback[1])
     doc = snapshot()
     meta = _metadata(doc)
     pending = [p for p in meta['proposals'] if p['status'] in {'PENDING', 'DEFERRED'}]
@@ -228,7 +247,7 @@ def render_decisions(st, namespace='autonomy_params'):
     for p in pending:
         key = namespace + p['proposal_id']
         label = LABELS.get(p['parameter'], p['parameter'])
-        fmt = lambda n: f'{n:.1f}'.replace('.', ',') + ' %'
+        fmt = lambda n: f'{n:g}'.replace('.', ',') + ' %'
         st.warning(f"{STATUSES[p['status']]} · {label}: {fmt(p['before'])} → forslag {fmt(p['after'])} · "
                    f"kilde: {p['reason']} / PF {p['evidence'].get('profit_factor', '–')}")
         st.caption(p['evidence']['dataset'])
@@ -239,12 +258,9 @@ def render_decisions(st, namespace='autonomy_params'):
             st.caption('Utsettelse varer til ' + p['deferred_until'][:10] + '. Du kan fortsatt godkjenne eller avvise nå.')
         confirmed = st.checkbox(f"Bekreft: {label} endres fra {fmt(p['before'])} til {fmt(p['after'])}", key=key+'confirm')
         for decision, title in [('APPROVE', 'Godkjenn'), ('REJECT', 'Avvis nå'), ('DEFER', 'Utsett 7 dager')]:
-            if st.button(title, key=key+decision, disabled=(decision == 'APPROVE' and not confirmed) or (decision == 'DEFER' and deferred)):
-                try:
-                    decide(p['proposal_id'], decision, actor=actor_from_ui(st), confirmed=confirmed)
-                    st.rerun()
-                except (ValueError, PermissionError, RuntimeError) as exc:
-                    st.error(str(exc))
+            st.button(title, key=key+decision,
+                      disabled=(decision == 'APPROVE' and not confirmed) or (decision == 'DEFER' and deferred),
+                      on_click=decide_from_ui, args=(st, p['proposal_id'], decision, key+'confirm'))
         with st.expander('Ikke foreslå denne parameterendringen igjen'):
             block = st.checkbox('Blokker nye risikoforslag for maks posisjon i Autonomi', key=key+'block_confirm')
             if st.button('Blokker forslag', key=key+'BLOCK', disabled=not block):

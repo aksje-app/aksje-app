@@ -104,6 +104,7 @@ jobs:
             tests/test_program_audit_scheduler_truth.py \
             tests/test_market_event_discovery.py \
             tests/test_entry_exit_evidence.py \
+            tests/test_mobile_approval_interactions.py \
             tests/test_rc16_31o_exit_policy.py \
             tests/test_market_policy_and_target_consistency.py \
             tests/test_full_market_quality_prescreen.py \
@@ -138,7 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist delta_root
-          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_FULL.zip HEAD
+          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34h_FULL.zip HEAD
 
           BASE_REF="${{ github.base_ref }}"
           if [ -z "$BASE_REF" ]; then BASE_REF="main"; fi
@@ -157,28 +158,28 @@ jobs:
 
           (
             cd delta_root
-            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_DELTA.zip .
+            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34h_DELTA.zip .
           )
-          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_FULL.zip \
-                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_DELTA.zip \
-            > dist/SHA256SUMS_RC16.34g.txt
+          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34h_FULL.zip \
+                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34h_DELTA.zip \
+            > dist/SHA256SUMS_RC16.34h.txt
 
           echo "Clean DELTA files:"
           cat dist/changed_files_delta.txt
       - name: Upload FULL package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34g_FULL
+          name: AI_Aksje_Analyzer_RC16.34h_FULL
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_FULL.zip
-            dist/SHA256SUMS_RC16.34g.txt
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34h_FULL.zip
+            dist/SHA256SUMS_RC16.34h.txt
           if-no-files-found: error
       - name: Upload clean DELTA package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34g_DELTA
+          name: AI_Aksje_Analyzer_RC16.34h_DELTA
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34g_DELTA.zip
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34h_DELTA.zip
             dist/changed_files_delta.txt
-            dist/SHA256SUMS_RC16.34g.txt
+            dist/SHA256SUMS_RC16.34h.txt
           if-no-files-found: error
