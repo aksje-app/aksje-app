@@ -5,6 +5,7 @@ the Streamlit presentation workflow and uses a compatibility context during the
 transition away from the legacy monolith.
 """
 from __future__ import annotations
+from ui_library.work_progress import work_status, job_bar
 from ui.legacy_context import bind_legacy_context
 
 _PRESERVE = {'render_long_engine_control_center_v18653'}
@@ -77,13 +78,13 @@ def render_long_engine_control_center_v18653(_legacy_context):
     if run_clicked and universe:
         progress_slot = st.empty()
         status_slot = st.empty()
-        progress_bar = progress_slot.progress(0)
+        progress_bar = job_bar(progress_slot,text="Long Engine · starter")
 
         def _long_engine_progress_v18663(done: int, total: int, ticker: str | None = None) -> None:
             total = max(1, int(total or 1))
             pct = min(1.0, max(0.0, float(done or 0) / float(total)))
             try:
-                progress_bar.progress(pct)
+                progress_bar.progress(min(0.99,pct),text=f"Long Engine · {done} av {total} tickere")
             except Exception:
                 pass
             try:
@@ -91,14 +92,14 @@ def render_long_engine_control_center_v18653(_legacy_context):
             except Exception:
                 pass
 
-        with st.spinner(f"Kjører Long Engine Alpha på {len(universe)} USA-tickere..."):
+        with work_status(st, f"Kjører Long Engine Alpha på {len(universe)} USA-tickere..."):
             try:
                 from engines.long_engine import run_top_long_usa_alpha
 
                 rows = run_top_long_usa_alpha(universe, top_n=int(limit), save=True, progress_callback=_long_engine_progress_v18663)
                 st.session_state["long_engine_alpha_rows_v18653"] = list(rows or [])
                 try:
-                    progress_bar.progress(1.0)
+                    progress_bar.progress(100,text="Long Engine · resultat lagret")
                     status_slot.success(f"Long Engine Alpha ferdig: {len(rows or [])} kandidater.")
                 except Exception:
                     pass

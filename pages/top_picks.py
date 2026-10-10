@@ -5,6 +5,7 @@ the Streamlit presentation workflow and uses a compatibility context during the
 transition away from the legacy monolith.
 """
 from __future__ import annotations
+from ui_library.work_progress import work_status
 from ui.legacy_context import bind_legacy_context
 
 _PRESERVE = {'render_top_picks_control_center_v1863s'}
@@ -89,7 +90,7 @@ def render_top_picks_control_center_v1863s(_legacy_context):
         disabled=not bool(source_tickers),
     )
     if run_clicked and source_tickers:
-        with st.spinner(f"Rangerer {scope} via felles universmotor..."):
+        with work_status(st, f"Rangerer {scope} via felles universmotor..."):
             ranked = cached_auto_rank_market(
                 storage_key,
                 source_tickers,

@@ -1,5 +1,6 @@
 """Persistent read-only Strategy Lab with comparison and attribution (v19.11.0)."""
 from __future__ import annotations
+from ui_library.work_progress import tracked_job, report_progress
 
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -383,6 +384,7 @@ class StrategyLabService:
             })
         return metrics
 
+    @tracked_job('Strategilab · testing')
     def run_experiment(
         self,
         experiment_id: str,
@@ -409,6 +411,7 @@ class StrategyLabService:
         errors = 0
         candidate_lookup: dict[str, dict[str, Any]] = {}
         for index, snapshot in enumerate(snapshots):
+            report_progress(index,len(snapshots),"Strategilab · analyserer lagret datasett")
             snapshot_id = str(snapshot.get("snapshot_id") or "")
             for candidate in snapshot.get("candidates") or []:
                 if isinstance(candidate, Mapping):
@@ -428,6 +431,7 @@ class StrategyLabService:
                 row["strategy_lab_split"] = split_by_snapshot.get(snapshot_id)
             all_decisions.extend(rows)
             errors += int(result.get("error_count") or 0)
+        report_progress(len(snapshots),len(snapshots),"Strategilab · beregner resultater og lagrer")
         baseline_version_id = str(experiment.get("baseline_version_id") or "")
         outcome_settlement = {
             "requested": bool(settle_outcomes),

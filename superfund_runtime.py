@@ -41,6 +41,30 @@ def write(name, value):
 def now_iso(): return datetime.now(timezone.utc).isoformat()
 
 
+def capacity_watch(capacity, now):
+    """One stall/recovery notice per incident; independent of model existence."""
+    old=read('capacity_watch.json',{})
+    latest=max((v.get('updated_at','') for v in read('catalog_index.json',{}).get('pages',{}).values()),default='')
+    if not capacity['ready']:
+        record=old if old.get('last_progress')==latest and old.get('since') else {'since':now,'attempts':0,'last_progress':latest}
+        record={**record,'attempts':record.get('attempts',0)+1,'checked_at':now,'capacity':capacity}
+        notify=record['attempts']>=4 and (at(now)-at(record['since'])).total_seconds()>=3600 and not record.get('alert_sent')
+        message='Superfond har vært utsatt i minst én time uten fremdrift. Årsak: '+', '.join(capacity.get('reasons',[]))
+    else:
+        record={**old,'checked_at':now,'capacity':capacity}
+        notify=bool(old.get('alert_sent')) and not old.get('recovery_sent')
+        message='Superfond har kapasitet igjen og forsøker å fortsette. Dette bekrefter ikke at katalogpasset er ferdig.'
+    if notify and config()['notifications']:
+        try:
+            from notifier import send_pushover_alert, normalize_notification_result
+            ok,_=normalize_notification_result(send_pushover_alert(message,title='Superfond · drift',url='https://aksje-app.onrender.com/?aa_nav=superfund',url_title='Superfond i appen',priority=0))
+            if ok:record['alert_sent' if not capacity['ready'] else 'recovery_sent']=True
+        except Exception as exc:record['notification_error']=type(exc).__name__
+    if capacity['ready'] and (not old.get('alert_sent') or record.get('recovery_sent')):
+        record={**record,'since':None,'attempts':0,'last_progress':latest}
+    write('capacity_watch.json',record)
+
+
 def request_scan():
     def request(current):
         current = dict(current or {})
@@ -189,9 +213,11 @@ def _coverage(index, items, now):
 def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_provider=fx_history, enrich=True):
     started = time.monotonic(); now = now_iso()
     capacity = optional_capacity()
+    capacity_watch(capacity,now)
     if not capacity['ready']:
         deferred={'state':'DEFERRED_CAPACITY', **capacity,
-            'message':'Superfond utsatt: for lite minne eller høy CPU-belastning. Prøves igjen i neste cron.'}
+            'checked_at':now, 'phase':'WAITING_CAPACITY',
+            'message':'Superfond utsatt: '+('for lite ledig minne' if 'MEMORY_HEADROOM' in capacity.get('reasons',[]) else 'høy CPU-ventetid i appens container')+'. Prøves igjen i neste cron.'}
         write('job.json',deferred)
         return deferred
     request = read('request.json', {})
@@ -213,8 +239,11 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             count = max(1,(block['total']+99)//100)
             index['cursor'] = {'kind':kind,'page':page+1} if page<count else {'kind':'etf' if kind=='fond' else 'fond','page':1}
             write('catalog_index.json',index); processed+=1
+            write('job.json', {'state':'RUNNING','phase':'HENTER KATALOG', 'started_at':now,
+                'last_progress_at':now_iso(),'coverage':_coverage(index,[],now_iso())})
             # Checkpoint each page; wall budget avoids monopolising the cron lane.
             if time.monotonic()-started > 40: break
+        write('job.json',{'state':'RUNNING','phase':'HENTER PRODUKTDETALJER','started_at':now,'checked_at':now_iso(),'capacity':capacity})
         items = all_items(index)
         # Refresh FX on cached items too; don't trade on a rate newer than quote day.
         for item in items: item['nok_rate']=nok_rate(item['currency'],item['price_at'],fx)
@@ -234,6 +263,7 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             write('request.json',{'state':'PARTIAL','heartbeat_at':now})
             return read('job.json',{})
         p=config(); previous=snapshot()
+        write('job.json',{'state':'RUNNING','phase':'ANALYSERER MODELL OG SHADOW','started_at':now,'checked_at':now_iso(),'capacity':capacity})
         model, result=cycle(previous.get('model'),items,now,p)
         shadows={}; shadow_rules=previous.get('shadow_rules') or {'fast':{**p,'min_week_pct':0.5},'patient':{**p,'min_week_pct':2.0}}
         for name, rules in shadow_rules.items():
@@ -269,6 +299,7 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             payload['notification_pending'].append({'side':'FORSLAG','id':proposal['id'],'reason':proposal['source']})
         if len(payload['notification_pending'])>1000:
             raise ValueError('Varslingskø full; publisering utsatt, ingen handelsvarsler slettes')
+        write('job.json',{'state':'RUNNING','phase':'LAGRER VURDERING OG RAPPORTGRUNNLAG','started_at':now,'checked_at':now_iso(),'capacity':capacity})
         write('snapshot.json',payload)
         write('request.json',{'state':'COMPLETED','completed_at':now})
         job={'state':'COMPLETED','completed_at':now,'coverage':coverage,'pages_processed':processed,

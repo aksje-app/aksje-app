@@ -79,3 +79,15 @@ Detaljer, begrensninger og aktivering står i `portfolio-learning-validation-34i
 - [ ] Reelle Nordnet-handler vurderes som egen fase om 6–12 måneder.
 
 Detaljer og testbegrensninger: `superfund-v1-34j.md`. PR #68 er merget (00bd9fb), inkludert det tidligere PR #67-arbeidet. Det betyr ikke at fysisk mobilkontroll eller deploy av denne fondsversjonen er gjennomført.
+
+## RC16.34k – fremdrift og Superfond-kontroll
+
+- [x] Felles fremdrifts-/aktivitetsvisning for søk, synkrone tester, rapporter og navngitte bakgrunnsjobber; kjent/ukjent total skilles.
+- [x] Superfond sidefremdrift og separate ressursårsaker; host-load blokkerer ikke alene.
+- [x] Stoppvarsel etter gjentatte utsettelser og kapasitetstilgang etter varslet stopp.
+- [x] Forklart tomt rapportfelt, eksplisitt rapportbygg og diagnose-ZIP før første snapshot.
+- [x] ZIP med læring, shadow, regler, handler, datagrunnlag, kontrollfunn og eksakt filmanifest/utelatelser.
+- [x] Læringsfase, sammenligningsgrunnlag, kjøps-/salgsbegrunnelser og lesbare mobildiagnoser.
+- [ ] Bekreftet katalogfremdrift, cgroup-måledekning, Pushover og fysisk mobil etter deploy.
+
+Detaljer og grenser: `work-progress-superfund-34k.md`.

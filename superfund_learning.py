@@ -1,4 +1,5 @@
 """Paired forward evidence and bounded chronological historical experiments."""
+from ui_library.work_progress import tracked_job, report_progress
 from copy import deepcopy
 import base64
 import gzip
@@ -129,6 +130,7 @@ def archive_frame(items,now,p):
     return {'state':'ARCHIVED','day':day}
 
 
+@tracked_job('Superfond · historisk test')
 def historical_experiment(frames,trial_weeks=(0.5,1,2),min_days=80):
     """Chronological selection: first 60% train, next 20% validate, last 20% holdout.
 
@@ -146,7 +148,8 @@ def historical_experiment(frames,trial_weeks=(0.5,1,2),min_days=80):
             if item.get('detail',{}).get('verified_at') and at(item['detail']['verified_at'])>at(f['at']):raise ValueError('Fremtidslekkasje i produktdetaljer')
     a,b=int(len(frames)*0.6),int(len(frames)*0.8)
     results=[]
-    for week in trial_weeks:
+    for trial_index,week in enumerate(trial_weeks):
+        report_progress(trial_index,len(trial_weeks),"Historisk test · trenings-/valideringsforsøk")
         p={**DEFAULTS,'min_week_pct':week,'notifications':False};book=initial(p);marks=[]
         for i,f in enumerate(islice(iter(frames),b)):
             book,_=cycle(book,f['items'],f['at'],p)
@@ -155,6 +158,7 @@ def historical_experiment(frames,trial_weeks=(0.5,1,2),min_days=80):
         results.append({'week':week,'validation_return':validation,'book':book})
     winner=max(results,key=lambda r:r['validation_return'])
     # Holdout is evaluated only for the chosen strategy; never used for selection.
+    report_progress(len(trial_weeks),len(trial_weeks),'Historisk test · uavhengig sluttperiode')
     book=winner['book'];start=equity(book)
     for f in islice(iter(frames),b,None):book,_=cycle(book,f['items'],f['at'],{**DEFAULTS,'min_week_pct':winner['week'],'notifications':False})
     return {'state':'COMPLETED','selected_week':winner['week'],'holdout_return':equity(book)/start-1,

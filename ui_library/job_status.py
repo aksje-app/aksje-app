@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 from .models import JobStatusView
 
-def _percent(value: Any) -> int:
-    try: return max(0,min(100,int(value or 0)))
-    except (TypeError,ValueError): return 0
+def _percent(value: Any) -> int | None:
+    try: return max(0,min(100,int(value))) if value is not None else None
+    except (TypeError,ValueError): return None
 
 def manual_job_view(status: Mapping[str,Any]) -> JobStatusView:
     state=str(status.get("state") or "IDLE").upper()
