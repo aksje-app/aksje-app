@@ -35,7 +35,11 @@ class _FakeStreamlit:
         return [_Ctx() for _ in count]
 
     def button(self, _label, *, key, **_kwargs):
-        return key == self.clicked
+        clicked=key == self.clicked
+        if clicked and _kwargs.get('on_click'):
+            _kwargs['on_click'](*_kwargs.get('args',()))
+            self.reruns += 1
+        return clicked
 
     def rerun(self):
         self.reruns += 1

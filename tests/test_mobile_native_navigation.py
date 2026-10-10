@@ -14,7 +14,12 @@ class Fake:
     def markdown(self,v,**kwargs): self.blocks.append(str(v))
     def container(self,**kwargs): return Ctx()
     def columns(self,n,**kwargs): return [Ctx() for _ in range(n)]
-    def button(self,label,key=None,**kwargs): return key == self.pressed
+    def button(self,label,key=None,**kwargs):
+        clicked=key == self.pressed
+        if clicked and kwargs.get('on_click'):
+            kwargs['on_click'](*kwargs.get('args',()))
+            self.reruns += 1  # Streamlit schedules the callback's run automatically
+        return clicked
     def rerun(self): self.reruns += 1
 
 def test_every_primary_mobile_target_changes_navigation():

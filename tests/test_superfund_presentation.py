@@ -45,7 +45,7 @@ def test_cards_escape_untrusted_name_and_do_not_show_none():
     html=candidate_card(row(1,name='<script>alert(1)</script>',risk=None))
     assert '<script>' not in html and '&lt;script&gt;' in html
     assert 'None' not in html and 'Ikke oppgitt' in html
-    assert 'Kategori-rang' in html and 'Poeng' in html
+    assert 'Kategori-rang' in html and 'Siste uke' in html and 'Årlig kostnad' in html
 
 
 def test_pending_identity_outside_saved_hundred_and_date_timezone():

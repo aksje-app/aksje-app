@@ -123,3 +123,14 @@ Kode og testgrunnlag: `quality-turnaround-report-return-34l.md`. Merge/deploy er
 - Automatiserte regresjons- og nettleserkontroller; dokumentasjon i `superfond-top25-mobile-34m.md`.
 
 Ny PR opprettes etter lokal verifisering. Merge og deploy krever senere instruksjon; deploy utføres av brukeren.
+
+
+## RC16.34n – nye innspill etter PR #72
+
+- Kursutvikling, pris/dato/valuta og risiko/kostnad på ventende ordre og Topp 25.
+- Kursgraf fra faktisk lagret historikk når minst to kursdatoer finnes.
+- Administrative produktfelt under Flere detaljer; ryddig ventestatus og modellresultat siden kjøp.
+- Lesbar investeringsetikett med kilde; Brasil-indeksnavn skilles fra faktisk eksponering.
+- Superfond-gjenoppretting fra URL, klikk-callbacks før bootstrap, atomisk URL og ingen gamle panelvalg på ny navigasjon.
+- Valgt Superfond-område bevares ved refresh; søk ved sidebytte i samme økt.
+- Fersk økt, første klikk og mobil-layout inngår i releasekontrollene.

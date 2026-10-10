@@ -110,6 +110,10 @@ def apply_route_tab_to_session_state_v19220_rc7(
         return False
 
     changed = False
+    if nav_s == "superfund":
+        if tab_s:
+            session_state["sf_section"] = tab_s
+        return bool(tab_s)
     if panel_s == AUTONOMY_PANEL or nav_s in AUTONOMY_NAV_ALIASES | {"reports", "jobs", "portfolio", "approvals", "operations"}:
         if tab_s:
             session_state["autonomy_core_workspace_slug_v1882"] = tab_s
@@ -135,6 +139,8 @@ def current_route_tab_from_session_v19220_rc7(session_state, *, nav: Any = "", p
     """Read only the tab state owned by the currently visible route."""
     nav_s = str(nav or "").strip().lower()
     panel_s = str(panel or "").strip()
+    if nav_s == "superfund":
+        return str(session_state.get("sf_section") or ""), ""
     if panel_s == AUTONOMY_PANEL or nav_s in AUTONOMY_NAV_ALIASES | {"reports", "jobs", "portfolio", "approvals", "operations"}:
         slug = str(session_state.get("autonomy_core_workspace_active_slug_v19220_rc7") or "").strip()
         if not slug:
@@ -247,17 +253,20 @@ def set_global_navigation_state(
                 break
         if not changed:
             return
+        next_params = dict(current)
         for key, value in updates.items():
             if value is None:
                 continue
             value_s = str(value or "").strip()
-            current_s = str(current.get(key, "") or "").strip()
             if value_s:
-                if current_s != value_s:
-                    st.query_params[key] = value_s
+                next_params[key] = value_s
             else:
-                if key in st.query_params:
-                    del st.query_params[key]
+                next_params.pop(key, None)
+        if hasattr(st.query_params, "from_dict"):
+            st.query_params.from_dict(next_params)
+        else:
+            st.query_params.clear()
+            st.query_params.update(next_params)
     except Exception:
         # Do not let navigation state break the app on older Streamlit builds.
         pass

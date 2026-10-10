@@ -277,10 +277,10 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             archive_status={'state':'FAILED','error':str(exc)[:200]}
         # One commit publishes model, trade ledger, paired shadows and analysis.
         from app_version import APP_VERSION
-        from superfund_presentation import candidate_views, identity
+        from superfund_presentation import candidate_views, decision_context
         views=candidate_views(result['rows'])
         needed={o['id'] for o in model.get('orders',[])} | set(model.get('positions',{}))
-        fund_identity={r['id']:identity(r) for r in result['rows'] if r['id'] in needed}
+        fund_identity={r['id']:decision_context(r) for r in result['rows'] if r['id'] in needed}
         payload={'at':now,'version':APP_VERSION,'model':model,'shadows':shadows,'shadow_rules':shadow_rules,'learning':learning,'archive_status':archive_status,
                  'parameters':p,'coverage':coverage,'frame':model.get('last_frame'),
                  'report':previous.get('report',{}),
