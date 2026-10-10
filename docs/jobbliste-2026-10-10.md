@@ -68,7 +68,7 @@ Detaljer, begrensninger og aktivering står i `portfolio-learning-validation-34i
 - [x] Offentlig Nordnet-katalog, sidevis oppdatering og bred kategori-/ETF-dekning. Kontroll ga 918 fond + 2 255 ETF-noteringer; kjøpskvalifisering er separat.
 - [x] NAV-/kursdato, risiko, kostnad, handelsfrister, beholdninger, sektor/region, dokumentlenker og ECB-valuta. 1/3/5/10/20 observerte NOK-kurspunkter med faktiske fra-/til-datoer.
 - [x] Separat automatisk modellkapital, ventende kjøp/salg på senere kurs, posisjons-/eksponeringsgrenser, gevinstbeskyttelse og gjenkjøpskarantene.
-- [x] Direkte Superfond-knapp på desktop/mobil; portefølje, kandidater, hele sideinndelte katalogen, diagnoser, PDF/CSV/Excel og Pushover-leveringskø.
+- [x] Direkte Superfond-knapp på desktop/mobil; portefølje, kandidater, hele sideinndelte katalogen, diagnoser, PDF/CSV/Excel fra innlogget app og Pushover-leveringskø med direkte app-lenke.
 - [x] E24 og tilgjengelige produktpubliseringer med kilde-/dekningsstatus.
 - [x] To fryste skygger og global indeksreferanse, fremtidig validering, konkrete Godkjenn/Avvis-forslag, atomiske kvitteringer, historikk og rollback.
 - [x] Checkpoint, felles PostgreSQL-kjørelås for cron/SP/Paper/manuelle rapporter, synlig kapasitetsutsettelse og avgrenset katalog-, detalj- og historikklagring.

@@ -71,8 +71,8 @@ def render_superfund(st):
                     st.download_button('Last ned PDF',pdf_bytes(s),'Superfond.pdf','application/pdf',use_container_width=True)
                     st.download_button('Last ned CSV',csv_bytes(s),'Superfond.csv','text/csv',use_container_width=True)
                     st.download_button('Last ned Excel',xlsx_bytes(s),'Superfond.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',use_container_width=True)
-                    if s.get('report',{}).get('url'):st.link_button('Åpne publisert rapport',s['report']['url'])
-                    if s.get('report_pending'):st.warning('Ny rapport venter på publisering; siste publiserte rapport beholdes.')
+                    st.caption('Rapportlenker går til denne siden i den innloggede appen. Ingen offentlig PDF publiseres.')
+                    if s.get('report_pending'):st.warning('Rapportlenken venter på klargjøring; nedlastingene bruker siste komplette snapshot.')
                     st.json(s.get('delivery',{}))
             elif title=='Nyheter og kilder':
                 st.caption('E24 RSS og publiseringer på produktsider. Relevans er søketreff; ingen automatisk nyhetsscore.')

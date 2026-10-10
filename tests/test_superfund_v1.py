@@ -285,7 +285,7 @@ def test_report_failure_retains_previous_published_report(local,monkeypatch):
     actual=REAL_DELIVERY
     runtime.write('snapshot.json',{'report_pending':True,'report':{'url':'previous'},'notification_pending':[]})
     def fail(s):raise RuntimeError('publication failed')
-    monkeypatch.setattr(superfund_reports,'publish',fail)
+    monkeypatch.setattr(superfund_reports,'prepare_report_link',fail)
     with pytest.raises(RuntimeError):actual()
     assert runtime.snapshot()['report']=={'url':'previous'} and runtime.snapshot()['report_pending']
 
@@ -335,3 +335,31 @@ def test_waiting_sp_job_is_resumable_without_replacing_request(monkeypatch):
     assert jobs.recover_stale_job()==waiting
     monkeypatch.setattr(worker,'run_claimed_job',lambda job_id,execution_token:{'state':'COMPLETED','job_id':job_id})
     assert jobs.run_or_resume_scheduled_job()['job_id']=='same'
+
+
+def test_fund_report_link_requires_app_login_and_never_publishes_public_pdf(local,monkeypatch):
+    import public_report_store as public
+    import superfund_reports as reports
+    monkeypatch.setattr(public,'publish_durable_pdf',lambda *a,**k:pytest.fail('Anonymous fund PDF publication'))
+    monkeypatch.setenv('RENDER_EXTERNAL_URL','https://aksje-app.onrender.com')
+    s={'at':'2026-10-05','model':{'last_frame':'1'}}
+    link=reports.prepare_report_link(s)
+    assert link['access']=='APP_LOGIN_REQUIRED' and link['delivery']=='APP_DOWNLOADS'
+    assert link['url']=='https://aksje-app.onrender.com/?aa_nav=superfund'
+    assert not local.read_json('public_reports/index.json',[])
+
+
+def test_archive_clock_is_after_fetched_detail_verification(local,monkeypatch):
+    import superfund_learning
+    def enrich(rows,index,budget):
+        for row in rows:row['detail']={'verified_at':runtime.now_iso()}
+        return rows
+    def archive(rows,now,p):
+        assert all(engine.at(r['detail']['verified_at'])<=engine.at(now) for r in rows)
+        return {'state':'ARCHIVED'}
+    monkeypatch.setattr(runtime,'_enrich',enrich)
+    monkeypatch.setattr(runtime,'refresh_news',lambda rows:None)
+    monkeypatch.setattr(superfund_learning,'archive_frame',archive)
+    provider=lambda kind,page:{'kind':kind,'page':page,'total':1,'rows':[raw_row('NO0000000001')],'url':'fixture'}
+    runtime.run_batch(2,page_provider=provider,fx_provider=lambda:{'days':{}})
+    assert runtime.snapshot()['archive_status']['state']=='ARCHIVED'

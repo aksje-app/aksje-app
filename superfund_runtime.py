@@ -209,7 +209,7 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             cursor = index['cursor']; kind, page = cursor['kind'],cursor['page']
             block = page_provider(kind,page)
             if block['total'] > MAX_PAGE*100: raise ValueError('Katalog overskrider sidebudsjett; dekning blokkert')
-            index = _update_page(block,index,now,fx)
+            index = _update_page(block,index,now_iso(),fx)
             count = max(1,(block['total']+99)//100)
             index['cursor'] = {'kind':kind,'page':page+1} if page<count else {'kind':'etf' if kind=='fond' else 'fond','page':1}
             write('catalog_index.json',index); processed+=1
@@ -222,6 +222,9 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
         if enrich and time.monotonic()-started < 40:
             try:refresh_news([i for i in items if i.get('detail')])
             except Exception as exc:errors.append('Nyheter: '+str(exc)[:150])
+        # Freeze the decision AFTER fetching/verifying the evidence. Using the
+        # batch-start timestamp would falsely place fresh details in the future.
+        now=now_iso()
         # Duplicate pages can occur during source reordering; last observed listing wins.
         items = list({i['id']:i for i in items}.values())
         coverage = _coverage(index,items,now)
@@ -306,15 +309,15 @@ def deliver_pending():
     s=snapshot()
     if not s: return
     if s.get('report_pending'):
-        from superfund_reports import publish
-        s['report']=publish(s);s['report_pending']=False;write('snapshot.json',s)
+        from superfund_reports import prepare_report_link
+        s['report']=prepare_report_link(s);s['report_pending']=False;write('snapshot.json',s)
     if s.get('notification_pending') and config()['notifications']:
         from notifier import send_pushover_alert, normalize_notification_result
         changes=s['notification_pending'][:5]
         text='SUPERFOND · MODELLHANDEL\n'+'\n'.join(f"{x['side']} · {x.get('name',x['id'])} · {x.get('reason','')}" for x in changes[:5])
         # Standard notifier handles quiet periods; no live broker execution.
         ok, detail=normalize_notification_result(send_pushover_alert(text,title='Superfondportefølje',
-            url=s.get('report',{}).get('url') or None,url_title='Åpne rapport',priority=0))
+            url=s.get('report',{}).get('url') or None,url_title='Superfond i appen',priority=0))
         s['delivery']={'at':now_iso(),'sent':ok,'detail':str(detail)[:200]}
         if ok:s['notification_pending']=s['notification_pending'][len(changes):]
         write('snapshot.json',s)

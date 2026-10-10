@@ -71,11 +71,18 @@ def pdf_bytes(snapshot):
     return out.getvalue()
 
 
-def publish(snapshot):
-    from public_report_store import publish_durable_pdf
-    from report_delivery import public_report_url
-    run={'run_id':'SF-'+snapshot.get('model',{}).get('last_frame','unknown'),
-         'public_pdf_name':'Superfond_'+snapshot.get('at','')[:10]+'.pdf'}
-    publish_durable_pdf(run,pdf_bytes(snapshot),document_kind='superfund')
-    return {'url':public_report_url(run),'public_report_token':run['public_report_token'],
-            'at':snapshot['at'],'run_id':run['run_id']}
+def prepare_report_link(snapshot):
+    """Authenticated application route; never publish a public PDF payload.
+
+    Downloads are generated from the complete stored model snapshot after the
+    application's normal login check. No external report storage or new
+    anonymous access token is created.
+    """
+    import os
+    from urllib.parse import urlsplit
+    base=(os.getenv('RENDER_EXTERNAL_URL') or 'https://aksje-app.onrender.com').rstrip('/')
+    parsed=urlsplit(base)
+    if parsed.scheme!='https' or not parsed.netloc:raise ValueError('App-lenken må være HTTPS')
+    return {'url':base+'/?aa_nav=superfund','at':snapshot['at'],
+            'run_id':'SF-'+snapshot.get('model',{}).get('last_frame','unknown'),
+            'access':'APP_LOGIN_REQUIRED','delivery':'APP_DOWNLOADS'}
