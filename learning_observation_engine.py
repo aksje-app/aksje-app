@@ -5,6 +5,7 @@ parameters. Point-in-time inputs are frozen; prices and benchmarks are followed
 independently from simulated portfolio exits and later report appearances.
 """
 from __future__ import annotations
+from ui_library.work_progress import tracked_job
 
 import hashlib
 import json
@@ -795,6 +796,7 @@ def build_historical_baseline(
     return result
 
 
+@tracked_job('Læring · historisk grunnlag')
 def generate_historical_baseline(*, runs: Sequence[Mapping[str, Any]] | None = None,
                                  series_loader: SeriesLoader | None = None,
                                  now: datetime | None = None, notify: bool = True) -> dict[str, Any]:
@@ -1007,6 +1009,7 @@ def _weekly_due(now: datetime) -> bool:
     return not any(str(row.get("week_key") or "")==local.strftime("%G-W%V") for row in load_weekly_reports())
 
 
+@tracked_job('Autonomi · læringsvedlikehold')
 def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader|None=None)->dict[str,Any]:
     current=now or datetime.now(timezone.utc)
     result={"status":"COMPLETED","daily":{"status":"NOT_DUE"},

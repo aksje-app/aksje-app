@@ -151,9 +151,13 @@ def action_bar(st_module, actions: Sequence[Mapping[str, Any] | ActionView]) -> 
     return action_row(st_module,normalized)
 
 def render_job_status(st_module, view: JobStatusView, controls: Mapping[str, Callable[[], Any]] | None = None) -> str | None:
-    percent=max(0,min(100,int(view.percent or 0)))
-    st_module.progress(percent,text=view.message or view.label or view.state)
-    metric_cards(st_module,[{"label":"Jobb-ID","value":view.job_id or "-"},{"label":"Tilstand","value":view.state},{"label":"Fase","value":view.phase or "-"},{"label":"Fremdrift","value":f"{percent}%"}])
+    from .work_progress import render_progress, progress_values
+    status={'state':view.state,'label':view.label,'phase':view.phase,'percent':view.percent,
+            'completed':view.completed_units,'total':view.total_units,'started_at':view.started_at,
+            'last_progress_at':view.last_activity_at,'message':view.message,'error':view.error}
+    percent=progress_values(view.state,view.completed_units,view.total_units,view.percent)
+    render_progress(st_module,status)
+    metric_cards(st_module,[{"label":"Jobb-ID","value":view.job_id or "-"},{"label":"Tilstand","value":view.state},{"label":"Fase","value":view.phase or "-"},{"label":"Fremdrift","value":f"{percent}%" if percent is not None else 'Ukjent total'}])
     controls=controls or {}; selected=None
     specs=(("pause","Pause",view.can_pause),("resume","Fortsett",view.can_resume),("stop","Stopp",view.can_stop))
     if any(enabled and key in controls for key,_,enabled in specs):

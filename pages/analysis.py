@@ -5,6 +5,7 @@ the Streamlit presentation workflow and uses a compatibility context during the
 transition away from the legacy monolith.
 """
 from __future__ import annotations
+from ui_library.work_progress import work_status
 from ui.legacy_context import bind_legacy_context
 
 _PRESERVE = {'render_analysis'}
@@ -61,7 +62,7 @@ def render_analysis(_legacy_context, results, label):
         build_cols = st.columns([1, 2])
         with build_cols[0]:
             if st.button(f"🔄 Oppdater {source_choice}-liste nå", key=f"build_interactive_source_{label}_{source_choice}_v1410", width="stretch"):
-                with st.spinner(f"Bygger dynamisk {source_choice}-liste..."):
+                with work_status(st, f"Bygger dynamisk {source_choice}-liste..."):
                     source_results = _build_interactive_source_ranking_now(source_choice)
                 options, option_labels = _build_options(source_results)
                 if options:
@@ -122,7 +123,7 @@ def render_analysis(_legacy_context, results, label):
 
     item = next((r for r in (source_results or []) if normalize_user_ticker(r.get("ticker")) == selected), None)
     if item is None or not isinstance(item, dict) or "hist" not in item:
-        with st.spinner(f"Henter analyse for {selected}..."):
+        with work_status(st, f"Henter analyse for {selected}..."):
             fetched_item = cached_score_stock_manual(selected, use_news=False)
         if fetched_item:
             merged_item = dict(fetched_item)

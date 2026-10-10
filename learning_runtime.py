@@ -3,6 +3,7 @@
 Only controlled_learning/* is writable here. Capture never discards old frames
 silently: the fixed storage budget stops collection and reports the gap.
 """
+from ui_library.work_progress import tracked_job
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -265,6 +266,7 @@ def process_forward_frame(frame, current=None):
     return current
 
 
+@tracked_job('Læring · nye data')
 def run_forward_batch(limit=6):
     """Bounded optional scheduler job. Each committed frame resumes exactly once."""
     service = storage()

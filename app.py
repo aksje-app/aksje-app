@@ -1,3 +1,4 @@
+from ui_library.work_progress import work_status, job_bar
 import logging
 # v18.5.12 Render import-path guard
 import os as _render_os
@@ -6305,7 +6306,7 @@ def render_system_admin_workspace(expanded=False):
             if st.button("⚡ Kjør auto-kjøp nå", key="main_force_auto_buy_now_v157", width="stretch", disabled=_is_full_stop):
                 try:
                     from scanner_worker import run_once
-                    with st.spinner("Kjører auto-kjøp-motor..."):
+                    with work_status(st, "Kjører auto-kjøp-motor..."):
                         _trades = run_once(force=True)
                     st.success(f"Auto-motor ferdig. Trades: {_trades}")
                     st.rerun()
@@ -7114,7 +7115,7 @@ def _render_candidate_actions_v19022(item: dict, decision: dict, title: str, idx
             st.rerun()
     with c4:
         if st.button("↻ Oppdater", key=f"{base}_refresh", width="stretch"):
-            with st.spinner(f"Oppdaterer data for {ticker}..."):
+            with work_status(st, f"Oppdaterer data for {ticker}..."):
                 refreshed = cached_score_stock_manual(ticker, use_news=True, force=True)
             if refreshed:
                 st.session_state["cc_interactive_last_result_v18535"] = [refreshed]
@@ -9199,7 +9200,7 @@ def render_strategy_backtest(tickers, label):
     benchmark = "^GSPC" if label == "USA" else "OSEBX.OL"
 
     if st.button(f"Kjør smartere backtest ({label})"):
-        with st.spinner("Kjører backtest..."):
+        with work_status(st, "Kjører backtest..."):
             strategy, bench, error = run_monthly_score_strategy(
                 tickers,
                 months=months,
@@ -9633,6 +9634,11 @@ if use_v2_shell():
     inject_design_system(st, module=_ab_route)
     render_shell(st, _ab_route, {})
 render_sidebar_clock_v19220_rc163(st)
+from ui_library.work_progress import render_live_work
+@st.fragment(run_every="15s")
+def _render_live_work_status():
+    render_live_work(st)
+_render_live_work_status()
 
 # Superfond is a direct route; no legacy panel radio may overwrite it.
 if str(st.session_state.get("active_nav_target_v18674c") or "").lower() == "superfund":
@@ -10157,7 +10163,7 @@ def render_news_control_center_v18535(default_ticker: str = ""):
         if not clean:
             st.warning("Skriv inn en ticker først.")
             return
-        with st.spinner(f"Henter nyheter for {clean}..."):
+        with work_status(st, f"Henter nyheter for {clean}..."):
             articles, error = get_news(clean, limit=int(limit), source="manual", force=True)
         if error:
             st.warning(f"Nyheter midlertidig utilgjengelig: {error}")
@@ -10192,7 +10198,7 @@ def render_interactive_technical_control_center_v18535():
         if not clean:
             st.warning("Skriv inn én ticker først.")
             return
-        with st.spinner(f"Henter analyse for {clean}..."):
+        with work_status(st, f"Henter analyse for {clean}..."):
             item = cached_score_stock_manual(clean, use_news=False, force=True)
         if not item:
             st.warning(f"Fant ikke data for {clean}. Sjekk ticker/suffiks, for eksempel DNB.OL, STB.OL, VOLV-B.ST eller AAPL.")
@@ -10255,14 +10261,14 @@ def render_market_ranking_control_center_v18535(selected_market: str | None = No
         st.info("Velg marked og trykk Kjør rangering. Ingen skjult USA/AAPL-fallback kjøres.")
     if market != canonical_ranking_label and st.button(f"Kjør rangering {market}", key="cc_ranking_run_v18535", type="primary", disabled=not bool(source_tickers)):
         progress_box = st.empty()
-        progress = st.progress(0, text="Starter rangering")
+        progress = job_bar(st, text="Starter rangering")
         progress_box.markdown(
             f"<div class='v18-dark-row'><b>Rangering kjører</b><br>1/4 Henter univers · {len(source_tickers)} tickere</div>",
             unsafe_allow_html=True,
         )
         progress.progress(25, text=f"1/4 Henter univers · {len(source_tickers)} tickere")
         progress.progress(45, text="2/4 Henter/cache aksjedata")
-        with st.spinner(f"Rangerer {market}..."):
+        with work_status(st, f"Rangerer {market}..."):
             ranked = cached_auto_rank_market(storage_key, source_tickers, max_count=int(limit), use_news=False, force_manual_fetch=True)
         progress.progress(80, text="3/4 Lagrer rangering")
         latest[storage_key] = ranked or []
@@ -12016,7 +12022,7 @@ def render_auto_test_lab_control_center_v18536():
         from datetime import datetime, timezone
 
         status_box = st.empty()
-        progress = st.progress(0, text="Starter Auto Test Lab")
+        progress = job_bar(st, text="Starter Auto Test Lab")
         update_global_busy("Kjører Auto Test Lab", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
         learning_stats = load_learning_stats()
 
@@ -12109,7 +12115,7 @@ def render_auto_test_lab_control_center_v18536():
                 result["pipeline_error"] = str(exc)[:180]
         except Exception as exc:
             result["storage_error"] = str(exc)[:180]
-        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        progress.progress(99 if result.get("interrupted") else 100, text="Avbrutt" if result.get("interrupted") else "Ferdig")
         finish_global_busy("Klar", "Auto Test Lab ferdig." if not result.get("interrupted") else "Auto Test Lab avbrutt.")
         if result.get("interrupted"):
             st.warning(f"Auto Test Lab avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
@@ -12677,7 +12683,7 @@ def render_fund_etf_control_center_v18538():
         from datetime import datetime, timezone
 
         status_box = st.empty()
-        progress = st.progress(0, text="Starter Fond / ETF-analyse")
+        progress = job_bar(st, text="Starter Fond / ETF-analyse")
         update_global_busy("Kjører Fond / ETF", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
 
         def _download_symbol(symbol):
@@ -12769,7 +12775,7 @@ def render_fund_etf_control_center_v18538():
                 result["storage_backend"] = storage.backend()
             except Exception as exc:
                 result["storage_error"] = str(exc)[:180]
-        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        progress.progress(99 if result.get("interrupted") else 100, text="Avbrutt" if result.get("interrupted") else "Ferdig")
         finish_global_busy("Klar", "Fond / ETF-analyse ferdig." if not result.get("interrupted") else "Fond / ETF-analyse avbrutt.")
         if result.get("interrupted"):
             st.warning(f"Fond / ETF-analyse avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
@@ -12938,7 +12944,7 @@ def render_auto_test_lab_fund_mode_v18543():
         from datetime import datetime, timezone
 
         status_box = st.empty()
-        progress = st.progress(0, text="Starter Auto Test Lab Fondmodus")
+        progress = job_bar(st, text="Starter Auto Test Lab Fondmodus")
         update_global_busy("Kjører Auto Test Lab Fondmodus", "Starter", step=0, total=int(budget.get("total_tests", 0) or 0))
 
         def _download_symbol(symbol):
@@ -13031,7 +13037,7 @@ def render_auto_test_lab_fund_mode_v18543():
                 result["storage_backend"] = storage.backend()
             except Exception as exc:
                 result["storage_error"] = str(exc)[:180]
-        progress.progress(100, text="Ferdig" if not result.get("interrupted") else "Avbrutt")
+        progress.progress(99 if result.get("interrupted") else 100, text="Avbrutt" if result.get("interrupted") else "Ferdig")
         finish_global_busy("Klar", "Auto Test Lab Fondmodus ferdig." if not result.get("interrupted") else "Auto Test Lab Fondmodus avbrutt.")
         if result.get("interrupted"):
             st.warning(f"Auto Test Lab Fondmodus avbrutt etter {result.get('completed_tests', 0)} av {result.get('total_tests', 0)} tester. Foreløpig resultat er lagret.")
@@ -13358,17 +13364,10 @@ def render_mixed_portfolio_control_center_v18544():
 
     if st.button("📊 Kjør porteføljeanalyse", key="mixed_portfolio_run_v18544", type="primary", width="stretch", on_click=set_global_busy, kwargs={"label": "Kjører porteføljeanalyse", "detail": "Analyserer aksjer, fond, overlapp og risiko"}):
         status_box = st.empty()
-        progress = st.progress(0, text="Starter porteføljeanalyse")
-        steps = ["Samler beholdninger", "Normaliserer vekter", "Måler grunnmur/satellitt", "Sjekker overlapp", "Lager forbedringsforslag"]
-        for idx, step in enumerate(steps, start=1):
-            pct = int(round((idx - 1) / max(1, len(steps)) * 100))
-            progress.progress(pct, text=f"{idx}/{len(steps)} {step}")
-            update_global_busy("Kjører porteføljeanalyse", f"{idx}/{len(steps)} {step}", step=idx, total=len(steps))
-            status_box.markdown(
-                f"<div class='v18-dark-row' style='border-color:rgba(59,130,246,.55);'><b>🔄 Porteføljeanalyse kjører</b><br><span style='font-size:.82rem;'>{idx}/{len(steps)} {html.escape(step)}</span></div>",
-                unsafe_allow_html=True,
-            )
-        result = analyze_mixed_portfolio(holdings_preview, profile=profile)
+        progress = job_bar(st, text="Starter porteføljeanalyse")
+        progress.progress(0, text="Analyserer beholdninger, vekter, overlapp og risiko · ukjent total")
+        with work_status(st, "Analyserer portefølje"):
+            result = analyze_mixed_portfolio(holdings_preview, profile=profile)
         result["source"] = {"stocks": stock_source, "funds": fund_source}
         st.session_state["mixed_portfolio_last_result_v18544"] = result
         try:
@@ -13396,7 +13395,7 @@ def render_mixed_portfolio_control_center_v18544():
                 result["pipeline_error"] = str(exc)[:180]
         except Exception as exc:
             result["storage_error"] = str(exc)[:180]
-        progress.progress(100, text="Ferdig")
+        progress.progress(99 if result.get("storage_error") else 100, text="Lagring feilet" if result.get("storage_error") else "Ferdig")
         finish_global_busy("Klar", "Porteføljeanalyse ferdig.")
         st.success(f"Porteføljeanalyse ferdig: {result.get('portfolio_health', '-')}/100 · {result.get('grade', '-')}")
 
@@ -17501,7 +17500,7 @@ def render_ai_candidate_test_control_center_v1864l() -> None:
         st.warning("Ingen kandidater funnet for valgt kilde. Importer datakilde, velg marked eller skriv manuell liste.")
 
     if st.button("Kjør test", key="ai_candidate_run_v1864l", type="primary", disabled=not bool(preview_tickers)):
-        progress = st.progress(0, text="Starter AI Kandidattest")
+        progress = job_bar(st, text="Starter AI Kandidattest")
         progress.progress(25, text="Henter ferske kurs-/scoredatasett")
         ranked = cached_auto_rank_market(
             f"AIKandidat_{source}_{market}_{evaluation_config.get('horizon')}",
@@ -19359,7 +19358,7 @@ elif active_panel in {"Top Picks", "Top Picks Top Picks"}:
             key=f"manual_fetch_closed_{scan_market}",
         )
 
-    with st.spinner("Finner beste kandidater..."):
+    with work_status(st, "Finner beste kandidater..."):
         if not _manual_fetch_closed and not _open_now:
             ranked = _top_picks_from_cached_markets_v1863j(scan_market)
         else:

@@ -1,4 +1,5 @@
 """Keep optional experiment CPU/memory out of web and trading processes."""
+from ui_library.work_progress import tracked_job
 import json
 import os
 from pathlib import Path
@@ -6,6 +7,7 @@ import subprocess
 import sys
 
 
+@tracked_job('Læring · shadow')
 def run_shadow_job():
     from autonomous_portfolio import _available_memory_mb
     headroom = _available_memory_mb()

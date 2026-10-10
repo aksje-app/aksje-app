@@ -10,6 +10,8 @@ from functools import wraps
 import fcntl
 import os
 import threading
+import math
+from pathlib import Path
 
 from storage_architecture import runtime_data_path
 
@@ -81,12 +83,34 @@ def coordinated(name, deferred=None):
     return decorate
 
 
+def _container_cpu_pressure(root=Path('/sys/fs/cgroup')):
+    """Only use PSI from a quota-limited cgroup, never host load as a veto."""
+    try:
+        quota, period = (root/'cpu.max').read_text().split()
+        if quota == 'max' or int(quota) <= 0 or int(period) <= 0:
+            return None
+        for line in (root/'cpu.pressure').read_text().splitlines():
+            if line.startswith('some '):
+                value = float(dict(field.split('=') for field in line.split()[1:])['avg10'])
+                return value if math.isfinite(value) and 0 <= value <= 100 else None
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
 def optional_capacity():
     from autonomous_portfolio import _available_memory_mb
     headroom = _available_memory_mb()
-    load = os.getloadavg()[0] / max(1, os.cpu_count() or 1)
-    return {'ready': (headroom is None or headroom >= 384) and load < 1.5,
-            'headroom_mb': headroom, 'load_per_cpu': round(load, 2)}
+    try: load = round(os.getloadavg()[0] / max(1, os.cpu_count() or 1), 2)
+    except (OSError, AttributeError): load = None
+    pressure = _container_cpu_pressure()
+    reasons = []
+    if headroom is not None and headroom < 384: reasons.append('MEMORY_HEADROOM')
+    if pressure is not None and pressure >= 50: reasons.append('CONTAINER_CPU_PRESSURE')
+    return {'ready': not reasons, 'reasons': reasons, 'headroom_mb': headroom,
+            'minimum_headroom_mb': 384, 'host_load_per_cpu': load,
+            'host_load_policy': 'DIAGNOSTIC_ONLY', 'cpu_pressure_avg10_pct': pressure,
+            'cpu_pressure_limit_pct': 50, 'cpu_source': 'CGROUP_PSI' if pressure is not None else 'UNAVAILABLE'}
 
 
 def verify_lane():

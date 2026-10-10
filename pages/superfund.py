@@ -1,6 +1,9 @@
 """Read-only render path; update clicks enqueue, never fetch market data."""
 from superfund_runtime import snapshot, read, config, request_scan, save_parameters, rollback
 from superfund_reports import csv_bytes, xlsx_bytes, pdf_bytes
+from ui_library.work_progress import render_progress, work_status
+from superfund_diagnostics import diagnostic_zip, learning_summary
+import json
 
 
 def render_superfund(st):
@@ -9,10 +12,17 @@ def render_superfund(st):
     if st.button('Oppdater Superfond',key='superfund_queue',use_container_width=True):
         request_scan();st.success('Lagt i kø. Gjentatte trykk oppretter ikke flere jobber.')
     job=read('job.json',{});request=read('request.json',{})
-    st.write('Jobbstatus:',request.get('state',job.get('state','VENTER PÅ FØRSTE SKANNING')))
+    visible_state=job.get('state') if job.get('state') in ('DEFERRED_CAPACITY','DEFERRED_BUSY','FAILED') else request.get('state',job.get('state','VENTER PÅ FØRSTE SKANNING'))
+    st.write('Jobbstatus:',visible_state)
     if job.get('state')=='DEFERRED_CAPACITY':st.info(job.get('message'))
     if job.get('error'):st.warning(job['error'])
     s=snapshot();model=s.get('model',{})
+    index=read('catalog_index.json',{})
+    total=sum(max(1,(int(v)+99)//100) for v in index.get('totals',{}).values()) if len(index.get('totals',{}))==2 else None
+    done=len(index.get('pages',{}))
+    render_progress(st,{**job,'label':'Superfond','completed':done,'total':total,
+        'last_progress_at':max((v.get('updated_at','') for v in index.get('pages',{}).values() if isinstance(v,dict)),default=''),
+        'message':f'{done} katalogsider lagret. '+(job.get('message') or '')})
     proposal=s.get('learning',{}).get('proposal',{})
     decision=read('parameter_audit.json',{}).get('decisions',{}).get(proposal.get('id'),{})
     if proposal.get('state')=='WAITING_APPROVAL' and not decision:
@@ -40,6 +50,11 @@ def render_superfund(st):
                     st.write(f"Kjøp {p['entry_nok']:.2f} · nå {p['last_nok']:.2f} · salgsutløser {p.get('floor_nok',0):.2f} NOK")
                     st.caption('Modellkurs. Salgsutløser garanterer ikke utførelseskurs.')
                 for o in model.get('orders',[]):st.info(f"VENTER PÅ SENERE KURS · {o['side']} · {o['id']} · {o['reason']}")
+                with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
+                    for trade in model.get('trades',[])[-20:]:
+                        st.write(trade['side']+' · '+trade.get('name',trade['id']))
+                        st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
+                        st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
             elif title=='Kandidater':
                 st.caption('Rangert oversikt over opptil 100 kandidater fra siste komplette vurdering. Rang sammenlignes innen kategori og samme avkastningsvaluta.')
                 query=st.text_input('Søk i kandidatoversikten',key='sf_filter').lower()
@@ -68,12 +83,36 @@ def render_superfund(st):
                         st.link_button('Produkt hos Nordnet',row['url'])
             elif title=='Rapporter og nedlastinger':
                 if s:
-                    st.download_button('Last ned PDF',pdf_bytes(s),'Superfond.pdf','application/pdf',use_container_width=True)
-                    st.download_button('Last ned CSV',csv_bytes(s),'Superfond.csv','text/csv',use_container_width=True)
-                    st.download_button('Last ned Excel',xlsx_bytes(s),'Superfond.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',use_container_width=True)
+                    if st.button('Lag rapporter for nedlasting',key='sf_prepare_reports',use_container_width=True):
+                        with work_status(st,'Lager Superfond-rapporter'):
+                            bar=st.progress(0,text='Lager PDF')
+                            pdf=pdf_bytes(s);bar.progress(33,text='Lager CSV')
+                            csv=csv_bytes(s);bar.progress(66,text='Lager Excel')
+                            excel=xlsx_bytes(s)
+                            st.session_state['sf_exports']={'at':s.get('at'),'pdf':pdf,'csv':csv,'excel':excel}
+                            bar.progress(100,text='Tre rapportfiler er klare for nedlasting')
+                    exports=st.session_state.get('sf_exports',{})
+                    if exports and exports.get('at')==s.get('at'):
+                        st.download_button('Last ned PDF',exports['pdf'],'Superfond.pdf','application/pdf',use_container_width=True)
+                        st.download_button('Last ned CSV',exports['csv'],'Superfond.csv','text/csv',use_container_width=True)
+                        st.download_button('Last ned Excel',exports['excel'],'Superfond.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',use_container_width=True)
+                    else:st.caption('Trykk «Lag rapporter for nedlasting». Filene bruker siste komplette vurdering.')
                     st.caption('Rapportlenker går til denne siden i den innloggede appen. Ingen offentlig PDF publiseres.')
                     if s.get('report_pending'):st.warning('Rapportlenken venter på klargjøring; nedlastingene bruker siste komplette snapshot.')
                     st.json(s.get('delivery',{}))
+                else:
+                    st.info('PDF, CSV og Excel blir tilgjengelige etter første komplette katalogpass og lagrede vurdering. Diagnose-ZIP kan lages allerede nå.')
+                    st.caption(f'{done} katalogsider lagret · jobbstatus {job.get("state","VENTER")}. '+job.get('message',''))
+                st.caption('Diagnose-ZIP inkluderer drift, datakilder, hovedmodell, læring, shadow-regler, historikk og kontrollfunn. Eventuelle utelatelser oppgis i manifestet. Ingen nye markedsoppslag.')
+                if st.button('Lag diagnose-ZIP',key='sf_build_diagnostic',use_container_width=True):
+                    with work_status(st,'Lager Superfond diagnose-ZIP'):
+                        bar=st.progress(0,text='Samler lagret diagnosegrunnlag')
+                        def update(n,total,name):bar.progress(min(99,int(n/total*100)),text=f'{n} av {total} dokumenter · {name}')
+                        st.session_state['sf_diagnostic_download']=diagnostic_zip(update)
+                        bar.progress(100,text='Diagnose-ZIP ferdig og klar for nedlasting')
+                if st.session_state.get('sf_diagnostic_download'):
+                    data,filename=st.session_state['sf_diagnostic_download']
+                    st.download_button('Last ned diagnose-ZIP',data,filename,'application/zip',key='sf_diagnostic_download_button',use_container_width=True)
             elif title=='Nyheter og kilder':
                 st.caption('E24 RSS og publiseringer på produktsider. Relevans er søketreff; ingen automatisk nyhetsscore.')
                 news=read('news.json',{})
@@ -91,10 +130,18 @@ def render_superfund(st):
                         if isinstance(url,str) and url.startswith('https://'):st.link_button(label,url)
             elif title=='Læring og skygge':
                 st.caption('To fryste uketerskler sammenlignes parallelt. Historisk meravkastning er ikke dokumentert. Ingen automatisk parameterendring.')
-                st.json(s.get('learning',{}))
+                st.info(learning_summary(s))
+                paired=s.get('learning',{}).get('paired_start')
+                st.caption('Felles sammenligningsstart: '+str(paired.get('at')) if paired else 'Ufullstendig sammenligning: referansen har ennå ikke etablert en felles start.')
+                with st.expander('Læringsgrunnlag og resultater'):st.code(json.dumps(s.get('learning',{}),ensure_ascii=False,indent=2),language='json')
+                for name,result in s.get('learning',{}).get('comparisons',{}).items():
+                    excess=result.get('paired_excess_pct')
+                    st.write(name+' · meravkastning mot referanse: '+(f'{excess:+.2f} prosentpoeng' if excess is not None else 'ikke sammenlignbart ennå'))
                 for name,state in s.get('shadows',{}).items():
                     value=state['cash']+sum(p['quantity']*p['last_nok'] for p in state['positions'].values())
                     st.write(f"{name} · NOK {value:,.0f} · største fall {state.get('max_drawdown_pct',0):.2f}% · {len(state['history'])} observasjoner")
+                    st.write('Fryste regler:',s.get('shadow_rules',{}).get(name,{}))
+                    st.caption('Samme katalogdata og modellfriksjon; bare paret periode kan sammenlignes mot referansen. Avvik og manglende grunnlag står i diagnose-ZIP.')
             elif title=='Parametre':
                 p=config();st.caption('Egen motor: Superfond. Endrer nye modellbeslutninger; nullstiller ikke historikk eller aksjeporteføljer.')
                 with st.form('sf_parameters'):
@@ -108,5 +155,13 @@ def render_superfund(st):
                 if audit.get('history') and st.button('Rull tilbake siste endring',key='sf_rollback'):
                     rollback();st.rerun()
             elif title=='Diagnoser':
-                st.json(job);st.json(read('catalog_index.json',{}));st.json(s.get('coverage',{}));st.json(s.get('blocked_counts',{}))
+                st.write('Lagrede katalogsider:',done,'av',total or 'ukjent total')
+                st.write('Kildens antall noteringer:',index.get('totals',{}))
+                st.write('Neste side:',index.get('cursor',{}))
+                st.write('Ledig minne MB:',job.get('headroom_mb','Ikke målt'),'· minimum:',job.get('minimum_headroom_mb',384))
+                st.write('Containerens CPU-ventetid %:',job.get('cpu_pressure_avg10_pct','Ikke målt'),'· grense:',job.get('cpu_pressure_limit_pct',50))
+                st.caption('Maskinens samlede købelastning er kun diagnostikk: '+str(job.get('host_load_per_cpu',job.get('load_per_cpu','Ikke målt'))))
+                st.write('Årsakskoder:',job.get('reasons',[]));st.write('Datadekning:',s.get('coverage',{}));st.write('Blokkeringer:',s.get('blocked_counts',{}))
+                with st.expander('Rådiagnose'):
+                    st.code(json.dumps({'job':job,'catalog':index,'coverage':s.get('coverage',{})},ensure_ascii=False,indent=2),language='json')
                 st.caption('Sidebatch maks 3 katalogsider og 2 produktdetaljer. Tungt arbeid deler kjørelås med cron og manuelle aksjejobber. Kurshistorikk maks 60 observerte punkter per notering. Ingen historikk fabrikeres fra periodeavkastning.')
