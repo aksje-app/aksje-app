@@ -1,5 +1,6 @@
 """Pure fund model: delayed fills, frozen rules, no broker transactions."""
 from copy import deepcopy
+from superfund_presentation import identity
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -160,7 +161,7 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
                 changes.append({'side':'CANCEL','id':item['id'],'reason':'Kapital eller eksponeringsgrense ved utførelse'});continue
             qty = allocation / (price * (1 + friction))
             s['cash'] -= allocation
-            s['positions'][item['id']] = {'id': item['id'], 'isin': item['isin'], 'name': item['name'],
+            s['positions'][item['id']] = {**{k:v for k,v in identity(item).items() if k!='price_at'}, 'id': item['id'], 'isin': item['isin'], 'name': item['name'],
                 'category': item['category'], 'quantity': qty, 'entry_nok': price, 'cost_nok': allocation,
                 'last_nok': price, 'peak_nok': price, 'bought_at': now.isoformat(),
                 'rank_at_buy': item['rank'], 'score_at_buy': item['score'], 'rank_now': item['rank'],
@@ -188,7 +189,7 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
             floor = max(floor, pos['entry_nok'] * (1 + gain * p['retain_gain_pct'] / 100))
         pos['floor_nok'] = max(pos.get('floor_nok', 0), floor)
         if p['enabled'] and not buy_hold and key not in pending_ids and (price <= pos['floor_nok'] or (row.get('returns', {}).get('yield_1w') or 0) < -p['min_week_pct']):
-            s['orders'].append({'id': key, 'side': 'SELL', 'requested_at': now.isoformat(),
+            s['orders'].append({**{k:v for k,v in identity(row).items() if k!='price_at'}, 'id': key, 'side': 'SELL', 'requested_at': now.isoformat(),
                 'next_at': row.get('detail', {}).get('trading', {}).get('nextSellAt'),
                 'reason': 'Salgsgrense/trend svekket; senere modellkurs, ikke garantert stoppris'})
     equity = s['cash'] + sum(x['quantity'] * x['last_nok'] for x in s['positions'].values())
@@ -223,7 +224,7 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
                 row['blocks'].append('KAPITAL_ELLER_EKSPONERING');continue
             if any(overlap(row, lookup.get(k, {})) >= 40 for k in s['positions']):
                 row['blocks'].append('OVERLAPP');continue
-            s['orders'].append({'id': row['id'], 'isin': row['isin'], 'side': 'BUY', 'category': cat,
+            s['orders'].append({**{k:v for k,v in identity(row).items() if k!='price_at'}, 'id': row['id'], 'isin': row['isin'], 'side': 'BUY', 'category': cat,
                 'allocation': allocation, 'requested_at': now.isoformat(),
                 'next_at': row.get('detail', {}).get('trading', {}).get('nextBuyAt'),
                 'reason': f"Positiv ukestrend, kategori-rang {row['rank']}; risiko/kostnad godkjent"})

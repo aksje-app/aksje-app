@@ -64,7 +64,7 @@ def normalize(row, kind, observed_at):
     isin = str(info.get('isin') or '')
     if not re.fullmatch('[A-Z]{2}[A-Z0-9]{10}', isin):
         raise ValueError('Mangler gyldig ISIN')
-    name = str(info.get('name') or isin)
+    name = str(info.get('long_name') or info.get('name') or isin)
     asset = str(fund.get('fund_type') or '')
     native = str(info.get('currency') or '')
     # Categories are deliberately not invented when the source is incomplete.
@@ -80,6 +80,7 @@ def normalize(row, kind, observed_at):
             'tradable': info.get('is_tradable') is True,
             'returns': {k: number(v) for k, v in row.get('historical_returns_info', {}).items() if k.startswith('yield_')},
             'returns_currency': str(fund.get('fund_universe_currency') or native),
+            'returns_currency_source': 'SOURCE' if fund.get('fund_universe_currency') else 'INSTRUMENT_CURRENCY_FALLBACK' if native else 'UNKNOWN',
             'distribution': str(fund.get('fund_dividend_strategy') or 'UKJENT'),
             'complex': bool(re.search(r'\b(inverse|leveraged|short|2x|3x|daily bull|daily bear)\b', name, re.I)),
             'url': ORIGIN + '/' + kind + '/liste/' + str(nnx.get('display_slug') or ''),

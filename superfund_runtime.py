@@ -277,10 +277,14 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             archive_status={'state':'FAILED','error':str(exc)[:200]}
         # One commit publishes model, trade ledger, paired shadows and analysis.
         from app_version import APP_VERSION
+        from superfund_presentation import candidate_views, identity
+        views=candidate_views(result['rows'])
+        needed={o['id'] for o in model.get('orders',[])} | set(model.get('positions',{}))
+        fund_identity={r['id']:identity(r) for r in result['rows'] if r['id'] in needed}
         payload={'at':now,'version':APP_VERSION,'model':model,'shadows':shadows,'shadow_rules':shadow_rules,'learning':learning,'archive_status':archive_status,
                  'parameters':p,'coverage':coverage,'frame':model.get('last_frame'),
                  'report':previous.get('report',{}),
-                 'candidates':[{k:v for k,v in r.items() if k not in ('observations','detail')} for r in result['rows'][:100]],
+                 **views,'fund_identity':fund_identity,
                  'blocked_counts':{},'report_pending':previous.get('report_pending',False) or result['state']!='UNCHANGED','notification_pending':[],'attention_history':previous.get('attention_history',{})}
         for row in result['rows']:
             for reason in row['blocks']:payload['blocked_counts'][reason]=payload['blocked_counts'].get(reason,0)+1

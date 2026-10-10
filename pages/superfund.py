@@ -4,9 +4,16 @@ from superfund_reports import csv_bytes, xlsx_bytes, pdf_bytes
 from ui_library.work_progress import render_progress, work_status
 from superfund_diagnostics import diagnostic_zip, learning_summary
 import json
+from superfund_presentation import CSS, RANKING_NOTE, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label
 
 
 def render_superfund(st):
+    with st.container(key="superfund_page"):
+        st.markdown(CSS, unsafe_allow_html=True)
+        _render_superfund(st)
+
+
+def _render_superfund(st):
     st.title('Superfondportefølje')
     st.caption('Automatisk modellhandel · egen kapital og historikk · ingen reelle Nordnet-ordre')
     if st.button('Oppdater Superfond',key='superfund_queue',use_container_width=True):
@@ -38,37 +45,57 @@ def render_superfund(st):
     equity=model.get('cash',0)+sum(p['quantity']*p['last_nok'] for p in model.get('positions',{}).values())
     st.metric('Modellportefølje NOK',f'{equity:,.0f}' if s else '—')
     st.metric('Avkastning',f"{(equity/model.get('initial_capital',1)-1)*100:+.2f}%" if s else '—')
-    st.caption('Siste komplette snapshot: '+s.get('at','Ikke tilgjengelig'))
+    st.caption('Siste komplette snapshot: '+date_label(s.get('at')))
     for title in ['Portefølje','Kandidater','Rapporter og nedlastinger','Nyheter og kilder','Læring og skygge','Parametre','Diagnoser']:
         with st.expander(title,expanded=title=='Portefølje'):
             if title=='Portefølje':
                 st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
                 for p in model.get('positions',{}).values():
-                    st.subheader(p['name']);st.caption(p['isin']+' · '+p['category'])
+                    st.markdown(card(p['name'], identity_lines(resolve_identity(s,p))+[('ISIN',p['isin'])]),unsafe_allow_html=True)
                     value=p['quantity']*p['last_nok'];st.write(f"Verdi NOK {value:,.0f} · resultat {value-p['cost_nok']:+,.0f}")
                     st.write(f"Rang ved kjøp {p['rank_at_buy']} → nå {p['rank_now']}")
                     st.write(f"Kjøp {p['entry_nok']:.2f} · nå {p['last_nok']:.2f} · salgsutløser {p.get('floor_nok',0):.2f} NOK")
                     st.caption('Modellkurs. Salgsutløser garanterer ikke utførelseskurs.')
-                for o in model.get('orders',[]):st.info(f"VENTER PÅ SENERE KURS · {o['side']} · {o['id']} · {o['reason']}")
+                for o in model.get('orders',[]):
+                    ident=resolve_identity(s,o)
+                    st.markdown(card(ident.get('name') or o.get('isin') or o['id'], identity_lines(ident)+[
+                        ('Modellordre',o['side']+' · venter på senere kurs'),('Begrunnelse',o.get('reason','Ikke oppgitt')),
+                        ('Opprettet',date_label(o.get('requested_at'))),('Siste kursdato',date_label(ident.get('price_at'))),
+                        ('Tidligst behandling',date_label(o.get('next_at'))),
+                        ('Utførelse','Krever en senere observert kursdato og ny kontroll av kjøpskrav')]),unsafe_allow_html=True)
                 with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
                     for trade in model.get('trades',[])[-20:]:
                         st.write(trade['side']+' · '+trade.get('name',trade['id']))
                         st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
                         st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
             elif title=='Kandidater':
-                st.caption('Rangert oversikt over opptil 100 kandidater fra siste komplette vurdering. Rang sammenlignes innen kategori og samme avkastningsvaluta.')
+                st.subheader('Topp 25 · grunnkrav oppfylt')
+                st.caption(RANKING_NOTE)
+                summary=s.get('candidate_summary',{})
+                st.caption(f"Vurdert {summary.get('assessed_listings','ukjent antall')} noteringer · {summary.get('basic_qualified_isins','ukjent antall')} ulike ISIN oppfyller grunnkravene. Fond tilgjengelige hos Nordnet Norge kan investere i alle land.")
+                if 'top_candidates' not in s:
+                    st.warning('Eldre vurdering: Topp-listen er begrenset til de 100 lagrede kandidatene. Hele utvalget brukes etter neste fullførte skanning.')
                 query=st.text_input('Søk i kandidatoversikten',key='sf_filter').lower()
+                top=top_candidates(s)
+                if not top:st.info('Ingen produkter oppfyller grunnkravene i den lagrede vurderingen.')
+                if top:
+                    from collections import Counter
+                    common=Counter(r.get('category','UKJENT') for r in top)
+                    category,count=common.most_common(1)[0]
+                    st.caption(f'{count} av {len(top)} i topp-listen tilhører {category}. Flere fond i samme kategori kan ha overlappende risiko; dette er ikke en diversifisert portefølje.')
+                def show(row,overall=False):
+                    if query and query not in ' '.join(str(row.get(k,'')) for k in ('name','isin','category','returns_currency')).lower():return
+                    st.markdown(candidate_card(row,overall),unsafe_allow_html=True)
+                    if row.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',row['url'])
+                for row in top:show(row,True)
+                st.subheader('Kandidater etter kategori og avkastningsvaluta')
+                st.caption('Opptil 100 lagrede kandidater, inkludert blokkeringer. Kategori-rang er forskjellig fra plasseringen i Topp 25.')
+                groups={}
                 for row in s.get('candidates',[]):
-                    if query and query not in (row['name']+' '+row['isin']+' '+row['category']).lower():continue
-                    st.markdown('**'+row['name']+'**')
-                    st.write(f"{row['category']} · rang {row['rank']} · uke {row['returns'].get('yield_1w')}% · risiko {row['risk']}/7")
-                    st.caption('Kurs gjelder '+str(row.get('price_at'))+' · hentet '+row['observed_at'])
-                    short=row.get('observed_returns_nok',{})
-                    if short:
-                        st.caption('NOK-utvikling mellom observerte kursdatoer: '+' · '.join(f"{n} punkter {v['return_pct']:+.2f}% ({v['from'][:10]}–{v['to'][:10]})" for n,v in short.items()))
-                    else:st.caption('1/3/5/10/20-punkts utvikling samles fra faktiske kursdatoer; manglende dagshistorikk fylles ikke inn.')
-                    st.write(' / '.join(row['blocks']) or 'Kvalifisert – kapital/overlapp vurderes før ordre')
-                    st.link_button('Åpne hos Nordnet',row['url'])
+                    groups.setdefault((row.get('category') or 'UKJENT',row.get('returns_currency') or 'UKJENT'),[]).append(row)
+                for (category,currency),rows in sorted(groups.items()):
+                    with st.expander(f'{category} · {currency} · {len(rows)} vist'):
+                        for row in rows:show(row)
                 st.markdown('**Hele overvåkingskatalogen**')
                 index=read('catalog_index.json',{})
                 pages=sorted(index.get('pages',{}))
@@ -99,7 +126,7 @@ def render_superfund(st):
                     else:st.caption('Trykk «Lag rapporter for nedlasting». Filene bruker siste komplette vurdering.')
                     st.caption('Rapportlenker går til denne siden i den innloggede appen. Ingen offentlig PDF publiseres.')
                     if s.get('report_pending'):st.warning('Rapportlenken venter på klargjøring; nedlastingene bruker siste komplette snapshot.')
-                    st.json(s.get('delivery',{}))
+                    st.code(json.dumps(s.get('delivery',{}),ensure_ascii=False,indent=2),language='json')
                 else:
                     st.info('PDF, CSV og Excel blir tilgjengelige etter første komplette katalogpass og lagrede vurdering. Diagnose-ZIP kan lages allerede nå.')
                     st.caption(f'{done} katalogsider lagret · jobbstatus {job.get("state","VENTER")}. '+job.get('message',''))
@@ -116,9 +143,9 @@ def render_superfund(st):
             elif title=='Nyheter og kilder':
                 st.caption('E24 RSS og publiseringer på produktsider. Relevans er søketreff; ingen automatisk nyhetsscore.')
                 news=read('news.json',{})
-                st.caption('Nyhetsoppdatering: '+news.get('at','Ikke hentet'))
+                st.caption('Nyhetsoppdatering: '+date_label(news.get('at')))
                 for article in news.get('items',[]):
-                    st.write(article.get('title',''));st.caption(str(article.get('published_at') or article.get('published','')))
+                    st.markdown(card(article.get('title',''), [('Publisert',date_label(article.get('published_at') or article.get('published'))),('Relevans','Generelt markedstreff; tilknytning til et bestemt fond er ikke bekreftet')]),unsafe_allow_html=True)
                     url=article.get('url')
                     if url and url.startswith('https://'):st.link_button('Les kilde',url)
                 for key,p in model.get('positions',{}).items():
@@ -131,6 +158,12 @@ def render_superfund(st):
             elif title=='Læring og skygge':
                 st.caption('To fryste uketerskler sammenlignes parallelt. Historisk meravkastning er ikke dokumentert. Ingen automatisk parameterendring.')
                 st.info(learning_summary(s))
+                learning=s.get('learning',{});paired=int(learning.get('paired_dates',0));validation=learning.get('validation',{})
+                if validation:
+                    completed=max(0,paired-int(validation.get('started_dates',paired)))
+                    st.progress(min(1.0,completed/20),text=f'Kontrollperiode: {completed} av minst 20 nye sammenlignbare kursdatoer')
+                else:st.progress(min(1.0,paired/60),text=f'Utvalg av utfordrer: {paired} av minst 60 sammenlignbare kursdatoer')
+                st.caption('Etter utvalg følger minst 20 nye kontrollobservasjoner. Tidskravet alene er ikke nok; handels- og resultatkrav må også oppfylles.')
                 paired=s.get('learning',{}).get('paired_start')
                 st.caption('Felles sammenligningsstart: '+str(paired.get('at')) if paired else 'Ufullstendig sammenligning: referansen har ennå ikke etablert en felles start.')
                 with st.expander('Læringsgrunnlag og resultater'):st.code(json.dumps(s.get('learning',{}),ensure_ascii=False,indent=2),language='json')
@@ -140,7 +173,8 @@ def render_superfund(st):
                 for name,state in s.get('shadows',{}).items():
                     value=state['cash']+sum(p['quantity']*p['last_nok'] for p in state['positions'].values())
                     st.write(f"{name} · NOK {value:,.0f} · største fall {state.get('max_drawdown_pct',0):.2f}% · {len(state['history'])} observasjoner")
-                    st.write('Fryste regler:',s.get('shadow_rules',{}).get(name,{}))
+                    st.caption('Fryste regler')
+                    st.code(json.dumps(s.get('shadow_rules',{}).get(name,{}),ensure_ascii=False,indent=2),language='json')
                     st.caption('Samme katalogdata og modellfriksjon; bare paret periode kan sammenlignes mot referansen. Avvik og manglende grunnlag står i diagnose-ZIP.')
             elif title=='Parametre':
                 p=config();st.caption('Egen motor: Superfond. Endrer nye modellbeslutninger; nullstiller ikke historikk eller aksjeporteføljer.')
@@ -151,17 +185,22 @@ def render_superfund(st):
                     pos=st.number_input('Superfond maks posisjon %',value=float(p['max_position_pct']),min_value=1.0,max_value=25.0)
                     if st.form_submit_button('Lagre parametre'):
                         save_parameters({'enabled':enabled,'min_week_pct':week,'stop_pct':stop,'max_position_pct':pos});st.rerun()
-                audit=read('parameter_audit.json',{});st.json(audit.get('history',[])[-10:])
+                audit=read('parameter_audit.json',{});st.code(json.dumps(audit.get('history',[])[-10:],ensure_ascii=False,indent=2),language='json')
                 if audit.get('history') and st.button('Rull tilbake siste endring',key='sf_rollback'):
                     rollback();st.rerun()
             elif title=='Diagnoser':
-                st.write('Lagrede katalogsider:',done,'av',total or 'ukjent total')
-                st.write('Kildens antall noteringer:',index.get('totals',{}))
-                st.write('Neste side:',index.get('cursor',{}))
-                st.write('Ledig minne MB:',job.get('headroom_mb','Ikke målt'),'· minimum:',job.get('minimum_headroom_mb',384))
-                st.write('Containerens CPU-ventetid %:',job.get('cpu_pressure_avg10_pct','Ikke målt'),'· grense:',job.get('cpu_pressure_limit_pct',50))
-                st.caption('Maskinens samlede købelastning er kun diagnostikk: '+str(job.get('host_load_per_cpu',job.get('load_per_cpu','Ikke målt'))))
-                st.write('Årsakskoder:',job.get('reasons',[]));st.write('Datadekning:',s.get('coverage',{}));st.write('Blokkeringer:',s.get('blocked_counts',{}))
+                capacity=job.get('capacity') or job
+                st.markdown(card('Drift og kapasitet',[
+                    ('Katalogsider',f'{done} av {total or "ukjent total"}'),
+                    ('Noteringer fra kilden',' · '.join(f'{k}: {v}' for k,v in index.get('totals',{}).items()) or 'Ikke oppgitt'),
+                    ('Ledig minne MB',capacity.get('headroom_mb','Ikke målt')),
+                    ('Minimum minne MB',capacity.get('minimum_headroom_mb',384)),
+                    ('CPU-ventetid %',capacity.get('cpu_pressure_avg10_pct','Ikke målt')),
+                    ('CPU-grense %',capacity.get('cpu_pressure_limit_pct',50)),
+                    ('Årsaker',' / '.join(capacity.get('reasons',[])) or 'Ingen registrerte årsakskoder')]),unsafe_allow_html=True)
+                st.caption('Ikke målt betyr at målingen mangler, ikke at belastningen er null. Kjørelås og begrensede batcher gjelder fortsatt.')
+                for label,data in [('Neste katalogside',index.get('cursor',{})),('Datadekning',s.get('coverage',{})),('Kandidatutvalg',s.get('candidate_summary',{})),('Blokkeringer',s.get('blocked_counts',{}))]:
+                    st.markdown(card(label,[(k,v) for k,v in data.items()] or [('Status','Ikke tilgjengelig')]),unsafe_allow_html=True)
                 with st.expander('Rådiagnose'):
                     st.code(json.dumps({'job':job,'catalog':index,'coverage':s.get('coverage',{})},ensure_ascii=False,indent=2),language='json')
                 st.caption('Sidebatch maks 3 katalogsider og 2 produktdetaljer. Tungt arbeid deler kjørelås med cron og manuelle aksjejobber. Kurshistorikk maks 60 observerte punkter per notering. Ingen historikk fabrikeres fra periodeavkastning.')

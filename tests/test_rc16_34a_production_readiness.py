@@ -140,7 +140,7 @@ def test_super_portfolio_share_and_print_both_return_to_super_portfolio():
 
 
 def test_release_identity():
-    assert APP_VERSION in {"v19.22.0-rc16.34a", "v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d", "v19.22.0-rc16.34e", "v19.22.0-rc16.34f", "v19.22.0-rc16.34g", "v19.22.0-rc16.34h", "v19.22.0-rc16.34i", "v19.22.0-rc16.34j", "v19.22.0-rc16.34k", "v19.22.0-rc16.34l"}
+    assert APP_VERSION in {"v19.22.0-rc16.34a", "v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d", "v19.22.0-rc16.34e", "v19.22.0-rc16.34f", "v19.22.0-rc16.34g", "v19.22.0-rc16.34h", "v19.22.0-rc16.34i", "v19.22.0-rc16.34j", "v19.22.0-rc16.34k", "v19.22.0-rc16.34l", "v19.22.0-rc16.34m"}
     if APP_VERSION == "v19.22.0-rc16.34a":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.33q"
     elif APP_VERSION == "v19.22.0-rc16.34b":
@@ -160,4 +160,4 @@ def test_release_identity():
     elif APP_VERSION == "v19.22.0-rc16.34i":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34h"
     else:
-        assert PREVIOUS_APP_VERSION == ("v19.22.0-rc16.34k" if APP_VERSION.endswith("34l") else "v19.22.0-rc16.34j" if APP_VERSION.endswith("34k") else "v19.22.0-rc16.34i")
+        assert PREVIOUS_APP_VERSION == ("v19.22.0-rc16.34l" if APP_VERSION.endswith("34m") else "v19.22.0-rc16.34k" if APP_VERSION.endswith("34l") else "v19.22.0-rc16.34j" if APP_VERSION.endswith("34k") else "v19.22.0-rc16.34i")
