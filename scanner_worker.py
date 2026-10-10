@@ -950,6 +950,15 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
     return trades_executed
 
 
+from resource_coordinator import coordinated
+
+
+def _deferred_for_shared_lane(*args, **kwargs):
+    update_scanner_status(state="DEFERRED_BUSY", error="", message="Venter på felles kjørelås")
+    return 0
+
+
+@coordinated("paper_scanner", deferred=_deferred_for_shared_lane)
 def run_once(force=False, *, check_currency_alerts=True):
     """Durable, globally coordinated unattended Paper scanner entry point."""
     def coordinated_impl(*, force=False):

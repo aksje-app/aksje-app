@@ -859,7 +859,7 @@ def publish_diagnostic_download(bundle: bytes, filename: str) -> dict[str, str]:
     }
 
 
-def _worker(
+def _worker_impl(
     execution_id: str,
     job_payload: Mapping[str, Any],
     trigger: str,
@@ -1101,6 +1101,37 @@ def _worker(
         _write_status(failed)
     finally:
         heartbeat_stop.set()
+        with _LOCK:
+            _THREADS.pop(execution_id, None)
+
+
+def _worker(execution_id, job_payload, trigger, force_refresh, scheduled_for=""):
+    from resource_coordinator import execution_lane
+    import time
+    # Keep the UI responsive while waiting. A bounded wait fails explicitly;
+    # a restart reconciles the existing durable job rather than publishing partial output.
+    deadline = time.monotonic() + 600
+    try:
+        while time.monotonic() < deadline:
+            with execution_lane("manual_report") as acquired:
+                if acquired:
+                    return _worker_impl(execution_id, job_payload, trigger, force_refresh, scheduled_for)
+            status = get_status(execution_id)
+            if status.get("cancel_requested"):
+                status.update(state="CANCELLED", completed_at=_now())
+                _write_status(status)
+                return
+            status.update(state="QUEUED", heartbeat_at=_now(), message="Venter på felles kjørelås")
+            _write_status(status)
+            time.sleep(5)
+        status = get_status(execution_id)
+        status.update(state="FAILED", completed_at=_now(), error="Køventing oversteg 10 minutter; start på nytt", message="Ingen ufullstendig rapport publisert")
+        _write_status(status)
+    except Exception as exc:
+        status = get_status(execution_id)
+        status.update(state="FAILED", completed_at=_now(), error=str(exc)[:500], message="Kø/worker feilet; ingen delrapport publisert")
+        _write_status(status)
+    finally:
         with _LOCK:
             _THREADS.pop(execution_id, None)
 

@@ -62,3 +62,20 @@ Anbefalt rekkefølge: avklar PR #67 og drift → bransjeklassifisering og beslut
 - [ ] Fullmodne nye resultater og uavhengig dokumentert forbedring. Disse krever videre observasjonstid.
 
 Detaljer, begrensninger og aktivering står i `portfolio-learning-validation-34i.md`. De brede tidligere punktene om komplett historisk datasett, alle signalhypoteser og dokumentert merverdi forblir åpne der deloppgaver gjenstår.
+
+## Superfondportefølje V1 – RC16.34j
+
+- [x] Offentlig Nordnet-katalog, sidevis oppdatering og bred kategori-/ETF-dekning. Kontroll ga 918 fond + 2 255 ETF-noteringer; kjøpskvalifisering er separat.
+- [x] NAV-/kursdato, risiko, kostnad, handelsfrister, beholdninger, sektor/region, dokumentlenker og ECB-valuta. 1/3/5/10/20 observerte NOK-kurspunkter med faktiske fra-/til-datoer.
+- [x] Separat automatisk modellkapital, ventende kjøp/salg på senere kurs, posisjons-/eksponeringsgrenser, gevinstbeskyttelse og gjenkjøpskarantene.
+- [x] Direkte Superfond-knapp på desktop/mobil; portefølje, kandidater, hele sideinndelte katalogen, diagnoser, PDF/CSV/Excel og Pushover-leveringskø.
+- [x] E24 og tilgjengelige produktpubliseringer med kilde-/dekningsstatus.
+- [x] To fryste skygger og global indeksreferanse, fremtidig validering, konkrete Godkjenn/Avvis-forslag, atomiske kvitteringer, historikk og rollback.
+- [x] Checkpoint, felles PostgreSQL-kjørelås for cron/SP/Paper/manuelle rapporter, synlig kapasitetsutsettelse og avgrenset katalog-, detalj- og historikklagring.
+- [x] Uforanderlig daglig arkiv og separat ressursbegrenset historisk testverktøy; ingen syntetisk fortid og ingen automatisk parameterendring.
+- [ ] Første komplette katalogpass og modellutførelse i produksjon, faktisk varsling/PDF-lenke og fysiske mobiltester etter deploy.
+- [ ] Modne fondsresultater og tilstrekkelig dagshistorikk; full historikk fra før oppstart, komplette forvalterfeeds, alle parameterkombinasjoner og faktisk plattformkostnad er ikke ferdig i V1.
+- [ ] Generell prioritetskø/preemption og koordinering av alle legacy synkrone analyser; V1 dekker de navngitte worker-/cron-entrypointene med felles eksekveringslås.
+- [ ] Reelle Nordnet-handler vurderes som egen fase om 6–12 måneder.
+
+Detaljer og testbegrensninger: `superfund-v1-34j.md`. PR #68 er merget (00bd9fb), inkludert det tidligere PR #67-arbeidet. Det betyr ikke at fysisk mobilkontroll eller deploy av denne fondsversjonen er gjennomført.

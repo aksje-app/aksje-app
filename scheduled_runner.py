@@ -579,6 +579,13 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["learning_shadow"] = {"status": "FAILED", "error": str(exc)[:300], "production_changed": False}
 
+    # Optional fund batch runs last in the same execution lane, below mandatory trading.
+    try:
+        from superfund_runtime import run_batch
+        state["superfund"] = run_batch()
+    except Exception as exc:
+        state["superfund"] = {"state": "FAILED", "error": str(exc)[:300]}
+
     _mem("scheduler:after_learning")
 
     # Independent operational guard: report scheduling can succeed with zero
@@ -655,6 +662,10 @@ def _run_once_locked() -> dict[str, Any]:
     return state
 
 
+from resource_coordinator import coordinated
+
+
+@coordinated("cron")
 def run_once() -> dict[str, Any]:
     """Run one cron cycle with a controlled memory-pressure exit."""
     try:
@@ -698,7 +709,7 @@ def main() -> int:
     print(json.dumps(summary, ensure_ascii=False, default=str))
     return 0 if state.get("state") in {
         "COMPLETED", "COMPLETED_WITH_WARNINGS", "PARTIAL_CHECKPOINT",
-        "DEFERRED_DATABASE", "DEGRADED_STORAGE", "MEMORY_DEFERRED",
+        "DEFERRED_DATABASE", "DEGRADED_STORAGE", "MEMORY_DEFERRED", "DEFERRED_BUSY",
     } else 1
 
 

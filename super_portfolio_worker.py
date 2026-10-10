@@ -65,6 +65,12 @@ def _heartbeat_loop(job_id: str, token: str, stop_event: threading.Event) -> Non
             return
 
 
+from resource_coordinator import coordinated
+
+
+@coordinated("super_portfolio", deferred=lambda job_id, execution_token: jobs.update_job(
+    job_id, execution_token, state="QUEUED", phase="WAITING_RESOURCE", worker_pid=0,
+    message="Venter på felles kjørelås; cron gjenopptar jobben"))
 def run_claimed_job(job_id: str, execution_token: str) -> dict[str, Any]:
     stop_heartbeat = threading.Event()
     heartbeat: threading.Thread | None = None

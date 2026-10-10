@@ -35,5 +35,5 @@ def test_more_opens_and_every_more_target_navigates():
         render_shell(st,"overview")
         assert st.query_params["aa_nav"]
 
-def test_mobile_rail_contains_six_primary_actions():
-    assert [x.slug for x in MOBILE_ROUTES] == ["overview","portfolio","market","quality","alerts","more"]
+def test_mobile_rail_contains_seven_primary_actions_with_direct_superfund():
+    assert [x.slug for x in MOBILE_ROUTES] == ["overview","superfund","portfolio","market","quality","alerts","more"]

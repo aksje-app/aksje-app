@@ -10,8 +10,8 @@ class ShellRoute:
     label: str
     module: str
 
-DESKTOP_ROUTES=(ShellRoute("overview","Start","overview"),ShellRoute("portfolio","Porteføljer","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("autonomy","Autonomi","autonomy"),ShellRoute("reports","Rapporter","reports"),ShellRoute("operations","Drift","operations"))
-MOBILE_ROUTES=(ShellRoute("overview","Start","overview"),ShellRoute("portfolio","Portefølje","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("alerts","Varsler","operations"),ShellRoute("more","Mer","overview"))
+DESKTOP_ROUTES=(ShellRoute("overview","Start","overview"),ShellRoute("superfund","Superfond","portfolio"),ShellRoute("portfolio","Porteføljer","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("autonomy","Autonomi","autonomy"),ShellRoute("reports","Rapporter","reports"),ShellRoute("operations","Drift","operations"))
+MOBILE_ROUTES=(ShellRoute("overview","Start","overview"),ShellRoute("superfund","Superfond","portfolio"),ShellRoute("portfolio","Portefølje","portfolio"),ShellRoute("market","Marked","market"),ShellRoute("quality","Kvalitet","market"),ShellRoute("alerts","Varsler","operations"),ShellRoute("more","Mer","overview"))
 MORE_ROUTES=(
     ShellRoute("autonomy","Autonomi","autonomy"),
     ShellRoute("reports","Rapporter","reports"),
@@ -23,8 +23,8 @@ MORE_ROUTES=(
     ShellRoute("settings","Innstillinger","operations"),
 )
 _ALIASES={"paper":"portfolio","paper_trading":"portfolio","super_portfolio":"market","long_engine":"market","analysis":"market","top_picks":"market","quality_valuation":"quality","control_center":"overview","system":"operations","settings":"operations","jobs":"operations","approvals":"autonomy","fx_alerts":"market","drift_center":"operations"}
-_LEGACY_TARGETS={"overview":"dashboard","portfolio":"portfolio","market":"market","quality":"quality_valuation","autonomy":"autonomy","reports":"reports","operations":"drift_center","alerts":"alerts","more":"system","jobs":"jobs","approvals":"approvals","paper":"paper_trading","fx_alerts":"fx_alerts","settings":"system"}
-_NAV_ICONS={"overview":"⌂","portfolio":"▣","market":"⌁","quality":"◆","alerts":"!","more":"•••","autonomy":"◈","reports":"▤","jobs":"◷","approvals":"✓","paper":"◇","fx_alerts":"¤","operations":"⚙","settings":"⚙"}
+_LEGACY_TARGETS={"superfund":"superfund","overview":"dashboard","portfolio":"portfolio","market":"market","quality":"quality_valuation","autonomy":"autonomy","reports":"reports","operations":"drift_center","alerts":"alerts","more":"system","jobs":"jobs","approvals":"approvals","paper":"paper_trading","fx_alerts":"fx_alerts","settings":"system"}
+_NAV_ICONS={"superfund":"◉","overview":"⌂","portfolio":"▣","market":"⌁","quality":"◆","alerts":"!","more":"•••","autonomy":"◈","reports":"▤","jobs":"◷","approvals":"✓","paper":"◇","fx_alerts":"¤","operations":"⚙","settings":"⚙"}
 
 def canonical_shell_route(value: str) -> str:
     slug=str(value or "overview").strip().lower().replace("-","_")
