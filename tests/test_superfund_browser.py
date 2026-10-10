@@ -30,7 +30,7 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
     with sync_playwright() as pw:
         browser=pw.chromium.launch()
         p=browser.new_page(viewport={'width':width,'height':900},device_scale_factor=1)
-        p.goto(server)
+        p.goto(server+'?aa_nav=superfund')
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
         p.locator('.sf-card').first.wait_for()
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
@@ -71,4 +71,34 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
         p.screenshot(path=f'dist/browser/superfund-top25-{width}.png')
         assert not problems,problems
         assert p.locator('.sf-card').get_by_text('1725.7',exact=True).count()==1
+        browser.close()
+
+
+@pytest.mark.parametrize('width',[375,430])
+def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(server,width):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch()
+        p=browser.new_page(viewport={'width':width,'height':900})
+        p.goto(server+'?aa_nav=dashboard')
+        p.get_by_role('heading',name='Start',exact=True).wait_for()
+        p.locator('.st-key-aa_mobile_nav_superfund button').click()
+        p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        assert 'aa_nav=superfund' in p.url
+        # Changing the selected section updates the durable route.
+        p.get_by_role('combobox',name='Vis område').click()
+        p.get_by_role('option',name='Kandidater',exact=True).click()
+        p.wait_for_function("() => decodeURIComponent(location.search).includes('aa_tab=Kandidater')")
+        p.reload()
+        p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        p.locator('[data-testid="stExpander"] summary').filter(has_text='Kandidater').first.wait_for()
+        assert p.get_by_role('combobox',name='Vis område').count()==1
+        assert p.locator('.sf-tag').first.is_visible()
+        assert p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').get_by_text('19.43%',exact=True).count()==1
+        p.locator('.st-key-aa_mobile_nav_overview button').click()
+        p.get_by_role('heading',name='Start',exact=True).wait_for()
+        p.locator('.st-key-aa_mobile_nav_superfund button').click()
+        p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        Path('dist/browser').mkdir(parents=True,exist_ok=True)
+        p.screenshot(path=f'dist/browser/superfund-first-tap-{width}.png')
         browser.close()

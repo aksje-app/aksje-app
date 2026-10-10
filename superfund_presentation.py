@@ -28,6 +28,51 @@ def identity(row):
 
 
 
+REGION_LABELS = {'LATIN_AMERICA':'Latin-Amerika', 'USA':'USA', 'EUROPE':'Europa', 'GLOBAL':'Globalt', 'ASIA':'Asia', 'BRAZIL':'Brasil'}
+
+
+def decision_context(row):
+    """Bounded, cached evidence for orders and held products, never a market lookup."""
+    result = {**identity(row), **{k: row[k] for k in ('price','returns','risk','cost_pct','score','rank',
+                  'observed_returns_nok','observed_at','url','category_size') if k in row}}
+    result['price_history_nok'] = [dict(price_at=o['price_at'], nok_price=o['nok_price'])
+        for o in (row.get('observations') or [])[-60:] if o.get('price_at') and o.get('nok_price') is not None]
+    return result
+
+
+def investment_focus(row):
+    # An index name is a useful label, but never proof of actual holdings.
+    import re
+    if re.search(r'\b(?:MSCI|FTSE)\s+Brazil\b', str(row.get('name') or ''), re.I):
+        return 'Brasil (indeksnavn; faktisk eksponering se detaljer)'
+    area = row.get('investment_area')
+    if area:
+        for code, label in REGION_LABELS.items():
+            area = area.replace(code, label)
+        return area
+    return str(row.get('category') or 'Ikke oppgitt') + ' (kildens kategori)'
+
+
+def primary_identity_lines(row):
+    facts = dict(identity_lines(row))
+    return [('Type', facts['Type']), ('Investeringsområde', investment_focus(row)),
+            ('Kategori', facts['Kategori']), ('Avkastningsvaluta', facts['Avkastningsvaluta'])]
+
+
+def development_lines(row):
+    returns = row.get('returns') or {}
+    lines = [(label, number(returns.get(key), '%')) for label,key in
+             [('Siste uke','yield_1w'),('Siste måned','yield_1m'),('Siste kvartal','yield_3m')]]
+    lines += [('Siste kurs',number(row.get('price'), ' '+str(row.get('currency') or 'valuta ikke oppgitt'))),
+              ('Kursdato',date_label(row.get('price_at')))]
+    return lines
+
+
+def detail_lines(row):
+    return identity_lines(row)[1:4] + [('ISIN',row.get('isin','Ikke oppgitt')),
+            ('Rangeringspoeng',number(row.get('score'))), ('Hentet',date_label(row.get('observed_at')))]
+
+
 def candidate_views(rows):
     """Select before truncation; a blocked listing must not hide another valid listing."""
     ordered = sorted(rows, key=lambda r: (-(r['score'] if r.get('score') is not None else -1e9), r['id']))
@@ -40,7 +85,7 @@ def candidate_views(rows):
         key = row.get('isin') or row['id']
         if qualified(row) and key not in seen:
             seen.add(key)
-            if len(top) < 25: top.append({**compact(row), 'overall_rank': len(top) + 1})
+            if len(top) < 25: top.append({**compact(row), **decision_context(row), 'overall_rank': len(top) + 1})
     return {'top_candidates': top, 'candidates': [compact(r) for r in ordered[:100]],
             'candidate_summary': {'assessed_listings': len(rows), 'basic_qualified_isins': len(seen),
                                   'top_shown': len(top), 'grouped_shown': min(100, len(rows)),
@@ -57,9 +102,8 @@ def top_candidates(snapshot):
 def resolve_identity(snapshot, row):
     key = row.get('id')
     cached = snapshot.get('fund_identity', {}).get(key, {})
-    if not cached:
-        cached = next((r for r in snapshot.get('candidates', []) if r.get('id') == key), {})
-    return {**cached, **{k: v for k, v in row.items() if v is not None}}
+    assessed = next((r for r in snapshot.get('top_candidates', []) + snapshot.get('candidates', []) if r.get('id') == key), {})
+    return {**assessed, **cached, **{k: v for k, v in row.items() if v is not None}}
 
 
 def date_label(value):
@@ -94,18 +138,29 @@ def card(title, lines, tag=None):
 
 
 def candidate_card(row, overall=False):
-    returns = row.get('returns', {})
-    lines = identity_lines(row) + [('ISIN', row.get('isin', 'Ikke oppgitt')),
+    lines = primary_identity_lines(row) + development_lines(row) + [
+        ('Risiko',number(row.get('risk'), ' av 7')), ('Årlig kostnad',number(row.get('cost_pct'), '%')),
         ('Kategori-rang', f"{row.get('rank', '—')} av {row.get('category_size', 'ukjent antall')}"),
-        ('Poeng', number(row.get('score'))), ('Uke / måned / kvartal', ' / '.join(number(returns.get(k), '%') for k in ('yield_1w','yield_1m','yield_3m'))),
-        ('Risiko / kostnad', number(row.get('risk'), '/7') + ' · ' + number(row.get('cost_pct'), '%')),
-        ('Kursdato', date_label(row.get('price_at'))), ('Hentet', date_label(row.get('observed_at'))),
-        ('Status', ' / '.join(row.get('blocks', [])) or 'Grunnkrav oppfylt; kapital og overlapp vurderes før ordre')]
+        ('Grunnlag for plassering','Kildens periodeutvikling: uke teller 60%, måned 25% og kvartal 15%')]
+    lines.append(('Status', ' / '.join(row.get('blocks', [])) or 'Grunnkrav oppfylt; kapital og overlapp kontrolleres før modellkjøp'))
     short=row.get('observed_returns_nok',{})
     if short:
-        lines.append(('Observert NOK-utvikling',' · '.join(f"{n} punkter: {v['return_pct']:+.2f}%" for n,v in short.items())))
+        lines.append(('Observert utvikling i NOK',' · '.join(f"{n} kursintervaller: {v['return_pct']:+.2f}%" for n,v in short.items())))
     return card(row.get('name') or row.get('isin') or 'Ukjent fond', lines,
                 f"Topp {row.get('overall_rank', '—')}" if overall else None)
+
+
+def render_development_chart(st, row):
+    points = row.get('price_history_nok') or []
+    if len(points) < 2:
+        st.caption('Kursgraf: færre enn to lagrede kursdatoer. Uke/måned/kvartal ovenfor er kildens periodetall.')
+        return
+    import pandas as pd
+    frame = pd.DataFrame(points)
+    frame['price_at'] = pd.to_datetime(frame['price_at'], utc=True)
+    frame = frame.set_index('price_at').sort_index().rename(columns={'nok_price':'Observert modellkurs NOK'})
+    st.line_chart(frame, height=180, color='#75dcff')
+    st.caption('Lagrede kursobservasjoner omregnet til NOK på kursdatoen. Mellomliggende datoer er ikke fylt inn.')
 
 
 CSS = '''<style>

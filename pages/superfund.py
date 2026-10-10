@@ -4,7 +4,7 @@ from superfund_reports import csv_bytes, xlsx_bytes, pdf_bytes
 from ui_library.work_progress import render_progress, work_status
 from superfund_diagnostics import diagnostic_zip, learning_summary
 import json
-from superfund_presentation import CSS, RANKING_NOTE, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label
+from superfund_presentation import CSS, RANKING_NOTE, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label, primary_identity_lines, development_lines, detail_lines, render_development_chart, number
 
 
 def render_superfund(st):
@@ -46,23 +46,45 @@ def _render_superfund(st):
     st.metric('Modellportefølje NOK',f'{equity:,.0f}' if s else '—')
     st.metric('Avkastning',f"{(equity/model.get('initial_capital',1)-1)*100:+.2f}%" if s else '—')
     st.caption('Siste komplette snapshot: '+date_label(s.get('at')))
-    for title in ['Portefølje','Kandidater','Rapporter og nedlastinger','Nyheter og kilder','Læring og skygge','Parametre','Diagnoser']:
-        with st.expander(title,expanded=title=='Portefølje'):
+    sections=['Portefølje','Kandidater','Rapporter og nedlastinger','Nyheter og kilder','Læring og skygge','Parametre','Diagnoser']
+    if st.session_state.get('sf_section') not in sections:
+        restored=st.query_params.get('aa_tab') or st.session_state.get('sf_saved_section')
+        st.session_state['sf_section']=restored if restored in sections else 'Portefølje'
+    def remember_section():
+        st.session_state['sf_saved_section']=st.session_state['sf_section']
+        from navigation_state import set_global_navigation_state
+        set_global_navigation_state(st,nav='superfund',group='Fond',panel='Superfond',tab=st.session_state['sf_section'],subtab='')
+    st.selectbox('Vis område',sections,key='sf_section',on_change=remember_section)
+    for title in sections:
+        with st.expander(title,expanded=title==st.session_state['sf_section']):
             if title=='Portefølje':
                 st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
                 for p in model.get('positions',{}).values():
-                    st.markdown(card(p['name'], identity_lines(resolve_identity(s,p))+[('ISIN',p['isin'])]),unsafe_allow_html=True)
-                    value=p['quantity']*p['last_nok'];st.write(f"Verdi NOK {value:,.0f} · resultat {value-p['cost_nok']:+,.0f}")
-                    st.write(f"Rang ved kjøp {p['rank_at_buy']} → nå {p['rank_now']}")
-                    st.write(f"Kjøp {p['entry_nok']:.2f} · nå {p['last_nok']:.2f} · salgsutløser {p.get('floor_nok',0):.2f} NOK")
-                    st.caption('Modellkurs. Salgsutløser garanterer ikke utførelseskurs.')
+                    info=resolve_identity(s,p)
+                    value=p['quantity']*p['last_nok'];result=value-p['cost_nok']
+                    st.markdown(card(p['name'], primary_identity_lines(info)+[
+                        ('Modellposisjon','Kjøpt'),('Verdi',f'NOK {value:,.0f}'),
+                        ('Resultat siden kjøp',f'{result:+,.0f} NOK / {result/p["cost_nok"]*100:+.2f}%'),
+                        ('Kjøpskurs',f'{p["entry_nok"]:.2f} NOK'),('Siste modellkurs',f'{p["last_nok"]:.2f} NOK'),
+                        ('Salgsgrense',f'{p.get("floor_nok",0):.2f} NOK')]+development_lines(info)),unsafe_allow_html=True)
+                    st.caption('Modellkurs. Salgsgrensen garanterer ikke utførelseskurs.')
+                    render_development_chart(st,info)
+                    with st.expander('Flere detaljer · '+p['name']):
+                        st.markdown(card('Produkt og vurdering',detail_lines(info)+[
+                            ('Rang ved kjøp → nå',f'{p["rank_at_buy"]} → {p["rank_now"]}')]),unsafe_allow_html=True)
                 for o in model.get('orders',[]):
                     ident=resolve_identity(s,o)
-                    st.markdown(card(ident.get('name') or o.get('isin') or o['id'], identity_lines(ident)+[
-                        ('Modellordre',o['side']+' · venter på senere kurs'),('Begrunnelse',o.get('reason','Ikke oppgitt')),
-                        ('Opprettet',date_label(o.get('requested_at'))),('Siste kursdato',date_label(ident.get('price_at'))),
-                        ('Tidligst behandling',date_label(o.get('next_at'))),
-                        ('Utførelse','Krever en senere observert kursdato og ny kontroll av kjøpskrav')]),unsafe_allow_html=True)
+                    st.markdown(card(ident.get('name') or o.get('isin') or o['id'], primary_identity_lines(ident)+development_lines(ident)+[
+                        ('Risiko',number(ident.get('risk'),' av 7')),('Årlig kostnad',number(ident.get('cost_pct'),'%')),
+                        ('Modellordre',('Kjøp' if o['side']=='BUY' else 'Salg')+' avventer ny kursobservasjon'),
+                        ('Hvorfor valgt',o.get('reason','Ikke oppgitt')),
+                        ('Hva skjer videre','Ny observert kursdato etter beslutningsdatoen og ny kontroll av handelskrav')]),unsafe_allow_html=True)
+                    render_development_chart(st,ident)
+                    with st.expander('Flere detaljer · '+str(ident.get('name') or o['id'])):
+                        st.markdown(card('Produkt og ordre',detail_lines(ident)+[
+                            ('Opprettet',date_label(o.get('requested_at'))),
+                            ('Tidligst behandling',date_label(o.get('next_at')))]),unsafe_allow_html=True)
+                    if ident.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',ident['url'])
                 with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
                     for trade in model.get('trades',[])[-20:]:
                         st.write(trade['side']+' · '+trade.get('name',trade['id']))
@@ -75,7 +97,9 @@ def _render_superfund(st):
                 st.caption(f"Vurdert {summary.get('assessed_listings','ukjent antall')} noteringer · {summary.get('basic_qualified_isins','ukjent antall')} ulike ISIN oppfyller grunnkravene. Fond tilgjengelige hos Nordnet Norge kan investere i alle land.")
                 if 'top_candidates' not in s:
                     st.warning('Eldre vurdering: Topp-listen er begrenset til de 100 lagrede kandidatene. Hele utvalget brukes etter neste fullførte skanning.')
-                query=st.text_input('Søk i kandidatoversikten',key='sf_filter').lower()
+                def keep_search():st.session_state['sf_saved_filter']=st.session_state['sf_filter']
+                if 'sf_filter' not in st.session_state:st.session_state['sf_filter']=st.session_state.get('sf_saved_filter','')
+                query=st.text_input('Søk i kandidatoversikten',key='sf_filter',on_change=keep_search).lower()
                 top=top_candidates(s)
                 if not top:st.info('Ingen produkter oppfyller grunnkravene i den lagrede vurderingen.')
                 if top:
@@ -86,6 +110,9 @@ def _render_superfund(st):
                 def show(row,overall=False):
                     if query and query not in ' '.join(str(row.get(k,'')) for k in ('name','isin','category','returns_currency')).lower():return
                     st.markdown(candidate_card(row,overall),unsafe_allow_html=True)
+                    if overall:render_development_chart(st,row)
+                    with st.expander('Flere detaljer · '+str(row.get('name') or row.get('isin'))):
+                        st.markdown(card('Produkt og datakilde',detail_lines(row)),unsafe_allow_html=True)
                     if row.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',row['url'])
                 for row in top:show(row,True)
                 st.subheader('Kandidater etter kategori og avkastningsvaluta')

@@ -20,7 +20,7 @@ SUPPORTED_DEEP_LINK_NAV = frozenset({
     "market", QUALITY_ROUTE, "ai", "autonomy", "autonomous", "autonomi",
     "fx_alerts", "currency_alerts", "valutavarsler", "settings",
     "innstillinger", "admin", "systemstatus", "system", "control_center",
-    "super_portfolio",
+    "super_portfolio", "superfund",
 })
 
 

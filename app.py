@@ -9382,7 +9382,11 @@ def _apply_nav_target_v18658(nav: str) -> bool:
         st.session_state["active_nav_target_v18674c"] = "superfund"
         st.session_state["ai_control_center_last_applied_nav_v19016"] = "superfund"
         st.session_state["ai_control_center_force_nav_v18663"] = "superfund"
-        set_global_navigation_state(st, nav="superfund", group="Fond", panel="Superfond", tab="")
+        st.session_state["ai_control_center_group_v1863aj"] = "Fond"
+        st.session_state["ai_control_center_active_panel_v1863aj"] = "Superfond"
+        _persist_ui_state_v18658(nav="superfund", group="Fond", panel="Superfond")
+        set_global_navigation_state(st, nav="superfund", group="Fond", panel="Superfond",
+                                    tab=st.session_state.get("sf_section") or st.session_state.get("sf_saved_section", ""), subtab="")
         return True
     direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}
     if direct_super_portfolio:
@@ -9626,7 +9630,12 @@ def _apply_mobile_nav_query_v18646() -> None:
             pass
 
 
+# Apply a fresh native click before bootstrap or any navigation widget.
+_fresh_native_route = st.session_state.get("global_navigation_route_lease_v19220_rc14", {})
 consume_global_navigation_route_v19220_rc14(st)
+if str(_fresh_native_route.get("source", "")).startswith("AURORA_MOBILE_NAV"):
+    _apply_nav_target_v18658(_fresh_native_route["nav"])
+    st.session_state["persistent_nav_bootstrap_done_v18661"] = True
 _apply_mobile_nav_query_v18646()
 _ab_route = canonical_shell_route(st.session_state.get("active_nav_target_v18674c") or "overview")
 show_drift_controls_v1863cc = render_stable_sidebar_v18641(st, current_user, render_user_admin)

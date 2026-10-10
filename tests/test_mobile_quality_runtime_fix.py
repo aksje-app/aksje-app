@@ -35,7 +35,11 @@ class Fake:
     def columns(self,n,**kwargs): return [Ctx() for _ in range(n)]
     def button(self,label,key=None,**kwargs):
         self.labels.append(label)
-        return key == self.pressed
+        clicked=key == self.pressed
+        if clicked and kwargs.get('on_click'):
+            kwargs['on_click'](*kwargs.get('args',()))
+            self.reruns += 1
+        return clicked
     def rerun(self): self.reruns += 1
 
 def test_mobile_labels_have_no_literal_escape_and_navigation_mutates_query():
