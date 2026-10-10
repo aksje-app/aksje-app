@@ -12,8 +12,9 @@ BUSINESS_OVERRIDES = {
 def classification(row: Mapping[str, Any]) -> dict[str, Any]:
     ticker = str(row.get("ticker") or row.get("symbol") or "").upper()
     override = BUSINESS_OVERRIDES.get(ticker)
-    raw = row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
-    industry = str(row.get("industry") or raw.get("industry") or "").strip()
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    nested = raw.get("raw") if isinstance(raw.get("raw"), Mapping) else {}
+    industry = str(row.get("industry") or raw.get("industry") or nested.get("industry") or "").strip()
     sector = str(row.get("sector") or "Ukjent").strip()
     text = (industry + " " + sector).upper()
     tags = set()
@@ -23,9 +24,10 @@ def classification(row: Mapping[str, Any]) -> dict[str, Any]:
         tags.add("ENERGY")
     if "TECH" in text:
         tags.add("TECHNOLOGY")
-    return {"industry": override[0] if override else industry or sector,
+    known = bool(override or industry.upper() not in {"", "UKJENT", "UNKNOWN", "NONE", "BROAD EQUITY"})
+    return {"industry": override[0] if override else industry or "Ukjent",
             "risk_tags": sorted(tags), "classification_source": override[1] if override else "PROVIDER",
-            "classification_known": bool(override or text.strip() not in {"", "UKJENT", "UNKNOWN", "NONE"})}
+            "classification_known": known}
 
 def rank_text(position: Mapping[str, Any]) -> str:
     entry, current = position.get("entry_rank"), position.get("rank")

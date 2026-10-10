@@ -6,7 +6,7 @@ import pytest
 from pypdf import PdfReader
 import super_portfolio as sp
 import learning_observation_engine as learning
-from portfolio_evidence import rank_text, stop_alert_text, retention_explanation
+from portfolio_evidence import classification, rank_text, stop_alert_text, retention_explanation
 from learning_experiments import checksum, combinations, chronological_split, run_search, replay_super_portfolio, compact_candidates, create_forward_plan, evaluate_forward_plan, record_frame, validate_frames
 
 def test_entry_rank_and_score_are_immutable_and_legacy_stays_unknown():
@@ -25,6 +25,10 @@ def test_shipping_exposure_survives_broad_sector_and_legacy_position():
     shipping = next(r for r in radar if r["key"] == "shipping_-30")
     assert shipping["exposure_pct"] == 12 and shipping["estimated_portfolio_impact_pct"] == -3.6
     assert next(r for r in radar if r["key"] == "energy_-20")["exposure_pct"] == 0
+    assert not classification({"sector": "Industrials"})["classification_known"]
+    assert not classification({"sector": "Ukjent", "industry": "Ukjent"})["classification_known"]
+    nested = classification({"sector": "Industrials", "raw_candidate": {"raw": {"industry": "Marine Transportation"}}})
+    assert nested["classification_known"] and "SHIPPING" in nested["risk_tags"]
 
 def test_multi_stock_notification_uses_current_price_denominator():
     rows = [{"ticker": "OET.OL", "entry_price": 860, "peak_price": 901, "current_price": 901,
