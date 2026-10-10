@@ -8,6 +8,7 @@ import json
 import zipfile
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import os
+import re
 
 
 _RETURN_NAV_TARGETS = {
@@ -49,13 +50,20 @@ def _return_label(value: str) -> str:
     return "← Tilbake"
 
 
-def _report_return_href(value: str) -> str:
-    return "/?" + urlencode(_return_query(value))
+def _return_context(value: str, run_key: str = "") -> dict[str, str]:
+    query = _return_query(value)
+    if value == "quality_reports" and re.fullmatch(r"quality_valuation/runs/\d{8}T\d{12}", str(run_key or "")):
+        query["qv_report_run"] = run_key
+    return query
 
 
-def _absolute_report_return_url(value: str) -> str:
+def _report_return_href(value: str, run_key: str = "") -> str:
+    return "/?" + urlencode(_return_context(value, run_key))
+
+
+def _absolute_report_return_url(value: str, run_key: str = "") -> str:
     """Build the same-origin absolute URL required by mobile PDF viewers."""
-    query = urlencode(_return_query(value))
+    query = urlencode(_return_context(value, run_key))
     for candidate in (os.getenv("RENDER_EXTERNAL_URL"), os.getenv("REPORT_PUBLIC_BASE_URL")):
         parsed = urlsplit(str(candidate or "").strip())
         if parsed.scheme in {"http", "https"} and parsed.netloc:
@@ -87,7 +95,7 @@ def _hydrate_static_pdf(token: str, report: dict) -> tuple[Path, str]:
     try:
         stamped = add_pdf_return_links(
             bytes(report["data"]),
-            return_url=_absolute_report_return_url(str(report.get("_return_to") or "reports")),
+            return_url=_absolute_report_return_url(str(report.get("_return_to") or "reports"), str(report.get("_run_key") or "")),
         )
     except Exception:
         stamped = bytes(report["data"])
@@ -128,7 +136,7 @@ def _report_landing_actions(static_url: str, *, return_href: str, return_label: 
         f'<a href="{safe_pdf}" target="_blank" rel="noopener noreferrer" '
         'style="display:flex;align-items:center;justify-content:center;min-height:52px;padding:.75rem .65rem;'
         'border:1px solid #277aa7;border-radius:.8rem;background:#0b3550;color:#f3fbff;'
-        'text-decoration:none;font-weight:800;text-align:center">Del / åpne PDF</a>'
+        'text-decoration:none;font-weight:800;text-align:center">Åpne PDF</a>'
         f'<a href="{safe_pdf}#toolbar=1" target="_blank" rel="noopener noreferrer" '
         'title="På iPhone: åpne PDF, trykk Del og velg Skriv ut" '
         'style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;min-height:54px;'
@@ -142,6 +150,48 @@ def _report_landing_actions(static_url: str, *, return_href: str, return_label: 
         'loading="eager"></iframe>'
         '</section>'
     )
+
+
+def _share_controls_html(static_url: str) -> str:
+    """File sharing on a user click, with an explicit browser fallback.
+
+    srcdoc components share the application origin. Use the top-level
+    navigator when accessible so iframe permissions cannot hide the action.
+    Pre-fetching the file retains the click's transient user activation.
+    """
+    parsed = urlsplit(static_url)
+    if parsed.scheme or parsed.netloc or not re.fullmatch(r"/app/static/reports/[A-Za-z0-9_-]+\.pdf", parsed.path):
+        raise ValueError("Invalid static report path")
+    url = json.dumps(static_url)
+    return '''<!doctype html><html lang="nb"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;font:16px system-ui;color:#cbd5e1}button,a{display:inline-block;padding:14px 20px;border-radius:12px;border:1px solid #2dd4bf;background:#0f766e;color:white;font-weight:700;margin:4px;text-decoration:none}p{margin:8px 4px}</style>
+<button id="share" disabled>Forbereder deling …</button><a id="download" download="rapport.pdf">Last ned PDF</a>
+<p id="status" role="status">Henter rapportfilen for deling.</p>
+<script>
+const url = ''' + url + ''';
+const button=document.getElementById('share'), status=document.getElementById('status');
+document.getElementById('download').href=url;
+let file=null, shareNav=navigator;
+try { if(window.parent.navigator.share) shareNav=window.parent.navigator; } catch (_) {}
+fetch(url).then(async response=>{
+ if(!response.ok) throw new Error('download');
+ const blob=await response.blob();
+ if(blob.size>20*1024*1024 || !blob.size) throw new Error('size');
+ file=new File([blob],'rapport.pdf',{type:'application/pdf'});
+ button.disabled=false; button.textContent='Del rapport'; status.textContent='Velg Del rapport eller Last ned PDF.';
+}).catch(()=>{button.textContent='Del rapport';button.disabled=false;status.textContent='Bruk Last ned PDF hvis direkte deling ikke er tilgjengelig.';});
+button.onclick=async()=>{
+ try {
+  if(!file || !shareNav.share || !shareNav.canShare || !shareNav.canShare({files:[file]})) {
+   status.textContent='Direkte fildeling støttes ikke her. Velg Last ned PDF, og del filen fra nettleserens Del-meny. Åpne i Safari hvis du bruker en innebygd appnettleser.'; return;
+  }
+  await shareNav.share({files:[file],title:'Aksje-app rapport'});
+  status.textContent='Rapporten er delt.';
+ } catch(error) {
+  status.textContent=error.name==='AbortError'?'Deling avbrutt.':'Deling kunne ikke fullføres. Last ned PDF og del filen fra nettleseren.';
+ }
+};
+</script></html>'''
 
 
 def _file_landing_actions(static_url: str, *, return_href: str, return_label: str, filename: str) -> str:
@@ -231,7 +281,8 @@ def _render_in_app_file(st, artifact: dict, *, return_to: str, static_url: str) 
 
 def render_public_report(st) -> bool:
     return_to = str(st.query_params.get("return_to") or "reports")
-    return_href = _report_return_href(return_to)
+    run_key = str(st.query_params.get("qv_report_run") or "")
+    return_href = _report_return_href(return_to, run_key)
     return_label = _return_label(return_to)
 
     file_token = str(st.query_params.get("public_file_token") or "").strip()
@@ -254,11 +305,13 @@ def render_public_report(st) -> bool:
     if not report:
         st.error("Rapportlenken er ugyldig eller utløpt.")
         st.stop()
-    report = {**report, "_return_to": return_to}
+    report = {**report, "_return_to": return_to, "_run_key": run_key}
     _, static_url = _hydrate_static_pdf(token, report)
 
     st.markdown("### Rapport")
     st.caption("Les rapporten i appen. Åpne/del PDF bare når du trenger systemets PDF-viser.")
+    import streamlit.components.v1 as components
+    components.html(_share_controls_html(static_url), height=250)
     st.markdown(
         _report_landing_actions(
             static_url,

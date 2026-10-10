@@ -101,6 +101,7 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
     except Exception:
         cashflow = None
         warnings.append("Kontantstrømoppstilling utilgjengelig")
+    interim = interim_financial_periods(security, warnings)
     eps_by_year = _dated_values(annual, ("Diluted EPS", "Basic EPS"))
     ebit = _dated_values(annual, ("EBIT", "Operating Income"))
     revenue = _dated_values(annual, ("Total Revenue", "Operating Revenue"))
@@ -192,7 +193,37 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
         "source": "Yahoo Finance: aksjekurs, selskapets regnskap og nøkkeltall",
         "provider_warnings": warnings,
         "provider_partial": bool(warnings),
+        "interim_periods": interim,
+        "interim_source": "Yahoo Finance quarterly statements; primærkilde ikke verifisert",
+        "interim_observed_at": datetime.now(timezone.utc).isoformat(),
+        "primary_filing_status": "NOT_VERIFIED",
     }
+
+
+def interim_financial_periods(security: Any, warnings: list[str]) -> list[dict[str, Any]]:
+    """Dated quarters only. Never mix annual totals or invent publication dates."""
+    frames = {}
+    for attribute in ("quarterly_income_stmt", "quarterly_cashflow"):
+        try:
+            frames[attribute] = getattr(security, attribute)
+        except Exception:
+            frames[attribute] = None
+            warnings.append(f"{attribute} utilgjengelig")
+    income, cash = frames["quarterly_income_stmt"], frames["quarterly_cashflow"]
+    series = {
+        "revenue": _dated_values(income, ("Total Revenue", "Operating Revenue")),
+        "operating_income": _dated_values(income, ("Operating Income", "EBIT")),
+        "net_income": _dated_values(income, ("Net Income", "Net Income Common Stockholders")),
+        "eps": _dated_values(income, ("Diluted EPS", "Basic EPS")),
+        "fcf": _dated_values(cash, ("Free Cash Flow",)),
+    }
+    ocf = _dated_values(cash, ("Operating Cash Flow",))
+    capex = _dated_values(cash, ("Capital Expenditure", "Capital Expenditures"))
+    for period in ocf.keys() & capex.keys():
+        series["fcf"].setdefault(period, ocf[period] - abs(capex[period]))
+    periods = sorted(set().union(*(values.keys() for values in series.values())), reverse=True)[:8]
+    return [{"period_end": period, "duration_months": 3,
+             **{name: values.get(period) for name, values in series.items()}} for period in periods]
 
 
 def memory_budget_ok() -> bool:

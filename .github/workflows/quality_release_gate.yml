@@ -71,6 +71,10 @@ jobs:
           python scripts/verify_rc16_34d_release.py
           python scripts/verify_rc16_34e_release.py
           python scripts/verify_rc16_34f_release.py
+      - name: Report sharing JavaScript
+        env:
+          PYTHONPATH: .
+        run: node scripts/verify_report_share.mjs
       - name: Quality regression suite
         env:
           PYTHONPATH: .
@@ -114,6 +118,7 @@ jobs:
             tests/test_market_policy_and_target_consistency.py \
             tests/test_full_market_quality_prescreen.py \
             tests/test_quality_valuation.py \
+            tests/test_quality_turnaround.py \
             tests/test_rc16_32a_super_portfolio.py \
             tests/test_rc16_32b_super_portfolio_intelligence.py \
             tests/test_rc16_32c_super_portfolio_completion.py \
@@ -138,13 +143,13 @@ jobs:
         env:
           PYTHONPATH: .
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
-        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py
+        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py
       - name: Build FULL and clean DELTA packages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist delta_root
-          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34k_FULL.zip HEAD
+          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34l_FULL.zip HEAD
 
           BASE_REF="${{ github.base_ref }}"
           if [ -z "$BASE_REF" ]; then BASE_REF="main"; fi
@@ -163,28 +168,28 @@ jobs:
 
           (
             cd delta_root
-            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34k_DELTA.zip .
+            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34l_DELTA.zip .
           )
-          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34k_FULL.zip \
-                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34k_DELTA.zip \
-            > dist/SHA256SUMS_RC16.34k.txt
+          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34l_FULL.zip \
+                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34l_DELTA.zip \
+            > dist/SHA256SUMS_RC16.34l.txt
 
           echo "Clean DELTA files:"
           cat dist/changed_files_delta.txt
       - name: Upload FULL package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34k_FULL
+          name: AI_Aksje_Analyzer_RC16.34l_FULL
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34k_FULL.zip
-            dist/SHA256SUMS_RC16.34k.txt
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34l_FULL.zip
+            dist/SHA256SUMS_RC16.34l.txt
           if-no-files-found: error
       - name: Upload clean DELTA package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34k_DELTA
+          name: AI_Aksje_Analyzer_RC16.34l_DELTA
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34k_DELTA.zip
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34l_DELTA.zip
             dist/changed_files_delta.txt
-            dist/SHA256SUMS_RC16.34k.txt
+            dist/SHA256SUMS_RC16.34l.txt
           if-no-files-found: error

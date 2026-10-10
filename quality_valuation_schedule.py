@@ -159,10 +159,14 @@ def _publish_pdf(result: dict[str, Any]) -> str:
     from public_report_store import publish_durable_pdf
     from quality_valuation_ui import build_screen_pdf
     from report_delivery import public_report_url
+    from public_report_ui import with_report_return
+    from urllib.parse import urlencode
+    generated = datetime.fromisoformat(str(result["generated_at"]).replace("Z", "+00:00"))
+    result["run_key"] = "quality_valuation/runs/" + generated.strftime("%Y%m%dT%H%M%S%f")
     result.setdefault("report_id", f"QV-{str(result.get('generated_at') or '').replace(':', '').replace('-', '')[:15]}")
     result["public_pdf_name"] = f"Kvalitet_verdsettelse_{result['report_id']}.pdf"
     publish_durable_pdf(result, build_screen_pdf(result))
-    result["report_url"] = public_report_url(result)
+    result["report_url"] = with_report_return(public_report_url(result), "quality_reports") + "&" + urlencode({"qv_report_run": result["run_key"]})
     return str(result.get("report_url") or "")
 
 
@@ -193,6 +197,7 @@ def run_due_scheduled_screen(now: datetime | None = None) -> dict[str, Any]:
     from quality_valuation_data import isolated_financial_snapshot, memory_budget_ok, observed_driver_prices
     from quality_valuation_ui import required_report_busy
     from quality_market_prescreen import full_market_prescreen
+    from quality_turnaround import market_context
 
     if required_report_busy():
         return {"state": "DEFERRED_REQUIRED_REPORT", "scheduled_slot": slot}
@@ -201,6 +206,9 @@ def run_due_scheduled_screen(now: datetime | None = None) -> dict[str, Any]:
         if not acquired:
             return {"state": "ALREADY_RUNNING", "scheduled_slot": slot}
 
+        if memory_budget_ok() and not required_report_busy():
+            from quality_filing_discovery import refresh
+            refresh(now=current)
         prescreen = full_market_prescreen(
             universe,
             SCHEDULED_CANDIDATE_LIMIT,
@@ -223,6 +231,7 @@ def run_due_scheduled_screen(now: datetime | None = None) -> dict[str, Any]:
             isolated_financial_snapshot,
             deadline_seconds=165,
             memory_guard=lambda: memory_budget_ok() and not required_report_busy(),
+            market_evidence=market_context(prescreen),
         )
         result.update({
             "run_mode": "SCHEDULED_SHADOW",
@@ -242,7 +251,13 @@ def run_due_scheduled_screen(now: datetime | None = None) -> dict[str, Any]:
             "market_prescreen_stop_reason": str(prescreen.get("stop_reason") or ""),
             "prescreen_finalists": finalists,
             "holding_symbols": holdings,
+            "turnaround_discovery_tickers": prescreen.get("turnaround_discovery_tickers") or [],
         })
+        try:
+            from quality_turnaround_shadow import tracked_prices
+            result["turnaround_shadow_prices"] = tracked_prices(prescreen)
+        except Exception:
+            result["turnaround_shadow_quote_status"] = "UNAVAILABLE"
         names = [name for items in (result.get("groups") or {}).values() for item in items
                  for name in item.get("market_drivers") or []]
         if names and result.get("elapsed_seconds", 999) < 145 and memory_budget_ok():

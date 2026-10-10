@@ -21,7 +21,8 @@ assert ('APP_VERSION = "v19.22.0-rc16.33d"' in src["app_version.py"]
         or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33d"' in src["app_version.py"]
         or "rc16.33d" in src["app_version.py"])
 assert ('quality_v1.2@1.2' in src["quality_valuation.py"]
-        or 'quality_v1.3@1.3' in src["quality_valuation.py"])
+        or 'quality_v1.3@1.3' in src["quality_valuation.py"]
+        or 'quality_v1.4@1.4' in src["quality_valuation.py"])
 assert '"FINANCIAL"' in src["quality_valuation.py"]
 assert '"REAL_ESTATE"' in src["quality_valuation.py"]
 assert '"CYCLICAL"' in src["quality_valuation.py"]
@@ -32,6 +33,6 @@ assert "P/E ved dagens kurs" in src["quality_extended_report.py"]
 assert "publish_durable_pdf" in src["quality_valuation_ui.py"]
 assert "publish_durable_file" in src["quality_valuation_ui.py"]
 assert ("PDF-returknappen er skjerm-only" in src["quality_valuation_ui.py"]
-        or '_absolute_report_return_url("quality_reports")' in src["quality_valuation_ui.py"])
+        or '_absolute_report_return_url("quality_reports"' in src["quality_valuation_ui.py"])
 assert "NumberObject(0)" in src["pdf_mobile_return.py"]
 print("rc16.33d sector-aware quality/mobile-report gate OK")

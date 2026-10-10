@@ -1,4 +1,11 @@
 from quality_market_prescreen import full_market_prescreen
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolated_disclosure_cache(monkeypatch):
+    # Ranking tests must not depend on disclosures left by other tests or live data.
+    monkeypatch.setattr("quality_filing_discovery.discovery_tickers", lambda universe=(): set())
 
 def test_full_market_prescreen_examines_every_ticker_before_finalists(monkeypatch):
     import quality_market_prescreen as q

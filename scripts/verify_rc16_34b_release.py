@@ -36,6 +36,7 @@ assert (
     or 'APP_VERSION = "v19.22.0-rc16.34i"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34j"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34k"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34l"' in version_lines
 )
 if 'APP_VERSION = "v19.22.0-rc16.34b"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34a"' in version_lines
@@ -54,7 +55,7 @@ elif 'APP_VERSION = "v19.22.0-rc16.34h"' in version_lines:
 elif 'APP_VERSION = "v19.22.0-rc16.34i"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34h"' in version_lines
 else:
-    assert ('PREVIOUS_APP_VERSION = "v19.22.0-rc16.34j"' if 'APP_VERSION = "v19.22.0-rc16.34k"' in version_lines else 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34i"') in version_lines
+    assert ('PREVIOUS_APP_VERSION = "v19.22.0-rc16.34k"' if 'APP_VERSION = "v19.22.0-rc16.34l"' in version_lines else 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34j"' if 'APP_VERSION = "v19.22.0-rc16.34k"' in version_lines else 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34i"') in version_lines
 
 assert '"super_portfolio":"market"' in shell
 assert '"🌍 Super Portfolio": "market"' in navigation
