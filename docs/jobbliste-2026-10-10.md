@@ -41,7 +41,7 @@ Listen samler innspillene i denne samtalen. GO har godkjent implementering. Avkr
 
 ## Status etter implementering RC16.34i
 
-Rapport/UI, stoppvarsler, Hafnia-klassifisering og minneavgrenset snapshot-oppslag er implementert. SP-simulator, historisk parameterjobb og låst forwardplan finnes som offline verktøy. Autonomi full porteføljesimulering, hele universarkivet, aktiv forward-jobb, lønnsomhetsvalidering og fysisk mobilverifisering gjenstår. Ingen nye eksperimentresultater kan godkjenne produksjonsendring.
+Rapport/UI, stoppvarsler, Hafnia-klassifisering og minneavgrenset snapshot-oppslag er implementert. SP-simulator, historisk parameterjobb og låst forwardplan finnes som offline verktøy. Autonomi porteføljesimulering, universarkiv med import/dekningsrapport og separat forward-worker er nå implementert. Produksjonsaktivering etter merge/deploy, tilstrekkelig historisk datalengde, lønnsomhetsvalidering og fysisk mobilverifisering gjenstår. Ingen nye eksperimentresultater kan godkjenne produksjonsendring.
 
 ## Tidligere arbeid – sist bekreftet
 
@@ -50,3 +50,15 @@ Rapport/UI, stoppvarsler, Hafnia-klassifisering og minneavgrenset snapshot-oppsl
 - PR #67: implementert og sjekker grønne ved siste kontroll; merge/deploy og fysisk mobilverifisering gjenstår etter sist bekreftede status.
 
 Anbefalt rekkefølge: avklar PR #67 og drift → bransjeklassifisering og beslutningsforklaring → rank/score og varsler → pålitelig simulator og datagrunnlag → bred kombinasjonstesting og skyggedrift.
+
+## Oppdatert gjennomføringsstatus for de tre gjenværende områdene
+
+- [x] Autonomi-porteføljesimulering med ordinære kjøps-/salgsregler, frozen klokke, egen kapital og handelsledger, uten produksjonseffekter. Gebyrer vises separat som kostnadsfølsomhet fordi ordinært Autonomi-regnskap er uten gebyrer.
+- [x] Hele konfigurerte inputuniverser arkiveres fremover, med opprinnelige felt, kontrollsummer og kjent datagrunnlag. Historikkimport, feilliste, dekningsrapport, fast budsjett og eksport uten full innlasting i RAM er implementert.
+- [x] Separat, restartbar skyggeworker og cron-integrasjon for begge motorer. Referanse og to forhåndsregistrerte terskelhypoteser låses før fremtidige data brukes. UI viser faktisk status.
+- [ ] Import og verifikasjon av alle 246 tilgjengelige legacy-kjøringer i produksjon. Automatisk batchimport er klar for deploy.
+- [ ] Tilstrekkelig historikk for 90 dagers embargo og urørt sluttperiode. Ikke-lagret fortid rekonstrueres ikke.
+- [ ] Aktiv testing på nye produksjonsdata. Workeren starter etter merge/deploy; kode-/prosesstester er fullført, men produksjonsaktivering er ikke utført.
+- [ ] Fullmodne nye resultater og uavhengig dokumentert forbedring. Disse krever videre observasjonstid.
+
+Detaljer, begrensninger og aktivering står i `portfolio-learning-validation-34i.md`. De brede tidligere punktene om komplett historisk datasett, alle signalhypoteser og dokumentert merverdi forblir åpne der deloppgaver gjenstår.

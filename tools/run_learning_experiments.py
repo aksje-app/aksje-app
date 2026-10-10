@@ -28,9 +28,14 @@ def main():
     cap = max(256, min(args.memory_mb, 2048)) * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
     from learning_experiments import run_search
-    if args.frames.stat().st_size > 64 * 1024 * 1024 or args.space.stat().st_size > 1024 * 1024:
+    if (args.frames.is_file() and args.frames.stat().st_size > 64 * 1024 * 1024) or args.space.stat().st_size > 1024 * 1024:
         raise ValueError("Input exceeds experiment budget")
-    result = run_search(json.loads(args.frames.read_text()), json.loads(args.space.read_text()),
+    if args.frames.is_dir():
+        from learning_dataset import FrameDataset
+        dataset = FrameDataset(args.frames)
+    else:
+        dataset = json.loads(args.frames.read_text())
+    result = run_search(dataset, json.loads(args.space.read_text()),
                         budget=args.budget, finalists=args.finalists, embargo_days=args.embargo_days)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_suffix(args.output.suffix + ".tmp")

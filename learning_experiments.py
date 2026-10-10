@@ -32,6 +32,8 @@ FIELDS = ("ticker", "symbol", "market", "country", "currency", "sector", "indust
           "official_events", "official_market_events", "decision_readiness", "confidence_score", "validation_score", "portfolio_fit_score")
 
 def checksum(value) -> str:
+    if hasattr(value, "dataset_identity"):
+        value = {"ordered_frame_checksums": value.dataset_identity}
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 def compact_candidates(rows):
@@ -84,9 +86,11 @@ def validate_frames(frames):
         at = datetime.fromisoformat(str(f.get("at")).replace("Z", "+00:00"))
         if at.tzinfo is None or (previous and at <= previous):
             raise ValueError("Frames need strictly increasing timezone-aware timestamps")
-        if f.get("engine") != "SUPER_PORTFOLIO" or not f.get("config"):
+        if f.get("engine") not in {"SUPER_PORTFOLIO", "AUTONOMY"} or not f.get("config"):
             raise ValueError("Frozen engine/config missing")
-        if not isinstance((f.get("pipeline") or {}).get("market_activation_levels"), dict):
+        from learning_runtime import validate
+        validate(f)
+        if f.get("engine") == "SUPER_PORTFOLIO" and not isinstance((f.get("pipeline") or {}).get("market_activation_levels"), dict):
             raise ValueError("Frozen market activation policy missing")
         for row in (f.get("pipeline") or {}).get("candidates") or []:
             stamp = row.get("price_timestamp") or row.get("data_timestamp")
@@ -104,6 +108,13 @@ def chronological_split(frames, *, embargo_days=90):
         raise ValueError("At least 15 distinct dates required before splitting")
     a, b = dates[int(len(dates) * .6)], dates[int(len(dates) * .8)]
     gap = timedelta(days=max(0, int(embargo_days)))
+    if hasattr(frames, "select_period"):
+        train = frames.select_period(end=a)
+        validation = frames.select_period(begin=(datetime.fromisoformat(a) + gap).date().isoformat(), end=b)
+        holdout = frames.select_period(begin=(datetime.fromisoformat(b) + gap).date().isoformat())
+        if min(map(len, (train, validation, holdout))) < 3:
+            raise ValueError("Insufficient periods after embargo; keep collecting/exporting data")
+        return train, validation, holdout
     train = [f for f in frames if str(f["at"])[:10] < a]
     validation = [f for f in frames if datetime.fromisoformat(str(f["at"])[:10]) >= datetime.fromisoformat(a) + gap and str(f["at"])[:10] < b]
     holdout = [f for f in frames if datetime.fromisoformat(str(f["at"])[:10]) >= datetime.fromisoformat(b) + gap]
@@ -186,8 +197,11 @@ def run_search(frames, space, *, budget=100, finalists=3, embargo_days=90, evalu
     Holdout is never used to choose which finalist to report or apply.
     No statistical/causal claim is made from maximizing many trials.
     """
+    if len({f["engine"] for f in frames}) != 1:
+        raise ValueError("Separate engine datasets required")
     train, validation, holdout = chronological_split(frames, embargo_days=embargo_days)
-    evaluate = evaluator or replay_super_portfolio
+    from learning_runtime import replay_autonomy
+    evaluate = evaluator or (replay_autonomy if frames[0]["engine"] == "AUTONOMY" else replay_super_portfolio)
     manifest = {"dataset_sha256": checksum(frames), "space": space, "budget": min(budget, MAX_TRIALS),
                 "historical_end": frames[-1]["at"],
                 "embargo_days": embargo_days, "objective": "net_return_minus_maximum_drawdown",
@@ -237,7 +251,8 @@ def evaluate_forward_plan(plan, frames, *, evaluator=None):
     for frame in paired:
         frame["config"] = deepcopy(plan["reference_config"])
         frame["sha256"] = checksum({k: v for k, v in frame.items() if k != "sha256"})
-    evaluate = evaluator or replay_super_portfolio
+    from learning_runtime import replay_autonomy
+    evaluate = evaluator or (replay_autonomy if frames[0]["engine"] == "AUTONOMY" else replay_super_portfolio)
     baseline = evaluate(paired, {})
     return {"status": "ACTIVE_SHADOW", "plan_sha256": plan["sha256"],
             "dataset_sha256": checksum(frames), "first_at": frames[0]["at"], "last_at": frames[-1]["at"],

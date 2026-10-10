@@ -106,6 +106,7 @@ jobs:
             tests/test_entry_exit_evidence.py \
             tests/test_mobile_approval_interactions.py \
             tests/test_portfolio_learning_validation.py \
+            tests/test_learning_runtime.py \
             tests/test_rc16_31aa_snapshot_repository_memory.py \
             tests/test_rc16_31o_exit_policy.py \
             tests/test_market_policy_and_target_consistency.py \

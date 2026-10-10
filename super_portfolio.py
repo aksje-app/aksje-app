@@ -709,6 +709,7 @@ def build_super_portfolio_market_pipeline(
     event_analysis = []
     event_universe = []
     event_ids = set()
+    experiment_universe = []
     experiment_preselection = []
     experiment_deep_candidates = []
     candidates: list[dict[str, Any]] = []
@@ -807,6 +808,7 @@ def build_super_portfolio_market_pipeline(
         if str(market) == "Norge":
             event_universe = [{k: row[k] for k in ("ticker", "symbol", "isin", "company", "name", "longName", "shortName") if k in row} for row in raw_rows]
             event_ids.update(e["id"] for events in mapped_events.values() for e in events)
+        experiment_universe.extend(dict(row, official_market_events=mapped_events.get(str(row.get("ticker") or row.get("symbol") or "").upper(), [])) for row in raw_rows)
         experiment_preselection.extend(dict(row, official_market_events=mapped_events.get(str(row.get("ticker") or row.get("symbol") or "").upper(), [])) for row in coarse_rows)
         deep_rows = prioritize_analysis(coarse_rows, raw_rows, mapped_events, deep_limit)
         selected_event_tickers = {str(r.get("ticker") or r.get("symbol") or "").upper() for r in deep_rows if r.get("official_market_events")}
@@ -896,7 +898,17 @@ def build_super_portfolio_market_pipeline(
         try:
             from learning_experiments import record_frame
             capture = record_frame(payload, config=asdict(config), preselection=experiment_preselection, deep_candidates=experiment_deep_candidates)
-            emit("EXPERIMENT_CAPTURE", 100, capture=capture)
+            from learning_runtime import archive
+            from market_universe import MARKET_ACTIVATION_LEVELS
+            historical_pipeline = deepcopy(payload)
+            historical_pipeline["market_activation_levels"] = dict(MARKET_ACTIVATION_LEVELS)
+            archive_result = archive({"engine": "SUPER_PORTFOLIO", "run_id": payload["run_id"],
+                "config": asdict(config), "pipeline": historical_pipeline,
+                "universe": experiment_universe, "preselection": experiment_preselection,
+                "deep_candidates": experiment_deep_candidates,
+                "scope": "WHOLE_CONFIGURED_INPUT_UNIVERSE_NOT_ALL_DEEP_ANALYSED",
+                "complete_universe": True})
+            emit("EXPERIMENT_CAPTURE", 100, capture=capture, archive=archive_result)
         except Exception as exc:
             emit("EXPERIMENT_CAPTURE_FAILED", 100, message=str(exc)[:200])
     write_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, payload)

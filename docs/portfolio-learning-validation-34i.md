@@ -51,8 +51,46 @@ Dette viser hvor data ligger nå, ikke hele årsaken til økningen fra 46–48 %
 ## Validering
 
 - Release-kontrakter: bestått.
-- Release-regresjon: 342 tester bestått.
-- Aktiv uversjonert suite: 141 bestått, to PostgreSQL-tester hoppet over lokalt (ingen lokal PostgreSQL URL). CI kjører egne PostgreSQL roundtrips.
+- Release-regresjon: 358 tester bestått etter videreføringen.
+- Aktiv uversjonert suite: 157 bestått, tre PostgreSQL-tester hoppet over lokalt (ingen lokal PostgreSQL URL). CI kjører PostgreSQL roundtrips, inkludert samtidige historikkinnskrivinger og restart.
 - Nye scenarioer: uforanderlig kjøpsbevis, shipping, separate stopblokker, prosentnevner, absolutt/relativ læring, nullgruppe, temporal embargo, begrenset søk, holdout-uavhengighet, kjøp og risikosalg uten produksjons-I/O, låst forwardplan, avgrenset legacy-oppslag.
 - PDF-er generert og første side av begge visuelt kontrollert: ingen overlapp i de nye seksjonene.
 - CLI kjørt i separat prosess med syntetisk testdatasett: tre forsøk, fullført, produksjon uendret. Dette er programverifisering, ikke et lønnsomhetsresultat.
+
+## Videreføring: Autonomi-simulering, arkiv og aktiv skyggejobb
+
+Denne delen erstatter den tidligere statusen om manglende Autonomi-simulator og forward-jobb.
+
+### Ferdig kode
+
+- `simulate_autonomy_cycle` kjører det ordinære Autonomi-porteføljeløpet med eksplisitt portefølje, handelsledger og klokke. Samme kjøpsporter, beholdningsgrenser, salg, delvise salg, gevinstbeskyttelse, kapitalgrenser, drawdown-pause og gjenkjøpsregler brukes. ContextVar skiller simuleringen fra andre kjøringer. Produksjonslagring, varsler, parallelle tjenester og automatisk parameterlæring er utelatt. Probekontoen er ikke del av den ordinære porteføljeavkastningen.
+- Autonomi har markbasert regnskap uten faktiske gebyrer. Simuleringen viser derfor bruttoavkastning og en separat følsomhetsberegning med 0,2 % kostnad per handelsbeløp. Denne estimerte nettoavkastningen er ikke et dokumentert utførelsesresultat. Drawdown beregnes på brutto markeringer. SP bruker sin eksisterende kostnadsmodell.
+- Historikkarkivet lagrer hele det konfigurerte inputuniverset for SP og Investment Pipeline, også aksjer som ikke går videre. Alle tilgjengelige analyserte kandidatfelt lagres, med datagrunnlag, konfigurasjon, tidspunkt og kontrollsum. Hele universet betyr ikke at hver aksje har full dybdeanalyse eller intradagkurser.
+- Autonomi lagrer de endelige kandidatene med kjøpsporter og teknisk bidrag slik de faktisk var før porteføljebeslutningen. Simuleringen gjør ikke nye nettverksbaserte kildeundersøkelser og autoriserer ikke en tidligere avvist aksje bare fordi scoregrensen senkes.
+- Arkivet bruker separate, komprimerte og uforanderlige dokumenter. En atomisk indeks håndterer samtidige innskrivinger. Budsjettet er 128 MiB komprimerte framedokumenter, maksimalt 20 000 dokumenter og 8 MiB ukomprimert per frame. Indeks og skyggekontoer kommer i tillegg; kontoene har en egen 8 MiB grense. Ved fullt budsjett stoppes innsamlingen med synlig status. Ingen gamle data slettes automatisk.
+- Eksisterende FULL_REPLAY-kontrakter importeres kontrollert, to per cron-kjøring, med kontroll av originalenes sjekksummer og porteføljeavstemming. Mangelfulle kontrakter registreres som avvist. Kildeversjon og originalmanifest beholdes. Gamle snapshots merkes som endelige historiske inputs, ikke som komplett univers eller eksakt gjentakelse av gamle programversjoner.
+- Separat worker kjører etter scanner og læringsvedlikehold. Minnegrense 768 MiB virtuell adresseplass, 45 sekunder CPU, 50 sekunders veggklokke. Jobben utsettes ved under 384 MiB ledig cgroup-minne. Begrenset batch: inntil seks frames per motor. Timeout eller feil påvirker ikke handlene.
+- Første frame låser en separat referanse og to forhåndsregistrerte terskelhypoteser per motor: dagens scoregrense ±2. Første frame brukes ikke som testresultat. Bare senere frames kan flytte status fra «venter på nye data» til «aktiv skyggetest». Historisk import får aldri brukes som forward-data. Kontoer, kontrollsum og sist behandlet frame lagres atomisk; gjentatt behandling gir ingen nye handler.
+- UI viser status, observerte børsdatoer, 20-/60-dagers datamengde, referanse/hypoteser, avkastning etter kostnadsmodell, drawdown og antall handler. Disse datoindikatorene dokumenterer ikke fullmodne enkeltutfall eller statistisk merverdi. Ingen konto blir automatisk godkjent for produksjon.
+- Store offlinehistorier kan eksporteres som en kontrollsummert mappe med komprimerte frames og testes én frame av gangen. Simulatoren kan dermed bruke lengre datasett uten å laste hele univershistorikken i minnet. Separat søk beholdes med maksimalt 200 forsøk og fem finalister; urørt holdout velger ikke vinneren.
+
+### Faktisk historikk og begrensning
+
+Lesebasert databasekontroll 10. oktober fant 246 registrerte FULL_REPLAY-kjøringer, fra 11. august kl. 16:03 UTC til 9. oktober kl. 20:07 UTC. Dette er en opptelling i den eksisterende indeksen, ikke en påstand om at alle 246 allerede er importert, verifisert eller simulert av den nye koden. Det nye arkivet er ikke påvist i produksjonen før deploy.
+
+Omtrent to måneders historikk er ikke nok for train/validation/holdout med 90 dagers embargo. Tidligere ikke-lagrede kandidater, intradagbaner, valutakurser og utbytte kan ikke gjenskapes uten opprinnelige kilder. «Komplett historisk testgrunnlag» er derfor ikke avkrysset som et faktisk ferdig datasett. Innsamling, import, eksport og eksplisitt dekningsrapport er implementert.
+
+### Aktivering etter merge/deploy
+
+Eksisterende cron starter automatisk den valgfrie workeren når denne koden er deployet. Ingen ny betalt Render-tjeneste eller endring av produksjonsparameterne kreves. Første nye frame låser testoppsettet; senere frames starter de parede kontoene. Import fortsetter i små batcher. Kontroller `learning_shadow` i cron-resultatet, UI-status og `controlled_learning/history/backfill.json`.
+
+For offline søk:
+
+```sh
+python tools/export_learning_history.py AUTONOMY exports/autonomy --bundle
+python tools/run_learning_experiments.py exports/autonomy search_space.json results/autonomy.json --budget 100 --finalists 3
+```
+
+Manglende lengde etter embargo gir en tydelig feil; det blir ikke produsert et kunstig validert resultat. SP eksporteres og testes separat med motor `SUPER_PORTFOLIO`.
+
+PR #68 er oppdatert for gjennomgang. Merge/deploy er ikke utført i denne jobben. Fremtidig meravkastning og fullmodne resultater er ikke kjent.
