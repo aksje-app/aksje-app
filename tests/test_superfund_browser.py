@@ -56,6 +56,7 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
           }
           for (const caption of document.querySelectorAll('.st-key-superfund_page [data-testid="stCaptionContainer"]')) {
             if(caption.getClientRects().length && caption.scrollHeight>caption.clientHeight+2) errors.push('caption clipped');
+            if(caption.getClientRects().length && parseFloat(getComputedStyle(caption).fontSize)<14) errors.push('caption too small');
           }
           for (const a of document.querySelectorAll('.st-key-superfund_page [data-testid="stLinkButton"] a')) {
             if(!a.getClientRects().length)continue;

@@ -110,15 +110,17 @@ def candidate_card(row, overall=False):
 
 CSS = '''<style>
 html body .stApp .st-key-superfund_page {padding-bottom:calc(110px + env(safe-area-inset-bottom));}
-html body .stApp .st-key-superfund_page [data-testid="stCaptionContainer"] {max-height:none!important;height:auto!important;overflow:visible!important;line-height:1.55!important;white-space:normal!important;opacity:1!important;color:#aebdcd!important;}
+html body .stApp .st-key-superfund_page [data-testid="stCaptionContainer"] {max-height:none!important;height:auto!important;overflow:visible!important;font-size:14px!important;line-height:1.55!important;white-space:normal!important;opacity:1!important;color:#aebdcd!important;}
 html body .stApp .st-key-superfund_page [data-testid="stMarkdownContainer"] p {line-height:1.55!important;white-space:normal!important;overflow-wrap:anywhere!important;margin-bottom:.7rem!important;}
+html body .stApp .st-key-superfund_page [data-testid="stExpander"] summary p {font-size:16px!important;line-height:1.5!important;font-weight:700!important;}
+html body .stApp .st-key-superfund_page [data-testid="stExpander"] summary {min-height:48px!important;}
 html body .stApp .st-key-superfund_page [data-testid="stVerticalBlock"] {gap:1rem!important;}
 html body .stApp .st-key-superfund_page button, html body .stApp .st-key-superfund_page [data-testid="stLinkButton"] a {background:#123550!important;color:#fff!important;-webkit-text-fill-color:#fff!important;min-height:44px!important;height:auto!important;max-height:none!important;max-width:100%!important;line-height:1.45!important;padding:.65rem 1rem!important;white-space:normal!important;}
 html body .stApp .st-key-superfund_page button p, html body .stApp .st-key-superfund_page a p {color:inherit!important;-webkit-text-fill-color:inherit!important;}
 html body .stApp .st-key-superfund_page pre, html body .stApp .st-key-superfund_page pre code {background:#101e30!important;color:#e3eef9!important;-webkit-text-fill-color:#e3eef9!important;line-height:1.6!important;}
 .sf-card {background:#102035;border:1px solid #36516b;border-radius:14px;padding:1rem;margin:.6rem 0 1.2rem;overflow-wrap:anywhere;}
-html body .stApp .sf-card h3 {color:#fff!important;font-size:1.1rem!important;line-height:1.5!important;margin:0 0 .8rem!important;}
-.sf-fact {display:flex;flex-wrap:wrap;gap:.2rem .6rem;margin:.45rem 0;line-height:1.6;color:#dce8f5;}
+html body .stApp .sf-card h3 {color:#fff!important;font-size:18px!important;line-height:1.5!important;margin:0 0 .8rem!important;}
+.sf-fact {font-size:16px;display:flex;flex-wrap:wrap;gap:.2rem .6rem;margin:.45rem 0;line-height:1.6;color:#dce8f5;}
 .sf-fact span {color:#afc0d3;} .sf-fact strong {font-weight:500;}
 .sf-tag {color:#75dcff;font-weight:700;margin-bottom:.5rem;}
 body:has(.st-key-superfund_page) .st-key-aa_mobile_nav_native button p {font-size:.6rem!important;line-height:1.3!important;white-space:pre-line!important;overflow-wrap:anywhere!important;}
