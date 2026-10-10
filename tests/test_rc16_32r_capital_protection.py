@@ -118,13 +118,15 @@ def test_executed_early_exit_alerts_even_when_status_did_not_change() -> None:
 
 def test_pushover_contains_decision_prices_and_recovery() -> None:
     source = _source("super_portfolio.py")
-    assert "Kjøp {_f(row.get('entry_price')):.2f}" in source
-    assert "topp {_f(row.get('peak_price')):.2f}" in source
-    assert "nå {_f(row.get('current_price')):.2f}" in source
-    assert "Stop {_f(row.get('stop_price')):.2f}" in source
-    assert "BEDRET STOPSTATUS" in source
-    assert "pp margin" in source
-    assert 'priority=priority' in source
+    from portfolio_evidence import stop_alert_text
+    text = stop_alert_text([{"ticker": "TEST", "entry_price": 100, "peak_price": 105,
+                            "current_price": 104, "stop_price": 102, "pnl_pct": 4}])
+    assert "Kjøpskurs 100.00 · topp 105.00" in text
+    assert "Siste kurs 104.00" in text and "Salgsgrense 102.00" in text
+    assert "Mulig kursfall før salgsgrensen nås: 1.92%" in text
+    assert "pp margin" not in text
+    assert "BEDRET STOPSTATUS" in source and 'priority=priority' in source
+
 
 
 def test_legacy_state_is_migrated_and_reentry_is_gated() -> None:

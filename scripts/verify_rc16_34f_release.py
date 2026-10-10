@@ -3,8 +3,8 @@ from pathlib import Path
 from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 
 root = Path(__file__).resolve().parents[1]
-assert APP_VERSION in ('v19.22.0-rc16.34f', 'v19.22.0-rc16.34g', 'v19.22.0-rc16.34h')
-assert PREVIOUS_APP_VERSION == ('v19.22.0-rc16.34e' if APP_VERSION.endswith('34f') else 'v19.22.0-rc16.34f' if APP_VERSION.endswith('34g') else 'v19.22.0-rc16.34g')
+assert APP_VERSION in ('v19.22.0-rc16.34f', 'v19.22.0-rc16.34g', 'v19.22.0-rc16.34h', 'v19.22.0-rc16.34i')
+assert PREVIOUS_APP_VERSION == ('v19.22.0-rc16.34e' if APP_VERSION.endswith('34f') else 'v19.22.0-rc16.34f' if APP_VERSION.endswith('34g') else 'v19.22.0-rc16.34g' if APP_VERSION.endswith('34h') else 'v19.22.0-rc16.34h')
 for name in ('repositories/application.py', 'services/storage_service.py', 'services/autonomy_activation_service.py'):
     ast.parse((root / name).read_text())
 source = (root / 'services/autonomy_activation_service.py').read_text()

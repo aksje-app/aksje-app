@@ -108,5 +108,6 @@ def test_notifications_are_plain_language_first() -> None:
     assert "KONTROLL:" in autonomy
     assert "HVA SKJEDDE:" in autonomy
     assert "KONTANTER:" in autonomy
-    assert "SUPERPORTEFØLJE – STOPPKONTROLL" in portfolio
-    assert "stoppsituasjonen er forbedret – ingen handling" in portfolio
+    assert "stop_alert_text(alerts)" in portfolio
+    assert "SUPERPORTEFØLJE – STOPPKONTROLL" in (ROOT / "portfolio_evidence.py").read_text()
+    assert "stoppsituasjonen er forbedret – ingen handling" in (ROOT / "portfolio_evidence.py").read_text()

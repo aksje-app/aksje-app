@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.34h"
-APP_VERSION_NAME = "Mobile Navigation & Approval Interaction"
+APP_VERSION = "v19.22.0-rc16.34i"
+APP_VERSION_NAME = "Portfolio Evidence & Controlled Learning"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.34g"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.34h"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.
@@ -156,6 +156,7 @@ def validate_version_contract(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "schema_version": VERSION_CONTRACT_SCHEMA}
 
 CHANGELOG = [
+    "v19.22.0-rc16.34i: Rank og AI-score ved kjøp, eksplisitt beholdningsgrunnlag og separate vurderings-/stopptider. Hafnia shippingeksponering og tydelige stoppvarsler. Foreløpig læringsstatus, absolutte resultater og avgrenset offline kombinasjonstest uten produksjonsfullmakt. Eldre snapshot-oppslag henter ett element i PostgreSQL.",
     "v19.22.0-rc16.33o: Mobile Navigation Recovery. Fixes Aurora mobile Start/Portfolio/Market/Quality/Alerts/More route handoff so the selected route is queued before rerun, preventing the global rerun guard from restoring the previous page. Makes the Start-page Super Portfolio action open Super Portfolio directly even when Autonomy uses the simplified interface. No trading, ranking, risk or portfolio rules are changed.",
     "v19.22.0-rc16.33n: Exit Refill & Counterfactual Replay. Keeps the strict three-percent trailing stop and MFE profit-protection exits unchanged, but after a risk exit allows only same-run fresh/confident candidates that already passed the normal entry gate to refill genuinely open Super Portfolio slots; otherwise cash remains explicit by policy. Adds open-slot/cash diagnostics, pending refill after lightweight surveillance, current-state diagnosis ZIP files and concise Render decision logs. Paper Trading now stores immutable entry decision snapshots for future counterfactual replay; legacy trades without entry evidence stay explicitly untestable, and replay uses no current market data.",
     "v19.22.0-rc16.33m: Paper Learning Recovery. Aligns Paper Trading with the strict three-percent capital protection and MFE profit-protection tiers, adds active stagnant-position exits and score-based replacement rotation, feeds closed Paper exits into controlled-learning evidence, adds a visible Paper + Learning Observatory, and sends a real daily Paper/læring Pushover report whenever the daily management report is due.",

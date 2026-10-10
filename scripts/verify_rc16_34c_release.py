@@ -26,6 +26,7 @@ assert (
     or 'APP_VERSION = "v19.22.0-rc16.34f"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34g"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34h"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34i"' in version_lines
 )
 if 'APP_VERSION = "v19.22.0-rc16.34c"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34b"' in version_lines
@@ -37,8 +38,10 @@ elif 'APP_VERSION = "v19.22.0-rc16.34f"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34e"' in version_lines
 elif 'APP_VERSION = "v19.22.0-rc16.34g"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34f"' in version_lines
-else:
+elif 'APP_VERSION = "v19.22.0-rc16.34h"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34g"' in version_lines
+else:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34h"' in version_lines
 
 assert "Never renormalize capped weights" not in portfolio  # implementation, not prose dependency
 assert "remaining = 100.0" in portfolio
@@ -58,7 +61,9 @@ assert "HVA SKJEDDE:" in autonomy
 assert "KONTANTER:" in autonomy
 assert "Ingen manuell handling nødvendig" in autonomy
 
-assert "SUPERPORTEFØLJE – STOPPKONTROLL" in portfolio
-assert "stoppsituasjonen er forbedret – ingen handling" in portfolio
+assert "stop_alert_text(alerts)" in portfolio
+notification = (ROOT / "portfolio_evidence.py").read_text()
+assert "SUPERPORTEFØLJE – STOPPKONTROLL" in notification
+assert "stoppsituasjonen er forbedret – ingen handling" in notification
 
 print("rc16.34c hard position cap & plain reports gate OK")

@@ -1,5 +1,6 @@
 """Streamlit renderer for Super Portfolio RC16.32l."""
 from __future__ import annotations
+from portfolio_evidence import classification, rank_text, score_text, retention_explanation
 
 
 def _terminal_job_needs_app_refresh(job, refreshed_run_id: str) -> bool:
@@ -474,6 +475,8 @@ def render_super_portfolio(_legacy_context) -> None:
     if st.button("🔄 Oppdater ressursstatus",key="sp_resource_refresh_32d"):
         state["resource_health"]=resource_health(); save_state(state); st.rerun()
 
+    st.caption(f"Markedsgrunnlag fra: {state.get('last_assessment_snapshot_at') or 'ukjent'}")
+    st.caption(f"Sist fullstendig vurdert: {state.get('last_full_assessment_at') or 'ukjent'} · Sist stopkontrollert: {state.get('last_stop_surveillance_at') or 'ukjent'}")
     if positions:
         rows=[]
         technical_rows=[]
@@ -499,16 +502,16 @@ def render_super_portfolio(_legacy_context) -> None:
                 action=f"{action} → {float(adv.get('to_pct') or 0):.1f}%"
             fr=pos.get("data_freshness") or {}
             rows.append({
-                "Status":status,"Aksje":ticker,"Marked":pos.get("market"),"Vekt %":round(weight,1),
+                "Status":status,"Aksje":ticker,"Marked":pos.get("market"),"Bransje":classification(pos)["industry"],"Rank ved kjøp → nå":rank_text(pos),"Vekt %":round(weight,1),
                 "Verdi NOK":round(theoretical_value,0),"P/L NOK":round(pnl_nok,0),"P/L %":round(pnl,2),
                 "Til stop %":round(dist_f,2) if dist_f is not None else None,"AI nå":action,
                 "Data":f"{fr.get('icon','⚪')} {fr.get('status','-')}",
             })
             technical_rows.append({
-                "Aksje":ticker,"Sektor":pos.get("sector"),"Stop":f"{pos.get('stop_icon','')} {pos.get('stop_status','')}",
+                "Aksje":ticker,"Bransje":classification(pos)["industry"],"Sektor":pos.get("sector"),"Stop":f"{pos.get('stop_icon','')} {pos.get('stop_status','')}",
                 "Press":f"{pos.get('stop_pressure_icon','')} {pos.get('stop_pressure','')} {pos.get('stop_direction_arrow','→')}",
                 "Fra topp %":pos.get("drawdown_from_peak_pct"),"Stopkurs":pos.get("hard_stop_price"),
-                "AI-score":round(score,1),"Rank":f"#{pos.get('rank','-')} {pos.get('rank_arrow','→')}","Δ rank":pos.get("rank_change"),
+                "AI-score":round(score,1),"Rank ved kjøp → nå":rank_text(pos),"AI ved kjøp → nå":score_text(pos),"Beste rank siden kjøp":pos.get("best_rank_since_entry"),
                 "Sektorstraff":pos.get("sector_penalty"),"Korr.straff":pos.get("correlation_penalty"),"Risiko":pos.get("risk_score"),
                 "Event":f"{(pos.get('event_risk') or {}).get('icon','⚪')} {(pos.get('event_risk') or {}).get('date','-')}",
             })
@@ -527,8 +530,8 @@ def render_super_portfolio(_legacy_context) -> None:
                         "Aksje":p.get("ticker"),
                         "AI":round(float(p.get("portfolio_score_adjusted") or p.get("portfolio_score") or 0),1),
                         "Risiko":round(float(p.get("risk_score") or 0),0),
-                        "Rank":f"#{p.get('rank','-')} {p.get('rank_arrow','→')}",
-                        "Forklaring":" · ".join(str(x) for x in reasons),
+                        "Rank ved kjøp → nå":rank_text(p),
+                        "Forklaring":retention_explanation(str(p.get("ticker") or ""), state),
                     })
                 st.dataframe(pd.DataFrame(why_rows), width="stretch", hide_index=True, height=280)
 
@@ -579,8 +582,8 @@ def render_super_portfolio(_legacy_context) -> None:
                 movers=sorted(positions, key=lambda p: float(p.get("rank_velocity") or 0), reverse=True)
                 velocity_rows=[{
                     "Aksje":p.get("ticker"),
-                    "Rank":f"#{p.get('rank','-')} {p.get('rank_arrow','→')}",
-                    "Δ rank":float(p.get("rank_change") or 0),
+                    "Rank ved kjøp → nå":rank_text(p),
+                    "Δ fra kjøp":int(p["entry_rank"])-int(p["rank"]) if p.get("entry_rank") is not None and p.get("rank") is not None else None,
                 } for p in movers[:12]]
                 st.dataframe(pd.DataFrame(velocity_rows), width="stretch", hide_index=True, height=280)
 
@@ -688,7 +691,7 @@ def render_super_portfolio(_legacy_context) -> None:
             replaces=r.get("replaces") or r.get("incumbent_ticker") or r.get("target_ticker") or "-"
             challenger_rows.append({
                 "Aksje":r.get("ticker"),"Marked":r.get("market"),"AI-score":round(float(r.get("portfolio_score_adjusted",r.get("portfolio_score")) or 0),1),
-                "Rank":f"#{r.get('rank','-')} {r.get('rank_arrow','→')}","Δ rank":r.get("rank_change"),
+                "Rank nå":f"#{r.get('rank','-')}",
                 "Utfordrer":replaces if replaces!="-" else "Kandidat til porteføljen",
                 "Risiko":r.get("risk_score"),
             })

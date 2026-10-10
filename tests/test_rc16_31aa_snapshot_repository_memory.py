@@ -71,3 +71,16 @@ def test_same_snapshot_id_cannot_be_rewritten_with_different_checksum(tmp_path):
         assert "annen checksum" in str(exc)
     else:
         raise AssertionError("immutable snapshot rewrite was accepted")
+
+
+def test_legacy_get_uses_one_server_side_element_without_loading_history():
+    class DatabaseStorage:
+        def read_json(self, key, default=None):
+            assert key != "repositories/market_snapshots.json", "monolith loaded"
+            return default
+
+        def read_json_array_item(self, key, field, value, default=None):
+            assert (key, field, value) == ("repositories/market_snapshots.json", "snapshot_id", "OLD")
+            return _snapshot("OLD")
+
+    assert MarketSnapshotRepository(DatabaseStorage()).get("OLD")["snapshot_id"] == "OLD"

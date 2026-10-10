@@ -456,7 +456,11 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
         members = [row for row in observations if str(row.get("group") or "") == group]
         for horizon in (5, 20, 60):
             values = [_number(((row.get("horizon_measurements") or {}).get(str(horizon)) or {}).get("excess_return_pct")) for row in members]
-            group_rows.append({"group": group, "horizon_days": horizon, **_stats([v for v in values if v is not None])})
+            absolute = [_number(((row.get("horizon_measurements") or {}).get(str(horizon)) or {}).get("return_pct")) for row in members]
+            stats = _stats([v for v in values if v is not None])
+            group_rows.append({"group": group, "horizon_days": horizon, **stats,
+                               "absolute_return": _stats([v for v in absolute if v is not None]),
+                               "assessment_status": "KAN IKKE VURDERES" if not stats["count"] else "FORELØPIG"})
     dimension_rows = []
     for dimension in ("market", "sector", "strategy"):
         by_name: dict[str, list[float]] = defaultdict(list)
@@ -476,7 +480,7 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
         difference = (_number(moderate.get("average"), 0) or 0) - (_number(near.get("average"), 0) or 0)
         proposals.append({"proposal": "Test moderat terskel mot nær-terskel i Challenger",
                           "evidence": f"20d forskjell i gjennomsnittlig meravkastning: {difference:+.2f} prosentpoeng",
-                          "status": "PROPOSED_SHADOW", "approval_required": True, "production_applied": False,
+                          "status": "PROPOSED_SHADOW", "test_executed": False, "approval_required": True, "production_applied": False,
                           "uncertainty": _maturity(min(int(moderate["count"]), int(near["count"])))})
     if not proposals:
         proposals.append({"proposal": "Fortsett datainnsamling uten parameterendring",
@@ -503,7 +507,7 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
     delta = None
     if selected_stats.get("average") is not None and control_stats.get("average") is not None:
         delta = round(float(selected_stats["average"]) - float(control_stats["average"]), 4)
-    selection_value_status = "FOR LITE DATA" if comparable < 10 else ("DOKUMENTERT MERVERDI" if (delta or 0) > 0 else "INGEN DOKUMENTERT MERVERDI")
+    selection_value_status = "FOR LITE DATA" if comparable < 10 else ("FORELØPIG POSITIV FORSKJELL" if (delta or 0) > 0 else "FORELØPIG INGEN MERVERDI")
     selection_quality = {
         "horizon_days": 20, "selected": selected_stats, "matched_control": control_stats,
         "selected_minus_control_pct_points": delta, "comparable_minimum_count": comparable,
@@ -511,9 +515,12 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
         "missed_winners": sorted(missed_winners, key=lambda item: -float(item["excess_return_pct"]))[:10],
         "factor_attribution": _factor_attribution(observations),
         "causal_claim": False, "production_changed": False,
+        "independent_validation": False, "statistical_significance_tested": False,
+        "interpretation": "Beskrivende gruppesnitt; overlappende handler er ikke uavhengige bevis. Ingen dokumentert handelsforbedring.",
     }
     return {"schema_version": SCHEMA_VERSION, "engine_version": ENGINE_VERSION, "generated_at": _now_iso(now),
-            "cohort": APP_VERSION, "observation_count": len(observations), "active_count": len(active),
+            "cohort": ", ".join(sorted({str((row.get("decision_snapshot") or {}).get("program_version") or "UKJENT") for row in observations})) or "INGEN OBSERVASJONER",
+            "report_program_version": APP_VERSION, "maturity_horizon_days": 60, "observation_count": len(observations), "active_count": len(active),
             "matured_count": sum(str(row.get("status") or "").upper() == "MATURED" for row in observations),
             "group_counts": {group: sum(str(row.get("group") or "") == group for row in observations) for group in GROUP_TARGETS},
             "horizons": horizon_rows, "groups": group_rows,
@@ -863,8 +870,9 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
     body = ParagraphStyle("LearningBody", parent=styles["BodyText"], fontName=regular, fontSize=8.5, leading=11)
     small = ParagraphStyle("LearningSmall", parent=body, fontSize=7, leading=9)
     story = [Paragraph(report_title, title), Spacer(1, 4*mm),
-             Paragraph(f"Kohort {analysis.get('cohort')} | Observasjoner {analysis.get('observation_count')} | Aktive {analysis.get('active_count')} | Modne {analysis.get('matured_count')} | Strategistatus {analysis.get('strategy_readiness')}", body),
+             Paragraph(f"Kohort {analysis.get('cohort')} | Observasjoner {analysis.get('observation_count')} | Aktive {analysis.get('active_count')} | Fullført 60 børsdager {analysis.get('matured_count')} | Strategistatus {analysis.get('strategy_readiness')}", body),
              Paragraph("Ingen produksjonsregel, vekt eller handelsfullmakt er endret.", body),
+             Paragraph("Meravkastning er forskjell mot benchmark, ikke nødvendigvis positiv avkastning. Gruppene er observasjoner, ikke utførte porteføljer. Null observasjoner betyr at gruppen ikke kan vurderes.", body),
              Paragraph("Målepunkter", heading)]
     horizon_data = [["Dager", "Antall", "Gj.snitt", "Median", "Treff", "Meravkastning", "Modenhet"]]
     for row in analysis.get("horizons") or []:
@@ -878,11 +886,13 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
                                ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#ccfbf1")),("GRID",(0,0),(-1,-1),.35,colors.HexColor("#94a3b8")),
                                ("ALIGN",(0,0),(-1,-1),"CENTER"),("VALIGN",(0,0),(-1,-1),"MIDDLE")]))
     story.extend([table, Paragraph("Foreløpige grupper", heading)])
-    group_data = [["Gruppe", "Horisont", "Antall", "Gj.snitt meravkastning", "Treff", "Modenhet"]]
+    group_data = [["Gruppe", "Horisont", "Antall", "Avkastning", "Meravkastning", "Slår indeks", "Vurdering"]]
     for row in analysis.get("groups") or []:
+        absolute = (row.get("absolute_return") or {}).get("average")
         group_data.append([row.get("group"),row.get("horizon_days"),row.get("count"),
+                           "-" if absolute is None else f"{absolute:+.2f}%",
                            "-" if row.get("average") is None else f"{row['average']:+.2f}%",
-                           "-" if row.get("hit_rate_pct") is None else f"{row['hit_rate_pct']:.1f}%",row.get("maturity")])
+                           "-" if row.get("hit_rate_pct") is None else f"{row['hit_rate_pct']:.1f}%",row.get("assessment_status") or row.get("maturity")])
     groups = Table(group_data, repeatRows=1)
     groups.setStyle(TableStyle([("FONTNAME",(0,0),(-1,0),bold),("FONTNAME",(0,1),(-1,-1),regular),("FONTSIZE",(0,0),(-1,-1),7),
                                 ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#e2e8f0")),("GRID",(0,0),(-1,-1),.3,colors.HexColor("#94a3b8"))]))
@@ -899,11 +909,12 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
             f"forskjell {selection.get('selected_minus_control_pct_points') if selection.get('selected_minus_control_pct_points') is not None else '-'} prosentpoeng.",
             body,
         ),
-        Paragraph("Sammenhenger er foreløpige og beskrivende; de er ikke dokumentasjon på årsak.", small),
+        Paragraph("Sammenhenger er foreløpige og beskrivende. Statistisk sikkerhet og forbedring på nye data er ikke dokumentert. Dagens parametre er heller ikke dokumentert optimale.", small),
         Paragraph("Shadow-forslag", heading),
     ])
     for proposal in analysis.get("shadow_proposals") or []:
-        story.append(Paragraph(f"<b>{proposal.get('status')}</b>: {proposal.get('proposal')}<br/>{proposal.get('evidence')} Usikkerhet: {proposal.get('uncertainty')}. Manuell godkjenning kreves.", body))
+        test_status = "foreslått, ikke startet" if proposal.get("status") == "PROPOSED_SHADOW" else "kun observasjon; ingen test startet"
+        story.append(Paragraph(f"Teststatus: {test_status}. Produksjonsendring: nei.<br/><b>{proposal.get('status')}</b>: {proposal.get('proposal')}<br/>{proposal.get('evidence')} Usikkerhet: {proposal.get('uncertainty')}. Manuell godkjenning kreves.", body))
     if technical: story.append(PageBreak())
     health = analysis.get("health") or {}
     story.extend([Paragraph("Helsekontroll", heading), Paragraph(f"Status {health.get('status')} | Manglende/foreldede {health.get('missing_or_stale')} | Benchmark komplett {health.get('benchmark_mapping_complete')} | Produksjonsmutasjoner {health.get('production_mutations')}", body)])

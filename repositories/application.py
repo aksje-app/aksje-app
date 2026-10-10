@@ -106,12 +106,10 @@ class MarketSnapshotRepository(JsonRepository):
         direct = self.storage.read_json(self._item_key(snapshot_id), None)
         if isinstance(direct, Mapping):
             return dict(direct)
-        # Compatibility path only: legacy history is read when an old ID is
-        # explicitly requested, never while a new snapshot is being saved.
-        legacy = self.storage.read_json(self.key, [])
-        if isinstance(legacy, list):
-            return next((dict(row) for row in legacy if isinstance(row, Mapping) and str(row.get("snapshot_id") or "") == snapshot_id), None)
-        return None
+        # PostgreSQL selects one legacy element server-side. Do not decode the
+        # entire historical array merely to retrieve one snapshot.
+        legacy = self.storage.read_json_array_item(self.key, self.id_field, snapshot_id, None)
+        return dict(legacy) if isinstance(legacy, Mapping) else None
 
     def list(self, limit: int | None = None) -> list[dict[str, Any]]:
         # Never deserialize the historical monolith in Python.  New snapshots

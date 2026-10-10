@@ -40,6 +40,7 @@ assert (
     or 'APP_VERSION = "v19.22.0-rc16.34f"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34g"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34h"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34i"' in version_lines
 )
 if 'APP_VERSION = "v19.22.0-rc16.34a"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33q"' in version_lines
@@ -55,8 +56,10 @@ elif 'APP_VERSION = "v19.22.0-rc16.34f"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34e"' in version_lines
 elif 'APP_VERSION = "v19.22.0-rc16.34g"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34f"' in version_lines
-else:
+elif 'APP_VERSION = "v19.22.0-rc16.34h"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34g"' in version_lines
+else:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34h"' in version_lines
 
 market_universe = (ROOT / "market_universe.py").read_text(encoding="utf-8")
 assert "def production_market_scope_options(" in market_universe
