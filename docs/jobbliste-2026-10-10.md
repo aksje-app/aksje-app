@@ -110,3 +110,16 @@ Detaljer og grenser: `work-progress-superfund-34k.md`.
 - [ ] Fysisk iPhone/Safari-delingskontroll og navigasjon etter deploy. Deploy utfører brukeren.
 
 Kode og testgrunnlag: `quality-turnaround-report-return-34l.md`. Merge/deploy er ikke utført i denne jobben.
+
+## RC16.34m – Superfond Topp 25 og mobiltekst (GO mottatt)
+
+- Topp 25 fra hele det vurderte utvalget; deduplisering på ISIN før visningsgrensen.
+- Navn, type, investeringsområde, registreringsland, forvalterland og avkastningsvaluta med tydelig kilde/mangel.
+- Gruppevisning etter kategori og valuta, separate kategori- og topp-ranger.
+- Lesbare kort, lenker, datoer og rådiagnoser i alle Superfond-menyer.
+- Navn og behandlingstid på ventende modellordre; faktisk kapasitet fra jobbdiagnosen.
+- Forklaring på poeng, valutabegrensning, konsentrasjon, RSS-relevans og læringsfremdrift.
+- Samme identitet og Topp 25 i rapporter; uendrede modellkjøpsregler og ressursbudsjetter.
+- Automatiserte regresjons- og nettleserkontroller; dokumentasjon i `superfond-top25-mobile-34m.md`.
+
+Ny PR opprettes etter lokal verifisering. Merge og deploy krever senere instruksjon; deploy utføres av brukeren.
