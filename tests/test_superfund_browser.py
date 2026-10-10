@@ -99,6 +99,7 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
         p.get_by_role('heading',name='Start',exact=True).wait_for()
         p.locator('.st-key-aa_mobile_nav_superfund button').click()
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        p.locator('.sf-tag').first.wait_for(state='visible')
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
         p.screenshot(path=f'dist/browser/superfund-first-tap-{width}.png')
         browser.close()

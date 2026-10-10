@@ -55,6 +55,7 @@ def _render_superfund(st):
         from navigation_state import set_global_navigation_state
         set_global_navigation_state(st,nav='superfund',group='Fond',panel='Superfond',tab=st.session_state['sf_section'],subtab='')
     st.selectbox('Vis område',sections,key='sf_section',on_change=remember_section)
+    st.session_state['sf_saved_section']=st.session_state['sf_section']
     for title in sections:
         with st.expander(title,expanded=title==st.session_state['sf_section']):
             if title=='Portefølje':
