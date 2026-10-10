@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-APP_VERSION = "v19.22.0-rc16.34i"
-APP_VERSION_NAME = "Portfolio Evidence & Controlled Learning"
+APP_VERSION = "v19.22.0-rc16.34j"
+APP_VERSION_NAME = "Superfond Portfolio & Coordinated Runtime"
 APP_BUILD_LABEL = APP_VERSION
 PREVIOUS_MINOR_APP_VERSION = "v18.8.9"
-PREVIOUS_APP_VERSION = "v19.22.0-rc16.34h"
+PREVIOUS_APP_VERSION = "v19.22.0-rc16.34i"
 
 # Independent compatibility contracts. These change only when their own
 # serialised or behavioural contract changes, not for every app release.

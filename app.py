@@ -9377,6 +9377,12 @@ def _clear_control_center_nav_state_v18663() -> None:
 def _apply_nav_target_v18658(nav: str) -> bool:
     """Apply one canonical navigation target to all known control-center keys."""
     nav = str(nav or "").strip().lower()
+    if nav == "superfund":
+        st.session_state["active_nav_target_v18674c"] = "superfund"
+        st.session_state["ai_control_center_last_applied_nav_v19016"] = "superfund"
+        st.session_state["ai_control_center_force_nav_v18663"] = "superfund"
+        set_global_navigation_state(st, nav="superfund", group="Fond", panel="Superfond", tab="")
+        return True
     direct_super_portfolio = nav in {"super_portfolio", "superportfolio"}
     if direct_super_portfolio:
         nav = "market"
@@ -9627,6 +9633,12 @@ if use_v2_shell():
     inject_design_system(st, module=_ab_route)
     render_shell(st, _ab_route, {})
 render_sidebar_clock_v19220_rc163(st)
+
+# Superfond is a direct route; no legacy panel radio may overwrite it.
+if str(st.session_state.get("active_nav_target_v18674c") or "").lower() == "superfund":
+    from pages.superfund import render_superfund
+    render_superfund(st)
+    st.stop()
 
 # RC16.34b: Super Portfolio is a true first-class Market page.
 # Do not route it through the generic control-center selector: that path can be

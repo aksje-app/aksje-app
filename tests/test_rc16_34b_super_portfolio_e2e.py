@@ -14,7 +14,7 @@ def _source(path: str) -> str:
 
 
 def test_release_identity_rc16_34b():
-    assert APP_VERSION in {"v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d", "v19.22.0-rc16.34e", "v19.22.0-rc16.34f", "v19.22.0-rc16.34g", "v19.22.0-rc16.34h", "v19.22.0-rc16.34i"}
+    assert APP_VERSION in {"v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d", "v19.22.0-rc16.34e", "v19.22.0-rc16.34f", "v19.22.0-rc16.34g", "v19.22.0-rc16.34h", "v19.22.0-rc16.34i", "v19.22.0-rc16.34j"}
     if APP_VERSION == "v19.22.0-rc16.34b":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34a"
     elif APP_VERSION == "v19.22.0-rc16.34c":
@@ -29,8 +29,10 @@ def test_release_identity_rc16_34b():
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34f"
     elif APP_VERSION == "v19.22.0-rc16.34h":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34g"
-    else:
+    elif APP_VERSION == "v19.22.0-rc16.34i":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34h"
+    else:
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34i"
 
 
 def test_super_portfolio_is_canonical_market_route():

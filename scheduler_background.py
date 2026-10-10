@@ -90,6 +90,10 @@ def _run_due_jobs_coordinated(*, authoritative_unattended: bool = False) -> list
         return list(run_due_jobs() or [])
 
 
+from resource_coordinator import coordinated
+
+
+@coordinated("report_scheduler")
 def run_scheduler_cycle(*, authoritative_unattended: bool = False, already_coordinated: bool = False) -> dict[str, Any]:
     """Run one durable due-job check with a complete structured trace."""
     global _STATUS

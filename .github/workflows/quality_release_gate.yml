@@ -107,6 +107,7 @@ jobs:
             tests/test_mobile_approval_interactions.py \
             tests/test_portfolio_learning_validation.py \
             tests/test_learning_runtime.py \
+            tests/test_superfund_v1.py \
             tests/test_rc16_31aa_snapshot_repository_memory.py \
             tests/test_rc16_31o_exit_policy.py \
             tests/test_market_policy_and_target_consistency.py \
@@ -136,13 +137,13 @@ jobs:
         env:
           PYTHONPATH: .
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
-        run: pytest -q tests/test_entry_exit_postgres.py
+        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py
       - name: Build FULL and clean DELTA packages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist delta_root
-          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34i_FULL.zip HEAD
+          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34j_FULL.zip HEAD
 
           BASE_REF="${{ github.base_ref }}"
           if [ -z "$BASE_REF" ]; then BASE_REF="main"; fi
@@ -161,28 +162,28 @@ jobs:
 
           (
             cd delta_root
-            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34i_DELTA.zip .
+            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34j_DELTA.zip .
           )
-          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34i_FULL.zip \
-                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34i_DELTA.zip \
-            > dist/SHA256SUMS_RC16.34i.txt
+          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34j_FULL.zip \
+                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34j_DELTA.zip \
+            > dist/SHA256SUMS_RC16.34j.txt
 
           echo "Clean DELTA files:"
           cat dist/changed_files_delta.txt
       - name: Upload FULL package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34i_FULL
+          name: AI_Aksje_Analyzer_RC16.34j_FULL
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34i_FULL.zip
-            dist/SHA256SUMS_RC16.34i.txt
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34j_FULL.zip
+            dist/SHA256SUMS_RC16.34j.txt
           if-no-files-found: error
       - name: Upload clean DELTA package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34i_DELTA
+          name: AI_Aksje_Analyzer_RC16.34j_DELTA
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34i_DELTA.zip
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34j_DELTA.zip
             dist/changed_files_delta.txt
-            dist/SHA256SUMS_RC16.34i.txt
+            dist/SHA256SUMS_RC16.34j.txt
           if-no-files-found: error

@@ -275,6 +275,10 @@ def _worker_is_alive(status: Mapping[str, Any]) -> bool:
 
 def recover_stale_job(*, stale_after_seconds: int = 900, now: datetime | None = None) -> dict[str, Any]:
     status = get_job()
+    if status.get("state") == "QUEUED" and status.get("phase") == "WAITING_RESOURCE":
+        # An exited worker waiting on the common lane is a resumable request,
+        # not a crashed active computation. Cron claims its existing token.
+        return status
     if str(status.get("state") or "") not in ACTIVE_STATES:
         return status
     reference = now or datetime.now(timezone.utc)
@@ -325,6 +329,9 @@ def _scheduled_job_due(now: datetime | None = None) -> tuple[bool, str]:
 def run_or_resume_scheduled_job(now: datetime | None = None) -> dict[str, Any]:
     """Claim and finish a due SP job inside the finite Render Cron process."""
     recovered = recover_stale_job(now=now)
+    if str(recovered.get("state") or "") == "QUEUED":
+        from super_portfolio_worker import run_claimed_job
+        return dict(run_claimed_job(str(recovered["job_id"]), str(recovered["execution_token"])) or {})
     if str(recovered.get("state") or "") in ACTIVE_STATES:
         return {
             "state": "ALREADY_RUNNING", "job_id": str(recovered.get("job_id") or ""),
