@@ -64,5 +64,5 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
         p.screenshot(path=f'dist/browser/superfund-{width}.png',full_page=True)
         assert not problems,problems
-        assert p.get_by_text('1725.7',exact=True).count()==1
+        assert p.locator('.sf-card').get_by_text('1725.7',exact=True).count()==1
         browser.close()
