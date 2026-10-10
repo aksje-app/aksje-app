@@ -13,7 +13,7 @@ pytestmark=pytest.mark.skipif(os.getenv('SF_BROWSER_TEST')!='1',reason='Browser 
 @pytest.fixture(scope='module')
 def server():
     env={**os.environ,'PYTHONPATH':'.'}
-    process=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/superfund_ui_fixture.py','--server.port=8599','--server.headless=true','--browser.gatherUsageStats=false'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    process=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/superfund_ui_fixture.py','--server.port=8599','--server.headless=true','--browser.gatherUsageStats=false','--theme.base=dark'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
         for _ in range(100):
             try:
@@ -33,6 +33,9 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
         p.goto(server)
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
         p.locator('.sf-card').first.wait_for()
+        Path('dist/browser').mkdir(parents=True,exist_ok=True)
+        p.locator('.sf-card').first.scroll_into_view_if_needed()
+        p.screenshot(path=f'dist/browser/superfund-pending-{width}.png')
         # Streamlit renders collapsed content too; expand the complete menu set.
         for label in ['Kandidater','Rapporter og nedlastinger','Nyheter og kilder','Læring og skygge','Parametre','Diagnoser']:
             p.locator('[data-testid="stExpander"] summary').filter(has_text=label).first.click()
@@ -62,7 +65,9 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
           return errors;
         }''')
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
-        p.screenshot(path=f'dist/browser/superfund-{width}.png',full_page=True)
+        p.screenshot(path=f'dist/browser/superfund-diagnoses-{width}.png')
+        p.get_by_role('heading',name='Topp 25 · grunnkrav oppfylt',exact=True).scroll_into_view_if_needed()
+        p.screenshot(path=f'dist/browser/superfund-top25-{width}.png')
         assert not problems,problems
         assert p.locator('.sf-card').get_by_text('1725.7',exact=True).count()==1
         browser.close()
