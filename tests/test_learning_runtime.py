@@ -244,3 +244,25 @@ def test_disk_backed_search_validates_manifest_and_chronological_splits(tmp_path
     (tmp_path / 'manifest.json').write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match='manifest checksum'):
         FrameDataset(tmp_path)
+
+
+def test_sp_forward_early_loss_uses_recorded_entry_date(monkeypatch):
+    import super_portfolio as sp
+    from tests.test_program_audit_candidate_fallback import candidate
+    def make(i, price):
+        at = frame(i)['at']
+        row = candidate('AAA'); row['price'] = price; row['raw']['last_price'] = price
+        value = {'engine': 'SUPER_PORTFOLIO', 'at': at, 'run_id': str(i),
+            'config': asdict(sp.SuperPortfolioConfig()),
+            'pipeline': {'run_id': str(i), 'created_at': at, 'candidates': [row],
+                         'market_activation_levels': {'USA': 'PRODUCTION'}}}
+        value['config'].update(target_positions=1, production_market_scopes=['USA'])
+        value['sha256'] = checksum(value)
+        return value
+    state = lr.process_forward_frame(make(0, 105))
+    for i in range(1, 4):
+        state = lr.process_forward_frame(make(i, 105 if i < 3 else 95), state)
+    baseline = state['accounts'][0]
+    assert baseline['early_loss_count'] == baseline['early_loss_measured_exits'] == 1
+    assert baseline['closed_pnl'] is None
+    assert baseline['costs'] > 0

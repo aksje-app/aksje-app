@@ -51,8 +51,8 @@ Dette viser hvor data ligger nå, ikke hele årsaken til økningen fra 46–48 %
 ## Validering
 
 - Release-kontrakter: bestått.
-- Release-regresjon: 358 tester bestått etter videreføringen.
-- Aktiv uversjonert suite: 157 bestått, tre PostgreSQL-tester hoppet over lokalt (ingen lokal PostgreSQL URL). CI kjører PostgreSQL roundtrips, inkludert samtidige historikkinnskrivinger og restart.
+- Release-regresjon: 359 tester i den endelige regresjonsporten.
+- Aktiv uversjonert suite: 158 tester i den endelige aktive suiten, tre PostgreSQL-tester kjøres bare i CI (ingen lokal PostgreSQL URL). CI kjører PostgreSQL roundtrips, inkludert samtidige historikkinnskrivinger og restart.
 - Nye scenarioer: uforanderlig kjøpsbevis, shipping, separate stopblokker, prosentnevner, absolutt/relativ læring, nullgruppe, temporal embargo, begrenset søk, holdout-uavhengighet, kjøp og risikosalg uten produksjons-I/O, låst forwardplan, avgrenset legacy-oppslag.
 - PDF-er generert og første side av begge visuelt kontrollert: ingen overlapp i de nye seksjonene.
 - CLI kjørt i separat prosess med syntetisk testdatasett: tre forsøk, fullført, produksjon uendret. Dette er programverifisering, ikke et lønnsomhetsresultat.

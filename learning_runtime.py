@@ -59,7 +59,7 @@ def archive(frame):
     frame.setdefault('at', datetime.now(timezone.utc).isoformat())
     frame['sha256'] = checksum({k:v for k,v in frame.items() if k != 'sha256'})
     validate(frame)
-    raw = json.dumps(frame, ensure_ascii=False, default=str).encode()
+    raw = json.dumps(frame, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str).encode()
     if len(raw) > MAX_FRAME_BYTES:
         raise ValueError('Historical frame exceeds 8 MiB budget')
     packed = {'sha256': frame['sha256'], 'gzip_base64': base64.b64encode(gzip.compress(raw, mtime=0)).decode()}
@@ -195,9 +195,22 @@ def _step(frame, parameters, state):
     if not state.get('last_full_assessment_at'):
         state['initial_cash'] = state['config']['start_cash']
         state['portfolio_value'] = state['initial_cash']
+    previous = deepcopy(state.get('positions') or {})
     result = evaluate(pipeline=deepcopy(frame['pipeline']), simulation_state=state,
         persist=False, now=validate(frame), rebalance_policy='AUTO')
-    return result['state'], result['state']['portfolio_value'], result.get('changes', [])
+    changes = deepcopy(result.get('changes', []))
+    at = validate(frame)
+    for trade in changes:
+        position = previous.get(trade.get('ticker'), {})
+        if trade.get('action') == 'SELL' and position.get('entry_date'):
+            opened = datetime.fromisoformat(position['entry_date'].replace('Z', '+00:00'))
+            from datetime import timedelta
+            cursor, count = opened.date(), 0
+            while cursor <= at.date():
+                count += cursor.weekday() < 5
+                cursor += timedelta(days=1)
+            trade['holding_days'] = max(0, count - 1)
+    return result['state'], result['state']['portfolio_value'], changes
 
 
 def process_forward_frame(frame, current=None):
@@ -234,12 +247,13 @@ def process_forward_frame(frame, current=None):
             'maximum_drawdown_pct': max(old.get('maximum_drawdown_pct', 0), 100 * (peak - equity) / peak),
             'costs': costs, 'net_return_pct': 100 * ((equity - costs if frame['engine'] == 'AUTONOMY' else equity) / initial - 1),
             'trade_count': old.get('trade_count', 0) + len(trades),
-            'early_loss_count': old.get('early_loss_count', 0) + sum(t.get('pnl', 0) < 0 and t.get('holding_days', 999) < 3 for t in sales),
+            'early_loss_count': old.get('early_loss_count', 0) + sum((t.get('pnl_pct') or 0) < 0 and t.get('holding_days', 999) < 3 for t in sales),
             'cash_pct': (100 * state['portfolio']['cash'] / equity if frame['engine'] == 'AUTONOMY' else float((state.get('vacancy_diagnostics') or {}).get('cash_pct', 100))),
-            'closed_pnl': old.get('closed_pnl', 0) + sum(t.get('pnl', 0) for t in sales),
+            'closed_pnl': (old.get('closed_pnl', 0) + sum(t.get('pnl', 0) for t in sales) if frame['engine'] == 'AUTONOMY' else None),
+            'early_loss_measured_exits': old.get('early_loss_measured_exits', 0) + sum(t.get('pnl_pct') is not None and t.get('holding_days') is not None for t in sales),
             'exits': old.get('exits', 0) + len(sales),
             'peak_gain_sum_pct': old.get('peak_gain_sum_pct', 0) + sum(t.get('peak_gain_pct') or 0 for t in sales),
-            'retained_gain_sum_pct': old.get('retained_gain_sum_pct', 0) + sum(max(0, t.get('pnl_pct') or 0) for t in sales),
+            'retained_gain_sum_pct': old.get('retained_gain_sum_pct', 0) + sum(max(0, t.get('pnl_pct') or 0) for t in sales if t.get('peak_gain_pct') is not None),
             'retention_measured_exits': old.get('retention_measured_exits', 0) + sum(t.get('peak_gain_pct') is not None for t in sales)})
     dates = sorted(set(current['dates'] + ([frame['at'][:10]] if validate(frame).weekday() < 5 else [])))
     if len(json.dumps(accounts, default=str).encode()) > 8 * 1024**2:
