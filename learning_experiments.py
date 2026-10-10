@@ -6,7 +6,7 @@ filled with today's news, classifications, prices or configuration.
 """
 from __future__ import annotations
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import random
@@ -43,13 +43,15 @@ def compact_candidates(rows):
         result.append(value)
     return result
 
-def record_frame(pipeline, *, config, preselection=None, deep_candidates=None):
+def record_frame(pipeline, *, config, preselection=None, deep_candidates=None, captured_at=None):
     """Small ring of exports, not a claim of a complete historical universe."""
     from durable_runtime import read_json, write_json
     from storage_architecture import runtime_data_path
     path = runtime_data_path("controlled_learning", "experiment_frames.json")
     from market_universe import MARKET_ACTIVATION_LEVELS
-    frame = {"engine": "SUPER_PORTFOLIO", "at": pipeline.get("created_at"),
+    # A scan may take minutes: quotes collected after its start are available
+    # only at capture completion, never at the pipeline's earlier start time.
+    frame = {"engine": "SUPER_PORTFOLIO", "at": captured_at or datetime.now(timezone.utc).isoformat(),
              "run_id": pipeline.get("run_id"), "config": dict(config),
              "pipeline": {k: deepcopy(pipeline[k]) for k in ("run_id", "created_at", "summary", "confidence", "regime") if k in pipeline},
              "preselection": compact_candidates(preselection or []),

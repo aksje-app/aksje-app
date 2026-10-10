@@ -7,7 +7,7 @@ from pypdf import PdfReader
 import super_portfolio as sp
 import learning_observation_engine as learning
 from portfolio_evidence import rank_text, stop_alert_text, retention_explanation
-from learning_experiments import checksum, combinations, chronological_split, run_search, replay_super_portfolio, compact_candidates, create_forward_plan, evaluate_forward_plan
+from learning_experiments import checksum, combinations, chronological_split, run_search, replay_super_portfolio, compact_candidates, create_forward_plan, evaluate_forward_plan, record_frame, validate_frames
 
 def test_entry_rank_and_score_are_immutable_and_legacy_stays_unknown():
     row = {"ticker": "HAFNI.OL", "rank": 8, "price": 100, "portfolio_score_adjusted": 70}
@@ -134,3 +134,24 @@ def test_forward_plan_is_frozen_and_cannot_relabel_historical_data():
     future_plan["sha256"] = checksum({k: v for k, v in future_plan.items() if k != "sha256"})
     with pytest.raises(ValueError, match="Historical"):
         evaluate_forward_plan(future_plan, frames(3))
+
+
+def test_capture_uses_completion_time_not_scan_start_and_keeps_rejected_evidence(monkeypatch):
+    import durable_runtime
+    stored = []
+    monkeypatch.setattr(durable_runtime, "read_json", lambda *a: [])
+    def write(key, path, value):
+        stored.extend(value)
+        return True
+    monkeypatch.setattr(durable_runtime, "write_json", write)
+    quote = {"ticker": "AAA", "price": 100, "price_timestamp": "2026-10-10T12:04:00+00:00"}
+    pipeline = {"run_id": "RUN", "created_at": "2026-10-10T12:00:00+00:00", "candidates": [quote]}
+    rejected = {**quote, "ticker": "REJECTED", "official_market_events": [{"id": "KNOWN_EVENT"}]}
+    result = record_frame(pipeline, config=asdict(sp.SuperPortfolioConfig()),
+                          preselection=[rejected], deep_candidates=[rejected, quote],
+                          captured_at="2026-10-10T12:05:00+00:00")
+    assert result["status"] == "CAPTURED"
+    validate_frames(stored)
+    assert stored[0]["at"] > quote["price_timestamp"] > pipeline["created_at"]
+    assert stored[0]["preselection"][0]["official_market_events"][0]["id"] == "KNOWN_EVENT"
+    assert len(stored[0]["deep_candidates"]) == 2
