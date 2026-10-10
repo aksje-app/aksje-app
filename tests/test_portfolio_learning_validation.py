@@ -75,11 +75,15 @@ def test_parameter_budget_is_bounded_without_enumerating_grid():
 
 def test_holdout_never_selects_the_winner():
     calls = []
+    data = frames()
+    holdout_start = chronological_split(data)[2][0]["at"]
     def evaluate(part, params):
         calls.append((part[0]["at"], deepcopy(params)))
-        return {"net_return_pct": params.get("minimum_score", 0), "maximum_drawdown_pct": 0}
+        score = params.get("minimum_score", 0)
+        return {"net_return_pct": -score if part[0]["at"] == holdout_start else score, "maximum_drawdown_pct": 0}
     result = run_search(frames(), {"minimum_score": [60, 70, 80]}, evaluator=evaluate, finalists=1)
     assert result["finalists"][0]["parameters"]["minimum_score"] == 80
+    assert result["finalists"][0]["holdout"]["net_return_pct"] == -80
     assert result["trial_count"] == 3 and not result["production_approval_available"]
 
 def test_replay_never_reads_or_writes_production(monkeypatch):
