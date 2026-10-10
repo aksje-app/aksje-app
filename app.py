@@ -9262,7 +9262,7 @@ def _query_params_plain_v18646() -> dict:
 
 def _mobile_nav_href_v18646(nav: str) -> str:
     params = _query_params_plain_v18646()
-    for key in ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab", "panel", "tab", "subtab"):
+    for key in ("aa_nav", "aa_group", "aa_panel", "aa_tab", "aa_subtab", "panel", "tab", "subtab", "qv_reports", "qv_report_run"):
         params.pop(key, None)
     params["mobile_nav"] = str(nav)
     return "?" + urlencode(params)
@@ -9641,6 +9641,11 @@ def _render_live_work_status():
 _render_live_work_status()
 
 # Superfond is a direct route; no legacy panel radio may overwrite it.
+if _ab_route == "quality" and str(st.query_params.get("qv_reports") or "") == "1":
+    from quality_valuation_ui import render_quality_report_return
+    render_quality_report_return(st)
+    st.stop()
+
 if str(st.session_state.get("active_nav_target_v18674c") or "").lower() == "superfund":
     from pages.superfund import render_superfund
     render_superfund(st)

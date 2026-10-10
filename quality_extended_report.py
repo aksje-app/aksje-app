@@ -31,7 +31,7 @@ def _compact_number(value: Any) -> str:
 
 
 def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
-    from quality_valuation import ensure_valuation_context
+    from quality_valuation import ensure_valuation_context, QUALITY_MODEL_VERSION
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
     from reportlab.lib import colors
@@ -194,7 +194,7 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
             pdf.drawCentredString(x, base - 8, _safe(label)[:9])
             shown = f"{value:.1f}%" if percent else (_compact_number(value) if compact else f"{value:.2f}".rstrip("0").rstrip("."))
             pdf.drawCentredString(x, py + 4, _safe(shown)[:14])
-        return base - 13
+        return base - 22
 
     rows = _all_rows(result)
     shadow = result.get("quality_v2_shadow") or {}
@@ -203,7 +203,7 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
 
     y = header(
         "Utvidet kvalitet og verdsettelse",
-        f"Generert {result.get('generated_at') or '-'} - aktiv quality_v1.3 - V2 shadow",
+        f"Generert {result.get('generated_at') or '-'} - aktiv {result.get('model_version') or QUALITY_MODEL_VERSION} - V2 shadow",
     )
     y = text(y, "Dokumentasjon av analysegrunnlaget. Scenario er sammenligning, ikke kursmål eller kjøpsordre.", bold=True)
     y = text(y, f"Marked: undersøkt {result.get('market_examined_count') or '-'} / {result.get('market_universe_count') or '-'} - full dekning: {'JA' if result.get('market_coverage_complete') else 'NEI'}")
@@ -314,6 +314,10 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
 
         warnings = list(item.get("warnings") or [])
         y = text(y, f"Vurderingsårsak: {item.get('review_reason_category') or '-'}", bold=True, size=7.5)
+        y = text(y, f"Datagrunnlag: {item.get('data_status') or '-'}; mangler: {', '.join(item.get('missing_data_checks') or []) or 'ingen obligatoriske felt'}", size=6.3)
+        turnaround = item.get("turnaround") or {}
+        y = text(y, f"Nyere forbedring (shadow): {turnaround.get('status') or 'IKKE VURDERT'} - {turnaround.get('period_end') or '-'} mot {turnaround.get('comparison_period_end') or '-'}", size=6.3)
+        y = text(y, f"Primærkilde: {turnaround.get('primary_filing_status') or 'NOT_VERIFIED'}; kilde-/hendelsesdekning i diagnose.", size=6.3)
         for warning in warnings[:3]:
             y = text(y, f"- {warning}", size=6.3)
         if len(warnings) > 3:
@@ -322,4 +326,4 @@ def build_extended_analysis_pdf(result: Mapping[str, Any]) -> bytes:
     pdf.save()
     from pdf_mobile_return import add_pdf_return_links
     from public_report_ui import _absolute_report_return_url
-    return add_pdf_return_links(out.getvalue(), return_url=_absolute_report_return_url("quality_reports"))
+    return add_pdf_return_links(out.getvalue(), return_url=_absolute_report_return_url("quality_reports", str(result.get("run_key") or "")))

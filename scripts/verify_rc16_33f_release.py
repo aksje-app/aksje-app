@@ -12,7 +12,7 @@ for p in paths:
 assert ('APP_VERSION = "v19.22.0-rc16.33f"' in src["app_version.py"]
         or 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.33f"' in src["app_version.py"]
         or "rc16.33f" in src["app_version.py"])
-assert 'quality_v1.3@1.3' in src["quality_valuation.py"]
+assert any(v in src["quality_valuation.py"] for v in ('quality_v1.3@1.3', 'quality_v1.4@1.4'))
 for policy in ('"FINANCIAL"', '"REAL_ESTATE"', '"CYCLICAL"', '"CAPITAL_INTENSIVE"', '"STANDARD"'):
     assert policy in src["quality_valuation.py"]
 assert "GRADE_COLORS" in src["quality_valuation.py"]

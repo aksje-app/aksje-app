@@ -117,6 +117,7 @@ def persist_screen(result: dict[str, Any]) -> str:
     new = {name: {row["ticker"] for row in (result.get("groups") or {}).get(name, [])}
            for name in old}
     comparable = (bool(previous) and previous.get("state") == result.get("state") == "COMPLETED"
+                  and previous.get("model_version") == result.get("model_version")
                   and previous.get("assumed_pe") == result.get("assumed_pe")
                   and set(previous.get("selected_symbols") or []) == set(result.get("selected_symbols") or []))
     changes = ({"comparable": True,
@@ -156,6 +157,13 @@ def persist_screen(result: dict[str, Any]) -> str:
                 "group_changed": str(old_row.get("group") or "") != str(group_name or ""),
             }
     snapshot = {**result, "run_key": run_key, "changes": changes}
+    if snapshot.get("run_mode") == "SCHEDULED_SHADOW":
+        try:
+            from quality_turnaround_shadow import record, summary
+            snapshot["turnaround_shadow"] = summary(record(snapshot))
+        except Exception as exc:
+            snapshot["turnaround_shadow"] = {"status": "UNAVAILABLE", "error": type(exc).__name__, "production_effect": False}
+    snapshot.pop("turnaround_shadow_prices", None)  # transient quote reuse; never duplicate the universe in DB
     # Only completed/partial bounded runs. A failed latest write leaves the
     # immutable run accessible in storage diagnostics, never a false success.
     write_json(run_key, _path(run_key), snapshot)
@@ -175,6 +183,15 @@ def persist_screen(result: dict[str, Any]) -> str:
         # Oversight failure cannot corrupt the active quality result.
         pass
     return run_key
+
+
+def load_run(key: str) -> dict[str, Any]:
+    """Allow only immutable screen keys, not arbitrary storage paths."""
+    import re
+    if not re.fullmatch(r"quality_valuation/runs/\d{8}T\d{12}", str(key or "")):
+        return {}
+    value = read_json(key, _path(key), {})
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def preview_expired_run_keys(names: list[str], *, days: int = 90, now: datetime | None = None) -> list[str]:

@@ -62,6 +62,8 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
         except Exception:
             pass
         try:
+            for key in ("qv_reports", "qv_report_run"):
+                st_module.query_params.pop(key, None)
             st_module.query_params["aa_nav"] = target
         except Exception:
             pass

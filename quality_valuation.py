@@ -17,6 +17,7 @@ import time
 
 MAX_SYMBOLS = 20
 MAX_SECONDS = 180
+QUALITY_MODEL_VERSION = "quality_v1.4@1.4"
 GROUPS = ("Attraktivt priset kandidat", "Kvalitetsselskap", "Dyr kvalitet / følges")
 PROXY_BY_INDUSTRY = {
     "oil": ("Brent", "Europeisk gass"),
@@ -289,6 +290,8 @@ def _apply_grade(item: dict[str, Any]) -> None:
         cap = min(cap, 2)
     if quality_state == "INSUFFICIENT":
         cap = min(cap, 2)
+    elif quality_state == "WEAK":
+        cap = min(cap, 2)
 
     weighted = quality_score * .35 + valuation_score * .25 + trend_score * .20 + data_score * .20
     stars = max(1, min(cap, int(math.floor(weighted + .5))))
@@ -297,6 +300,8 @@ def _apply_grade(item: dict[str, Any]) -> None:
     if stars >= 5 and min(quality_score, valuation_score, trend_score, data_score) < 4:
         stars = 4
     label = {5: "Svært sterk", 4: "Sterk", 3: "Middels", 2: "Svak", 1: "Svært svak"}[stars]
+    if quality_state in {"INSUFFICIENT", "SECTOR_METRIC_REQUIRED"}:
+        label = "Ufullstendig grunnlag"
 
     weakest_name, weakest_score = min(
         (("kvalitet", quality_score), ("prising", valuation_score), ("trend", trend_score), ("datagrunnlag", data_score)),
@@ -369,15 +374,18 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
     annual_eps = [n for n in (_number(x) for x in (raw.get("annual_eps") or [])) if n is not None][:10]
     reported_eps = _positive(raw.get("trailing_eps"))
     forward_eps = _positive(raw.get("forward_eps"))
-    normalized_eps = median(annual_eps[:5]) if len(annual_eps) >= 3 and median(annual_eps[:5]) > 0 else None
+    earnings_median = median(annual_eps[:5]) if len(annual_eps) >= 3 else None
+    normalized_eps = earnings_median if earnings_median is not None and earnings_median > 0 else None
     financial_date = _effective_financial_date(raw)
     financial_age = (now - financial_date).days if financial_date else None
     warnings: list[str] = list(raw.get("provider_warnings") or [])
 
     if financial_age is None or financial_age < 0 or financial_age > 480:
         warnings.append("Regnskapets dato mangler eller er for gammel til en verdsettelse.")
-    if not normalized_eps:
+    if earnings_median is None:
         warnings.append("Mangler tre sammenlignbare årsresultater med positiv normalisert inntjening.")
+    elif earnings_median <= 0:
+        warnings.append("Historisk median EPS er null eller negativ. Data finnes, men positiv P/E-verdsettelse kan ikke beregnes.")
     if price is None:
         warnings.append("Kurs mangler.")
 
@@ -449,15 +457,16 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         raise ValueError("Valgt P/E-forutsetning må være mellom 4 og 40")
 
     date_ok = financial_age is not None and 0 <= financial_age <= 480
+    fcf_available = fcf is not None or bool(fcf_history)
     fcf_supports = ((fcf_positive_ratio is not None and fcf_positive_ratio >= .60)
                     or (fcf_positive_ratio is None and fcf is not None and fcf > 0))
 
     review_reason_category = "QUALITY_WEAK"
     capital_return_method = ""
     if policy == "FINANCIAL":
-        enough = bool(price and normalized_eps and len(roe_history) >= 3 and median_roe is not None and date_ok)
+        enough = bool(price and earnings_median is not None and len(roe_history) >= 3 and median_roe is not None and date_ok)
         improving = roe_trend == "FORBEDRENDE" and latest_roe is not None and latest_roe >= .12
-        quality_ok = bool(enough and ((median_roe is not None and median_roe >= .10) or improving))
+        quality_ok = bool(enough and normalized_eps and ((median_roe is not None and median_roe >= .10) or improving))
         quality_state = (
             "INSUFFICIENT" if not enough else
             "IMPROVING" if quality_ok and roe_trend == "FORBEDRENDE" else
@@ -476,13 +485,13 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         capital_return_method = "Eiendom krever FFO/AFFO og/eller NAV samt balanse/rentedekning; P/E alene brukes ikke som kvalitetssignal."
         review_reason_category = "SECTOR_METRIC_REQUIRED"
     elif policy == "CYCLICAL":
-        enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3 and date_ok)
+        enough = bool(price and earnings_median is not None and median_roce is not None and len(roce_history) >= 3 and date_ok and fcf_available)
         latest_supports = latest_roce is not None and latest_roce >= .12
         persistent_supports = median_roce is not None and median_roce >= .09
         improving_supports = roce_trend == "FORBEDRENDE" and latest_supports
         cyclical_fcf = ((fcf_positive_ratio is not None and fcf_positive_ratio >= .50)
                         or (fcf_positive_ratio is None and fcf is not None and fcf > 0))
-        quality_ok = bool(enough and cyclical_fcf and (persistent_supports or improving_supports))
+        quality_ok = bool(enough and normalized_eps and cyclical_fcf and (persistent_supports or improving_supports))
         quality_state = (
             "INSUFFICIENT" if not enough else
             "IMPROVING" if quality_ok and roce_trend == "FORBEDRENDE" else
@@ -493,13 +502,13 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         capital_return_method = "Syklisk/råvare vurderes på flerårig ROCE, FCF gjennom syklus og trend; 12% er ikke en absolutt diskvalifikasjonsgrense."
         review_reason_category = "MISSING_DATA" if not enough else ("CYCLICAL_REVIEW" if not quality_ok else "")
     elif policy == "CAPITAL_INTENSIVE":
-        enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3 and date_ok)
+        enough = bool(price and earnings_median is not None and median_roce is not None and len(roce_history) >= 3 and date_ok and fcf_available)
         latest_supports = latest_roce is not None and latest_roce >= .10
         persistent_supports = median_roce is not None and median_roce >= .08
         improving_supports = roce_trend == "FORBEDRENDE" and latest_supports
         capital_fcf = ((fcf_positive_ratio is not None and fcf_positive_ratio >= .50)
                        or (fcf_positive_ratio is None and fcf is not None and fcf > 0))
-        quality_ok = bool(enough and capital_fcf and (persistent_supports or improving_supports))
+        quality_ok = bool(enough and normalized_eps and capital_fcf and (persistent_supports or improving_supports))
         quality_state = (
             "INSUFFICIENT" if not enough else
             "IMPROVING" if quality_ok and roce_trend == "FORBEDRENDE" else
@@ -510,11 +519,11 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         capital_return_method = "Kapitalintensiv infrastruktur/utility/telekom vurderes med lavere ROCE-referanse, flerårig FCF og trend; standard 12% brukes ikke som absolutt grense."
         review_reason_category = "MISSING_DATA" if not enough else "CAPITAL_INTENSIVE_REVIEW"
     else:
-        enough = bool(price and normalized_eps and median_roce is not None and len(roce_history) >= 3 and date_ok)
+        enough = bool(price and earnings_median is not None and median_roce is not None and len(roce_history) >= 3 and date_ok and fcf_available)
         latest_supports = latest_roce is not None and latest_roce >= .12
         persistent_supports = median_roce is not None and median_roce >= .12
         improving_supports = roce_trend == "FORBEDRENDE" and latest_supports
-        quality_ok = bool(enough and fcf_supports and (persistent_supports or improving_supports))
+        quality_ok = bool(enough and normalized_eps and fcf_supports and (persistent_supports or improving_supports))
         quality_state = (
             "INSUFFICIENT" if not enough else
             "IMPROVING" if quality_ok and roce_trend == "FORBEDRENDE" else
@@ -537,6 +546,25 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         review_reason_category = "QUALITY_WEAK"
     elif quality_state == "WATCH" and not review_reason_category:
         review_reason_category = "QUALITY_REVIEW"
+
+    if enough and policy != "REAL_ESTATE" and earnings_median is not None and earnings_median <= 0:
+        quality_state = "WEAK"
+        review_reason_category = "NONPOSITIVE_HISTORICAL_EARNINGS"
+    missing_checks = []
+    if price is None:
+        missing_checks.append("PRICE")
+    if not date_ok:
+        missing_checks.append("FINANCIAL_DATE_MISSING_OR_STALE")
+    if policy != "REAL_ESTATE" and earnings_median is None:
+        missing_checks.append("THREE_ANNUAL_EPS_PERIODS")
+    if policy == "FINANCIAL" and len(roe_history) < 3:
+        missing_checks.append("THREE_ROE_PERIODS")
+    elif policy not in {"FINANCIAL", "REAL_ESTATE"} and len(roce_history) < 3:
+        missing_checks.append("THREE_ROCE_PERIODS")
+    if policy not in {"FINANCIAL", "REAL_ESTATE"} and not fcf_available:
+        missing_checks.append("FREE_CASH_FLOW")
+    if policy == "REAL_ESTATE" and not (ffo or nav):
+        missing_checks.append("FFO_AFFO_OR_NAV")
 
     fair_price = round(normalized_eps * multiple, 2) if quality_ok and normalized_eps and multiple and policy != "REAL_ESTATE" else None
     earnings_dispersion = (median([abs(value - normalized_eps) for value in annual_eps[:5]]) / normalized_eps) if normalized_eps else 0
@@ -590,6 +618,10 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         "forward_pe": round(price / forward_eps, 2) if price and forward_eps else None,
         "normalized_pe": round(pe_normal, 2) if pe_normal else None,
         "normalized_eps": round(normalized_eps, 3) if normalized_eps else None,
+        "historical_eps_median": round(earnings_median, 3) if earnings_median is not None else None,
+        "valuation_eligibility": "POSITIVE_EARNINGS" if normalized_eps else "NONPOSITIVE_EARNINGS" if earnings_median is not None else "MISSING_EARNINGS",
+        "missing_data_checks": missing_checks,
+        "data_status": "COMPLETE_FOR_MODEL" if enough else "MISSING_OR_STALE",
         "annual_eps_history": annual_eps,
         "fiscal_periods": list(raw.get("fiscal_periods") or []),
         "operating_margin_history": list(raw.get("operating_margin_history") or []),
@@ -608,10 +640,12 @@ def evaluate_company(raw: Mapping[str, Any], *, assumed_pe: float | None = None,
         "market_drivers": proxies, "verified_exposure": bool(raw.get("verified_exposure")),
         "valuation_method": valuation_method,
         "source": str(raw.get("source") or "Ukjent")[:140], "provider_partial": bool(raw.get("provider_partial")),
-        "observed_at": now.isoformat(timespec="seconds"), "model_version": "quality_v1.3@1.3",
+        "observed_at": now.isoformat(timespec="seconds"), "model_version": QUALITY_MODEL_VERSION,
     }
     _apply_grade(result)
     _enforce_semantic_consistency(result)
+    from quality_turnaround import evaluate_turnaround
+    result["turnaround"] = evaluate_turnaround(raw, as_of=now)
     return result
 
 def rank_results(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -664,7 +698,8 @@ def add_peer_context(results: list[dict[str, Any]]) -> None:
 
 def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, Any]], *, assumed_pe: float | None = None,
                progress: Callable[[dict[str, Any]], None] | None = None, deadline_seconds: int = MAX_SECONDS,
-               memory_guard: Callable[[], bool] | None = None) -> dict[str, Any]:
+               memory_guard: Callable[[], bool] | None = None,
+               market_evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
     if any(not _safe_ticker(s) for s in symbols):
         raise ValueError("Ukjent eller deaktivert marked i tickerlisten")
     selected = list(dict.fromkeys(_safe_ticker(s) for s in symbols))
@@ -690,6 +725,13 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
         try:
             row = dict(provider(ticker) or {})
             row["ticker"] = ticker
+            if market_evidence and ticker in market_evidence:
+                row["turnaround_market_evidence"] = market_evidence[ticker]
+            try:
+                from quality_filing_discovery import cached_context
+                row.update(cached_context(ticker, row))
+            except Exception:
+                row["official_announcement_coverage"] = {"status": "UNAVAILABLE"}
             active = evaluate_company(row, assumed_pe=assumed_pe)
             results.append(active)
             try:
@@ -727,5 +769,5 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
             "selected": len(selected), "selected_symbols": selected, "assumed_pe": assumed_pe,
             "completed": len(results) + len(failures), "failures": failures,
             "elapsed_seconds": round(time.monotonic() - start, 2), "cpu_seconds": round(cpu_seconds, 2),
-            "groups": rank_results(results), "quality_v2_shadow": quality_v2_shadow,
+            "groups": rank_results(results), "quality_v2_shadow": quality_v2_shadow, "model_version": QUALITY_MODEL_VERSION,
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"), "shadow_only": True}

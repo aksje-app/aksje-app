@@ -148,7 +148,9 @@ def test_pre_revenue_or_negative_earnings_company_cannot_get_high_grade():
         free_cash_flow=-50,
         free_cash_flow_history=[-50, -45, -40, -35],
     ), as_of=NOW)
-    assert row["quality_state"] == "INSUFFICIENT"
+    assert row["quality_state"] == "WEAK"
+    assert row["review_reason_category"] == "NONPOSITIVE_HISTORICAL_EARNINGS"
+    assert row["data_status"] == "COMPLETE_FOR_MODEL"
     assert row["overall_stars"] <= 2
 
 

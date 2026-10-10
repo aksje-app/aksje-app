@@ -45,5 +45,12 @@ def full_market_prescreen(tickers: Sequence[str], finalist_limit: int=20, *, pro
             if progress: progress(completed,total,ticker)
     usable=[r for r in rows if str(r.get("data_fetch_status") or "").upper() not in {"ERROR","QUARANTINED"} and r.get("last_price") not in (None,"")]
     usable.sort(key=lambda r:(float(r.get("quality_prescreen_score") or 0),len(r.get("raw_fields_available") or [])),reverse=True)
+    from quality_turnaround import reserve_watch_slots
+    try:
+        from quality_filing_discovery import discovery_tickers
+        official = discovery_tickers(usable)
+    except Exception:
+        official = set()
+    finalists, watch = reserve_watch_slots(usable, limit, official)
     failures=[r for r in rows if str(r.get("data_fetch_status") or "").upper() in {"ERROR","QUARANTINED"}]
-    return {"universe_count":total,"examined_count":len(rows),"usable_count":len(usable),"failed_count":len(failures),"coverage_complete":len(rows)==total,"complete":len(rows)==total and not failures,"stop_reason":stop_reason,"finalist_limit":limit,"finalists":[str(r.get("ticker") or "") for r in usable[:limit] if r.get("ticker")],"rows":rows}
+    return {"universe_count":total,"examined_count":len(rows),"usable_count":len(usable),"failed_count":len(failures),"coverage_complete":len(rows)==total,"complete":len(rows)==total and not failures,"stop_reason":stop_reason,"finalist_limit":limit,"finalists":[str(r.get("ticker") or "") for r in finalists if r.get("ticker")],"turnaround_discovery_tickers":watch,"turnaround_discovery_only":True,"rows":rows}

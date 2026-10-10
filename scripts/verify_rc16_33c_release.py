@@ -16,7 +16,7 @@ assert ("Last ned / del komplett kontrollpakke" in src["quality_valuation_ui.py"
         or "Åpne / del komplett kontrollpakke" in src["quality_valuation_ui.py"]
         or '"Last ned alt"' in src["quality_valuation_ui.py"])
 assert ('_absolute_report_return_url("overview")' in src["quality_valuation_ui.py"]
-        or '_absolute_report_return_url("quality_reports")' in src["quality_valuation_ui.py"])
+        or '_absolute_report_return_url("quality_reports"' in src["quality_valuation_ui.py"])
 assert ('_absolute_report_return_url("overview")' in src["quality_extended_report.py"]
-        or '_absolute_report_return_url("quality_reports")' in src["quality_extended_report.py"])
+        or '_absolute_report_return_url("quality_reports"' in src["quality_extended_report.py"])
 print("rc16.33c report-package gate OK")

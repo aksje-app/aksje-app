@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from html import escape
 
-from quality_valuation import GROUPS, MAX_SYMBOLS, ensure_valuation_context, run_screen
+from quality_valuation import GROUPS, MAX_SYMBOLS, QUALITY_MODEL_VERSION, ensure_valuation_context, run_screen
 from quality_valuation_data import isolated_financial_snapshot, memory_budget_ok, observed_driver_prices
 from quality_valuation_store import load_latest_manual, persist_screen
+from quality_turnaround import market_context
 
 
 def _printable(value: Any) -> str:
@@ -194,6 +195,10 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
             indicator(335, y + 1, "Data", item.get("data_score"))
             y -= 12
             y = write(y, str(item.get("why_now") or ""), size=6.7, x=52)
+            y = write(y, f"Datagrunnlag: {item.get('data_status') or '-'}; mangler: {', '.join(item.get('missing_data_checks') or []) or 'ingen obligatoriske felt'}", size=6.7, x=52)
+            turnaround = item.get("turnaround") or {}
+            y = write(y, f"Nyere forbedring (shadow): {turnaround.get('status') or 'IKKE VURDERT'} - {turnaround.get('period_end') or '-'} mot {turnaround.get('comparison_period_end') or '-'}", size=6.7, x=52)
+            y = write(y, f"Primærkilde: {turnaround.get('primary_filing_status') or 'NOT_VERIFIED'}; detaljgrunnlag og dekning i diagnose.", size=6.7, x=52)
             currency = item.get("currency") or ""
             entry = item.get("entry_range_scenario") or []
             entry_text = (
@@ -241,7 +246,7 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
     page.save()
     from pdf_mobile_return import add_pdf_return_links
     from public_report_ui import _absolute_report_return_url
-    return add_pdf_return_links(buffer.getvalue(), return_url=_absolute_report_return_url("quality_reports"))
+    return add_pdf_return_links(buffer.getvalue(), return_url=_absolute_report_return_url("quality_reports", str(result.get("run_key") or "")))
 
 def diagnostic_document(result: Mapping[str, Any]) -> bytes:
     """Secret-free reproducibility/audit document for active and shadow quality models."""
@@ -262,6 +267,7 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
     audit_fields = (
         "ticker", "name", "exchange", "country", "industry", "currency", "price", "group",
         "quality_state", "model_version", "sector_policy", "sector_subtype", "review_reason_category",
+        "historical_eps_median", "valuation_eligibility", "data_status", "missing_data_checks", "turnaround",
         "overall_stars", "overall_grade_label", "overall_grade_color", "quality_score", "quality_color",
         "valuation_score", "valuation_color", "trend_score", "trend_color", "data_score", "data_color",
         "grade_confidence", "why_now", "next_star_requirement", "grade_method",
@@ -294,11 +300,12 @@ def diagnostic_document(result: Mapping[str, Any]) -> bytes:
             "markets", "market_universe_count", "market_examined_count", "market_usable_count",
             "market_failed_count", "market_coverage_complete", "market_prescreen_stop_reason",
             "candidate_basis_generated_at", "candidate_basis_source", "prescreen_finalists", "holding_symbols")},
-        "active_quality_model": "quality_v1.3@1.3",
+        "active_quality_model": result.get("model_version") or QUALITY_MODEL_VERSION,
         "groups": {name: [{key: item.get(key) for key in audit_fields} for item in items]
                    for name, items in (result.get("groups") or {}).items()},
         "quality_v2_shadow": result.get("quality_v2_shadow") or {},
         "quality_v2_oversight": result.get("quality_v2_oversight") or {},
+        "turnaround_shadow": result.get("turnaround_shadow") or {"status": "NO_SCHEDULED_EXPERIMENT_IN_THIS_RUN"},
         "quality_v2_milestone_evaluation": (result.get("quality_v2_oversight") or {}).get("latest_evaluation") or {},
         "driver_prices": result.get("driver_prices") or {},
         "storage": storage,
@@ -444,8 +451,12 @@ def _quality_report_choice_cards(delivery: Mapping[str, Any]) -> str:
             False,
         ))
 
+    from urllib.parse import urlencode
+    run_query = urlencode({"qv_report_run": delivery.get("run_key")}) if delivery.get("run_key") else ""
     cards = []
     for title, description, href, recommended in choices:
+        if run_query:
+            href += "&" + run_query
         badge = (
             '<span style="font-size:.72rem;font-weight:850;letter-spacing:.08em;color:#5eead4;'
             'border:1px solid #2dd4bf;border-radius:999px;padding:.18rem .5rem">ANBEFALT</span>'
@@ -493,6 +504,7 @@ def _render_quality_report_choices(st: Any, result: Mapping[str, Any]) -> None:
             report_id = str(result.get("report_id") or result.get("run_key") or "")
             short_meta = {"report_id": report_id, "public_pdf_name": "kvalitet_verdsettelse.pdf"}
             delivery = {
+                "run_key": result.get("run_key"),
                 "short_pdf": publish_durable_pdf(short_meta, short_pdf),
                 "diagnosis": publish_durable_file(
                     diagnosis,
@@ -631,6 +643,9 @@ def render_quality_valuation(
     expanded: bool = False,
 ) -> None:
     _inject_quality_card_css(st)
+    if str(st.query_params.get("qv_reports") or "") == "1":
+        render_quality_report_return(st)
+        return
     with st.expander("Kvalitet, prising og inngangskurs · shadow", expanded=expanded):
         st.caption("Manuell observasjonsanalyse. Starter ingen handel og sender ikke Pushover. Finansdata må kontrolleres i selskapsrapporten.")
         source = st.radio("Aksjer", ["Skriv tickere", "Bruk valgt markedsutvalg"], horizontal=True, key="qv_source")
@@ -699,7 +714,8 @@ def render_quality_valuation(
                             raise RuntimeError("Ingen aksjer med brukbare markedsdata etter full markedsscreening")
                         st.session_state["quality_valuation_prescreen"] = prescreen
                     result = run_screen(analysis_selected, isolated_financial_snapshot, assumed_pe=assumed_pe,
-                                        progress=update, memory_guard=workload_safe)
+                                        progress=update, memory_guard=workload_safe,
+                                        market_evidence=market_context(prescreen) if source == "Bruk valgt markedsutvalg" else None)
                     unexpected_tickers = validate_result_tickers_within_requested_market(result, analysis_selected)
                     if unexpected_tickers:
                         raise RuntimeError(
@@ -781,6 +797,15 @@ def render_quality_valuation(
                         unsafe_allow_html=True,
                     )
                     st.caption(str(item.get("why_now") or ""))
+                    st.caption(f"Datastatus: {item.get('data_status') or 'Eldre vurdering'} · Årsak: {item.get('review_reason_category') or '-'}")
+                    if item.get("missing_data_checks"):
+                        st.write("Manglende eller foreldet grunnlag: " + ", ".join(item["missing_data_checks"]))
+                    turnaround = item.get("turnaround") or {}
+                    st.write(f"Nyere snuoperasjon · shadow: {turnaround.get('status') or 'IKKE VURDERT'}")
+                    if turnaround:
+                        st.caption(f"Periode {turnaround.get('period_end') or '-'} mot {turnaround.get('comparison_period_end') or '-'} · Kilde: {turnaround.get('source') or '-'} · Primærkilde: {turnaround.get('primary_filing_status') or '-'}")
+                        with st.expander("Grunnlag for nyere forbedring", expanded=False):
+                            st.json(turnaround)
                     metric_name = "ROE" if item.get("sector_policy") == "FINANCIAL" else "ROCE"
                     metric_value = item.get("roe_pct") if metric_name == "ROE" else item.get("roce_pct")
                     st.write(f"{metric_name}: {metric_value if metric_value is not None else '-'}%")
@@ -809,3 +834,42 @@ def render_quality_valuation(
                             rendered.append(f"- {icon} **{kind}:** {warning}")
                         st.markdown("\n".join(rendered))
         _render_quality_report_choices(st, result)
+        with st.expander("Snuoperasjoner – shadow og kontroll", expanded=False):
+            st.caption("Separat forward-test. Ingen automatisk endring av handel eller risikokrav. Kontroll av historikk skriver ikke om tidligere vurderinger.")
+            if st.button("Vis shadow-kontroll", key="qv_turnaround_shadow"):
+                from services.storage_service import get_storage_service
+                from quality_turnaround_shadow import KEY, summary
+                state = get_storage_service().read_json(KEY, {}) or {}
+                st.session_state["qv_turnaround_shadow_result"] = summary(state)
+                st.session_state["qv_turnaround_shadow_export"] = json.dumps(state, ensure_ascii=False, indent=2).encode()
+            if st.session_state.get("qv_turnaround_shadow_result"):
+                st.json(st.session_state["qv_turnaround_shadow_result"])
+                st.download_button("Last ned komplett snuoperasjons-shadow", st.session_state["qv_turnaround_shadow_export"], "snuoperasjon_shadow.json", "application/json", key="qv_turnaround_export")
+            if st.button("Kontroller lagrede klassifiseringer", key="qv_classification_audit"):
+                if required_report_busy() or not memory_budget_ok():
+                    st.info("Kontrollen venter til det er ledig kapasitet.")
+                else:
+                    from quality_classification_audit import audit_storage
+                    from services.storage_service import get_storage_service
+                    bar = st.progress(0, text="Kontrollerer lagrede vurderinger")
+                    st.session_state["qv_classification_audit_result"] = audit_storage(
+                        get_storage_service(), max_runs=500,
+                        progress=lambda done, total: bar.progress(done / max(total, 1), text=f"Kontrollerer {done}/{total} lagrede kjøringer"),
+                        memory_guard=lambda: memory_budget_ok() and not required_report_busy())
+            if st.session_state.get("qv_classification_audit_result"):
+                audit = st.session_state["qv_classification_audit_result"]
+                st.json(audit)
+                st.download_button("Last ned klassifiseringskontroll", json.dumps(audit, ensure_ascii=False, indent=2).encode(), "kvalitetskontroll.json", "application/json", key="qv_audit_export")
+
+
+def render_quality_report_return(st: Any) -> None:
+    """Restore the exact report's choices before any market selector or form."""
+    from quality_valuation_store import load_run
+    key = str(st.query_params.get("qv_report_run") or "")
+    result = load_run(key) if key else st.session_state.get("qv_result") or load_latest_manual()
+    if not result:
+        st.info("Denne vurderingen er ikke lenger tilgjengelig. Velg Kvalitet for å kjøre en ny vurdering.")
+        st.markdown('[Tilbake til Kvalitet](/?aa_nav=quality_valuation)')
+        return
+    st.session_state["qv_result"] = result
+    _render_quality_report_choices(st, result)

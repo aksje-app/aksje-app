@@ -91,3 +91,22 @@ Detaljer og testbegrensninger: `superfund-v1-34j.md`. PR #68 er merget (00bd9fb)
 - [ ] Bekreftet katalogfremdrift, cgroup-måledekning, Pushover og fysisk mobil etter deploy.
 
 Detaljer og grenser: `work-progress-superfund-34k.md`.
+
+## RC16.34l – kvalitetsgrunnlag, snuoperasjoner og rapportretur (GO mottatt)
+
+- [x] Rett fellesmodellen slik at tilgjengelige null-/negative årsresultater ikke klassifiseres som MISSING_DATA. Skill faktisk datamangel, utilstrekkelig sammenlignbar historikk og ikke-positiv normalisert inntjening; ikke beregn vanlig P/E-scenario fra ikke-positiv EPS.
+- [x] Skill datadekning fra kvalitetsgrad i UI/PDF. INSUFFICIENT skal forklares med konkrete mangler, ikke automatisk få overskriften «Svak». Vis historisk kvalitet, dokumentert forbedring og kursmomentum som separate vurderinger.
+- [ ] Kontroller lagrede vurderinger på tvers av standard-, kapitalintensiv-, syklisk- og finansmodellen. Oppgi antall berørte aksjer og konkrete årsaker; NRC brukes som eksempel, ikke som særregel.
+- [ ] Kontroller innhenting av nyere kvartals-/halvårsrapporter fra offentlige selskapskilder. Vis årsperioder, nyere rapportperiode, kilde og innhentingsstatus hver for seg; gammel årsreferanse er ikke alene bevis på manglende kvartalsdata.
+- [x] Vurder snuoperasjoner med nyere dokumenterte marginer, inntjening og kontantstrøm, uten å likestille forbedringstegn med et kjøpssignal eller automatisk løsne risikokrav.
+- [x] Regresjonstester: negativ median med komplett historikk, reelt manglende EPS/ROCE, nullinntjening, snuoperasjon med nyere forbedring og sektorforskjeller. Kontroller at rapport og utvelgelse bruker samme forklaring.
+
+- [x] Generell, lesende klassifiseringskontroll av inntil 500 lagrede kjøringer, med fremdrift, tids-/minnegrense, antall og årsaker per modell og aksje. Verktøyet er klart; produksjonsdatabasen er ikke kontrollert her.
+- [x] Nyere sammenlignbare kvartals-/halvårsdata støttes; Yahoo-kvartaler hentes isolert og kilde/tilgjengelighet vises. Nyere regnskapsmeldinger og kontrakter oppdages fra avgrenset offentlig Oslo-metadata. Tall fra primærrapportenes PDF-er blir ikke automatisk tolket eller erklært verifisert.
+- [x] Inntil fire analyseplasser reserveres for oppdagelse før finalistkuttet. Ingen risikokrav eller produksjonsordre endres.
+- [x] Avgrenset forward-shadow med låste kurver, lik kapital per valuta, eksplisitte kostnader, avkastning, målt drawdown og falske positive. Komplett kontrollgrunnlag kan lastes ned separat.
+- [x] Egen rapportdeling med tydelig reserve, og retur til samme kjørings rapportvalg før markedsvelgeren.
+- [ ] Produksjonsaudit av lagrede vurderinger, verifisert primærkildeinnhenting av nyere regnskapstall, og reelle nye shadow-resultater etter deploy.
+- [ ] Fysisk iPhone/Safari-delingskontroll og navigasjon etter deploy. Deploy utfører brukeren.
+
+Kode og testgrunnlag: `quality-turnaround-report-return-34l.md`. Merge/deploy er ikke utført i denne jobben.

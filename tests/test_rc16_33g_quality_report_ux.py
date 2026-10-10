@@ -45,7 +45,7 @@ def test_mobile_report_page_has_clear_print_action_and_no_technical_path():
         return_label="← Tilbake til rapportvalg",
     )
     assert "Skriv ut PDF" in html
-    assert "Del / åpne PDF" in html
+    assert "Åpne PDF" in html
     assert "Tilbake til rapportvalg" in html
     assert "/app/static/reports/public_report_test.pdf" in html  # href/iframe only
     assert "varig lenke" not in html
