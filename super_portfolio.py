@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
+from copy import deepcopy
+from portfolio_evidence import classification, rank_text, score_text, retention_explanation, stop_alert_text
 from io import BytesIO
 import hashlib
 import json
@@ -244,13 +246,13 @@ def _position_currency(row: Mapping[str, Any]) -> str:
 
 
 def stress_radar(positions: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    rows=list(positions)
+    rows=[dict(p, **classification(p)) for p in positions]
     scenarios=[
         ("usa_-10","🇺🇸 USA −10%",-10.0,lambda p:"USA" in str(p.get("market") or "").upper() or str(p.get("market") or "").upper()=="US"),
         ("nordics_-10","🌍 Norden −10%",-10.0,lambda p:any(x in str(p.get("market") or "").upper() for x in ("NORWAY","NORGE","SWEDEN","SVERIGE","DENMARK","DANMARK","FINLAND"))),
-        ("shipping_-30","🚢 Shipping −30%",-30.0,lambda p:any(x in str(p.get("sector") or "").upper() for x in ("SHIPPING","MARITIME","TRANSPORT"))),
-        ("energy_-20","🛢️ Energi/offshore −20%",-20.0,lambda p:any(x in str(p.get("sector") or "").upper() for x in ("ENERGY","OFFSHORE","OIL","GAS"))),
-        ("tech_-15","💻 Teknologi −15%",-15.0,lambda p:"TECH" in str(p.get("sector") or "").upper()),
+        ("shipping_-30","🚢 Shipping −30%",-30.0,lambda p:"SHIPPING" in p.get("risk_tags", [])),
+        ("energy_-20","🛢️ Energi/offshore −20%",-20.0,lambda p:"ENERGY" in p.get("risk_tags", [])),
+        ("tech_-15","💻 Teknologi −15%",-15.0,lambda p:"TECHNOLOGY" in p.get("risk_tags", [])),
         ("usd_-10","💵 USD/NOK −10%",-10.0,lambda p:_position_currency(p)=="USD"),
     ]
     out=[]
@@ -689,6 +691,7 @@ def build_super_portfolio_market_pipeline(
     force_refresh: bool = False, progress_callback: Any | None = None,
     control_callback: Any | None = None, checkpoint_callback: Any | None = None,
     job_id: str = "", event_state: Mapping[str, Any] | None = None,
+    capture_experiments: bool = True,
 ) -> dict[str, Any]:
     """Build a bounded Norden+USA candidate feed independent of production Norway-only policy.
 
@@ -706,6 +709,9 @@ def build_super_portfolio_market_pipeline(
     event_analysis = []
     event_universe = []
     event_ids = set()
+    experiment_universe = []
+    experiment_preselection = []
+    experiment_deep_candidates = []
     candidates: list[dict[str, Any]] = []
     market_stats: list[dict[str, Any]] = []
     provider_health: dict[str, dict[str, Any]] = {}
@@ -802,6 +808,8 @@ def build_super_portfolio_market_pipeline(
         if str(market) == "Norge":
             event_universe = [{k: row[k] for k in ("ticker", "symbol", "isin", "company", "name", "longName", "shortName") if k in row} for row in raw_rows]
             event_ids.update(e["id"] for events in mapped_events.values() for e in events)
+        experiment_universe.extend(dict(row, official_market_events=mapped_events.get(str(row.get("ticker") or row.get("symbol") or "").upper(), [])) for row in raw_rows)
+        experiment_preselection.extend(dict(row, official_market_events=mapped_events.get(str(row.get("ticker") or row.get("symbol") or "").upper(), [])) for row in coarse_rows)
         deep_rows = prioritize_analysis(coarse_rows, raw_rows, mapped_events, deep_limit)
         selected_event_tickers = {str(r.get("ticker") or r.get("symbol") or "").upper() for r in deep_rows if r.get("official_market_events")}
         event_analysis.extend({"ticker": ticker, "events": mapped_events[ticker], "status": "SCHEDULED_FOR_ANALYSIS" if ticker in selected_event_tickers else "DEFERRED_ANALYSIS_LIMIT"} for ticker in sorted(mapped_events))
@@ -827,6 +835,7 @@ def build_super_portfolio_market_pipeline(
             except Exception:
                 errors += 1
         scored.sort(key=lambda item: item[0], reverse=True)
+        experiment_deep_candidates.extend(row for _, row in scored)
         selected = [row for _, row in scored[: max(1, int(config.market_candidates_per_market))]]
         candidates.extend(selected)
         scored_tickers = {r["ticker"] for _, r in scored}
@@ -885,6 +894,23 @@ def build_super_portfolio_market_pipeline(
     payload["payload_checksum"] = hashlib.sha256(
         json.dumps(checksum_body, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
+    if capture_experiments:
+        try:
+            from learning_experiments import record_frame
+            capture = record_frame(payload, config=asdict(config), preselection=experiment_preselection, deep_candidates=experiment_deep_candidates)
+            from learning_runtime import archive
+            from market_universe import MARKET_ACTIVATION_LEVELS
+            historical_pipeline = deepcopy(payload)
+            historical_pipeline["market_activation_levels"] = dict(MARKET_ACTIVATION_LEVELS)
+            archive_result = archive({"engine": "SUPER_PORTFOLIO", "run_id": payload["run_id"],
+                "config": asdict(config), "pipeline": historical_pipeline,
+                "universe": experiment_universe, "preselection": experiment_preselection,
+                "deep_candidates": experiment_deep_candidates,
+                "scope": "WHOLE_CONFIGURED_INPUT_UNIVERSE_NOT_ALL_DEEP_ANALYSED",
+                "complete_universe": True})
+            emit("EXPERIMENT_CAPTURE", 100, capture=capture, archive=archive_result)
+        except Exception as exc:
+            emit("EXPERIMENT_CAPTURE_FAILED", 100, message=str(exc)[:200])
     write_json(MARKET_PIPELINE_KEY, MARKET_PIPELINE_PATH, payload)
     if job_id:
         stored = load_latest_super_portfolio_market_pipeline()
@@ -1120,6 +1146,7 @@ def _normalized_candidate(source: Mapping[str, Any], *, now: datetime | None = N
         "ticker": ticker,
         "market": str(row.get("market") or row.get("country") or ""),
         "sector": str(row.get("sector") or row.get("industry") or "Ukjent"),
+        **classification(dict(row, ticker=ticker)),
         "price": price,
         "investment_score": score,
         "risk_score": risk,
@@ -1469,6 +1496,7 @@ def build_decision_trace(*, state: Mapping[str, Any], pipeline: Mapping[str, Any
             "position_rank": old.get("rank"),
             "position_score": old.get("portfolio_score_adjusted", old.get("portfolio_score")),
             "position_source_run_id": position_run_id,
+            "gate_reason_codes": list(action.get("gate_reason_codes") or []),
             "decision_run_id": decision_run_id,
             "snapshot_mismatch": snapshot_mismatch,
             "position_precedes_decision": position_precedes_decision,
@@ -1885,6 +1913,11 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
     peak = max(_f(old.get("peak_price")), _f(row.get("price")))
     pos = {
         "ticker": row.get("ticker"), "market": row.get("market"), "sector": row.get("sector"),
+        **classification(row),
+        "entry_rank": old.get("entry_rank") if old else row.get("rank"),
+        "entry_portfolio_score": old.get("entry_portfolio_score") if old else row.get("portfolio_score_adjusted", row.get("portfolio_score")),
+        "best_rank_since_entry": min([int(v) for v in (old.get("best_rank_since_entry"), old.get("entry_rank"), row.get("rank")) if v is not None], default=None),
+        "last_full_assessment_at": now_iso,
         "entry_date": entry_date, "entry_price": entry_price, "last_price": _f(row.get("price")), "peak_price": peak,
         "target_weight_pct": round(_f(weight), 2), "investment_score": row.get("investment_score"), "portfolio_score": row.get("portfolio_score"),
         "portfolio_score_adjusted": row.get("portfolio_score_adjusted", row.get("portfolio_score")),
@@ -1975,9 +2008,11 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
     return alerts
 
 
-def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True, now: datetime | None = None, rebalance_policy: str = "FORCE") -> dict[str, Any]:
-    pipeline = dict(pipeline or get_or_build_super_portfolio_market_pipeline())
-    state = load_state()
+def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True, now: datetime | None = None, rebalance_policy: str = "FORCE", simulation_state: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    if simulation_state is not None and (persist or pipeline is None):
+        raise ValueError("Simulation requires frozen pipeline and persist=False")
+    pipeline = dict(pipeline if pipeline is not None else get_or_build_super_portfolio_market_pipeline())
+    state = deepcopy(dict(simulation_state)) if simulation_state is not None else load_state()
     now_dt = now or _now_dt()
     now_iso = now_dt.isoformat(timespec="seconds")
     config_data = state.get("config") if isinstance(state.get("config"), Mapping) else {}
@@ -1985,14 +2020,21 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     cfg = SuperPortfolioConfig(**{k: v for k, v in config_data.items() if k in allowed})
     candidates = list(pipeline.get("candidates") or pipeline.get("proposals") or [])
     production_markets = {str(value).strip().upper() for value in cfg.production_market_scopes}
+    activation = market_activation_level
+    if simulation_state is not None:
+        frozen_levels = pipeline.get("market_activation_levels")
+        if not isinstance(frozen_levels, Mapping):
+            raise ValueError("Simulation requires frozen market activation policy")
+        levels = {str(k).upper(): v for k, v in frozen_levels.items()}
+        activation = lambda market: levels.get(str(market or "").strip().upper(), "OFF")
     production_candidates = [
         row for row in candidates
-        if market_activation_level(row.get("market") or row.get("country")) == "PRODUCTION"
+        if activation(row.get("market") or row.get("country")) == "PRODUCTION"
         and str(row.get("market") or row.get("country") or "").strip().upper() in production_markets
     ]
     shadow_candidates = [
         row for row in candidates
-        if market_activation_level(row.get("market") or row.get("country")) == "SHADOW"
+        if activation(row.get("market") or row.get("country")) == "SHADOW"
     ]
     base_ranked = attach_return_profile_correlations(rank_candidates(production_candidates, cfg, now=now_dt))
     ranked_all = apply_concentration_penalties(base_ranked, cfg)
@@ -2143,6 +2185,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                 pos = _position_from_row(row, _f(old.get("target_weight_pct")), old, now_iso, cfg, history)
             else:
                 pos = dict(old)
+                pos.update(rank=None, portfolio_score_adjusted=None, last_full_assessment_at=now_iso)
                 pos.update(_stop_status(pos, cfg))
                 pressure = stop_pressure(pos, history, cfg)
                 pos.update({
@@ -2396,6 +2439,8 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     }
     state.update({
         "positions": positions,
+        "last_full_assessment_at": now_iso,
+        "last_assessment_snapshot_at": pipeline.get("created_at"),
         "challengers": [{k: v for k, v in row.items() if k != "raw_candidate"} for row in challengers],
         "source_run_id": snapshot["source_run_id"],
         "portfolio_health": health,
@@ -2606,13 +2651,15 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
         styles["Heading2"],
     ))
     story.append(Paragraph(f"NAV-sporing fra: {data.get('portfolio_tracking_started_at') or '-'}", styles["Normal"]))
+    story.append(Paragraph(f"Sist fullstendig vurdert: {data.get('last_full_assessment_at') or 'ukjent'} · Sist stopkontrollert: {data.get('last_stop_surveillance_at') or 'ukjent'}", styles["Normal"]))
+    story.append(Paragraph(f"Markedsgrunnlag fra: {data.get('last_assessment_snapshot_at') or 'ukjent'}", styles["Normal"]))
     story.append(Spacer(1, 6))
     health = data.get("portfolio_health") if isinstance(data.get("portfolio_health"), Mapping) else {}
     if health:
         story.append(Paragraph(f"Portfolio Health: {health.get('icon','')} {_f(health.get('score')):.1f}/100 · {health.get('label','-')}", styles["Heading2"]))
         components = health.get("components") if isinstance(health.get("components"), Mapping) else {}
         story.append(Paragraph(" · ".join(f"{k}: {_f(v):.1f}" for k, v in components.items()), styles["Normal"])); story.append(Spacer(1, 6))
-    rows = [["Aksje", "Land / børs", "Bransje", "Vekt", "Fra inn", "AI", "Rank", "Stop", "Press"]]
+    rows = [["Aksje", "Land / børs", "Bransje", "Vekt", "Fra inn", "AI", "Rank nå", "Stop", "Press"]]
     for p in (data.get("positions") or {}).values():
         try:
             from security_metadata import infer_security_listing, resolve_security_metadata
@@ -2622,17 +2669,29 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
             metadata, listing = {}, {}
         country = str(p.get("country") or listing.get("country") or p.get("market") or "-")
         exchange = str(p.get("exchange") or p.get("exchange_name") or listing.get("exchange") or "-")
-        industry = str(p.get("industry") or p.get("sector") or metadata.get("sector") or "-")
+        industry = classification(p)["industry"]
         rows.append([
             p.get("ticker"), Paragraph(f"{country}<br/>{exchange}", table_cell_style), Paragraph(industry, table_cell_style),
             f"{_f(p.get('target_weight_pct')):.2f}%", f"{_f(p.get('pnl_pct')):+.2f}%",
-            f"{_f(p.get('portfolio_score_adjusted'), _f(p.get('portfolio_score'))):.1f}",
-            f"#{p.get('rank','-')} {p.get('rank_arrow','→')}", f"{p.get('stop_icon','')} {p.get('stop_status','')}",
+            f"{_f(p.get('portfolio_score_adjusted'), _f(p.get('portfolio_score'))):.1f}" if p.get("rank") is not None else "ukjent",
+            f"#{p.get('rank')}" if p.get('rank') is not None else "ukjent", f"{p.get('stop_icon','')} {p.get('stop_status','')}",
             f"{p.get('stop_pressure_icon','')} {p.get('stop_pressure','-')} {p.get('stop_direction_arrow','→')}",
         ])
     table = Table(rows, repeatRows=1, colWidths=[17*mm, 25*mm, 25*mm, 15*mm, 16*mm, 14*mm, 16*mm, 23*mm, 30*mm])
     table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.lightgrey),("GRID",(0,0),(-1,-1),0.25,colors.grey),("FONTSIZE",(0,0),(-1,-1),6.5),("VALIGN",(0,0),(-1,-1),"MIDDLE")]))
     story.append(table); story.append(Spacer(1, 10))
+    from html import escape
+    story.append(Paragraph("Utvikling og beholdningsgrunnlag", styles["Heading2"]))
+    for ticker, position in (data.get("positions") or {}).items():
+        best = position.get("best_rank_since_entry")
+        story.append(Paragraph(escape(f"{ticker}: Rank ved kjøp → nå: {rank_text(position)} · AI-score ved kjøp → nå: {score_text(position)} · Beste dokumenterte rank siden kjøp: {'#'+str(best) if best is not None else 'ukjent'}"), styles["Normal"]))
+        story.append(Paragraph(escape(retention_explanation(ticker, data)), styles["Normal"]))
+        reasons = ((data.get("decision_trace") or {}).get("by_ticker") or {}).get(ticker, {}).get("gate_reason_codes") or []
+        if reasons:
+            story.append(Paragraph(escape("Blokkeringer: " + ", ".join(map(str, reasons))), styles["Normal"]))
+    unknown_weight = sum(_f(p.get("target_weight_pct")) for p in (data.get("positions") or {}).values() if not classification(p)["classification_known"])
+    if unknown_weight:
+        story.append(Paragraph(f"Ukjent bransje: {unknown_weight:.1f}% av porteføljen. Stresstester kan undervurdere eksponering.", styles["Normal"]))
     insider_checks = data.get("insider_checks") or {}
     if insider_checks:
         from html import escape
@@ -2728,33 +2787,9 @@ def notify_stop_alerts(alerts: Sequence[Mapping[str, Any]], state: Mapping[str, 
     else:
         title = f"🟢 P3 · {alert_identity} · BEDRET STOPSTATUS"
         priority = -1
-    lines = ["🛡️ SUPERPORTEFØLJE – STOPPKONTROLL"]
-    for row in list(alerts)[:8]:
-        ticker = str(row.get("ticker") or "-")
-        transition = str(row.get("transition") or "")
-        action = str(row.get("action") or "")
-        pnl = _f(row.get("pnl_pct"))
-        stop_price = _f(row.get("stop_price"))
-        current_price = _f(row.get("current_price"))
-        distance = _f(row.get("distance_pct"))
-        protected = _f(row.get("protected_gain_pct"))
-        if action == "SHADOW SELL UTFØRT":
-            headline = f"{ticker}: solgt av risikoregel"
-        elif transition == "ESCALATION":
-            headline = f"{ticker}: risikoen har økt – følg med"
-        else:
-            headline = f"{ticker}: stoppsituasjonen er forbedret – ingen handling"
-        lines.extend([
-            headline,
-            f"Nå {current_price:.2f} · resultat {pnl:+.2f}%",
-            f"Beskyttelsesnivå {stop_price:.2f} · avstand {distance:.2f}%",
-            f"Sikret gevinstgulv {protected:+.2f}% · status {row.get('to') or '-'}",
-            f"Teknisk: Kjøp {_f(row.get('entry_price')):.2f} · topp {_f(row.get('peak_price')):.2f} · nå {_f(row.get('current_price')):.2f} · "
-            f"Stop {_f(row.get('stop_price')):.2f} · {_f(row.get('distance_pct')):.2f} pp margin",
-        ])
-    lines.append("Teknisk regel: gevinstbeskyttelse fra +2% MFE; ellers maks trailing stop 3%.")
+    message = stop_alert_text(alerts)
     response = send_pushover_alert(
-        "\n".join(lines), title=title, url=report.get("report_url") or None,
+        message, title=title, url=report.get("report_url") or None,
         url_title="Åpne PDF", priority=priority,
     )
     return normalize_notification_result(response)

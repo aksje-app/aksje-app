@@ -572,6 +572,13 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["controlled_learning_guard"] = {"status": "FAILED", "error": str(exc)[:500]}
 
+    # Optional paired experiments run after trading, in a killable child.
+    try:
+        from learning_shadow_scheduler import run_shadow_job
+        state["learning_shadow"] = run_shadow_job()
+    except Exception as exc:
+        state["learning_shadow"] = {"status": "FAILED", "error": str(exc)[:300], "production_changed": False}
+
     _mem("scheduler:after_learning")
 
     # Independent operational guard: report scheduling can succeed with zero

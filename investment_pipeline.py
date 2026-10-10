@@ -1162,6 +1162,15 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
     _write_json(LATEST_RUN_PATH, payload)
     _write_json(RUNS_DIR / f"{run_id}.json", payload)
     _write_json(PROPOSALS_DIR / f"{run_id}_proposals.json", payload["proposals"])
+    try:
+        from learning_runtime import archive
+        payload["experiment_archive"] = archive({"engine": "AUTONOMY_UNIVERSE", "run_id": run_id,
+            "config": asdict(cfg), "universe": sanitized_rows, "selection_trace": selection_trace,
+            "candidates": payload["candidates"], "proposals": payload["proposals"],
+            "scope": "WHOLE_CONFIGURED_INPUT_UNIVERSE_NOT_ALL_DEEP_ANALYSED",
+            "complete_universe": True})
+    except Exception as exc:
+        payload["experiment_archive"] = {"status": "CAPTURE_FAILED", "error": str(exc)[:300]}
     return payload
 
 def add_to_review_queue(candidate: Mapping[str, Any], note: str = "") -> dict[str, Any]:

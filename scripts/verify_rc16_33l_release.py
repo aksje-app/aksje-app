@@ -19,5 +19,6 @@ assert '"PROFIT_PROTECTION_EXIT"' in src
 assert '"CONFIRMED_PROFIT_PROTECTION_EXIT"' in src
 assert '"mfe_retained_pct"' in src
 assert '"profit_giveback_pct"' in src
-assert "gevinstbeskyttelse fra +2% MFE" in src
+assert "stop_alert_text(alerts)" in src
+assert "Gevinstbeskyttelse aktiveres ved minst +2%" in (ROOT / "portfolio_evidence.py").read_text()
 print("rc16.33l profit-protection gate OK")

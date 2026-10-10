@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 from copy import deepcopy
+from contextvars import ContextVar
 import math
 import zipfile
 from dataclasses import asdict, dataclass
@@ -160,8 +161,39 @@ def _evaluate_parallel_strategies_isolated(
         return dict(value) if isinstance(value, Mapping) else {}
 
 
+_SIMULATION = ContextVar("autonomy_simulation", default=None)
+
+
+def _clock(tz=None):
+    context = _SIMULATION.get()
+    if context is not None:
+        return context["now"].astimezone(tz or timezone.utc)
+    return datetime.now(tz)
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    return _clock(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def simulate_autonomy_cycle(candidates, *, parameters, portfolio, trades, now, run_id):
+    """Production transition with explicit state and frozen time; no external effects.
+
+    Inputs are final, point-in-time decision candidates. This does not rerun
+    network research or invent upstream evidence for previously rejected stocks.
+    The ordinary account uses production's mark-fill accounting (gross of fees).
+    """
+    if now.tzinfo is None:
+        raise ValueError("Simulation clock must include timezone")
+    params = AutonomousParameters(**parameters).normalized()
+    params.notify_trades = params.notify_risk_events = False
+    params.enable_learning_probe_buys = False
+    context = {"now": now, "parameters": params, "portfolio": deepcopy(portfolio),
+               "trades": deepcopy(trades)}
+    token = _SIMULATION.set(context)
+    try:
+        return run_autonomous_cycle(deepcopy(candidates), run_id=run_id)
+    finally:
+        _SIMULATION.reset(token)
 
 
 _PERSISTENT_PATH_KEYS = {
@@ -184,6 +216,11 @@ _PERSISTENT_PATH_KEYS = {
 
 
 def _read(path: Path, default: Any) -> Any:
+    context = _SIMULATION.get()
+    if context is not None:
+        if path == TRADES_PATH:
+            return deepcopy(context["trades"])
+        return deepcopy(default)
     persistent_key = _PERSISTENT_PATH_KEYS.get(path)
     if persistent_key:
         return durable_read_json(persistent_key, path, default)
@@ -199,6 +236,8 @@ def _read(path: Path, default: Any) -> Any:
 
 
 def _write(path: Path, value: Any) -> None:
+    if _SIMULATION.get() is not None:
+        raise RuntimeError("Production writes are forbidden during simulation")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
@@ -209,6 +248,8 @@ def _write(path: Path, value: Any) -> None:
 
 
 def _append_audit(event: str, payload: Mapping[str, Any]) -> None:
+    if _SIMULATION.get() is not None:
+        return
     row = {"timestamp": _now(), "version": VERSION, "event": event, "payload": dict(payload)}
     append_event("autonomous_portfolio/audit.jsonl", AUDIT_PATH, row)
 
@@ -1126,7 +1167,7 @@ def learning_quality_diagnostics(
     losses = [row for row in exits if _f(row.get("pnl")) < 0]
     gross_profit = sum(_f(row.get("pnl")) for row in wins)
     gross_loss = abs(sum(_f(row.get("pnl")) for row in losses))
-    now_utc = datetime.now(timezone.utc)
+    now_utc = _clock(timezone.utc)
     def _is_stale(row: Mapping[str, Any]) -> bool:
         if str(row.get("freshness_status") or "").startswith("STALE"):
             return True
@@ -1255,7 +1296,7 @@ def _days_opened(value: Any) -> int:
         opened = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if opened.tzinfo is None:
             opened = opened.replace(tzinfo=timezone.utc)
-        start, end = opened.astimezone(timezone.utc).date(), datetime.now(timezone.utc).date()
+        start, end = opened.astimezone(timezone.utc).date(), _clock(timezone.utc).date()
         if end < start:
             return 0
         from datetime import timedelta
@@ -1277,7 +1318,7 @@ def _candidate_event_protection(candidate: Mapping[str, Any], *, horizon_busines
         value = candidate.get(key) or raw.get(key)
         if value:
             values.append((key, value))
-    today = datetime.now(timezone.utc).date()
+    today = _clock(timezone.utc).date()
     for key, value in values:
         try:
             if isinstance(value, Mapping):
@@ -1346,7 +1387,7 @@ def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: floa
     if not score_path or abs(_f(score_path[-1]) - exit_score) >= 0.01:
         score_path.append(exit_score)
     trade = {
-        "trade_id": f"LT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
+        "trade_id": f"LT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
         "action": "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
         "value": round(quantity * price, 2), "pnl": round(pnl, 2), "pnl_pct": closed["pnl_pct"],
         "reason": reason, "strategy": pos.get("strategy"), "mode": "LEARNING_ONLY", "learning_probe": True,
@@ -1480,9 +1521,9 @@ def _notification(kind: str, title: str, message: str, payload: Mapping[str, Any
     if not isinstance(rows, list):
         rows = []
     created_at = _now()
-    item = {"notification_id": f"AN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": created_at,
+    item = {"notification_id": f"AN-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": created_at,
             "created_at": created_at, "scheduled_at": created_at, "attempted_at": "", "sent_at": "",
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(timespec="seconds"),
+            "expires_at": (_clock(timezone.utc) + timedelta(hours=2)).isoformat(timespec="seconds"),
             "kind": kind, "title": title, "message": message, "payload": dict(payload),
             "report_id": str(payload.get("report_id") or ""), "run_id": str(payload.get("run_id") or ""),
             "triggered_by": str(payload.get("triggered_by") or "AUTONOMY"), "status": "PENDING", "delivery": "LOCAL_QUEUE"}
@@ -1604,7 +1645,7 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
     except Exception:
         listing = {}
     trade = {
-        "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
+        "trade_id": f"AT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
         "action": "SELL_PARTIAL" if partial else "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
         "value": round(proceeds, 2), "pnl": round(pnl, 2), "pnl_pct": round((price / _f(pos.get('average_price'), price) - 1) * 100, 2),
         "reason": reason, "primary_sell_reason": reason.split(":", 1)[-1].strip(),
@@ -1629,11 +1670,12 @@ def run_autonomous_cycle(
     candidates: Sequence[Mapping[str, Any]], run_id: str | None = None,
     *, progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    params = load_parameters().normalized()
-    portfolio = load_portfolio()
-    learning_portfolio = load_learning_portfolio()
+    simulation = _SIMULATION.get()
+    params = simulation["parameters"] if simulation is not None else load_parameters().normalized()
+    portfolio = deepcopy(simulation["portfolio"]) if simulation is not None else load_portfolio()
+    learning_portfolio = default_learning_portfolio(params) if simulation is not None else load_learning_portfolio()
     starting_portfolio = deepcopy(portfolio)
-    run_id = run_id or f"ALP-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    run_id = run_id or f"ALP-{_clock().strftime('%Y%m%d-%H%M%S')}"
     decisions: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
     learning_decisions: list[dict[str, Any]] = []
@@ -1666,89 +1708,97 @@ def run_autonomous_cycle(
     market_snapshot_row: dict[str, Any] = {}
     parallel_strategy_run: dict[str, Any] = {}
     technical_contribution: dict[str, Any] = {}
-    try:
-        snapshot_service = get_market_snapshot_service()
-        market_snapshot = snapshot_service.build_market_snapshot(
-            original_candidates, run_id=run_id, source="autonomy_cycle",
-            metadata={"strategy_family": "autonomy", "candidate_count": len(original_candidates)},
-            progress_callback=lambda completed, total, ticker: emit_progress(
-                0, progress_total,
-                f"Bygger avgrenset markedssnapshot {completed}/{total}", ticker=ticker,
-            ),
-        )
-        market_snapshot_row = market_snapshot.to_dict()
-        emit_progress(0, progress_total, "Lagrer markedssnapshot separat uten å laste historikken")
-        snapshot_service.save(market_snapshot_row)
-        snapshots_by_ticker = {str(row.get("ticker") or "").upper(): row for row in market_snapshot_row.get("candidates", [])}
-        enriched_candidates = []
-        for candidate in original_candidates:
-            row = dict(candidate)
-            snapshot_row = snapshots_by_ticker.get(str(row.get("ticker") or "").upper(), {})
-            for key, value in _candidate_snapshot_metadata(snapshot_row, market_snapshot_row).items():
-                if value:
-                    row.setdefault(key, value)
-            enriched_candidates.append(row)
-        candidates = enriched_candidates
-        emit_progress(1, progress_total, "Markedssnapshot er lagret")
+    if simulation is None:
         try:
-            technical_portfolio = {}
+            snapshot_service = get_market_snapshot_service()
+            market_snapshot = snapshot_service.build_market_snapshot(
+                original_candidates, run_id=run_id, source="autonomy_cycle",
+                metadata={"strategy_family": "autonomy", "candidate_count": len(original_candidates)},
+                progress_callback=lambda completed, total, ticker: emit_progress(
+                    0, progress_total,
+                    f"Bygger avgrenset markedssnapshot {completed}/{total}", ticker=ticker,
+                ),
+            )
+            market_snapshot_row = market_snapshot.to_dict()
+            emit_progress(0, progress_total, "Lagrer markedssnapshot separat uten å laste historikken")
+            snapshot_service.save(market_snapshot_row)
+            snapshots_by_ticker = {str(row.get("ticker") or "").upper(): row for row in market_snapshot_row.get("candidates", [])}
+            enriched_candidates = []
+            for candidate in original_candidates:
+                row = dict(candidate)
+                snapshot_row = snapshots_by_ticker.get(str(row.get("ticker") or "").upper(), {})
+                for key, value in _candidate_snapshot_metadata(snapshot_row, market_snapshot_row).items():
+                    if value:
+                        row.setdefault(key, value)
+                enriched_candidates.append(row)
+            candidates = enriched_candidates
+            emit_progress(1, progress_total, "Markedssnapshot er lagret")
             try:
-                from paper_trading import load_portfolio as load_paper_portfolio
-                technical_portfolio = load_paper_portfolio() or {}
-            except Exception:
                 technical_portfolio = {}
-            parallel_strategy_run = _evaluate_parallel_strategies_isolated(
-                market_snapshot,
-                run_id=run_id,
-                autonomy_portfolio=portfolio,
-                technical_portfolio=technical_portfolio,
-                params=params,
-            )
-            _append_audit("PARALLEL_STRATEGY_CYCLE_COMPLETED", {
-                "run_id": run_id,
-                "strategy_run_id": parallel_strategy_run.get("strategy_run_id"),
-                "strategies": parallel_strategy_run.get("strategy_count"),
-                "decisions": parallel_strategy_run.get("decision_count"),
-                "errors": parallel_strategy_run.get("error_count"),
-                "execution_authorized": False,
-            })
-            emit_progress(2, progress_total, "Parallelle strategier er vurdert")
-        except Exception as parallel_exc:
-            # A benchmark/challenger failure must never stop Autonomi production.
-            _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
-                "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}",
-                "timeout": isinstance(parallel_exc, ParallelStrategyTimeout),
-                "failed_open": True,
-                "execution_authorized": False,
-            })
-            emit_progress(2, progress_total, "Parallelle strategier ble hoppet over etter kontrollert feil/timeout")
+                try:
+                    from paper_trading import load_portfolio as load_paper_portfolio
+                    technical_portfolio = load_paper_portfolio() or {}
+                except Exception:
+                    technical_portfolio = {}
+                parallel_strategy_run = _evaluate_parallel_strategies_isolated(
+                    market_snapshot,
+                    run_id=run_id,
+                    autonomy_portfolio=portfolio,
+                    technical_portfolio=technical_portfolio,
+                    params=params,
+                )
+                _append_audit("PARALLEL_STRATEGY_CYCLE_COMPLETED", {
+                    "run_id": run_id,
+                    "strategy_run_id": parallel_strategy_run.get("strategy_run_id"),
+                    "strategies": parallel_strategy_run.get("strategy_count"),
+                    "decisions": parallel_strategy_run.get("decision_count"),
+                    "errors": parallel_strategy_run.get("error_count"),
+                    "execution_authorized": False,
+                })
+                emit_progress(2, progress_total, "Parallelle strategier er vurdert")
+            except Exception as parallel_exc:
+                # A benchmark/challenger failure must never stop Autonomi production.
+                _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
+                    "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}",
+                    "timeout": isinstance(parallel_exc, ParallelStrategyTimeout),
+                    "failed_open": True,
+                    "execution_authorized": False,
+                })
+                emit_progress(2, progress_total, "Parallelle strategier ble hoppet over etter kontrollert feil/timeout")
+            try:
+                contribution_result = get_autonomy_technical_contribution_service().apply(
+                    candidates, parallel_strategy_run=parallel_strategy_run, run_id=run_id,
+                    minimum_investment_score=float(params.minimum_investment_score),
+                )
+                candidates = list(contribution_result.get("candidates") or candidates)
+                technical_contribution = dict(contribution_result.get("summary") or {})
+                _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_COMPLETED", {
+                    "run_id": run_id,
+                    "applied": technical_contribution.get("applied_count", 0),
+                    "wait": technical_contribution.get("wait_count", 0),
+                    "threshold_crossings": technical_contribution.get("threshold_crossings", 0),
+                    "hard_gates_unchanged": True,
+                    "execution_authorized": False,
+                })
+                emit_progress(3, progress_total, "Teknisk strategibidrag er kontrollert")
+            except Exception as technical_exc:
+                # Missing technical contribution must never stop the base Autonomi engine.
+                technical_contribution = {
+                    "run_id": run_id, "status": "FAILED_OPEN",
+                    "error": f"{type(technical_exc).__name__}: {str(technical_exc)[:500]}",
+                    "hard_gates_unchanged": True, "execution_authorized": False,
+                }
+                _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_FAILED_OPEN", technical_contribution)
+        except Exception as exc:
+            _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
+            candidates = original_candidates
+    if simulation is None:
         try:
-            contribution_result = get_autonomy_technical_contribution_service().apply(
-                candidates, parallel_strategy_run=parallel_strategy_run, run_id=run_id,
-                minimum_investment_score=float(params.minimum_investment_score),
-            )
-            candidates = list(contribution_result.get("candidates") or candidates)
-            technical_contribution = dict(contribution_result.get("summary") or {})
-            _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_COMPLETED", {
-                "run_id": run_id,
-                "applied": technical_contribution.get("applied_count", 0),
-                "wait": technical_contribution.get("wait_count", 0),
-                "threshold_crossings": technical_contribution.get("threshold_crossings", 0),
-                "hard_gates_unchanged": True,
-                "execution_authorized": False,
-            })
-            emit_progress(3, progress_total, "Teknisk strategibidrag er kontrollert")
-        except Exception as technical_exc:
-            # Missing technical contribution must never stop the base Autonomi engine.
-            technical_contribution = {
-                "run_id": run_id, "status": "FAILED_OPEN",
-                "error": f"{type(technical_exc).__name__}: {str(technical_exc)[:500]}",
-                "hard_gates_unchanged": True, "execution_authorized": False,
-            }
-            _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_FAILED_OPEN", technical_contribution)
-    except Exception as exc:
-        _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
-        candidates = original_candidates
+            from learning_runtime import capture_autonomy
+            capture_autonomy(candidates, parameters=asdict(params), run_id=run_id,
+                             portfolio_before=starting_portfolio)
+        except Exception as exc:
+            _append_audit("EXPERIMENT_CAPTURE_FAILED", {"run_id": run_id, "error": str(exc)[:300]})
     candidate_map = {str(c.get("ticker") or "").upper(): c for c in candidates if str(c.get("ticker") or "").strip()}
     owned_tickers = {str(ticker).upper() for ticker in (portfolio.get("positions") or {})}
     replacement_pool = [
@@ -1992,7 +2042,7 @@ def run_autonomous_cycle(
             else:
                 portfolio["positions"][ticker] = new_position
             trade = {
-                "trade_id": f"AT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
+                "trade_id": f"AT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
                 "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
                 "value": round(value, 2), "pnl": 0.0, "reason": f"Justert score {score:.1f} (base {base_score:.1f}), risiko {risk:.1f}, datakvalitet {quality:.1f}",
                 "strategy": _candidate_strategy(candidate), "mode": "THEORETICAL_ONLY",
@@ -2142,7 +2192,7 @@ def run_autonomous_cycle(
                     },
                 }
                 trade = {
-                    "trade_id": f"LT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
+                    "trade_id": f"LT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
                     "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
                     "value": round(value, 2), "pnl": 0.0,
                     "reason": f"Læringskjøp: ingen ordinære kjøp ble utløst. Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
@@ -2200,7 +2250,7 @@ def run_autonomous_cycle(
                 decision["reason"] = "Handelen ble tilbakeført: " + "; ".join(execution_integrity["errors"])
         trades = []
         _append_audit("AUTONOMOUS_EXECUTION_BLOCKED", {"run_id": run_id, "errors": execution_integrity["errors"]})
-    else:
+    elif simulation is None:
         for trade in trades:
             _record_trade(dict(trade))
             if params.notify_trades:
@@ -2231,6 +2281,17 @@ def run_autonomous_cycle(
                         f"Hovedårsak: {trade.get('primary_sell_reason') or trade.get('reason') or '-'}{replacement}"
                     )
                     _notification("TRADE", f"AUTONOMOUS {label} {ticker}", message, trade)
+
+    if simulation is not None:
+        equity = portfolio_equity(portfolio)
+        portfolio.update(updated_at=_now(), last_run_id=run_id, last_equity=equity,
+                         high_watermark=max(_f(portfolio.get("high_watermark"), equity), equity))
+        for index, trade in enumerate(trades):
+            trade["trade_id"] = f"SIM-{run_id}-{index}"
+        ledger = deepcopy(simulation["trades"]) + deepcopy(trades)
+        return {"portfolio": portfolio, "trades": trades, "trade_history": ledger,
+                "portfolio_decisions": decisions, "execution_integrity": execution_integrity,
+                "production_changed": False, "fill_model": "PRODUCTION_MARKS_GROSS_OF_FEES"}
 
     equity = portfolio_equity(portfolio)
     portfolio["updated_at"] = _now()
@@ -2787,13 +2848,17 @@ def _render_responsive_portfolio_css(st: Any) -> None:
     .autonomous-log-card-v1940 strong{color:#7dd3fc}.autonomous-log-card-v1940 div{display:flex;justify-content:space-between;gap:.8rem;padding:.2rem 0}
     .autonomous-log-card-v1940 span{color:#94a3b8;font-size:.76rem}.autonomous-log-card-v1940 footer{border-top:1px solid rgba(148,163,184,.18);margin-top:.45rem;padding-top:.45rem;color:#cbd5e1}
     @media(max-width:760px){
-      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stHorizontalBlock"]{flex-direction:column!important;align-items:stretch!important;gap:1rem!important}
-      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stColumn"]{width:100%!important;flex:1 1 100%!important;min-width:0!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stHorizontalBlock"]:not(.st-key-aa_mobile_nav_native *, .st-key-aa_mobile_more_native *){flex-direction:column!important;align-items:stretch!important;gap:1rem!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stColumn"]:not(.st-key-aa_mobile_nav_native *, .st-key-aa_mobile_more_native *){width:100%!important;flex:1 1 100%!important;min-width:0!important}
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h1,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h2,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h3,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h4,
       [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) h5{height:auto!important;line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stVerticalBlock"]:not(.st-key-aa_mobile_nav_native *, .st-key-aa_mobile_more_native *){gap:.75rem!important}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stMarkdownContainer"],
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stCaptionContainer"]{height:auto!important;min-height:0!important;max-height:none!important;line-height:1.5!important;white-space:normal!important;overflow-wrap:anywhere}
+      [data-testid="stMainBlockContainer"]:has(.autonomy-responsive-marker) [data-testid="stMarkdownContainer"] p{height:auto!important;line-height:1.5!important;margin:0!important}
       .autonomous-mobile-log-cards-v1940{display:block!important}
       [class*="st-key-autonomous-desktop-positions-v1940"],
       [class*="st-key-autonomous-desktop-trades-v1940"],
@@ -2941,7 +3006,7 @@ def _render_activation_analysis_v1980(st: Any, pd: Any) -> None:
         zip_payload = build_evaluation_bundle()
         st.download_button(
             "📦 Eksporter testresultater (ZIP)", zip_payload,
-            file_name=f"autonomy_test_results_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+            file_name=f"autonomy_test_results_{_clock().strftime('%Y%m%d_%H%M')}.zip",
             mime="application/zip", width="stretch", key="alp_test_export_v1980",
             help="Inneholder sammendrag, aktiveringsfunnel, strategisammenligning, kandidatbeslutninger, ordre, handler, porteføljemålinger, parametre og rensede feil. Hemmeligheter filtreres bort.",
         )
@@ -2974,6 +3039,24 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
+
+    with st.expander("Kontrollerte skyggetester – Autonomi og Superportefølje"):
+        try:
+            from learning_runtime import storage as experiment_storage, coverage
+            statuses = {"WAITING_NEW_DATA": "Venter på nye data", "ACTIVE_SHADOW": "Aktiv skyggetest"}
+            for engine in ("AUTONOMY", "SUPER_PORTFOLIO"):
+                result = experiment_storage().read_json("controlled_learning/forward/" + engine + ".json", {}) or {}
+                st.markdown("**" + engine + " · " + statuses.get(result.get("status"), "Ikke startet") + "**")
+                st.caption(f"Nye observerte børsdatoer: {result.get('observed_trading_dates', 0)} · 20-dagers måling: {'klar' if result.get('measurement_20_days') else 'venter'} · 60-dagers modning: {'klar' if result.get('matured_60_days') else 'venter'}")
+                for index, account in enumerate(result.get("accounts", [])):
+                    st.write({"konto": "Referanse" if index == 0 else f"Hypotese {index}",
+                              "parametre": account["parameters"], "avkastning etter kostnadsmodell %": round(account["net_return_pct"], 3),
+                              "største verdifall %": round(account["maximum_drawdown_pct"], 3), "handler": account["trade_count"]})
+            data = coverage()
+            st.caption(f"Historikkarkiv: {data['archive_bytes'] / 1024**2:.1f} / {data['budget_bytes'] / 1024**2:.0f} MiB. Registrerte hull: {data['reported_gaps']}.")
+            st.caption("Hypotesene er låst før testing. Observerte datoer dokumenterer ikke uavhengige eller komplette 20/60-dagers utfall. Autonomi viser 0,2 % kostnad per handelsbeløp som følsomhetsberegning; ordinære markeringer er uten gebyrer. Historiske hull og manglende intradagkurser kan ikke rekonstrueres. Ingen test er godkjent for produksjon.")
+        except Exception as exc:
+            st.warning("Skyggeteststatus kunne ikke leses: " + str(exc)[:120])
 
     from autonomy_parameter_governance import render_decisions, render_history, save_manual, actor_from_ui
     render_decisions(st)
@@ -3169,7 +3252,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         left.download_button(
             "Eksporter all konfigurasjon som JSON",
             export_bundle(),
-            file_name=f"ai_aksje_analyzer_config_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+            file_name=f"ai_aksje_analyzer_config_{_clock().strftime('%Y%m%d_%H%M')}.json",
             mime="application/json",
             width="stretch",
             key="cfg_export_v18691",

@@ -72,3 +72,37 @@ def test_identical_document_write_does_not_rewrite_database_row():
         with conn.cursor() as cur:
             cur.execute("SELECT updated_at, xmin::text FROM app_kv_store WHERE name=%s", (key,))
             assert cur.fetchone() == before
+
+
+def test_postgres_experiment_archive_concurrent_captures_and_resume(monkeypatch, tmp_path):
+    import psycopg2
+    from concurrent.futures import ThreadPoolExecutor
+    import learning_runtime as lr
+    from services.storage_service import StorageService
+    conn = psycopg2.connect(URL)
+    with conn.cursor() as cursor:
+        cursor.execute('SELECT current_database()')
+        assert cursor.fetchone()[0] == 'entry_exit_test'
+        cursor.execute("DELETE FROM app_kv_store WHERE name LIKE 'controlled_learning/%'")
+    conn.commit(); conn.close()
+    service = StorageService(tmp_path, database_url=URL, mode='postgres', allow_local_fallback=False)
+    service.init_db()
+    monkeypatch.setattr(lr, 'storage', lambda: service)
+    def capture(i):
+        return lr.archive({'engine': 'AUTONOMY', 'run_id': f'PG-{i}',
+            'at': f'2025-01-{6+i:02d}T12:00:00+00:00', 'config': {'initial_cash': 10000}, 'candidates': []})
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(capture, range(6)))
+    index = service.read_json(lr.INDEX)
+    assert len(index['records']) == 6
+    assert all(r['status'] == 'READY' for r in index['records'])
+    assert index['bytes'] == sum(r['bytes'] for r in index['records'])
+    assert capture(0) == results[0]
+    # A fresh adapter reproduces the persisted, checksummed archive.
+    reloaded = StorageService(tmp_path / 'restart', database_url=URL, mode='postgres', allow_local_fallback=False)
+    monkeypatch.setattr(lr, 'storage', lambda: reloaded)
+    assert lr.load_frame(index['records'][0])['candidates'] == []
+    conn = psycopg2.connect(URL)
+    with conn.cursor() as cursor:
+        cursor.execute("DELETE FROM app_kv_store WHERE name LIKE 'controlled_learning/%'")
+    conn.commit(); conn.close()

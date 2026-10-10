@@ -342,7 +342,10 @@ def consume_global_navigation_route_v19220_rc14(st) -> bool:
     if nav:
         state["active_nav_target_v18674c"] = nav
         state["ai_control_center_force_nav_v18663"] = nav
-        state["ai_control_center_last_applied_nav_v19016"] = nav
+        if str(route.get("source") or "").startswith("AURORA_MOBILE_NAV"):
+            state.pop("ai_control_center_last_applied_nav_v19016", None)
+        else:
+            state["ai_control_center_last_applied_nav_v19016"] = nav
         state["mobile_nav_last_choice_v19015"] = nav
     if group:
         state["ai_control_center_group_v1863m"] = group
@@ -388,9 +391,11 @@ def install_navigation_rerun_guard_v19220_rc14(st) -> bool:
     def guarded_rerun(*args, **kwargs):
         if str(kwargs.get("scope") or "app").strip().lower() != "fragment":
             try:
-                queue_global_navigation_route_v19220_rc14(
-                    st, source="GLOBAL_ST_RERUN_GUARD_RC14",
-                )
+                # Explicit navigation wins over the still-visible old panel.
+                if not st.session_state.get(GLOBAL_NAVIGATION_ROUTE_LEASE_KEY_V19220_RC14):
+                    queue_global_navigation_route_v19220_rc14(
+                        st, source="GLOBAL_ST_RERUN_GUARD_RC14",
+                    )
             except Exception:
                 pass
         return original(*args, **kwargs)
