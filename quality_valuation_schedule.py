@@ -226,6 +226,16 @@ def run_due_scheduled_screen(now: datetime | None = None) -> dict[str, Any]:
                 "market_failed_count": int(prescreen.get("failed_count") or 0),
             }
 
+        # Capture reused quotes before the screen's completed timestamp. Quotes
+        # stamped afterwards are correctly rejected as future observations.
+        shadow_prices = {}
+        shadow_quote_status = "AVAILABLE"
+        try:
+            from quality_turnaround_shadow import tracked_prices
+            shadow_prices = tracked_prices(prescreen)
+        except Exception:
+            shadow_quote_status = "UNAVAILABLE"
+
         result = run_screen(
             analysis_symbols,
             isolated_financial_snapshot,
@@ -253,11 +263,8 @@ def run_due_scheduled_screen(now: datetime | None = None) -> dict[str, Any]:
             "holding_symbols": holdings,
             "turnaround_discovery_tickers": prescreen.get("turnaround_discovery_tickers") or [],
         })
-        try:
-            from quality_turnaround_shadow import tracked_prices
-            result["turnaround_shadow_prices"] = tracked_prices(prescreen)
-        except Exception:
-            result["turnaround_shadow_quote_status"] = "UNAVAILABLE"
+        result["turnaround_shadow_prices"] = shadow_prices
+        result["turnaround_shadow_quote_status"] = shadow_quote_status
         names = [name for items in (result.get("groups") or {}).values() for item in items
                  for name in item.get("market_drivers") or []]
         if names and result.get("elapsed_seconds", 999) < 145 and memory_budget_ok():

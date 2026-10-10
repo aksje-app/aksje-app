@@ -26,9 +26,9 @@ Generell klassifiseringskontroll er lesende: knappen kontrollerer inntil 500 lag
 
 ## Verifisering og grenser
 
-- 434 regresjonstester passerte; 233 aktive repository-tester passerte, seks eksisterende miljøavhengige PostgreSQL-tester hoppet over lokalt. To nye DB-tester for samtidige shadow-observasjoner/låste bevis er lagt til; alle åtte kjøres i CI.
+- 435 regresjonstester og 234 aktive repository-tester passerte lokalt; åtte PostgreSQL-tester hoppet over lokalt og passerte i CI. De to nye DB-testene dekker samtidige shadow-observasjoner/låste bevis.
 - Fem genererte JavaScript-testløp passerte: filbasert deling, avbrudd, manglende støtte, avvist tillatelse og hentefeil. Deling krever klikk og bruker PDF-fil, ikke bare rapportlenke.
-- Nye tester dekker sektorforskjeller, komplette negative/null årsresultater, reelle feltmangler, YoY-perioder, fremtidig tilgang/publisering, sesong/margin, FCF-fortegn, reservasjon før finalistkutt, låste kurver, kostnader, missing-quote, kurs utenfor finalistene, kapasitetsstopp, uforanderlig audit og eksakt PDF-retur.
+- Nye tester dekker sektorforskjeller, komplette negative/null årsresultater, reelle feltmangler, YoY-perioder, fremtidig tilgang/publisering, sesong/margin, FCF-fortegn, reservasjon før finalistkutt, låste kurver, kostnader, missing-quote, kurs utenfor finalistene, kapasitetsstopp, uforanderlig audit og eksakt PDF-retur. En planlegger-integrasjonstest kontrollerer at gjenbrukte kurser observeres før vurderingens sluttid; ellers ville de blitt avvist som fremtidige data.
 - Kort/full PDF er rendret og visuelt kontrollert med et syntetisk NRC-lignende eksempel; dette eksemplet dokumenterer kodeoppførsel, ikke NRCs faktiske kvartalstall eller avkastning.
 - Fysisk iPhone/Safari-/Pushover-nettleser er ikke kontrollert her. Lokal nettleserinstallasjon var utilgjengelig; JavaScript-logikk er testet uten å påstå fysisk browser-verifisering.
 - Offisiell automatisk ekstraksjon/verifisering av primærrapportenes kvartalstall, historiske tidsriktige regnskapsarkiver og dokumentert resultatforbedring gjenstår. Nye forward-resultater trenger tid og data etter deploy. Ingen strategi promoteres automatisk.

@@ -164,6 +164,53 @@ def test_tracked_stock_is_priced_after_leaving_finalists_but_not_replaced():
     assert done["cohorts"][0]["false_positive_count"] == 1
 
 
+def test_scheduled_reused_quote_is_available_before_screen_completion(monkeypatch):
+    from contextlib import contextmanager
+    import quality_valuation_schedule as schedule
+    import quality_turnaround_shadow as shadow
+    state = advance({}, screen(NOW))
+    later = NOW + timedelta(days=31)
+    clock = {"time": later}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock["time"]
+
+    @contextmanager
+    def acquired():
+        yield True
+
+    monkeypatch.setattr(shadow, "datetime", Clock)
+    monkeypatch.setattr("services.storage_service.get_storage_service", lambda: SimpleNamespace(read_json=lambda *a: state))
+    monkeypatch.setattr(schedule, "scheduled_slot", lambda now: "test-slot")
+    monkeypatch.setattr(schedule, "_latest_market_run", lambda: {})
+    monkeypatch.setattr(schedule, "_scheduled_markets", lambda: ["NORGE"])
+    monkeypatch.setattr(schedule, "_full_universe", lambda markets: ["NRC.OL", "BASE.OL"])
+    monkeypatch.setattr(schedule, "_holding_symbols", lambda latest: [])
+    monkeypatch.setattr(schedule, "_publish_pdf", lambda result: None)
+    monkeypatch.setattr("quality_valuation_store.load_latest", lambda: {})
+    monkeypatch.setattr("quality_valuation_control.single_manual_screen", acquired)
+    monkeypatch.setattr("quality_valuation_ui.required_report_busy", lambda: False)
+    monkeypatch.setattr("quality_valuation_data.memory_budget_ok", lambda: True)
+    monkeypatch.setattr("quality_filing_discovery.refresh", lambda **kw: {})
+    monkeypatch.setattr("quality_valuation_alerts.transition_messages", lambda *a: [])
+    monkeypatch.setattr("quality_market_prescreen.full_market_prescreen", lambda *a, **kw: {
+        "finalists": ["BASE.OL"], "rows": [{"ticker": "NRC.OL", "last_price": 9, "currency": "NOK", "latest_trade_date": later.date().isoformat()}]})
+
+    def finish_screen(*args, **kwargs):
+        clock["time"] = later + timedelta(seconds=1)
+        return screen(clock["time"], {"BASE.OL": 10})
+
+    saved = []
+    monkeypatch.setattr("quality_valuation.run_screen", finish_screen)
+    monkeypatch.setattr("quality_valuation_store.persist_screen", lambda result: saved.append(deepcopy(result)) or RUN)
+    assert schedule.run_due_scheduled_screen(now=later)["state"] == "COMPLETED"
+    completed = advance(state, saved[0])
+    assert completed["cohorts"][0]["closed_at"]
+    assert completed["cohorts"][0]["watch"]["positions"]["NRC.OL"]["last_price"] == 9
+
+
 def test_capacity_refuses_new_cohorts_and_keeps_evidence():
     state = advance({}, screen(NOW))
     cohort = state["cohorts"][0]
