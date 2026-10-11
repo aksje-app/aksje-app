@@ -92,3 +92,52 @@ def test_optional_source_identity_fields_do_not_crash_catalogue():
     actual=identity(row(1,detail={'company':{'physicalAddress':{'country':'Germany'}},'regions':[{'exposureType':'Latin America','weight':98}]}))
     assert actual['manager_country']=='Germany' and 'Latin America' in actual['investment_area']
     assert 'domicile' not in actual  # manager's address is not fund domicile
+
+
+def test_country_winners_selected_from_full_universe_not_global_top25():
+    from superfund_presentation import country_candidates,investment_group
+    rows=[row(n,investment_area='USA') for n in range(110)]
+    rows += [row(120,name='Xtrackers MSCI Brazil ETF',domicile='Luxembourg',investment_area='LATIN_AMERICA / USA'),
+             row(121,name='Amundi MSCI Brazil ETF'),row(122,investment_area='Norway',blocks=['RISIKO'])]
+    views=candidate_views(rows)
+    assert all('Brazil' not in r['name'] for r in views['top_candidates'])
+    brazil=country_candidates(views)['Brasil']
+    assert [r['country_rank'] for r in brazil]==[1,2]
+    assert len(views['country_candidates']['USA'])==25
+    assert investment_group(row(1,domicile='Brasil'))=='Investeringsområde ikke oppgitt'
+    assert 'Norge' not in views['country_candidates']
+    wb=__import__('openpyxl').load_workbook(BytesIO(__import__('superfund_reports').xlsx_bytes(views)))
+    assert wb['Beste per område']['A2'].value=='Brasil'
+
+
+def test_notification_whole_blocks_currency_and_queue_boundary():
+    from superfund_presentation import notification_batch
+    events=[{**row(n,name='Brazil '+str(n)), 'side':'TIDLIG VARSEL','price_at':'2026-10-09',
+             'reason':'Kildens periodeavkastning; valutaeffekt kan inngå.'} for n in range(10)]
+    text,count=notification_batch(events)
+    assert 0<count<=5 and len(text)<=1000
+    assert '\n\nSTERK UKEUTVIKLING\nBrazil 1' in text
+    assert 'Siste uke: 2.00% · NOK' in text and 'Kursgrunnlag: 09.10.2026' in text
+    assert 'TIDLIG VARSEL' not in text
+    sent=[]
+    while events:
+        text,count=notification_batch(events)
+        assert count>0 and len(text)<=1000
+        sent.extend(e['id'] for e in events[:count]);events=events[count:]
+    assert len(sent)==10 and len(set(sent))==10
+    text,count=notification_batch([{'id':'long','side':'SELL','name':'N'*2000,'reason':'R'*2000}])
+    assert count==1 and len(text)<=1000
+
+
+def test_country_view_renders_actual_streamlit_radio(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    import pages.superfund as page
+    s={'at':'2026-10-10T12:00:00Z',**candidate_views([row(1,investment_area='Brasil'),row(2,investment_area='Norge')]),'model':{'cash':1000000,'initial_capital':1000000}}
+    monkeypatch.setattr(page,'snapshot',lambda:s)
+    monkeypatch.setattr(page,'read',lambda name,default:default)
+    app=AppTest.from_string('import streamlit as st\nfrom pages.superfund import render_superfund\nrender_superfund(st)').run()
+    app.radio(key='sf_ranking_view').set_value('Beste per investeringsland/region').run()
+    assert not app.exception
+    labels=[e.label for e in app.expander]
+    assert 'Brasil · 1 vist' in labels and 'Norge · 1 vist' in labels
+    assert any('Plass 1 innen området' in e.value for e in app.caption)

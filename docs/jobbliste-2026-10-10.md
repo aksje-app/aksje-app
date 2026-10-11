@@ -134,3 +134,12 @@ Ny PR opprettes etter lokal verifisering. Merge og deploy krever senere instruks
 - Superfond-gjenoppretting fra URL, klikk-callbacks før bootstrap, atomisk URL og ingen gamle panelvalg på ny navigasjon.
 - Valgt Superfond-område bevares ved refresh; søk ved sidebytte i samme økt.
 - Fersk økt, første klikk og mobil-layout inngår i releasekontrollene.
+
+## RC16.34o – landrangering og Superfond-varsler (GO mottatt)
+
+- Samlet Topp 25 beholdes; ny visning med opptil 25 kvalifiserte fond per investeringsland/region fra hele vurderingen.
+- Landetikett med kjent kilde, ukjente/multiregionale områder og eksplisitt forbehold om avkastningsvaluta.
+- Excel-ark med samme landrangering og brukernyttige periode-/risiko-/kostnadstall.
+- Én blokk per fond i Pushover, blank linje, avkastningsvaluta, kursgrunnlag og overlappsforklaring.
+- Sterk ukeutvikling erstatter tidlig varsel; ingen udokumentert politisk årsaksforklaring.
+- Meldingslengde og kø bevares; regresjons-/mobilnettlesertester. Merge og deploy ikke utført.

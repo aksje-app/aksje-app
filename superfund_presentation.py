@@ -28,7 +28,7 @@ def identity(row):
 
 
 
-REGION_LABELS = {'LATIN_AMERICA':'Latin-Amerika', 'USA':'USA', 'EUROPE':'Europa', 'GLOBAL':'Globalt', 'ASIA':'Asia', 'BRAZIL':'Brasil'}
+REGION_LABELS = {'LATIN_AMERICA':'Latin-Amerika', 'USA':'USA', 'EUROPE':'Europa', 'GLOBAL':'Globalt', 'ASIA':'Asia', 'BRAZIL':'Brasil', 'NORWAY':'Norge', 'Norway':'Norge', 'SWEDEN':'Sverige', 'Sweden':'Sverige', 'DENMARK':'Danmark', 'FINLAND':'Finland', 'GERMANY':'Tyskland', 'UNITED_STATES':'USA', 'NORTH_AMERICA':'Nord-Amerika', 'JAPAN':'Japan', 'CHINA':'Kina', 'INDIA':'India'}
 
 
 def decision_context(row):
@@ -51,6 +51,50 @@ def investment_focus(row):
             area = area.replace(code, label)
         return area
     return str(row.get('category') or 'Ikke oppgitt') + ' (kildens kategori)'
+
+
+def investment_group(row):
+    """Investment exposure only; never infer it from ISIN or manager address."""
+    import re
+    for index_country, label in [('Brazil','Brasil'),('Norway','Norge'),('Sweden','Sverige'),
+                                  ('India','India'),('China','Kina'),('Japan','Japan')]:
+        if re.search(r'\b(?:MSCI|FTSE)\s+'+index_country+r'\b',str(row.get('name') or ''),re.I):
+            return label
+    area=identity(row).get('investment_area')
+    if not area:return 'Investeringsområde ikke oppgitt'
+    area=area.replace(' (kildens eksponering)','')
+    for code,label in REGION_LABELS.items():area=area.replace(code,label)
+    return area
+
+
+def country_candidates(snapshot):
+    if 'country_candidates' in snapshot:return snapshot['country_candidates']
+    return candidate_views(snapshot.get('candidates',[]))['country_candidates']
+
+
+def notification_batch(events, limit=1000):
+    """Whole fund blocks within Pushover's limit; remaining events stay queued."""
+    header='SUPERFOND · MODELLHANDEL\nKandidatvarsler er ingen reell kjøpsordre.'
+    blocks=[]
+    for event in events[:5]:
+        side='STERK UKEUTVIKLING' if event['side']=='TIDLIG VARSEL' else event['side']
+        block=side+'\n'+str(event.get('name') or event['id'])[:180]
+        if event.get('returns'):
+            block+='\nSiste uke: '+number(event['returns'].get('yield_1w'),'%')
+            block+=' · '+dict(identity_lines(event))['Avkastningsvaluta']
+            block+='\nInvesteringsområde: '+investment_focus(event)
+            block+='\nKursgrunnlag: '+date_label(event.get('price_at'))
+        if event.get('reason'):block+='\n'+str(event['reason'])[:250]
+        # One pathological old event must not permanently block delivery.
+        block=block[:limit-len(header)-2]
+        candidate=header+'\n\n'+'\n\n'.join(blocks+[block])
+        if len(candidate)>limit:break
+        blocks.append(block)
+    text=header+'\n\n'+'\n\n'.join(blocks)
+    if len(blocks)>1:
+        note='\n\nFlere fond kan følge samme marked eller indeks.'
+        if len(text)+len(note)<=limit:text+=note
+    return text,len(blocks)
 
 
 def primary_identity_lines(row):
@@ -76,7 +120,7 @@ def detail_lines(row):
 def candidate_views(rows):
     """Select before truncation; a blocked listing must not hide another valid listing."""
     ordered = sorted(rows, key=lambda r: (-(r['score'] if r.get('score') is not None else -1e9), r['id']))
-    top, seen = [], set()
+    top, seen, countries = [], set(), {}
     groups = Counter((r.get('category') or 'UKJENT', r.get('returns_currency') or 'UKJENT') for r in rows)
     def compact(r):
         return {**{k: v for k, v in r.items() if k not in ('observations', 'detail')}, **identity(r),
@@ -85,8 +129,11 @@ def candidate_views(rows):
         key = row.get('isin') or row['id']
         if qualified(row) and key not in seen:
             seen.add(key)
+            group=investment_group(row)
+            bucket=countries.setdefault(group,[])
+            if len(bucket)<25:bucket.append({**compact(row), 'country_rank':len(bucket)+1})
             if len(top) < 25: top.append({**compact(row), **decision_context(row), 'overall_rank': len(top) + 1})
-    return {'top_candidates': top, 'candidates': [compact(r) for r in ordered[:100]],
+    return {'top_candidates': top, 'country_candidates': countries, 'candidates': [compact(r) for r in ordered[:100]],
             'candidate_summary': {'assessed_listings': len(rows), 'basic_qualified_isins': len(seen),
                                   'top_shown': len(top), 'grouped_shown': min(100, len(rows)),
                                   'complete_trend': sum(r.get('score') is not None for r in rows),
