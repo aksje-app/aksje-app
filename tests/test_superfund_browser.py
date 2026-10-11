@@ -116,7 +116,7 @@ def test_country_ranking_switch_shows_separate_brazil_group(server,width):
         p.get_by_text('Beste per investeringsland/region',exact=True).click()
         group=p.locator('[data-testid="stExpander"] summary').filter(has_text='Brasil ·')
         group.first.wait_for();group.first.click()
-        p.get_by_text('Plass 1 innen området',exact=True).wait_for()
+        group.first.locator('xpath=..').get_by_text('Plass 1 innen området',exact=True).wait_for()
         assert p.locator('.sf-card').filter(has_text='Siste uke').count()>0
         group.first.scroll_into_view_if_needed()
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
