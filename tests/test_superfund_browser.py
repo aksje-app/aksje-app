@@ -103,3 +103,22 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
         p.screenshot(path=f'dist/browser/superfund-first-tap-{width}.png')
         browser.close()
+
+
+@pytest.mark.parametrize('width',[375,430])
+def test_country_ranking_switch_shows_separate_brazil_group(server,width):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch()
+        p=browser.new_page(viewport={'width':width,'height':900})
+        p.goto(server+'?aa_nav=superfund&aa_tab=Kandidater')
+        p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        p.get_by_text('Beste per investeringsland/region',exact=True).click()
+        group=p.locator('[data-testid="stExpander"] summary').filter(has_text='Brasil ·')
+        group.first.wait_for();group.first.click()
+        group.first.locator('xpath=..').get_by_text('Plass 1 innen området',exact=True).wait_for()
+        assert p.locator('.sf-card').filter(has_text='Siste uke').count()>0
+        group.first.scroll_into_view_if_needed()
+        Path('dist/browser').mkdir(parents=True,exist_ok=True)
+        p.screenshot(path=f'dist/browser/superfund-country-{width}.png')
+        browser.close()

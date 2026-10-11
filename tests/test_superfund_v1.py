@@ -363,3 +363,18 @@ def test_archive_clock_is_after_fetched_detail_verification(local,monkeypatch):
     provider=lambda kind,page:{'kind':kind,'page':page,'total':1,'rows':[raw_row('NO0000000001')],'url':'fixture'}
     runtime.run_batch(2,page_provider=provider,fx_provider=lambda:{'days':{}})
     assert runtime.snapshot()['archive_status']['state']=='ARCHIVED'
+
+
+def test_long_notification_batch_preserves_events_after_success_and_failure(local,monkeypatch):
+    import notifier
+    from superfund_presentation import notification_batch
+    events=[{'side':'BUY','id':str(n),'name':'Et langt fondsnavn '*8,'reason':'En lang begrunnelse '*12} for n in range(10)]
+    _,count=notification_batch(events)
+    assert count<5
+    runtime.write('snapshot.json',{'notification_pending':events})
+    monkeypatch.setattr(notifier,'send_pushover_alert',lambda *a,**k:True)
+    REAL_DELIVERY()
+    assert runtime.snapshot()['notification_pending']==events[count:]
+    monkeypatch.setattr(notifier,'send_pushover_alert',lambda *a,**k:False)
+    REAL_DELIVERY()
+    assert runtime.snapshot()['notification_pending']==events[count:]

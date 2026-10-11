@@ -3,7 +3,7 @@ import csv
 from html import escape
 from io import BytesIO, StringIO
 import json
-from superfund_presentation import top_candidates, resolve_identity, identity_lines, RANKING_NOTE, date_label
+from superfund_presentation import country_candidates, top_candidates, resolve_identity, identity_lines, RANKING_NOTE, date_label
 
 
 def safe_text(value):
@@ -40,6 +40,15 @@ def xlsx_bytes(snapshot):
         top.append([safe_text(v) if isinstance(v,str) else v for v in values])
     top.freeze_panes='A2';top.auto_filter.ref=top.dimensions
     for col in top.columns:top.column_dimensions[col[0].column_letter].width=min(55,max(len(str(c.value or '')) for c in col)+2)
+    countries=wb.create_sheet('Beste per område')
+    countries.append(['Investeringsområde','Plass i området','Fond','ISIN','Kategori','Avkastningsvaluta','Uke %','Måned %','Kvartal %','Risiko /7','Kostnad %','Kursdato'])
+    for area,rows in sorted(country_candidates(snapshot).items()):
+        for row in rows:
+            r=row.get('returns') or {}
+            values=[area,row['country_rank'],row.get('name'),row.get('isin'),row.get('category'),dict(identity_lines(row))['Avkastningsvaluta'],r.get('yield_1w'),r.get('yield_1m'),r.get('yield_3m'),row.get('risk'),row.get('cost_pct'),date_label(row.get('price_at'))]
+            countries.append([safe_text(v) if isinstance(v,str) else v for v in values])
+    countries.freeze_panes='A2';countries.auto_filter.ref=countries.dimensions
+    for col in countries.columns:countries.column_dimensions[col[0].column_letter].width=min(55,max(len(str(c.value or '')) for c in col)+2)
     note=wb.create_sheet('Les først');note.append([RANKING_NOTE]);note.append(['Registreringsland utledes ikke fra ISIN. Ukjente land og valutaopplysninger merkes.'])
     out=BytesIO();wb.save(out);return out.getvalue()
 

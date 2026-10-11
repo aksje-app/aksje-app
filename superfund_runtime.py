@@ -293,9 +293,12 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             prior_attention=payload['attention_history'].get(row['id'])
             if week is not None and week>=3 and not row['blocks'] and (not prior_attention or (at(now)-at(prior_attention)).total_seconds()>172800):
                 payload['attention_history'][row['id']]=now
-                result['changes'].append({'side':'TIDLIG VARSEL','id':row['id'],'name':row['name'],
-                    'reason':f"Ukesoppgang {week:.2f}%. Kandidat, ikke en reell kjøpsordre. Kursdato {row['price_at'][:10]}"})
+                result['changes'].append({'side':'STERK UKEUTVIKLING',**{k:v for k,v in decision_context(row).items() if k!='price_history_nok'},
+                    'reason':'Kildens periodeavkastning; valutaeffekt kan inngå.'})
         payload['attention_history']=dict(list(payload['attention_history'].items())[-500:])
+        event_ids={e['id'] for e in result['changes']}
+        contexts={r['id']:{k:v for k,v in decision_context(r).items() if k!='price_history_nok'} for r in result['rows'] if r['id'] in event_ids}
+        result['changes']=[{**contexts.get(e['id'],{}),**e} for e in result['changes']]
         old_pending=previous.get('notification_pending',[])
         payload['notification_pending']=old_pending+result['changes']
         proposal=learning.get('proposal',{})
@@ -348,8 +351,9 @@ def deliver_pending():
         s['report']=prepare_report_link(s);s['report_pending']=False;write('snapshot.json',s)
     if s.get('notification_pending') and config()['notifications']:
         from notifier import send_pushover_alert, normalize_notification_result
-        changes=s['notification_pending'][:5]
-        text='SUPERFOND · MODELLHANDEL\n'+'\n'.join(f"{x['side']} · {x.get('name',x['id'])} · {x.get('reason','')}" for x in changes[:5])
+        from superfund_presentation import notification_batch
+        text,count=notification_batch(s['notification_pending'])
+        changes=s['notification_pending'][:count]
         # Standard notifier handles quiet periods; no live broker execution.
         ok, detail=normalize_notification_result(send_pushover_alert(text,title='Superfondportefølje',
             url=s.get('report',{}).get('url') or None,url_title='Superfond i appen',priority=0))

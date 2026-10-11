@@ -4,7 +4,7 @@ from superfund_reports import csv_bytes, xlsx_bytes, pdf_bytes
 from ui_library.work_progress import render_progress, work_status
 from superfund_diagnostics import diagnostic_zip, learning_summary
 import json
-from superfund_presentation import CSS, RANKING_NOTE, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label, primary_identity_lines, development_lines, detail_lines, render_development_chart, number
+from superfund_presentation import CSS, RANKING_NOTE, country_candidates, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label, primary_identity_lines, development_lines, detail_lines, render_development_chart, number
 
 
 def render_superfund(st):
@@ -115,7 +115,17 @@ def _render_superfund(st):
                     with st.expander('Flere detaljer · '+str(row.get('name') or row.get('isin'))):
                         st.markdown(card('Produkt og datakilde',detail_lines(row)),unsafe_allow_html=True)
                     if row.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',row['url'])
-                for row in top:show(row,True)
+                view=st.radio('Rangeringsvisning',['Topp 25 samlet','Beste per investeringsland/region'],key='sf_ranking_view')
+                if view=='Topp 25 samlet':
+                    for row in top:show(row,True)
+                else:
+                    st.caption('Opptil 25 ulike ISIN per område fra hele vurderingen. Samme poengregel som Topp 25; valutaene er ikke normalisert. Indeksnavn er en etikett, ikke verifiserte beholdninger.')
+                    if 'country_candidates' not in s:st.warning('Eldre vurdering: landvisningen bruker opptil 100 lagrede kandidater. Full dekning etter neste komplette skanning.')
+                    for area,rows in sorted(country_candidates(s).items()):
+                        with st.expander(f'{area} · {len(rows)} vist'):
+                            for row in rows:
+                                st.caption(f"Plass {row['country_rank']} innen området")
+                                show(row)
                 st.subheader('Kandidater etter kategori og avkastningsvaluta')
                 st.caption('Opptil 100 lagrede kandidater, inkludert blokkeringer. Kategori-rang er forskjellig fra plasseringen i Topp 25.')
                 groups={}

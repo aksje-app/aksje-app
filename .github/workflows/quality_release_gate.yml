@@ -83,7 +83,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Superfond-RC16.34n-browser
+          name: Superfond-RC16.34o-browser
           path: dist/browser/
           if-no-files-found: ignore
       - name: Report sharing JavaScript
@@ -166,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist delta_root
-          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34n_FULL.zip HEAD
+          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34o_FULL.zip HEAD
 
           BASE_REF="${{ github.base_ref }}"
           if [ -z "$BASE_REF" ]; then BASE_REF="main"; fi
@@ -185,28 +185,28 @@ jobs:
 
           (
             cd delta_root
-            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34n_DELTA.zip .
+            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34o_DELTA.zip .
           )
-          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34n_FULL.zip \
-                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34n_DELTA.zip \
-            > dist/SHA256SUMS_RC16.34n.txt
+          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34o_FULL.zip \
+                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34o_DELTA.zip \
+            > dist/SHA256SUMS_RC16.34o.txt
 
           echo "Clean DELTA files:"
           cat dist/changed_files_delta.txt
       - name: Upload FULL package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34n_FULL
+          name: AI_Aksje_Analyzer_RC16.34o_FULL
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34n_FULL.zip
-            dist/SHA256SUMS_RC16.34n.txt
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34o_FULL.zip
+            dist/SHA256SUMS_RC16.34o.txt
           if-no-files-found: error
       - name: Upload clean DELTA package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34n_DELTA
+          name: AI_Aksje_Analyzer_RC16.34o_DELTA
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34n_DELTA.zip
+            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34o_DELTA.zip
             dist/changed_files_delta.txt
-            dist/SHA256SUMS_RC16.34n.txt
+            dist/SHA256SUMS_RC16.34o.txt
           if-no-files-found: error

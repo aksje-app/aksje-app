@@ -19,6 +19,7 @@ inject_design_system(st)
 rows=[]
 for n in range(30):
     rows.append({'id':f'IE{n:010d}:4','isin':f'IE{n:010d}','name':'Et internasjonalt fond med langt navn – Brasil og Latin-Amerika '+str(n),
+        'investment_area':'Brasil' if n<2 else 'USA',
         'kind':'etf','category':'Latin America Equity' if n%2 else 'Global Equity','returns_currency':'USD' if n%2 else 'EUR',
         'returns_currency_source':'INSTRUMENT_CURRENCY_FALLBACK','score':30-n/10,'rank':n//2+1,'risk':5,'cost_pct':.3,
         'price':901,'currency':'EUR','observations':[{'price_at':'2026-10-08T18:00:00Z','nok_price':100},{'price_at':'2026-10-09T18:03:56+00:00','nok_price':105}],
