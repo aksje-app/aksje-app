@@ -63,7 +63,7 @@ def diagnostic_zip(progress=None):
     index=read('catalog_index.json',{});snap=read('snapshot.json',{});archive=read('learning_index.json',{})
     checks=controls(snap,index)
     entries=[('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config())]
-    entries += [(name,read(name,{})) for name in ('job.json','request.json','capacity_watch.json','parameter_audit.json','fx.json','news.json')]
+    entries += [(name,read(name,{})) for name in ('job.json','request.json','capacity_watch.json','parameter_audit.json','risk_decisions.json','fx.json','news.json')]
     # Prioritise immutable learning/shadow evidence before catalogue bulk.
     paths=[f['key'][len(PREFIX):] for f in reversed(archive.get('frames',[])) if re.fullmatch(r'superfund/history/\d{4}-\d{2}-\d{2}\.json',f.get('key',''))]
     paths += ['details/'+k+'.json' for k in sorted(index.get('details',{})) if re.fullmatch(r'[A-Za-z0-9:._-]+',k)]

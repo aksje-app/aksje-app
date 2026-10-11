@@ -1,6 +1,7 @@
 """Pure fund model: delayed fills, frozen rules, no broker transactions."""
 from copy import deepcopy
 from superfund_presentation import identity
+import superfund_event_risk as event_risk
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -9,8 +10,8 @@ import math
 DEFAULTS = {'capital_nok': 1000000.0, 'max_positions': 8, 'max_position_pct': 12.5,
             'category_cap_pct': 30.0, 'sector_cap_pct': 35.0, 'region_cap_pct': 60.0, 'reserve_pct': 10.0, 'min_week_pct': 1.0,
             'max_risk': 5, 'max_cost_pct': 2.0, 'max_spread_pct': 0.5,
-            'stop_pct': 6.0, 'protect_from_pct': 2.0, 'retain_gain_pct': 55.0,
-            'cooldown_days': 7, 'fee_bps': 10.0, 'fx_bps': 25.0,
+            'stop_pct': 3.0, 'protect_from_pct': 2.0, 'retain_gain_pct': 55.0,
+            'cooldown_days': 7, 'event_cooldown_days': 5, 'brazil_cap_pct': 10.0, 'fee_bps': 10.0, 'fx_bps': 25.0,
             'max_quote_age_days': 5, 'enabled': True, 'notifications': True}
 
 
@@ -28,6 +29,11 @@ def initial(parameters=None):
 
 
 def valid_parameters(p):
+    p = dict(p)
+    # Also protect existing stored parameters and frozen shadows on upgrade.
+    raw_stop=float(p['stop_pct'])
+    if not math.isfinite(raw_stop):raise ValueError('stop_pct')
+    p['stop_pct'] = min(raw_stop, 3.0)
     for k in DEFAULTS:
         if k not in p:
             raise ValueError('Mangler parameter ' + k)
@@ -38,6 +44,7 @@ def valid_parameters(p):
     if not (1 <= p['max_positions'] <= 20 and 0 < p['max_position_pct'] <= 25
             and 0 <= p['reserve_pct'] <= 80 and 0 < p['stop_pct'] <= 20
             and 0 <= p['retain_gain_pct'] <= 100 and 0 <= p['cooldown_days'] <= 90
+            and 5 <= p['event_cooldown_days'] <= 90 and 0 < p['brazil_cap_pct'] <= 10
             and 0 <= p['fee_bps'] <= 100 and 0 <= p['fx_bps'] <= 200):
         raise ValueError('Parameter utenfor tillatte grenser')
     if not (1<=p['max_risk']<=7 and 0<=p['max_cost_pct']<=10 and 0<=p['max_spread_pct']<=5 and 0<=p['min_week_pct']<=20 and 1<=p['max_quote_age_days']<=10 and 1<=p['category_cap_pct']<=100 and 1<=p['sector_cap_pct']<=100 and 1<=p['region_cap_pct']<=100 and p['capital_nok']>0):
@@ -123,17 +130,57 @@ def fill_allocation_limit(item, positions, equity, allocation, p):
     return allocation
 
 
-def cycle(state, items, now, parameters=None, *, buy_hold=False):
+def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None):
     p = valid_parameters({**DEFAULTS, **(parameters or {})})
     s = deepcopy(state or initial(p)); now = at(now) if isinstance(now, str) else now
     rows = rank(items, now, p); lookup = {r['id']: r for r in rows}
-    fid = hashlib.sha256((frame_id(items)+json.dumps(p,sort_keys=True)+str(buy_hold)).encode()).hexdigest()[:20]
+    approvals = approvals or {}
+    # Date is relevant to event windows; quote confirmations still require new dates.
+    time_gates=json.dumps({'event_active':event_risk.active(now),'expired_exits':sorted(key for key,e in s.get('event_exits',{}).items() if now>=at(e['until']))},sort_keys=True)
+    fid = hashlib.sha256((time_gates+frame_id(items)+json.dumps(p,sort_keys=True)+str(buy_hold)+now.date().isoformat()+json.dumps(approvals,sort_keys=True)).encode()).hexdigest()[:20]
     if s.get('last_frame') == fid:
         return s, {'state': 'UNCHANGED', 'changes': [], 'rows': rows}
     changes = []; pending = []
+    # Value existing exposure at the same fresh evidence used for the fill gate.
+    for key,pos in s['positions'].items():
+        row=lookup.get(key)
+        if row and not eligibility(row,now,p,buy=False):
+            pos['last_nok']=row['price']*row['nok_rate']
+            if row.get('detail',{}).get('regions'):
+                pos['regions']=row['detail']['regions']
+                pos['investment_area']=identity(row).get('investment_area')
+            if row.get('detail',{}).get('holdings'):pos['holdings']=row['detail']['holdings'][:30]
+    if not buy_hold:
+        current_proposals=event_risk.risk_view(s,items,now,p)['proposals']
+        current_by_position={x['position_id']:x for x in current_proposals}
+        used=s.setdefault('risk_approval_used',{})
+        for pid,decision in approvals.items():
+            if decision.get('state')!='APPROVED' or pid in used:continue
+            proposal=decision.get('proposal') or next((x for x in current_proposals if x['id']==pid),None)
+            if not proposal:continue
+            key=proposal['position_id'];current=current_by_position.get(key);pos=s['positions'].get(key)
+            # Approval remains usable across new NAVs, but never on a changed holding.
+            if not pos or pos['quantity']!=proposal.get('quantity',pos['quantity']):
+                used[pid]='STALE_POSITION';continue
+            if not current:
+                used[pid]='NO_REDUCTION_NEEDED';continue
+            row=lookup.get(key)
+            if not row or eligibility(row,now,p,buy=False):continue
+            s['orders'].append({'id':row['id'],'isin':row['isin'],'side':'SELL',
+                'fraction':min(proposal['fraction'],current['fraction']),'approval_id':pid,
+                'requested_at':decision.get('at',now.isoformat()),'next_at':row.get('detail',{}).get('trading',{}).get('nextSellAt'),
+                'reason':proposal['reason']})
+            used[pid]='ORDER_QUEUED'
+        for row in rows:
+            row['blocks'].extend(event_risk.reentry_blocks(s,row,now))
     # Previously queued orders execute only on evidence dated AFTER the decision.
     for order in s['orders']:
         item = lookup.get(order['id'])
+        if item and order['side']=='BUY' and not buy_hold and event_risk.active(now):
+            eq=s['cash']+sum(x['quantity']*x['last_nok'] for x in s['positions'].values())
+            order['allocation']=event_risk.event_allocation(item,s['positions'],pending,lookup,eq,order['allocation'],p,now)
+            if order['allocation']<eq*.01:
+                changes.append({'side':'CANCEL','id':item['id'],'reason':'Brasil-grense i hendelsesvindu'});continue
         if item is None or eligibility(item, now, p, buy=False): pending.append(order); continue
         if at(item['price_at']).date() <= at(order['requested_at']).date(): pending.append(order); continue
         if at(item['observed_at']) <= at(order['requested_at']): pending.append(order); continue
@@ -148,6 +195,7 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
             if not p['enabled'] and not buy_hold:
                 changes.append({'side':'CANCEL','id':item['id'],'reason':'Modellutvelgelse deaktivert'});continue
             # Recheck every gate; changed evidence can cancel a pending model buy.
+            if not buy_hold:item['blocks'].extend(event_risk.reentry_blocks(s,item,now))
             blocks = [b for b in item['blocks'] if not buy_hold or b not in ('SVAK_TREND','MANGLER_TREND')]
             if blocks:
                 changes.append({'side': 'CANCEL', 'id': item['id'], 'reason': ', '.join(item['blocks'])}); continue
@@ -155,6 +203,9 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
             allocation = min(order['allocation'], s['cash']-equity_before*p['reserve_pct']/100, equity_before*(100 if buy_hold else p['max_position_pct'])/100)
             if not buy_hold:
                 allocation=fill_allocation_limit(item,s['positions'],equity_before,allocation,p)
+                allocation=event_risk.event_allocation(item,s['positions'],[],lookup,equity_before,allocation,p,now)
+                if any(o['side']=='SELL' and (event_risk.active(now) or event_risk.active(at(o['requested_at']))) and event_risk.related(item,s['positions'].get(o['id'],o)) for o in s['orders']):allocation=0
+                if any(event_risk.intersection(item,x)>=40 for x in s['positions'].values()):allocation=0
                 if len(s['positions'])>=p['max_positions'] or any(x['isin']==item['isin'] for x in s['positions'].values()):allocation=0
                 if allocation<equity_before*0.01:allocation=0
             if allocation <= 0:
@@ -166,13 +217,21 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
                 'last_nok': price, 'peak_nok': price, 'bought_at': now.isoformat(),
                 'rank_at_buy': item['rank'], 'score_at_buy': item['score'], 'rank_now': item['rank'],
                 'decision_at': order['requested_at'], 'kind': item['kind'],
+                'holdings':item.get('detail',{}).get('holdings',[])[:30],
+                'regions_verified_at':item.get('detail',{}).get('verified_at'),
                 'sectors':item.get('detail',{}).get('sectors',[]),'regions':item.get('detail',{}).get('regions',[])}
             pnl = None
         else:
-            pos = s['positions'].pop(item['id'], None)
+            pos = s['positions'].get(item['id'])
             if not pos: continue
-            proceeds = pos['quantity'] * price * (1 - friction); s['cash'] += proceeds
-            pnl = proceeds - pos['cost_nok']; s['cooldowns'][item['isin']] = now.isoformat()
+            fraction=max(0.0,min(1.0,float(order.get('fraction',1))))
+            proceeds = pos['quantity'] * fraction * price * (1 - friction); s['cash'] += proceeds
+            pnl = proceeds - pos['cost_nok']*fraction; s['cooldowns'][item['isin']] = now.isoformat()
+            if not buy_hold and event_risk.brazil_weight(pos)[0]>0 and (event_risk.active(now) or event_risk.active(at(order['requested_at']))):
+                event_risk.register_exit(s,pos,now,p)
+            if fraction>=1:s['positions'].pop(item['id'])
+            else:
+                pos['quantity']*=1-fraction;pos['cost_nok']*=1-fraction
         event = {**order, 'name':item['name'], 'executed_at': now.isoformat(), 'price_at': item['price_at'],
                  'price_nok': price, 'pnl_nok': pnl, 'execution': 'DELAYED_MODEL_ESTIMATE'}
         s['trades'].append(event); changes.append(event)
@@ -182,13 +241,27 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
         row = lookup.get(key)
         if not row or eligibility(row, now, p, buy=False): continue
         price = row['price'] * row['nok_rate']; pos['last_nok'] = price
+        if row.get('detail',{}).get('regions'):
+            pos['regions']=row['detail']['regions']
+            pos['investment_area']=identity(row).get('investment_area')
+        if row.get('detail',{}).get('holdings'):pos['holdings']=row['detail']['holdings'][:30]
         pos['peak_nok'] = max(pos['peak_nok'], price); pos['rank_now'] = row['rank']
         gain = pos['peak_nok'] / pos['entry_nok'] - 1
         floor = pos['peak_nok'] * (1 - p['stop_pct'] / 100)
         if gain >= p['protect_from_pct'] / 100:
             floor = max(floor, pos['entry_nok'] * (1 + gain * p['retain_gain_pct'] / 100))
         pos['floor_nok'] = max(pos.get('floor_nok', 0), floor)
-        if p['enabled'] and not buy_hold and key not in pending_ids and (price <= pos['floor_nok'] or (row.get('returns', {}).get('yield_1w') or 0) < -p['min_week_pct']):
+        # Soft trend exits need two distinct weak quote dates; hard floor remains immediate.
+        weak=(row.get('returns', {}).get('yield_1w') or 0) < -p['min_week_pct']
+        if row['price_at'][:10]!=pos.get('trend_quote_date'):
+            pos['weak_trend_dates']=pos.get('weak_trend_dates',0)+1 if weak else 0
+            pos['trend_quote_date']=row['price_at'][:10]
+        breached=price <= pos['floor_nok'] or pos.get('weak_trend_dates',0)>=2
+        if p['enabled'] and not buy_hold and breached:
+            for order in s['orders']:
+                if order['id']==key and order['side']=='SELL' and order.get('fraction',1)<1:
+                    order.pop('fraction',None);order['reason']='Salgsgrense brutt; full beskyttelsesexit'
+        if p['enabled'] and not buy_hold and key not in pending_ids and breached:
             s['orders'].append({**{k:v for k,v in identity(row).items() if k!='price_at'}, 'id': key, 'side': 'SELL', 'requested_at': now.isoformat(),
                 'next_at': row.get('detail', {}).get('trading', {}).get('nextSellAt'),
                 'reason': 'Salgsgrense/trend svekket; senere modellkurs, ikke garantert stoppris'})
@@ -198,6 +271,7 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
         slots = p['max_positions'] - len(s['positions']) - sum(o['side'] == 'BUY' for o in s['orders'])
         owned = {x['isin'] for x in s['positions'].values()}
         for row in rows:
+            row['blocks']=sorted(set(row['blocks']+event_risk.reentry_blocks(s,row,now)))
             if slots <= 0: break
             if row['blocks'] or row['isin'] in owned or row['id'] in {o['id'] for o in s['orders']}: continue
             cooldown = s['cooldowns'].get(row['isin'])
@@ -220,9 +294,12 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False):
                         if order['side']!='BUY':continue
                         used += order.get('allocation',0)*sum(float(y.get('weight') or 0)/100 for y in lookup.get(order['id'],{}).get('detail',{}).get(field,[]) if y.get('exposureType')==x.get('exposureType'))
                     allocation = min(allocation,(equity*cap/100-used)/weight)
+            allocation=event_risk.event_allocation(row,s['positions'],s['orders'],lookup,equity,allocation,p,now)
+            if event_risk.active(now) and any(o['side']=='SELL' and event_risk.related(row,s['positions'].get(o['id'],o)) for o in s['orders']):
+                row['blocks'].append('HENDELSESSALG_AVVENTER');continue
             if allocation < equity * 0.01:
                 row['blocks'].append('KAPITAL_ELLER_EKSPONERING');continue
-            if any(overlap(row, lookup.get(k, {})) >= 40 for k in s['positions']):
+            if any(event_risk.intersection(row,pos)>=40 for pos in s['positions'].values()) or any(event_risk.intersection(row,lookup.get(o['id'],{}))>=40 for o in s['orders'] if o['side']=='BUY'):
                 row['blocks'].append('OVERLAPP');continue
             s['orders'].append({**{k:v for k,v in identity(row).items() if k!='price_at'}, 'id': row['id'], 'isin': row['isin'], 'side': 'BUY', 'category': cat,
                 'allocation': allocation, 'requested_at': now.isoformat(),

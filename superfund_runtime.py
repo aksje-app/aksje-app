@@ -89,7 +89,7 @@ def save_parameters(updates, actor='UI'):
 
 
 def config():
-    return {**DEFAULTS, **read('parameter_audit.json', {}).get('parameters', {})}
+    return valid_parameters({**DEFAULTS, **read('parameter_audit.json', {}).get('parameters', {})})
 
 
 def rollback(actor='UI'):
@@ -264,12 +264,17 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             return read('job.json',{})
         p=config(); previous=snapshot()
         write('job.json',{'state':'RUNNING','phase':'ANALYSERER MODELL OG SHADOW','started_at':now,'checked_at':now_iso(),'capacity':capacity})
-        model, result=cycle(previous.get('model'),items,now,p)
+        model, result=cycle(previous.get('model'),items,now,p,approvals=read('risk_decisions.json',{}))
+        from superfund_event_risk import risk_view
+        risk=risk_view(model,items,at(now),p)
         shadows={}; shadow_rules=previous.get('shadow_rules') or {'fast':{**p,'min_week_pct':0.5},'patient':{**p,'min_week_pct':2.0}}
+        shadow_rules={name:valid_parameters({**DEFAULTS,**rules}) for name,rules in shadow_rules.items()}
+        policy_changed=previous.get('risk_policy_version')!=1
+        learning_previous={**previous,'learning':{},'shadow_rules':shadow_rules} if policy_changed else previous
         for name, rules in shadow_rules.items():
             shadows[name],_=cycle(previous.get('shadows',{}).get(name),items,now,rules)
         from superfund_learning import forward_evidence
-        learning=forward_evidence(previous,model,shadows,items,now,p)
+        learning=forward_evidence(learning_previous,model,shadows,items,now,p)
         from superfund_learning import archive_frame
         try:
             archive_status=archive_frame(items,now,p)
@@ -281,8 +286,8 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
         views=candidate_views(result['rows'])
         needed={o['id'] for o in model.get('orders',[])} | set(model.get('positions',{}))
         fund_identity={r['id']:decision_context(r) for r in result['rows'] if r['id'] in needed}
-        payload={'at':now,'version':APP_VERSION,'model':model,'shadows':shadows,'shadow_rules':shadow_rules,'learning':learning,'archive_status':archive_status,
-                 'parameters':p,'coverage':coverage,'frame':model.get('last_frame'),
+        payload={'risk_policy_version':1,'prior_learning':previous.get('learning',{}) if policy_changed else previous.get('prior_learning',{}),'at':now,'version':APP_VERSION,'model':model,'shadows':shadows,'shadow_rules':shadow_rules,'learning':learning,'archive_status':archive_status,
+                 'risk':risk,'parameters':p,'coverage':coverage,'frame':model.get('last_frame'),
                  'report':previous.get('report',{}),
                  **views,'fund_identity':fund_identity,
                  'blocked_counts':{},'report_pending':previous.get('report_pending',False) or result['state']!='UNCHANGED','notification_pending':[],'attention_history':previous.get('attention_history',{})}
@@ -296,6 +301,14 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
                 result['changes'].append({'side':'STERK UKEUTVIKLING',**{k:v for k,v in decision_context(row).items() if k!='price_history_nok'},
                     'reason':'Kildens periodeavkastning; valutaeffekt kan inngå.'})
         payload['attention_history']=dict(list(payload['attention_history'].items())[-500:])
+        old_proposals={x['id'] for x in previous.get('risk',{}).get('proposals',[])}
+        for proposal in risk['proposals']:
+            if proposal['id'] not in old_proposals:
+                result['changes'].append({'side':'RISIKOFORSLAG','id':proposal['id'],'name':proposal['name'],
+                    'reason':f"Reduser modellposisjonen med {proposal['fraction']*100:.1f} %. Krever godkjenning i appen."})
+        if risk['event']['review_due'] and not previous.get('risk',{}).get('event',{}).get('review_due'):
+            result['changes'].append({'side':'HENDELSESKONTROLL','id':'BR_ELECTION_2026','name':'Brasil før 25. oktober',
+                'reason':'Kontroll 19.–23. oktober. Se eksponering, nedsalgsforslag og fondsfrister i appen.'})
         event_ids={e['id'] for e in result['changes']}
         contexts={r['id']:{k:v for k,v in decision_context(r).items() if k!='price_history_nok'} for r in result['rows'] if r['id'] in event_ids}
         result['changes']=[{**contexts.get(e['id'],{}),**e} for e in result['changes']]
@@ -360,3 +373,18 @@ def deliver_pending():
         s['delivery']={'at':now_iso(),'sent':ok,'detail':str(detail)[:200]}
         if ok:s['notification_pending']=s['notification_pending'][len(changes):]
         write('snapshot.json',s)
+
+
+def decide_risk_proposal(proposal_id, approve, actor='UI'):
+    """Receipt only: portfolio mutations happen exclusively in the worker lane."""
+    def commit(current):
+        current=dict(current or {})
+        if proposal_id in current:return current
+        proposal=next((x for x in snapshot().get('risk',{}).get('proposals',[]) if x['id']==proposal_id),None)
+        if not proposal:raise ValueError('Forslaget er utdatert; oppdater vurderingen')
+        current[proposal_id]={'state':'APPROVED' if approve else 'REJECTED','at':now_iso(),'actor':actor,'proposal':proposal}
+        if len(current)>1000:raise ValueError('Beslutningsbudsjett nådd')
+        return current
+    decisions=storage().mutate_json(PREFIX+'risk_decisions.json',commit,{})
+    request_scan()
+    return decisions[proposal_id]

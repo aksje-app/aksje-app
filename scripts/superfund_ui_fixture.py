@@ -29,6 +29,9 @@ s={'at':'2026-10-10T12:00:00+00:00',**candidate_views(rows),'fund_identity':{row
     'model':{'cash':1000000,'initial_capital':1000000,'positions':{},'orders':[{'id':rows[0]['id'],'side':'BUY','reason':'Positiv ukestrend; venter på ny observert kursdato','requested_at':'2026-10-10T12:00:00+00:00'}]},
     'learning':{'paired_dates':12},'shadows':{'fast':{'cash':1000000,'positions':{},'history':[{}]}},'shadow_rules':{'fast':DEFAULTS},
     'coverage':{'complete':True,'listings':3173,'unique_isins':3156},'blocked_counts':{'RISIKO':20},'delivery':{}}
+from superfund_event_risk import risk_view
+from superfund_engine import at
+s['risk']=risk_view(s['model'],rows,at('2026-10-12T15:00:00+00:00'),DEFAULTS)
 page.snapshot=lambda:s
 page.config=lambda:DEFAULTS
 page.read=lambda name,default: {'capacity':{'headroom_mb':1725.7,'cpu_pressure_avg10_pct':2.15}} if name=='job.json' else {'items':[{'title':'Lang nyhetstittel om renteutvikling og verdens aksjemarkeder','published':'Sat, 10 Oct 2026 06:37:53 GMT','url':'https://e24.no'}]} if name=='news.json' else {}

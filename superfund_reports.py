@@ -49,6 +49,10 @@ def xlsx_bytes(snapshot):
             countries.append([safe_text(v) if isinstance(v,str) else v for v in values])
     countries.freeze_panes='A2';countries.auto_filter.ref=countries.dimensions
     for col in countries.columns:countries.column_dimensions[col[0].column_letter].width=min(55,max(len(str(c.value or '')) for c in col)+2)
+    risk=wb.create_sheet('Hendelsesrisiko')
+    for key,value in snapshot.get('risk',{}).items():
+        risk.append([key,safe_text(json.dumps(value,ensure_ascii=False))])
+    risk.column_dimensions['A'].width=32; risk.column_dimensions['B'].width=90
     note=wb.create_sheet('Les først');note.append([RANKING_NOTE]);note.append(['Registreringsland utledes ikke fra ISIN. Ukjente land og valutaopplysninger merkes.'])
     out=BytesIO();wb.save(out);return out.getvalue()
 
@@ -77,6 +81,12 @@ def pdf_bytes(snapshot):
     model=snapshot.get('model',{});equity=model.get('cash',0)+sum(p['quantity']*p['last_nok'] for p in model.get('positions',{}).values())
     line(f"Verdi NOK {equity:,.2f} · kontanter {model.get('cash',0):,.2f} · største fall {model.get('max_drawdown_pct',0):.2f}%")
     line('MODELLHANDEL. Ingen ordre sendes til Nordnet. Utførelse er et estimat på senere observert kurs; NAV, valuta og ordrefrister kan gi avvik.')
+    if snapshot.get('risk'):
+        r=snapshot['risk'];line('Hendelsesrisiko','Heading2')
+        line(f"Brasil konservativ øvre eksponering {r['brazil_upper_pct']:.1f}% · tak {r['cap_pct']}% · risikoindikator {r['risk_indicator']}/100")
+        line(r['indicator_method']);line(r['currency_note'])
+        line(f"Scenario: aksjer -10% og valuta -10%, samlet -19%. Tap ved øvre eksponering NOK {r['stress']['portfolio_loss_upper_nok']:,.0f}. Ikke prognose.")
+        for proposal in r['proposals']:line(f"Krever godkjenning: {proposal['name']} · reduser {proposal['fraction']*100:.1f}%")
     line('Beholdninger','Heading2')
     for p in model.get('positions',{}).values():
         line(p['name']+' · '+p['isin'],'Heading3')

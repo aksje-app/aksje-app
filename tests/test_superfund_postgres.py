@@ -59,3 +59,15 @@ def test_concurrent_approval_and_click_queue_are_idempotent(postgres):
     assert len(runtime.read('parameter_audit.json')['history'])==1
     assert all(r==requests[0] for r in requests)
     assert runtime.config()['min_week_pct']==0.5
+
+
+def test_concurrent_risk_receipts_leave_portfolio_in_worker_lane(postgres):
+    import superfund_runtime as runtime
+    model={'cash':123,'positions':{},'orders':[]}
+    proposal={'id':'risk1','position_id':'fund','name':'Brasil','fraction':.5,'quantity':10}
+    runtime.write('snapshot.json',{'model':model,'risk':{'proposals':[proposal]}})
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        receipts=list(pool.map(lambda _:runtime.decide_risk_proposal('risk1',True),range(8)))
+    assert all(r['state']=='APPROVED' for r in receipts)
+    assert len(runtime.read('risk_decisions.json'))==1
+    assert runtime.snapshot()['model']==model

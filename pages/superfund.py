@@ -46,6 +46,41 @@ def _render_superfund(st):
     st.metric('Modellportefølje NOK',f'{equity:,.0f}' if s else '—')
     st.metric('Avkastning',f"{(equity/model.get('initial_capital',1)-1)*100:+.2f}%" if s else '—')
     st.caption('Siste komplette snapshot: '+date_label(s.get('at')))
+    risk=s.get('risk',{})
+    if risk:
+        with st.expander('Hendelsesrisiko · Brasil og gevinstvern',expanded=True):
+            st.metric('Brasil · konservativ eksponering',f"{risk['brazil_upper_pct']:.1f} %",help='Ukjent landfordeling reserveres som mulig Brasil-eksponering. Dette er en øvre grense.')
+            st.caption(f"Midlertidig tak {risk['cap_pct']:.0f} % · landdata for {risk['country_data_coverage_pct']:.1f} % av kapitalen · maks trailing stop 3 %")
+            event=risk['event']
+            st.write('Andre valgomgang: 25. oktober · kontroll 19.–23. oktober · '+('hendelsesvern aktivt' if event['active'] else 'hendelsesvindu avsluttet'))
+            st.link_button('Valgkalender · offisiell kilde',event['source'])
+            st.caption('Kontrollen følger katalogskanningen. Fondsfrister og neste kursdato avgjør når modellordre kan utføres.')
+            stress=risk['stress']
+            st.write(f"Scenario: Brasil-aksjer −10 % og valuta −10 % gir −19 % samlet. Mulig tap ved øvre eksponering: NOK {stress['portfolio_loss_upper_nok']:,.0f}.")
+            st.caption(risk['currency_note'])
+            st.write(f"Risikoindikator: {risk['risk_indicator']} av 100")
+            st.caption(risk['indicator_method'])
+            for pos in risk['positions']:
+                st.write(f"{pos['name']} · {pos['stop_status']} · {pos['drop_from_peak_pct']:.2f} % under topp")
+                st.caption(pos['source'])
+            decisions=read('risk_decisions.json',{})
+            from superfund_runtime import decide_risk_proposal
+            for proposal in risk['proposals']:
+                st.warning(f"Forslag: reduser {proposal['name']} med {proposal['fraction']*100:.1f} % · anslått NOK {proposal['estimated_nok']:,.0f}")
+                decision=decisions.get(proposal['id'])
+                if decision:
+                    st.caption('Godkjent; venter på ny worker-vurdering' if decision['state']=='APPROVED' else 'Avvist for denne vurderingen')
+                else:
+                    if st.button('Godkjenn nedsalg i modellen',key='sf_risk_yes_'+proposal['id']):
+                        decide_risk_proposal(proposal['id'],True);st.rerun()
+                    if st.button('Avvis nedsalg',key='sf_risk_no_'+proposal['id']):
+                        decide_risk_proposal(proposal['id'],False);st.rerun()
+            if risk['known_overlap']:
+                st.write('Felles oppgitte toppbeholdninger')
+                for pair in risk['known_overlap']:
+                    st.caption(f"{pair['a']} / {pair['b']} · minst {pair['known_shared_pct']:.1f} % felles. Full overlapp er ukjent.")
+            for exit in risk['quarantines']:
+                st.caption(exit['isin']+' · hendelseskarantene til '+date_label(exit['until'])+' · deretter to nye positive kursdatoer for samme eller tilsvarende eksponering')
     sections=['Portefølje','Kandidater','Rapporter og nedlastinger','Nyheter og kilder','Læring og skygge','Parametre','Diagnoser']
     if st.session_state.get('sf_section') not in sections:
         restored=st.query_params.get('aa_tab') or st.session_state.get('sf_saved_section')
@@ -219,7 +254,7 @@ def _render_superfund(st):
                 with st.form('sf_parameters'):
                     enabled=st.checkbox('Automatisk modellutvelgelse',value=p['enabled'])
                     week=st.number_input('Minimum ukesoppgang %',value=float(p['min_week_pct']),min_value=0.0,max_value=20.0)
-                    stop=st.number_input('Maks fall fra topp %',value=float(p['stop_pct']),min_value=1.0,max_value=20.0)
+                    stop=st.number_input('Maks fall fra topp %',value=float(p['stop_pct']),min_value=1.0,max_value=3.0)
                     pos=st.number_input('Superfond maks posisjon %',value=float(p['max_position_pct']),min_value=1.0,max_value=25.0)
                     if st.form_submit_button('Lagre parametre'):
                         save_parameters({'enabled':enabled,'min_week_pct':week,'stop_pct':stop,'max_position_pct':pos});st.rerun()
