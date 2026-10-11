@@ -64,7 +64,7 @@ def test_weakening_before_execution_cancels_buy():
 def test_profit_floor_and_delayed_exit_cooldown():
     s,_=step(None,[item()]);s,_=step(s,[item(day='2026-10-06')],'2026-10-06')
     s,_=step(s,[item(day='2026-10-07',price=110)],'2026-10-07')
-    pos=next(iter(s['positions'].values()));assert pos['floor_nok']==pytest.approx(105.5)
+    pos=next(iter(s['positions'].values()));assert pos['floor_nok']==pytest.approx(106.7)
     s,_=step(s,[item(day='2026-10-08',price=104)],'2026-10-08');assert s['orders'][0]['side']=='SELL'
     s,r=step(s,[item(day='2026-10-09',price=103)],'2026-10-09')
     assert not s['positions'] and not s['orders'] and s['trades'][-1]['side']=='SELL'
@@ -125,9 +125,9 @@ def test_failed_page_keeps_last_snapshot_and_cursor(local):
 
 def test_request_dedup_and_parameter_audit_rollback(local):
     assert runtime.request_scan()==runtime.request_scan()
-    runtime.save_parameters({'stop_pct':5},'test')
-    assert runtime.config()['stop_pct']==5
-    runtime.rollback('test');assert runtime.config()['stop_pct']==6
+    runtime.save_parameters({'stop_pct':2},'test')
+    assert runtime.config()['stop_pct']==2
+    runtime.rollback('test');assert runtime.config()['stop_pct']==3
     assert len(runtime.read('parameter_audit.json')['history'])==2
     with pytest.raises(ValueError):runtime.save_parameters({'max_position_pct':99})
 
