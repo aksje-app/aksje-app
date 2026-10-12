@@ -2067,12 +2067,16 @@ def run_autonomous_cycle(
                 })
                 continue
 
-            pending = pending_entries.get(ticker)
-            if not pending:
-                pending = {"signal_created_at": _now(), "entry_signal_date": _now()[:10], "signal_run_id": run_id}
-                pending_entries[ticker] = pending
-            dated_candidate = {**dict(candidate), "entry_signal_date": pending["entry_signal_date"]}
-            entry_reject, verified_open = _autonomy_entry_safety(dated_candidate, _clock(timezone.utc))
+            if simulation is not None or ticker in portfolio["positions"]:
+                pending = {"entry_signal_date": _now()[:10], "signal_run_id": run_id}
+                entry_reject, verified_open = "", price
+            else:
+                pending = pending_entries.get(ticker)
+                if not pending:
+                    pending = {"signal_created_at": _now(), "entry_signal_date": _now()[:10], "signal_run_id": run_id}
+                    pending_entries[ticker] = pending
+                dated_candidate = {**dict(candidate), "entry_signal_date": pending["entry_signal_date"]}
+                entry_reject, verified_open = _autonomy_entry_safety(dated_candidate, _clock(timezone.utc))
             if entry_reject:
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT",
                                   "reason": entry_reject, "reason_code": entry_reject.split(":")[0],
