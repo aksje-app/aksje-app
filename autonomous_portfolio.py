@@ -44,6 +44,7 @@ ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
 TRADES_PATH = ROOT / "trades.json"
+PENDING_ENTRIES_PATH = ROOT / "pending_entries.json"
 DECISIONS_PATH = ROOT / "decisions.json"
 NOTIFICATIONS_PATH = ROOT / "notifications.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
@@ -1339,17 +1340,28 @@ def _candidate_event_protection(candidate: Mapping[str, Any], *, horizon_busines
 
 
 def _reentry_cooldown(candidate: Mapping[str, Any], params: AutonomousParameters) -> tuple[bool, str]:
-    """Block churn after a full exit unless genuinely new evidence is present."""
+    """Hard stop-loss quarantine; other sell reasons retain existing evidence exception."""
     ticker = str(candidate.get("ticker") or "").upper()
     rows = _read(TRADES_PATH, [])
-    sells = [row for row in rows if isinstance(row, Mapping)
-             and str(row.get("ticker") or "").upper() == ticker
-             and str(row.get("action") or "").upper() == "SELL"] if isinstance(rows, list) else []
+    sells = sorted((row for row in rows if isinstance(row, Mapping)
+                    and str(row.get("ticker") or "").upper() == ticker
+                    and str(row.get("action") or "").upper() == "SELL"),
+                   key=lambda row: str(row.get("timestamp") or ""), reverse=True) if isinstance(rows, list) else []
     if not sells:
         return False, ""
-    latest = max(sells, key=lambda row: str(row.get("timestamp") or ""))
+    latest = sells[0]
     elapsed = _days_opened(latest.get("timestamp"))
-    cooldown = max(0, int(params.reentry_cooldown_days))
+    cooldown = max(5, int(params.reentry_cooldown_days))
+    stop_sells = [row for row in sells if "STOP_LOSS" in str(row.get("reason") or "").upper().replace(" ", "_")]
+    is_stop = bool(stop_sells and stop_sells[0] is latest)
+    if is_stop:
+        if len(stop_sells) >= 2 and _days_opened(stop_sells[1].get("timestamp")) <= 30:
+            cooldown = max(cooldown, 15)
+        if elapsed < cooldown:
+            return True, f"STOP_LOSS_QUARANTINE: {elapsed}/{cooldown} børsdager; ingen signalunntak"
+        if candidate.get("fresh_post_stop_confirmation") is not True:
+            return True, "STOP_LOSS_REENTRY_CONFIRMATION_REQUIRED: nytt dokumentert signal mangler"
+        return False, ""
     if elapsed >= cooldown:
         return False, ""
     protected, event_reason = _candidate_event_protection(candidate)
@@ -1358,6 +1370,85 @@ def _reentry_cooldown(candidate: Mapping[str, Any], params: AutonomousParameters
     if protected or improved or candidate.get("breakout_holding") is True:
         return False, event_reason or "Ny dokumentert score-/breakout-evidens opphever sperren"
     return True, f"Gjenkjøpssperre: {elapsed}/{cooldown} børsdager siden salg"
+
+
+def _autonomy_entry_inputs(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    """Preserve audited OHLC fields from the pipeline; do not manufacture signal dates."""
+    row = dict(candidate)
+    for container in ("decision_inputs", "market_snapshot", "raw_candidate", "raw"):
+        nested = row.get(container)
+        if isinstance(nested, Mapping):
+            for field in ("session_open", "previous_close", "session_date",
+                          "entry_signal_date", "return_1d", "return_5d"):
+                if row.get(field) in (None, "") and nested.get(field) not in (None, ""):
+                    row[field] = nested[field]
+    hist = row.get("hist")
+    if hist is not None and hasattr(hist, "columns"):
+        try:
+            closes = hist["Close"].dropna()
+            opens = hist["Open"]
+            if len(closes) >= 2:
+                date = closes.index[-1].date().isoformat()
+                row.setdefault("session_date", date)
+                row.setdefault("session_open", float(opens.loc[closes.index[-1]]))
+                row.setdefault("previous_close", float(closes.iloc[-2]))
+                if len(closes) >= 6:
+                    row.setdefault("return_5d", (float(closes.iloc[-1]) / float(closes.iloc[-6]) - 1) * 100)
+                row.setdefault("return_1d", (float(closes.iloc[-1]) / float(closes.iloc[-2]) - 1) * 100)
+        except (KeyError, ValueError, TypeError, IndexError):
+            pass
+    return row
+
+
+def _autonomy_entry_safety(candidate: Mapping[str, Any], now: datetime) -> tuple[str, float]:
+    """Fail closed: no synthetic same-day snapshot fills. Shadow can still observe blocked signals."""
+    candidate = _autonomy_entry_inputs(candidate)
+    daily = _f(candidate.get("return_1d"), 0)
+    weekly = _f(candidate.get("return_5d"), 0)
+    if daily >= 7:
+        return "ENTRY_CHASE_1D: oppgang minst 7 %", 0.0
+    if weekly >= 15:
+        return "ENTRY_CHASE_5D: oppgang minst 15 %", 0.0
+    try:
+        from zoneinfo import ZoneInfo
+        ticker = str(candidate.get("ticker") or "").upper()
+        if ticker.endswith(".OL"):
+            zone = ZoneInfo("Europe/Oslo")
+        elif ticker.endswith(".ST"):
+            zone = ZoneInfo("Europe/Stockholm")
+        elif ticker.endswith(".HE"):
+            zone = ZoneInfo("Europe/Helsinki")
+        elif ticker.endswith(".CO"):
+            zone = ZoneInfo("Europe/Copenhagen")
+        else:
+            zone = ZoneInfo("America/New_York")
+        local = now.astimezone(zone)
+        # Official exchange schedules include holidays, early closes and DST.
+        from datetime import time as clock_time
+        exchange = ("XOSL" if ticker.endswith(".OL") else
+                    "XSTO" if ticker.endswith(".ST") else
+                    "XHEL" if ticker.endswith(".HE") else
+                    "XCSE" if ticker.endswith(".CO") else "XNYS")
+        try:
+            import exchange_calendars as xcals
+            cal = xcals.get_calendar(exchange)
+            is_open = bool(cal.is_open_on_minute(now.astimezone(timezone.utc), ignore_breaks=False))
+        except Exception:
+            # Never permit a buy when exchange status cannot be established.
+            is_open = False
+        if not is_open:
+            return "ENTRY_MARKET_CLOSED: børsen er stengt eller kalender ikke verifisert", 0.0
+        opened = float(candidate.get("session_open") or 0)
+        previous = float(candidate.get("previous_close") or 0)
+        session = str(candidate.get("session_date") or "")[:10]
+        signal = str(candidate.get("entry_signal_date") or "")[:10]
+        if not opened or not previous or session != local.date().isoformat() or not signal or signal >= session:
+            return "ENTRY_OPEN_QUOTE_UNVERIFIED: bekreftet neste-sesjonskurs mangler", 0.0
+        if (opened / previous - 1) * 100 >= 2:
+            return "ENTRY_OPENING_GAP: minst 2 %", 0.0
+        return "", opened
+    except (ValueError, TypeError, OverflowError):
+        return "ENTRY_OPEN_QUOTE_UNVERIFIED: ugyldig kursdata", 0.0
 
 
 def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str) -> dict[str, Any] | None:
@@ -1705,6 +1796,9 @@ def run_autonomous_cycle(
     emit_progress(0, progress_total, "Klargjør Autonomi-porteføljer og læringskonto")
 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
+    stored_pending = _read(PENDING_ENTRIES_PATH, {}) if simulation is None else {}
+    pending_entries = {str(k).upper(): dict(v) for k, v in stored_pending.items() if isinstance(v, Mapping)} if isinstance(stored_pending, Mapping) else {}
+
     market_snapshot_row: dict[str, Any] = {}
     parallel_strategy_run: dict[str, Any] = {}
     technical_contribution: dict[str, Any] = {}
@@ -1986,6 +2080,24 @@ def run_autonomous_cycle(
                 })
                 continue
 
+            if simulation is not None or ticker in portfolio["positions"]:
+                pending = {"entry_signal_date": _now()[:10], "signal_run_id": run_id}
+                entry_reject, verified_open = "", price
+            else:
+                pending = pending_entries.get(ticker)
+                if not pending:
+                    pending = {"signal_created_at": _now(), "entry_signal_date": _now()[:10], "signal_run_id": run_id}
+                    pending_entries[ticker] = pending
+                dated_candidate = {**dict(candidate), "entry_signal_date": pending["entry_signal_date"]}
+                entry_reject, verified_open = _autonomy_entry_safety(dated_candidate, _clock(timezone.utc))
+            if entry_reject:
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT",
+                                  "reason": entry_reject, "reason_code": entry_reject.split(":")[0],
+                                  "score": score, "order_intent_created": False, "order_executed": False,
+                                  "execution_stage": "ENTRY_SAFETY_WAIT"})
+                continue
+            price = verified_open
+
             equity = portfolio_equity(portfolio)
             reserve = equity * params.reserve_cash_pct / 100
             available = max(0.0, _f(portfolio.get("cash")) - reserve)
@@ -2017,6 +2129,9 @@ def run_autonomous_cycle(
                 "entry_score": score, "entry_base_score": base_score, "entry_risk_score": risk, "entry_data_quality": quality,
                 **_technical_contribution_metadata(candidate),
                 "source_run_id": run_id,
+                "entry_signal_date": pending["entry_signal_date"],
+                "entry_signal_run_id": pending["signal_run_id"],
+                "entry_price_basis": "VERIFIED_NEXT_SESSION_OPEN_SHADOW",
                 **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                 "entry_confidence": _f(candidate.get("confidence_score")),
                 "entry_components": {
@@ -2046,6 +2161,9 @@ def run_autonomous_cycle(
                 "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
                 "value": round(value, 2), "pnl": 0.0, "reason": f"Justert score {score:.1f} (base {base_score:.1f}), risiko {risk:.1f}, datakvalitet {quality:.1f}",
                 "strategy": _candidate_strategy(candidate), "mode": "THEORETICAL_ONLY",
+                "entry_signal_date": pending["entry_signal_date"],
+                "entry_signal_run_id": pending["signal_run_id"],
+                "entry_price_basis": "VERIFIED_NEXT_SESSION_OPEN_SHADOW",
                 **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                 **_technical_contribution_metadata(candidate),
                 "entry_confidence": _f(candidate.get("confidence_score")),
@@ -2059,6 +2177,7 @@ def run_autonomous_cycle(
                 },
             }
             trades.append(trade)
+            pending_entries.pop(ticker, None)
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "base_score": base_score, "order_intent_created": True, "order_executed": True, "execution_stage": "EXECUTED_AFTER_DECISION_GATE", **_technical_contribution_metadata(candidate)})
 
         # v19.0.18: Learning guarantee. If an active theoretical portfolio
@@ -2302,6 +2421,8 @@ def run_autonomous_cycle(
     learning_portfolio["last_run_id"] = run_id
     _write(PORTFOLIO_PATH, portfolio)
     _write(LEARNING_PORTFOLIO_PATH, learning_portfolio)
+    if execution_integrity["ok"]:
+        _write(PENDING_ENTRIES_PATH, pending_entries)
     decisions = _attach_snapshot_metadata(decisions, candidate_map, market_snapshot_row)
     learning_decisions = _attach_snapshot_metadata(learning_decisions, candidate_map, market_snapshot_row)
     observation_progress = _update_candidate_observations(candidates, decisions + learning_decisions, run_id, market_snapshot_row)
