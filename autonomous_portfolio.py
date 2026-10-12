@@ -1339,17 +1339,28 @@ def _candidate_event_protection(candidate: Mapping[str, Any], *, horizon_busines
 
 
 def _reentry_cooldown(candidate: Mapping[str, Any], params: AutonomousParameters) -> tuple[bool, str]:
-    """Block churn after a full exit unless genuinely new evidence is present."""
+    """Hard stop-loss quarantine; other sell reasons retain existing evidence exception."""
     ticker = str(candidate.get("ticker") or "").upper()
     rows = _read(TRADES_PATH, [])
-    sells = [row for row in rows if isinstance(row, Mapping)
-             and str(row.get("ticker") or "").upper() == ticker
-             and str(row.get("action") or "").upper() == "SELL"] if isinstance(rows, list) else []
+    sells = sorted((row for row in rows if isinstance(row, Mapping)
+                    and str(row.get("ticker") or "").upper() == ticker
+                    and str(row.get("action") or "").upper() == "SELL"),
+                   key=lambda row: str(row.get("timestamp") or ""), reverse=True) if isinstance(rows, list) else []
     if not sells:
         return False, ""
-    latest = max(sells, key=lambda row: str(row.get("timestamp") or ""))
+    latest = sells[0]
     elapsed = _days_opened(latest.get("timestamp"))
-    cooldown = max(0, int(params.reentry_cooldown_days))
+    cooldown = max(5, int(params.reentry_cooldown_days))
+    stop_sells = [row for row in sells if "STOP_LOSS" in str(row.get("reason") or "").upper().replace(" ", "_")]
+    is_stop = bool(stop_sells and stop_sells[0] is latest)
+    if is_stop:
+        if len(stop_sells) >= 2 and _days_opened(stop_sells[1].get("timestamp")) <= 30:
+            cooldown = max(cooldown, 15)
+        if elapsed < cooldown:
+            return True, f"STOP_LOSS_QUARANTINE: {elapsed}/{cooldown} børsdager; ingen signalunntak"
+        if candidate.get("fresh_post_stop_confirmation") is not True:
+            return True, "STOP_LOSS_REENTRY_CONFIRMATION_REQUIRED: nytt dokumentert signal mangler"
+        return False, ""
     if elapsed >= cooldown:
         return False, ""
     protected, event_reason = _candidate_event_protection(candidate)
@@ -1358,6 +1369,43 @@ def _reentry_cooldown(candidate: Mapping[str, Any], params: AutonomousParameters
     if protected or improved or candidate.get("breakout_holding") is True:
         return False, event_reason or "Ny dokumentert score-/breakout-evidens opphever sperren"
     return True, f"Gjenkjøpssperre: {elapsed}/{cooldown} børsdager siden salg"
+
+
+def _autonomy_entry_safety(candidate: Mapping[str, Any], now: datetime) -> tuple[str, float]:
+    """Fail closed: no synthetic same-day snapshot fills. Shadow can still observe blocked signals."""
+    daily = _f(candidate.get("return_1d"), 0)
+    weekly = _f(candidate.get("return_5d"), 0)
+    if daily >= 7:
+        return "ENTRY_CHASE_1D: oppgang minst 7 %", 0.0
+    if weekly >= 15:
+        return "ENTRY_CHASE_5D: oppgang minst 15 %", 0.0
+    try:
+        from zoneinfo import ZoneInfo
+        ticker = str(candidate.get("ticker") or "").upper()
+        if ticker.endswith(".OL"):
+            zone = ZoneInfo("Europe/Oslo")
+        elif ticker.endswith(".ST"):
+            zone = ZoneInfo("Europe/Stockholm")
+        elif ticker.endswith(".HE"):
+            zone = ZoneInfo("Europe/Helsinki")
+        elif ticker.endswith(".CO"):
+            zone = ZoneInfo("Europe/Copenhagen")
+        else:
+            zone = ZoneInfo("America/New_York")
+        local = now.astimezone(zone)
+        if local.weekday() >= 5 or not (9 <= local.hour < (16 if ticker.endswith((".OL", ".ST", ".HE", ".CO")) else 16)):
+            return "ENTRY_MARKET_CLOSED: kjøp utsettes til neste handelssesjon", 0.0
+        opened = float(candidate.get("session_open") or 0)
+        previous = float(candidate.get("previous_close") or 0)
+        session = str(candidate.get("session_date") or "")[:10]
+        signal = str(candidate.get("entry_signal_date") or "")[:10]
+        if not opened or not previous or session != local.date().isoformat() or not signal or signal >= session:
+            return "ENTRY_OPEN_QUOTE_UNVERIFIED: bekreftet neste-sesjonskurs mangler", 0.0
+        if (opened / previous - 1) * 100 >= 2:
+            return "ENTRY_OPENING_GAP: minst 2 %", 0.0
+        return "", opened
+    except (ValueError, TypeError, OverflowError):
+        return "ENTRY_OPEN_QUOTE_UNVERIFIED: ugyldig kursdata", 0.0
 
 
 def _close_learning_position(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run_id: str) -> dict[str, Any] | None:
@@ -1985,6 +2033,15 @@ def run_autonomous_cycle(
                     **_technical_contribution_metadata(candidate),
                 })
                 continue
+
+            entry_reject, verified_open = _autonomy_entry_safety(candidate, _clock(timezone.utc))
+            if entry_reject:
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT",
+                                  "reason": entry_reject, "reason_code": entry_reject.split(":")[0],
+                                  "score": score, "order_intent_created": False, "order_executed": False,
+                                  "execution_stage": "ENTRY_SAFETY_WAIT"})
+                continue
+            price = verified_open
 
             equity = portfolio_equity(portfolio)
             reserve = equity * params.reserve_cash_pct / 100
