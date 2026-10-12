@@ -1371,8 +1371,37 @@ def _reentry_cooldown(candidate: Mapping[str, Any], params: AutonomousParameters
     return True, f"Gjenkjøpssperre: {elapsed}/{cooldown} børsdager siden salg"
 
 
+def _autonomy_entry_inputs(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    """Preserve audited OHLC fields from the pipeline; do not manufacture signal dates."""
+    row = dict(candidate)
+    for container in ("decision_inputs", "market_snapshot", "raw_candidate", "raw"):
+        nested = row.get(container)
+        if isinstance(nested, Mapping):
+            for field in ("session_open", "previous_close", "session_date",
+                          "entry_signal_date", "return_1d", "return_5d"):
+                if row.get(field) in (None, "") and nested.get(field) not in (None, ""):
+                    row[field] = nested[field]
+    hist = row.get("hist")
+    if hist is not None and hasattr(hist, "columns"):
+        try:
+            closes = hist["Close"].dropna()
+            opens = hist["Open"]
+            if len(closes) >= 2:
+                date = closes.index[-1].date().isoformat()
+                row.setdefault("session_date", date)
+                row.setdefault("session_open", float(opens.loc[closes.index[-1]]))
+                row.setdefault("previous_close", float(closes.iloc[-2]))
+                if len(closes) >= 6:
+                    row.setdefault("return_5d", (float(closes.iloc[-1]) / float(closes.iloc[-6]) - 1) * 100)
+                row.setdefault("return_1d", (float(closes.iloc[-1]) / float(closes.iloc[-2]) - 1) * 100)
+        except (KeyError, ValueError, TypeError, IndexError):
+            pass
+    return row
+
+
 def _autonomy_entry_safety(candidate: Mapping[str, Any], now: datetime) -> tuple[str, float]:
     """Fail closed: no synthetic same-day snapshot fills. Shadow can still observe blocked signals."""
+    candidate = _autonomy_entry_inputs(candidate)
     daily = _f(candidate.get("return_1d"), 0)
     weekly = _f(candidate.get("return_5d"), 0)
     if daily >= 7:
