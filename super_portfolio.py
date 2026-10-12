@@ -1021,6 +1021,32 @@ def _entry_price_chase_gate(row: Mapping[str, Any]) -> list[str]:
     return []
 
 
+def _entry_opening_gap_gate(row: Mapping[str, Any]) -> list[str]:
+    """Reject a new Shadow entry if an evidenced opening gap is excessive.
+
+    Missing opening/previous-close evidence is not fabricated from the
+    last trade or candidate snapshot.
+    """
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    def number(*keys: str) -> float:
+        for key in keys:
+            for source in (row, raw):
+                value = _f(source.get(key))
+                if value > 0:
+                    return value
+        return 0.0
+    opening = number("session_open", "market_open_price", "open_price")
+    previous_close = number("previous_close", "prior_close", "prev_close")
+    if opening <= 0 or previous_close <= 0:
+        return []
+    gap_pct = 100.0 * (opening / previous_close - 1.0)
+    return ["ENTRY_OPEN_GAP_UP"] if gap_pct >= 2.0 else []
+
+
+def _entry_risk_reasons(row: Mapping[str, Any]) -> list[str]:
+    return _entry_price_chase_gate(row) + _entry_opening_gap_gate(row)
+
+
 def _candidate_entry_gates(
     *, state: Mapping[str, Any], proposed_rows: Sequence[Mapping[str, Any]], ranked: Sequence[Mapping[str, Any]],
     previous: Mapping[str, Mapping[str, Any]], pipeline: Mapping[str, Any], config: "SuperPortfolioConfig", now: datetime,
@@ -1036,9 +1062,9 @@ def _candidate_entry_gates(
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
-            chase_reasons = _entry_price_chase_gate(row)
+            chase_reasons = _entry_risk_reasons(row)
             gates[ticker] = {"allowed": not chase_reasons, "reason_codes": chase_reasons, "coverage": cov, "persistence_streak": 0, "required_persistence_runs": 0, "initial_portfolio": True}
-        return [row for row in rows if not _entry_price_chase_gate(row)], gates, dict(state.get("candidate_persistence") or {})
+        return [row for row in rows if not _entry_risk_reasons(row)], gates, dict(state.get("candidate_persistence") or {})
 
     run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     age = _pipeline_age_minutes(pipeline, now)
@@ -1053,7 +1079,7 @@ def _candidate_entry_gates(
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
-            chase_reasons = _entry_price_chase_gate(row)
+            chase_reasons = _entry_risk_reasons(row)
             blocked = ticker in risk_reentry or bool(chase_reasons)
             gates[ticker] = {
                 "allowed": not blocked,
@@ -1099,7 +1125,7 @@ def _candidate_entry_gates(
         persistence[ticker] = item
         source = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
         cov = candidate_data_coverage(source)
-        reasons = _entry_price_chase_gate(row)
+        reasons = _entry_risk_reasons(row)
         if _f(cov.get("score")) < float(config.min_entry_data_coverage):
             reasons.append("DATA_COVERAGE_BLOCKED")
         if int(item.get("streak") or 0) < required:
