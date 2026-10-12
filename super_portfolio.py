@@ -543,6 +543,9 @@ def _coarse_market_snapshot(
             volatility = 0.0
         out[ticker] = {
             "last_price": closes[-1],
+            "session_date": str(rows[-1].get("date") or ""),
+            "session_open": _f(rows[-1].get("open")),
+            "previous_close": _f(rows[-1].get("previous_close")),
             "return_20d": ret(20),
             "return_60d": ret(60),
             "volatility_pct": volatility,
@@ -622,8 +625,9 @@ def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) ->
         "volatility_pct", "annual_volatility", "volatility", "currency", "earnings_date", "next_earnings_date",
         "report_date", "next_report_date", "event_date", "return_1d", "return_3d", "return_5d", "return_10d",
         "return_20d", "return_60d", "return_1m", "return_3m",
+        "session_open", "previous_close", "session_date",
     }
-    compact_raw = {key: raw.get(key, source.get(key)) for key in keep if raw.get(key, source.get(key)) is not None}
+    compact_raw = {key: (source.get(key) if key in {"session_open", "previous_close", "session_date"} else raw.get(key, source.get(key))) for key in keep if (source.get(key) if key in {"session_open", "previous_close", "session_date"} else raw.get(key, source.get(key))) is not None}
     return {
         "ticker": str(getattr(assessment, "ticker", source.get("ticker") or "")).upper(),
         "market": str(getattr(assessment, "market", source.get("market") or "")),
@@ -995,6 +999,90 @@ def rebalance_regime_policy(pipeline: Mapping[str, Any], config: "SuperPortfolio
     }
 
 
+def _entry_price_chase_gate(row: Mapping[str, Any]) -> list[str]:
+    """Flag unusually extended entries using available return evidence.
+
+    An absent return is not assumed to be zero or proof of a safe entry.
+    This is an entry-only protection; stop exits and existing holdings are untouched.
+    """
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    def observed(name: str) -> float | None:
+        value = row.get(name)
+        if value is None:
+            value = raw.get(name)
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return result if isfinite(result) else None
+    # Candidate return fields are expressed in percent, not fractions.
+    one_day = observed("return_1d")
+    five_day = observed("return_5d")
+    if one_day is not None and one_day >= 7.0:
+        return ["ENTRY_CHASE_ONE_DAY"]
+    if five_day is not None and five_day >= 15.0:
+        return ["ENTRY_CHASE_FIVE_DAY"]
+    return []
+
+
+def _entry_opening_gap_gate(row: Mapping[str, Any]) -> list[str]:
+    """Reject a new Shadow entry if an evidenced opening gap is excessive.
+
+    Missing opening/previous-close evidence is not fabricated from the
+    last trade or candidate snapshot.
+    """
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    def number(*keys: str) -> float:
+        for key in keys:
+            for source in (row, raw):
+                value = _f(source.get(key))
+                if value > 0:
+                    return value
+        return 0.0
+    opening = number("session_open", "market_open_price", "open_price")
+    previous_close = number("previous_close", "prior_close", "prev_close")
+    if opening <= 0 or previous_close <= 0:
+        return []
+    gap_pct = 100.0 * (opening / previous_close - 1.0)
+    return ["ENTRY_OPEN_GAP_UP"] if gap_pct >= 2.0 else []
+
+
+def _entry_risk_reasons(row: Mapping[str, Any]) -> list[str]:
+    return _entry_price_chase_gate(row) + _entry_opening_gap_gate(row)
+
+
+def _verified_next_session_open(row: Mapping[str, Any], pending: dict[str, Any], now: datetime) -> tuple[list[str], float]:
+    from market_hours import market_status, MARKETS
+    from zoneinfo import ZoneInfo
+    # Synthetic/frozen replay candidates keep their original recorded fills.
+    # Real market-scan candidates must pass live session verification.
+    candidate = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
+    if str(candidate.get("source") or "") != "Super Portfolio independent market universe":
+        return [], 0.0
+    aliases = {"SE": "SVERIGE", "NO": "NORGE", "US": "USA", "BR": "BRASIL"}
+    market = aliases.get(str(row.get("market") or row.get("country") or "").upper(), str(row.get("market") or row.get("country") or "").upper())
+    if market not in MARKETS:
+        return ["ENTRY_UNKNOWN_MARKET"], 0.0
+    local_date = now.astimezone(ZoneInfo(MARKETS[market]["tz"])).date().isoformat()
+    if not pending.get("entry_signal_date"):
+        pending["entry_signal_date"] = local_date
+        pending["entry_signal_price"] = _candidate_price(row)
+    if str(pending["entry_signal_date"]) >= local_date:
+        return ["ENTRY_AWAIT_NEXT_SESSION"], 0.0
+    if not market_status(market, now=now).get("is_open"):
+        return ["ENTRY_MARKET_CLOSED"], 0.0
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    nested = raw.get("raw") if isinstance(raw.get("raw"), Mapping) else {}
+    opened = _f(row.get("session_open") or raw.get("session_open") or nested.get("session_open"))
+    previous_close = _f(row.get("previous_close") or raw.get("previous_close") or nested.get("previous_close"))
+    date = str(row.get("session_date") or raw.get("session_date") or nested.get("session_date") or "")
+    if opened <= 0 or previous_close <= 0 or date != local_date:
+        return ["ENTRY_OPEN_QUOTE_UNVERIFIED"], 0.0
+    if (opened / previous_close - 1.0) * 100 >= 2.0:
+        return ["ENTRY_OPEN_GAP_UP"], 0.0
+    return [], opened
+
+
 def _candidate_entry_gates(
     *, state: Mapping[str, Any], proposed_rows: Sequence[Mapping[str, Any]], ranked: Sequence[Mapping[str, Any]],
     previous: Mapping[str, Mapping[str, Any]], pipeline: Mapping[str, Any], config: "SuperPortfolioConfig", now: datetime,
@@ -1010,8 +1098,21 @@ def _candidate_entry_gates(
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
-            gates[ticker] = {"allowed": True, "reason_codes": [], "coverage": cov, "persistence_streak": 0, "required_persistence_runs": 0, "initial_portfolio": True}
-        return rows, gates, dict(state.get("candidate_persistence") or {})
+            chase_reasons = _entry_risk_reasons(row)
+            gates[ticker] = {"allowed": not chase_reasons, "reason_codes": chase_reasons, "coverage": cov, "persistence_streak": 0, "required_persistence_runs": 0, "initial_portfolio": True}
+        pending = {str(k).upper(): dict(v) for k, v in (state.get("candidate_persistence") or {}).items()}
+        ready = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "").upper()
+            item = dict(pending.get(ticker) or {})
+            reasons, opening = _verified_next_session_open(row, item, now)
+            pending[ticker] = item
+            gates[ticker]["reason_codes"].extend(reasons)
+            gates[ticker]["allowed"] = not gates[ticker]["reason_codes"]
+            if gates[ticker]["allowed"]:
+                row["_shadow_entry_fill_price"] = opening
+                ready.append(row)
+        return ready, gates, pending
 
     run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     age = _pipeline_age_minutes(pipeline, now)
@@ -1026,10 +1127,17 @@ def _candidate_entry_gates(
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
-            blocked = ticker in risk_reentry
+            chase_reasons = _entry_risk_reasons(row)
+            item = dict(persistence.get(ticker) or {})
+            next_reasons, opening = _verified_next_session_open(row, item, now)
+            persistence[ticker] = item
+            chase_reasons.extend(next_reasons)
+            if not next_reasons:
+                row["_shadow_entry_fill_price"] = opening
+            blocked = ticker in risk_reentry or bool(chase_reasons)
             gates[ticker] = {
                 "allowed": not blocked,
-                "reason_codes": ["RISK_REENTRY_FRESHNESS_UNKNOWN"] if blocked else [],
+                "reason_codes": (["RISK_REENTRY_FRESHNESS_UNKNOWN"] if ticker in risk_reentry else []) + chase_reasons,
                 "coverage": cov,
                 "legacy_freshness_unknown": True,
             }
@@ -1071,7 +1179,11 @@ def _candidate_entry_gates(
         persistence[ticker] = item
         source = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
         cov = candidate_data_coverage(source)
-        reasons = []
+        reasons = _entry_risk_reasons(row)
+        next_reasons, opening = _verified_next_session_open(row, item, now)
+        reasons.extend(next_reasons)
+        if not next_reasons:
+            row["_shadow_entry_fill_price"] = opening
         if _f(cov.get("score")) < float(config.min_entry_data_coverage):
             reasons.append("DATA_COVERAGE_BLOCKED")
         if int(item.get("streak") or 0) < required:
@@ -1908,7 +2020,7 @@ def _cooldown_reason(state: Mapping[str, Any], ticker: str, now: datetime) -> st
 
 
 def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, Any], now_iso: str, cfg: SuperPortfolioConfig, history: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    entry_price = _f(old.get("entry_price")) or _f(row.get("price"))
+    entry_price = _f(old.get("entry_price")) or _f(row.get("_shadow_entry_fill_price")) or _f(row.get("price"))
     entry_date = str(old.get("entry_date") or now_iso)
     peak = max(_f(old.get("peak_price")), _f(row.get("price")))
     pos = {
@@ -1919,6 +2031,8 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "best_rank_since_entry": min([int(v) for v in (old.get("best_rank_since_entry"), old.get("entry_rank"), row.get("rank")) if v is not None], default=None),
         "last_full_assessment_at": now_iso,
         "entry_date": entry_date, "entry_price": entry_price, "last_price": _f(row.get("price")), "peak_price": peak,
+        "entry_price_basis": old.get("entry_price_basis") if old else ("NEXT_SESSION_OPEN_SHADOW" if _f(row.get("_shadow_entry_fill_price")) else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL"),
+        "entry_signal_price_timestamp": old.get("entry_signal_price_timestamp") if old else _timestamp_from_row(row),
         "target_weight_pct": round(_f(weight), 2), "investment_score": row.get("investment_score"), "portfolio_score": row.get("portfolio_score"),
         "portfolio_score_adjusted": row.get("portfolio_score_adjusted", row.get("portfolio_score")),
         "sector_penalty": row.get("sector_penalty", 0.0), "correlation_penalty": row.get("correlation_penalty", 0.0),
@@ -2058,6 +2172,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     )
     weights = target_weights(selected_rows, cfg)
     by_ticker = {str(row["ticker"]): row for row in ranked}
+    by_ticker.update({str(row["ticker"]): row for row in selected_rows})
     decision_run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     preliminary_advisory = ai_would_do_today(
         previous,

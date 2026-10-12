@@ -35,21 +35,42 @@ def _memory_allows_next_batch() -> bool:
 
 
 def _close_rows(frame: Any, symbol: str, single: bool) -> list[dict[str, Any]]:
+    """Daily OHLC with explicit dates; never infer an open from a close."""
     try:
-        if single:
-            close = frame["Close"]
-        elif symbol in frame.columns.get_level_values(0):
-            close = frame[symbol]["Close"]
-        else:
-            close = frame["Close"][symbol]
-        if hasattr(close, "columns"):
-            close = close.iloc[:, 0]
-        return [
-            {"date": index.date().isoformat() if hasattr(index, "date") else str(index)[:10], "close": float(value)}
-            for index, value in close.dropna().items()
-        ]
-    except Exception:
-        return []
+        def series(field: str) -> Any:
+            columns = frame.columns
+            if getattr(columns, "nlevels", 1) == 1:
+                column = frame[field]
+            elif symbol in columns.get_level_values(0):
+                column = frame[symbol][field]
+            elif symbol in columns.get_level_values(1):
+                column = frame[field][symbol]
+            else:
+                raise KeyError(f"Missing symbol {symbol} in OHLC columns")
+            return column.iloc[:, 0] if hasattr(column, "columns") else column
+        closes = series("Close").dropna()
+        opens = series("Open")
+        rows: list[dict[str, Any]] = []
+        previous_close = None
+        for index, value in closes.items():
+            close = float(value)
+            opening = opens.get(index)
+            row = {"date": index.date().isoformat() if hasattr(index, "date") else str(index)[:10], "close": close}
+            if opening is not None:
+                try:
+                    from math import isfinite
+                    number = float(opening)
+                    if isfinite(number) and number > 0:
+                        row["open"] = number
+                except (TypeError, ValueError):
+                    pass
+            if previous_close is not None:
+                row["previous_close"] = previous_close
+            rows.append(row)
+            previous_close = close
+        return rows
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        raise ValueError(f"Invalid OHLC for {symbol}: {type(exc).__name__}: {exc}") from exc
 
 
 def _download_batch(batch: Sequence[str], start_date: str, timeout: int) -> dict[str, list[dict[str, Any]]]:
@@ -61,7 +82,7 @@ def _download_batch(batch: Sequence[str], start_date: str, timeout: int) -> dict
         auto_adjust=True, threads=False, group_by="ticker", timeout=int(timeout),
     )
     if frame is None or getattr(frame, "empty", True):
-        return {symbol: [] for symbol in symbols}
+        raise ValueError(f"Yahoo Finance returned empty daily OHLC for {','.join(symbols[:5])}")
     single = len(symbols) == 1
     return {symbol: _close_rows(frame, symbol, single) for symbol in symbols}
 
