@@ -543,6 +543,9 @@ def _coarse_market_snapshot(
             volatility = 0.0
         out[ticker] = {
             "last_price": closes[-1],
+            "session_date": str(rows[-1].get("date") or ""),
+            "session_open": _f(rows[-1].get("open")),
+            "previous_close": _f(rows[-1].get("previous_close")),
             "return_20d": ret(20),
             "return_60d": ret(60),
             "volatility_pct": volatility,
