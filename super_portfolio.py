@@ -625,8 +625,9 @@ def _compact_market_candidate(assessment: Any, source_row: Mapping[str, Any]) ->
         "volatility_pct", "annual_volatility", "volatility", "currency", "earnings_date", "next_earnings_date",
         "report_date", "next_report_date", "event_date", "return_1d", "return_3d", "return_5d", "return_10d",
         "return_20d", "return_60d", "return_1m", "return_3m",
+        "session_open", "previous_close", "session_date",
     }
-    compact_raw = {key: raw.get(key, source.get(key)) for key in keep if raw.get(key, source.get(key)) is not None}
+    compact_raw = {key: (source.get(key) if key in {"session_open", "previous_close", "session_date"} else raw.get(key, source.get(key))) for key in keep if (source.get(key) if key in {"session_open", "previous_close", "session_date"} else raw.get(key, source.get(key))) is not None}
     return {
         "ticker": str(getattr(assessment, "ticker", source.get("ticker") or "")).upper(),
         "market": str(getattr(assessment, "market", source.get("market") or "")),
