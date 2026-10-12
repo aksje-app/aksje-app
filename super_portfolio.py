@@ -1054,6 +1054,10 @@ def _entry_risk_reasons(row: Mapping[str, Any]) -> list[str]:
 def _verified_next_session_open(row: Mapping[str, Any], pending: dict[str, Any], now: datetime) -> tuple[list[str], float]:
     from market_hours import market_status, MARKETS
     from zoneinfo import ZoneInfo
+    # Synthetic/frozen replay candidates keep their original recorded fills.
+    # Real market-scan candidates must pass live session verification.
+    if str(row.get("source") or "") != "Super Portfolio independent market universe":
+        return [], 0.0
     aliases = {"SE": "SVERIGE", "NO": "NORGE", "US": "USA", "BR": "BRASIL"}
     market = aliases.get(str(row.get("market") or row.get("country") or "").upper(), str(row.get("market") or row.get("country") or "").upper())
     if market not in MARKETS:
