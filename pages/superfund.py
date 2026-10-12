@@ -4,6 +4,7 @@ from superfund_reports import csv_bytes, xlsx_bytes, pdf_bytes
 from ui_library.work_progress import render_progress, work_status
 from superfund_diagnostics import diagnostic_zip, learning_summary
 import json
+from superfund_portfolio_overview import render_overview
 from superfund_presentation import CSS, RANKING_NOTE, country_candidates, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label, primary_identity_lines, development_lines, detail_lines, render_development_chart, number
 
 
@@ -94,12 +95,14 @@ def _render_superfund(st):
     for title in sections:
         with st.expander(title,expanded=title==st.session_state['sf_section']):
             if title=='Portefølje':
+                render_overview(st,s)
                 st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
                 for p in model.get('positions',{}).values():
                     info=resolve_identity(s,p)
                     value=p['quantity']*p['last_nok'];result=value-p['cost_nok']
                     st.markdown(card(p['name'], primary_identity_lines(info)+[
                         ('Modellposisjon','Kjøpt'),('Verdi',f'NOK {value:,.0f}'),
+                        ('Andel av hele porteføljen',f'{value/equity*100:.2f} %' if equity>0 else 'Ikke tilgjengelig'),
                         ('Resultat siden kjøp',f'{result:+,.0f} NOK / {result/p["cost_nok"]*100:+.2f}%'),
                         ('Kjøpskurs',f'{p["entry_nok"]:.2f} NOK'),('Siste modellkurs',f'{p["last_nok"]:.2f} NOK'),
                         ('Salgsgrense',f'{p.get("floor_nok",0):.2f} NOK')]+development_lines(info)),unsafe_allow_html=True)
