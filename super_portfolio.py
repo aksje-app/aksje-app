@@ -1962,7 +1962,7 @@ def _cooldown_reason(state: Mapping[str, Any], ticker: str, now: datetime) -> st
 
 
 def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, Any], now_iso: str, cfg: SuperPortfolioConfig, history: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    entry_price = _f(old.get("entry_price")) or _f(row.get("price"))
+    entry_price = _f(old.get("entry_price")) or _f(row.get("_shadow_entry_fill_price")) or _f(row.get("price"))
     entry_date = str(old.get("entry_date") or now_iso)
     peak = max(_f(old.get("peak_price")), _f(row.get("price")))
     pos = {
@@ -1973,7 +1973,7 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "best_rank_since_entry": min([int(v) for v in (old.get("best_rank_since_entry"), old.get("entry_rank"), row.get("rank")) if v is not None], default=None),
         "last_full_assessment_at": now_iso,
         "entry_date": entry_date, "entry_price": entry_price, "last_price": _f(row.get("price")), "peak_price": peak,
-        "entry_price_basis": old.get("entry_price_basis") if old else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL",
+        "entry_price_basis": old.get("entry_price_basis") if old else ("NEXT_SESSION_OPEN_SHADOW" if _f(row.get("_shadow_entry_fill_price")) else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL"),
         "entry_signal_price_timestamp": old.get("entry_signal_price_timestamp") if old else _timestamp_from_row(row),
         "target_weight_pct": round(_f(weight), 2), "investment_score": row.get("investment_score"), "portfolio_score": row.get("portfolio_score"),
         "portfolio_score_adjusted": row.get("portfolio_score_adjusted", row.get("portfolio_score")),
