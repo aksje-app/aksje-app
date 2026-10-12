@@ -38,12 +38,15 @@ def _close_rows(frame: Any, symbol: str, single: bool) -> list[dict[str, Any]]:
     """Daily OHLC with explicit dates; never infer an open from a close."""
     try:
         def series(field: str) -> Any:
-            if single:
+            columns = frame.columns
+            if getattr(columns, "nlevels", 1) == 1:
                 column = frame[field]
-            elif symbol in frame.columns.get_level_values(0):
+            elif symbol in columns.get_level_values(0):
                 column = frame[symbol][field]
-            else:
+            elif symbol in columns.get_level_values(1):
                 column = frame[field][symbol]
+            else:
+                raise KeyError(f"Missing symbol {symbol} in OHLC columns")
             return column.iloc[:, 0] if hasattr(column, "columns") else column
         closes = series("Close").dropna()
         opens = series("Open")
@@ -66,8 +69,8 @@ def _close_rows(frame: Any, symbol: str, single: bool) -> list[dict[str, Any]]:
             rows.append(row)
             previous_close = close
         return rows
-    except Exception:
-        return []
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        raise ValueError(f"Invalid OHLC for {symbol}: {type(exc).__name__}: {exc}") from exc
 
 
 def _download_batch(batch: Sequence[str], start_date: str, timeout: int) -> dict[str, list[dict[str, Any]]]:
@@ -79,7 +82,7 @@ def _download_batch(batch: Sequence[str], start_date: str, timeout: int) -> dict
         auto_adjust=True, threads=False, group_by="ticker", timeout=int(timeout),
     )
     if frame is None or getattr(frame, "empty", True):
-        return {symbol: [] for symbol in symbols}
+        raise ValueError(f"Yahoo Finance returned empty daily OHLC for {','.join(symbols[:5])}")
     single = len(symbols) == 1
     return {symbol: _close_rows(frame, symbol, single) for symbol in symbols}
 
