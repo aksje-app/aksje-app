@@ -35,19 +35,37 @@ def _memory_allows_next_batch() -> bool:
 
 
 def _close_rows(frame: Any, symbol: str, single: bool) -> list[dict[str, Any]]:
+    """Daily OHLC with explicit dates; never infer an open from a close."""
     try:
-        if single:
-            close = frame["Close"]
-        elif symbol in frame.columns.get_level_values(0):
-            close = frame[symbol]["Close"]
-        else:
-            close = frame["Close"][symbol]
-        if hasattr(close, "columns"):
-            close = close.iloc[:, 0]
-        return [
-            {"date": index.date().isoformat() if hasattr(index, "date") else str(index)[:10], "close": float(value)}
-            for index, value in close.dropna().items()
-        ]
+        def series(field: str) -> Any:
+            if single:
+                column = frame[field]
+            elif symbol in frame.columns.get_level_values(0):
+                column = frame[symbol][field]
+            else:
+                column = frame[field][symbol]
+            return column.iloc[:, 0] if hasattr(column, "columns") else column
+        closes = series("Close").dropna()
+        opens = series("Open")
+        rows: list[dict[str, Any]] = []
+        previous_close = None
+        for index, value in closes.items():
+            close = float(value)
+            opening = opens.get(index)
+            row = {"date": index.date().isoformat() if hasattr(index, "date") else str(index)[:10], "close": close}
+            if opening is not None:
+                try:
+                    from math import isfinite
+                    number = float(opening)
+                    if isfinite(number) and number > 0:
+                        row["open"] = number
+                except (TypeError, ValueError):
+                    pass
+            if previous_close is not None:
+                row["previous_close"] = previous_close
+            rows.append(row)
+            previous_close = close
+        return rows
     except Exception:
         return []
 
