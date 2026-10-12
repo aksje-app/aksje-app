@@ -47,7 +47,7 @@ def test_next_session_cannot_use_same_day_snapshot():
     from datetime import datetime, timezone
     from super_portfolio import _verified_next_session_open
     pending = {}
-    row = {"market": "SVERIGE", "ticker": "TEST.ST", "price": 120}
+    row = {"market": "SVERIGE", "ticker": "TEST.ST", "price": 120, "source": "Super Portfolio independent market universe"}
     reasons, fill = _verified_next_session_open(row, pending, datetime(2026, 10, 12, 12, tzinfo=timezone.utc))
     assert reasons == ["ENTRY_AWAIT_NEXT_SESSION"]
     assert fill == 0
@@ -59,7 +59,7 @@ def test_next_session_without_verified_open_stays_pending():
     from super_portfolio import _verified_next_session_open
     pending = {"entry_signal_date": "2026-10-09"}
     reasons, fill = _verified_next_session_open(
-        {"market": "SVERIGE", "price": 120},
+        {"market": "SVERIGE", "price": 120, "source": "Super Portfolio independent market universe"},
         pending,
         datetime(2026, 10, 12, 12, tzinfo=timezone.utc),
     )
@@ -70,7 +70,7 @@ def test_next_session_without_verified_open_stays_pending():
 def test_next_session_valid_open_can_fill():
     from datetime import datetime, timezone
     from super_portfolio import _verified_next_session_open
-    row = {"market": "SVERIGE", "session_open": 100, "previous_close": 99, "session_date": "2026-10-12"}
+    row = {"market": "SVERIGE", "session_open": 100, "previous_close": 99, "session_date": "2026-10-12", "source": "Super Portfolio independent market universe"}
     reasons, fill = _verified_next_session_open(
         row, {"entry_signal_date": "2026-10-09"}, datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
     )
