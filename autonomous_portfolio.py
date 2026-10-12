@@ -1423,8 +1423,21 @@ def _autonomy_entry_safety(candidate: Mapping[str, Any], now: datetime) -> tuple
         else:
             zone = ZoneInfo("America/New_York")
         local = now.astimezone(zone)
-        if local.weekday() >= 5 or not (9 <= local.hour < (16 if ticker.endswith((".OL", ".ST", ".HE", ".CO")) else 16)):
-            return "ENTRY_MARKET_CLOSED: kjøp utsettes til neste handelssesjon", 0.0
+        # Official exchange schedules include holidays, early closes and DST.
+        from datetime import time as clock_time
+        exchange = ("XOSL" if ticker.endswith(".OL") else
+                    "XSTO" if ticker.endswith(".ST") else
+                    "XHEL" if ticker.endswith(".HE") else
+                    "XCSE" if ticker.endswith(".CO") else "XNYS")
+        try:
+            import exchange_calendars as xcals
+            cal = xcals.get_calendar(exchange)
+            is_open = bool(cal.is_open_on_minute(now.astimezone(timezone.utc), ignore_breaks=False))
+        except Exception:
+            # Never permit a buy when exchange status cannot be established.
+            is_open = False
+        if not is_open:
+            return "ENTRY_MARKET_CLOSED: børsen er stengt eller kalender ikke verifisert", 0.0
         opened = float(candidate.get("session_open") or 0)
         previous = float(candidate.get("previous_close") or 0)
         session = str(candidate.get("session_date") or "")[:10]
