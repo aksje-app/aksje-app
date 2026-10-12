@@ -118,11 +118,11 @@ def _render_superfund(st):
                         ('Modellordre',('Kjøp' if o['side']=='BUY' else 'Salg')+' avventer ny kursobservasjon'),
                         ('Hvorfor valgt',o.get('reason','Ikke oppgitt')),
                         ('Hva skjer videre','Ny observert kursdato etter beslutningsdatoen og ny kontroll av handelskrav')]),unsafe_allow_html=True)
-                    render_development_chart(st,ident)
                     with st.expander('Flere detaljer · '+str(ident.get('name') or o['id'])):
                         st.markdown(card('Produkt og ordre',detail_lines(ident)+[
                             ('Opprettet',date_label(o.get('requested_at'))),
                             ('Tidligst behandling',date_label(o.get('next_at')))]),unsafe_allow_html=True)
+                        render_development_chart(st,ident)
                     if ident.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',ident['url'])
                 with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
                     for trade in model.get('trades',[])[-20:]:
@@ -149,9 +149,9 @@ def _render_superfund(st):
                 def show(row,overall=False):
                     if query and query not in ' '.join(str(row.get(k,'')) for k in ('name','isin','category','returns_currency')).lower():return
                     st.markdown(candidate_card(row,overall),unsafe_allow_html=True)
-                    if overall:render_development_chart(st,row)
                     with st.expander('Flere detaljer · '+str(row.get('name') or row.get('isin'))):
                         st.markdown(card('Produkt og datakilde',detail_lines(row)),unsafe_allow_html=True)
+                        render_development_chart(st,row)
                     if row.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',row['url'])
                 view=st.radio('Rangeringsvisning',['Topp 25 samlet','Beste per investeringsland/region'],key='sf_ranking_view')
                 if view=='Topp 25 samlet':
