@@ -1090,7 +1090,19 @@ def _candidate_entry_gates(
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
             chase_reasons = _entry_risk_reasons(row)
             gates[ticker] = {"allowed": not chase_reasons, "reason_codes": chase_reasons, "coverage": cov, "persistence_streak": 0, "required_persistence_runs": 0, "initial_portfolio": True}
-        return [row for row in rows if not _entry_risk_reasons(row)], gates, dict(state.get("candidate_persistence") or {})
+        pending = {str(k).upper(): dict(v) for k, v in (state.get("candidate_persistence") or {}).items()}
+        ready = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "").upper()
+            item = dict(pending.get(ticker) or {})
+            reasons, opening = _verified_next_session_open(row, item, now)
+            pending[ticker] = item
+            gates[ticker]["reason_codes"].extend(reasons)
+            gates[ticker]["allowed"] = not gates[ticker]["reason_codes"]
+            if gates[ticker]["allowed"]:
+                row["_shadow_entry_fill_price"] = opening
+                ready.append(row)
+        return ready, gates, pending
 
     run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     age = _pipeline_age_minutes(pipeline, now)
@@ -1106,6 +1118,12 @@ def _candidate_entry_gates(
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
             chase_reasons = _entry_risk_reasons(row)
+            item = dict(persistence.get(ticker) or {})
+            next_reasons, opening = _verified_next_session_open(row, item, now)
+            persistence[ticker] = item
+            chase_reasons.extend(next_reasons)
+            if not next_reasons:
+                row["_shadow_entry_fill_price"] = opening
             blocked = ticker in risk_reentry or bool(chase_reasons)
             gates[ticker] = {
                 "allowed": not blocked,
@@ -1152,6 +1170,10 @@ def _candidate_entry_gates(
         source = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
         cov = candidate_data_coverage(source)
         reasons = _entry_risk_reasons(row)
+        next_reasons, opening = _verified_next_session_open(row, item, now)
+        reasons.extend(next_reasons)
+        if not next_reasons:
+            row["_shadow_entry_fill_price"] = opening
         if _f(cov.get("score")) < float(config.min_entry_data_coverage):
             reasons.append("DATA_COVERAGE_BLOCKED")
         if int(item.get("streak") or 0) < required:
