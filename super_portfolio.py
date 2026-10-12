@@ -1047,6 +1047,32 @@ def _entry_risk_reasons(row: Mapping[str, Any]) -> list[str]:
     return _entry_price_chase_gate(row) + _entry_opening_gap_gate(row)
 
 
+def _verified_next_session_open(row: Mapping[str, Any], pending: dict[str, Any], now: datetime) -> tuple[list[str], float]:
+    from market_hours import market_status, MARKETS
+    from zoneinfo import ZoneInfo
+    aliases = {"SE": "SVERIGE", "NO": "NORGE", "US": "USA", "BR": "BRASIL"}
+    market = aliases.get(str(row.get("market") or row.get("country") or "").upper(), str(row.get("market") or row.get("country") or "").upper())
+    if market not in MARKETS:
+        return ["ENTRY_UNKNOWN_MARKET"], 0.0
+    local_date = now.astimezone(ZoneInfo(MARKETS[market]["tz"])).date().isoformat()
+    if not pending.get("entry_signal_date"):
+        pending["entry_signal_date"] = local_date
+        pending["entry_signal_price"] = _candidate_price(row)
+    if str(pending["entry_signal_date"]) >= local_date:
+        return ["ENTRY_AWAIT_NEXT_SESSION"], 0.0
+    if not market_status(market, now=now).get("is_open"):
+        return ["ENTRY_MARKET_CLOSED"], 0.0
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    opened = _f(row.get("session_open") or raw.get("session_open"))
+    previous_close = _f(row.get("previous_close") or raw.get("previous_close"))
+    date = str(row.get("session_date") or raw.get("session_date") or "")
+    if opened <= 0 or previous_close <= 0 or date != local_date:
+        return ["ENTRY_OPEN_QUOTE_UNVERIFIED"], 0.0
+    if (opened / previous_close - 1.0) * 100 >= 2.0:
+        return ["ENTRY_OPEN_GAP_UP"], 0.0
+    return [], opened
+
+
 def _candidate_entry_gates(
     *, state: Mapping[str, Any], proposed_rows: Sequence[Mapping[str, Any]], ranked: Sequence[Mapping[str, Any]],
     previous: Mapping[str, Mapping[str, Any]], pipeline: Mapping[str, Any], config: "SuperPortfolioConfig", now: datetime,
