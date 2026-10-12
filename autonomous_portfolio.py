@@ -44,6 +44,7 @@ ROOT = runtime_data_path("autonomous_portfolio")
 PORTFOLIO_PATH = ROOT / "portfolio.json"
 PARAMETERS_PATH = ROOT / "parameters.json"
 TRADES_PATH = ROOT / "trades.json"
+PENDING_ENTRIES_PATH = ROOT / "pending_entries.json"
 DECISIONS_PATH = ROOT / "decisions.json"
 NOTIFICATIONS_PATH = ROOT / "notifications.json"
 AUDIT_PATH = ROOT / "audit.jsonl"
@@ -1782,6 +1783,9 @@ def run_autonomous_cycle(
     emit_progress(0, progress_total, "Klargjør Autonomi-porteføljer og læringskonto")
 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
+    stored_pending = _read(PENDING_ENTRIES_PATH, {}) if simulation is None else {}
+    pending_entries = {str(k).upper(): dict(v) for k, v in stored_pending.items() if isinstance(v, Mapping)} if isinstance(stored_pending, Mapping) else {}
+
     market_snapshot_row: dict[str, Any] = {}
     parallel_strategy_run: dict[str, Any] = {}
     technical_contribution: dict[str, Any] = {}
@@ -2063,7 +2067,12 @@ def run_autonomous_cycle(
                 })
                 continue
 
-            entry_reject, verified_open = _autonomy_entry_safety(candidate, _clock(timezone.utc))
+            pending = pending_entries.get(ticker)
+            if not pending:
+                pending = {"signal_created_at": _now(), "entry_signal_date": _now()[:10], "signal_run_id": run_id}
+                pending_entries[ticker] = pending
+            dated_candidate = {**dict(candidate), "entry_signal_date": pending["entry_signal_date"]}
+            entry_reject, verified_open = _autonomy_entry_safety(dated_candidate, _clock(timezone.utc))
             if entry_reject:
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT",
                                   "reason": entry_reject, "reason_code": entry_reject.split(":")[0],
@@ -2145,6 +2154,7 @@ def run_autonomous_cycle(
                 },
             }
             trades.append(trade)
+            pending_entries.pop(ticker, None)
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "base_score": base_score, "order_intent_created": True, "order_executed": True, "execution_stage": "EXECUTED_AFTER_DECISION_GATE", **_technical_contribution_metadata(candidate)})
 
         # v19.0.18: Learning guarantee. If an active theoretical portfolio
@@ -2388,6 +2398,8 @@ def run_autonomous_cycle(
     learning_portfolio["last_run_id"] = run_id
     _write(PORTFOLIO_PATH, portfolio)
     _write(LEARNING_PORTFOLIO_PATH, learning_portfolio)
+    if execution_integrity["ok"]:
+        _write(PENDING_ENTRIES_PATH, pending_entries)
     decisions = _attach_snapshot_metadata(decisions, candidate_map, market_snapshot_row)
     learning_decisions = _attach_snapshot_metadata(learning_decisions, candidate_map, market_snapshot_row)
     observation_progress = _update_candidate_observations(candidates, decisions + learning_decisions, run_id, market_snapshot_row)
