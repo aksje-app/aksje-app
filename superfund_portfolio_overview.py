@@ -45,10 +45,13 @@ def render_overview(st, snapshot):
                            "Resultat NOK":round(r["pnl_nok"]),"Siden kjøp %":round(r["pnl_pct"],2) if r["pnl_pct"] is not None else None} for r in ordered])
     st.dataframe(table,hide_index=True,use_container_width=True)
     st.caption("Trykk på fondets detaljer nedenfor for kursgraf og kjøpsinformasjon.")
+    # This widget is already rendered inside the parent Portefølje expander:
+    # do not nest Streamlit expanders, which breaks the surrounding menu tree.
     for field,title in (("country","Land/region"),("sector","Sektor/kategori")):
         values=defaultdict(float)
-        for row in rows: values[row[field]]+=row["value_nok"]
-        with st.expander("Fordeling · "+title):
-            for label,value in sorted(values.items(),key=lambda x:-x[1]):
-                st.write(f"{label}: {value:,.0f} NOK · {value/equity*100:.2f} %")
+        for row in rows:
+            values[row[field]] += row["value_nok"]
+        st.markdown("**Fordeling · "+title+"**")
+        for label,value in sorted(values.items(),key=lambda x:-x[1]):
+            st.caption(f"{label}: {value:,.0f} NOK · {value/equity*100:.2f} %")
     return ordered
