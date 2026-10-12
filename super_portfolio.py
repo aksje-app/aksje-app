@@ -995,6 +995,32 @@ def rebalance_regime_policy(pipeline: Mapping[str, Any], config: "SuperPortfolio
     }
 
 
+def _entry_price_chase_gate(row: Mapping[str, Any]) -> list[str]:
+    """Flag unusually extended entries using available return evidence.
+
+    An absent return is not assumed to be zero or proof of a safe entry.
+    This is an entry-only protection; stop exits and existing holdings are untouched.
+    """
+    raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
+    def observed(name: str) -> float | None:
+        value = row.get(name)
+        if value is None:
+            value = raw.get(name)
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return result if isfinite(result) else None
+    # Candidate return fields are expressed in percent, not fractions.
+    one_day = observed("return_1d")
+    five_day = observed("return_5d")
+    if one_day is not None and one_day >= 7.0:
+        return ["ENTRY_CHASE_ONE_DAY"]
+    if five_day is not None and five_day >= 15.0:
+        return ["ENTRY_CHASE_FIVE_DAY"]
+    return []
+
+
 def _candidate_entry_gates(
     *, state: Mapping[str, Any], proposed_rows: Sequence[Mapping[str, Any]], ranked: Sequence[Mapping[str, Any]],
     previous: Mapping[str, Mapping[str, Any]], pipeline: Mapping[str, Any], config: "SuperPortfolioConfig", now: datetime,
@@ -1010,8 +1036,9 @@ def _candidate_entry_gates(
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
-            gates[ticker] = {"allowed": True, "reason_codes": [], "coverage": cov, "persistence_streak": 0, "required_persistence_runs": 0, "initial_portfolio": True}
-        return rows, gates, dict(state.get("candidate_persistence") or {})
+            chase_reasons = _entry_price_chase_gate(row)
+            gates[ticker] = {"allowed": not chase_reasons, "reason_codes": chase_reasons, "coverage": cov, "persistence_streak": 0, "required_persistence_runs": 0, "initial_portfolio": True}
+        return [row for row in rows if not _entry_price_chase_gate(row)], gates, dict(state.get("candidate_persistence") or {})
 
     run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     age = _pipeline_age_minutes(pipeline, now)
@@ -1026,10 +1053,11 @@ def _candidate_entry_gates(
         for row in rows:
             ticker = str(row.get("ticker") or "").upper()
             cov = candidate_data_coverage(row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row)
-            blocked = ticker in risk_reentry
+            chase_reasons = _entry_price_chase_gate(row)
+            blocked = ticker in risk_reentry or bool(chase_reasons)
             gates[ticker] = {
                 "allowed": not blocked,
-                "reason_codes": ["RISK_REENTRY_FRESHNESS_UNKNOWN"] if blocked else [],
+                "reason_codes": (["RISK_REENTRY_FRESHNESS_UNKNOWN"] if ticker in risk_reentry else []) + chase_reasons,
                 "coverage": cov,
                 "legacy_freshness_unknown": True,
             }
@@ -1071,7 +1099,7 @@ def _candidate_entry_gates(
         persistence[ticker] = item
         source = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
         cov = candidate_data_coverage(source)
-        reasons = []
+        reasons = _entry_price_chase_gate(row)
         if _f(cov.get("score")) < float(config.min_entry_data_coverage):
             reasons.append("DATA_COVERAGE_BLOCKED")
         if int(item.get("streak") or 0) < required:
@@ -1919,6 +1947,8 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "best_rank_since_entry": min([int(v) for v in (old.get("best_rank_since_entry"), old.get("entry_rank"), row.get("rank")) if v is not None], default=None),
         "last_full_assessment_at": now_iso,
         "entry_date": entry_date, "entry_price": entry_price, "last_price": _f(row.get("price")), "peak_price": peak,
+        "entry_price_basis": old.get("entry_price_basis") if old else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL",
+        "entry_signal_price_timestamp": old.get("entry_signal_price_timestamp") if old else _timestamp_from_row(row),
         "target_weight_pct": round(_f(weight), 2), "investment_score": row.get("investment_score"), "portfolio_score": row.get("portfolio_score"),
         "portfolio_score_adjusted": row.get("portfolio_score_adjusted", row.get("portfolio_score")),
         "sector_penalty": row.get("sector_penalty", 0.0), "correlation_penalty": row.get("correlation_penalty", 0.0),
