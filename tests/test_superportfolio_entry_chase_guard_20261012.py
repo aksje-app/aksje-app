@@ -41,3 +41,38 @@ def test_entry_gate_checks_both_momentum_and_opening_gap():
     assert _entry_risk_reasons({"return_1d": 8, "session_open": 103, "previous_close": 100}) == [
         "ENTRY_CHASE_ONE_DAY", "ENTRY_OPEN_GAP_UP"
     ]
+
+
+def test_next_session_cannot_use_same_day_snapshot():
+    from datetime import datetime, timezone
+    from super_portfolio import _verified_next_session_open
+    pending = {}
+    row = {"market": "SVERIGE", "ticker": "TEST.ST", "price": 120}
+    reasons, fill = _verified_next_session_open(row, pending, datetime(2026, 10, 12, 12, tzinfo=timezone.utc))
+    assert reasons == ["ENTRY_AWAIT_NEXT_SESSION"]
+    assert fill == 0
+    assert pending["entry_signal_price"] == 120
+
+
+def test_next_session_without_verified_open_stays_pending():
+    from datetime import datetime, timezone
+    from super_portfolio import _verified_next_session_open
+    pending = {"entry_signal_date": "2026-10-09"}
+    reasons, fill = _verified_next_session_open(
+        {"market": "SVERIGE", "price": 120},
+        pending,
+        datetime(2026, 10, 12, 12, tzinfo=timezone.utc),
+    )
+    assert "ENTRY_OPEN_QUOTE_UNVERIFIED" in reasons
+    assert fill == 0
+
+
+def test_next_session_valid_open_can_fill():
+    from datetime import datetime, timezone
+    from super_portfolio import _verified_next_session_open
+    row = {"market": "SVERIGE", "session_open": 100, "previous_close": 99, "session_date": "2026-10-12"}
+    reasons, fill = _verified_next_session_open(
+        row, {"entry_signal_date": "2026-10-09"}, datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
+    )
+    assert reasons == []
+    assert fill == 100
