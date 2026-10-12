@@ -1056,7 +1056,8 @@ def _verified_next_session_open(row: Mapping[str, Any], pending: dict[str, Any],
     from zoneinfo import ZoneInfo
     # Synthetic/frozen replay candidates keep their original recorded fills.
     # Real market-scan candidates must pass live session verification.
-    if str(row.get("source") or "") != "Super Portfolio independent market universe":
+    candidate = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
+    if str(candidate.get("source") or "") != "Super Portfolio independent market universe":
         return [], 0.0
     aliases = {"SE": "SVERIGE", "NO": "NORGE", "US": "USA", "BR": "BRASIL"}
     market = aliases.get(str(row.get("market") or row.get("country") or "").upper(), str(row.get("market") or row.get("country") or "").upper())
@@ -1071,9 +1072,10 @@ def _verified_next_session_open(row: Mapping[str, Any], pending: dict[str, Any],
     if not market_status(market, now=now).get("is_open"):
         return ["ENTRY_MARKET_CLOSED"], 0.0
     raw = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row.get("raw") if isinstance(row.get("raw"), Mapping) else {}
-    opened = _f(row.get("session_open") or raw.get("session_open"))
-    previous_close = _f(row.get("previous_close") or raw.get("previous_close"))
-    date = str(row.get("session_date") or raw.get("session_date") or "")
+    nested = raw.get("raw") if isinstance(raw.get("raw"), Mapping) else {}
+    opened = _f(row.get("session_open") or raw.get("session_open") or nested.get("session_open"))
+    previous_close = _f(row.get("previous_close") or raw.get("previous_close") or nested.get("previous_close"))
+    date = str(row.get("session_date") or raw.get("session_date") or nested.get("session_date") or "")
     if opened <= 0 or previous_close <= 0 or date != local_date:
         return ["ENTRY_OPEN_QUOTE_UNVERIFIED"], 0.0
     if (opened / previous_close - 1.0) * 100 >= 2.0:
