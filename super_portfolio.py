@@ -2162,6 +2162,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     )
     weights = target_weights(selected_rows, cfg)
     by_ticker = {str(row["ticker"]): row for row in ranked}
+    by_ticker.update({str(row["ticker"]): row for row in selected_rows})
     decision_run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     preliminary_advisory = ai_would_do_today(
         previous,
