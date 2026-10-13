@@ -3116,3 +3116,33 @@ def run_scheduled_shadow_cycle(
 
 def audit_rows(limit: int = 500) -> list[dict[str, Any]]:
     return read_events(AUDIT_KEY, AUDIT_PATH, limit=limit)
+
+
+def preview_staged_super_portfolio_targets(target_weights_pct, config=None):
+    """Non-executing staged-entry preview for new Shadow candidates only.
+
+    No modifications to positions or target weights used by evaluate().
+    """
+    from staged_entries import entry_plan
+    cfg = config or SuperPortfolioConfig()
+    return {
+        str(ticker): entry_plan(
+            "super_portfolio", float(weight), float(cfg.max_position_pct), enabled=True
+        )
+        for ticker, weight in dict(target_weights_pct or {}).items()
+    }
+
+
+def preview_existing_super_portfolio_risk(state=None, *, evidence_by_ticker=None):
+    """Read-only risk assessment; never initiates a trade."""
+    from portfolio_risk_review import review_super_portfolio_state
+    snapshot = state if state is not None else load_state()
+    return review_super_portfolio_state(snapshot, evidence_by_ticker=evidence_by_ticker)
+
+
+def preview_early_loss_super_portfolio(position, evidence):
+    """Advisory only; verified trading-session count required."""
+    from early_loss_policy import review_with_verified_observation
+    return review_with_verified_observation(position, evidence,
+        entry_field="entry_date", price_field="entry_price", current_field="current_price")
+

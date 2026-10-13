@@ -3526,3 +3526,39 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
                 reset_portfolio(confirm); st.success("Kontoen er nullstilt."); st.rerun()
             except ValueError as exc:
                 st.error(str(exc))
+
+
+def preview_staged_autonomi_buys(proposals, *, max_position_pct):
+    """Read-only hypothetical three-stage sizing for Autonomi Paper BUY proposals.
+
+    Shares no write path with ordinary buying, learning probes or production.
+    """
+    from staged_entries import entry_plan
+    output = []
+    for proposal in proposals or []:
+        if str(proposal.get("action") or "").upper() != "BUY":
+            continue
+        weight = float(proposal.get("target_weight_pct") or 0)
+        output.append({
+            "ticker": str(proposal.get("ticker") or "").upper(),
+            "plan": entry_plan("autonomi", weight, max_position_pct, enabled=True),
+            "execution_authorized": False,
+        })
+    return output
+
+
+def preview_existing_autonomi_risk(portfolio=None, *, evidence_by_ticker=None,
+                                   position_cap_pct=None):
+    """Non-executing review of existing Autonomi Paper holdings."""
+    from portfolio_risk_review import review_autonomi_state
+    holdings = portfolio if portfolio is not None else load_portfolio()
+    return review_autonomi_state(holdings, evidence_by_ticker=evidence_by_ticker,
+                                position_cap_pct=position_cap_pct)
+
+
+def preview_early_loss_autonomi(position, evidence):
+    """Non-executing early-loss review of a Paper position."""
+    from early_loss_policy import review_with_verified_observation
+    return review_with_verified_observation(position, evidence,
+        entry_field="opened_at", price_field="average_price", current_field="current_price")
+

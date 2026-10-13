@@ -313,3 +313,56 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None)
     s['max_drawdown_pct'] = max(s.get('max_drawdown_pct', 0), (1-equity/s['peak_equity'])*100)
     return s, {'state': 'COMPLETED', 'changes': changes, 'rows': rows,
                'equity': equity, 'frame': fid, 'orders_pending': len(s['orders'])}
+
+
+def preview_staged_pending_buys(state, parameters=None):
+    """Read-only 30/30/40 preview for queued Superfond buys.
+
+    The execution engine is deliberately unchanged: previewing never shrinks
+    queued orders or authorizes additions, and existing holdings are not
+    migrated to staged positions.
+    """
+    from staged_entries import entry_plan
+
+    p = valid_parameters({**DEFAULTS, **(parameters or {})})
+    s = state or {}
+    cash = float(s.get("cash", 0) or 0)
+    equity = cash + sum(
+        float(pos.get("quantity", 0) or 0) * float(pos.get("last_nok", 0) or 0)
+        for pos in (s.get("positions") or {}).values()
+    )
+    if equity <= 0:
+        return []
+    output = []
+    for order in s.get("orders", []):
+        if order.get("side") != "BUY":
+            continue
+        allocation = max(0.0, float(order.get("allocation", 0) or 0))
+        weight = allocation / equity * 100
+        plan = entry_plan("superfond", weight, p["max_position_pct"], enabled=True)
+        output.append({
+            "id": order.get("id"),
+            "requested_at": order.get("requested_at"),
+            "planned_allocation_nok": round(allocation, 2),
+            "stage_1_allocation_nok": round(equity * plan["incremental_weights_pct"][0] / 100, 2),
+            "plan": plan,
+            "execution_authorized": False,
+            "status": "PREVIEW_ONLY",
+        })
+    return output
+
+
+def preview_existing_superfund_risk(state, parameters=None, *, evidence_by_id=None):
+    """Non-executing review of held funds, regardless of available cash."""
+    from portfolio_risk_review import review_superfond_state
+    p = valid_parameters({**DEFAULTS, **(parameters or {})})
+    return review_superfond_state(state, evidence_by_id=evidence_by_id,
+                                  position_cap_pct=p["max_position_pct"])
+
+
+def preview_early_loss_superfund(position, evidence):
+    """Non-executing early-loss review of a held model fund in NOK."""
+    from early_loss_policy import review_with_verified_observation
+    return review_with_verified_observation(position, evidence,
+        entry_field="bought_at", price_field="entry_nok", current_field="current_nok")
+
