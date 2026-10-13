@@ -103,3 +103,23 @@ def test_superfund_preview_does_not_mutate_pending_orders():
     assert rows[0]["stage_1_allocation_nok"]==3000
     assert rows[0]["status"]=="PREVIEW_ONLY"
     assert not rows[0]["execution_authorized"]
+
+
+def test_super_portfolio_read_only_preview():
+    from super_portfolio import preview_staged_super_portfolio_targets
+    requested={"SECT-B.ST":12}
+    result=preview_staged_super_portfolio_targets(requested)
+    assert requested=={"SECT-B.ST":12}
+    assert result["SECT-B.ST"]["incremental_weights_pct"]==pytest.approx((3.6,3.6,4.8))
+    assert not result["SECT-B.ST"]["execution_authorized"]
+
+
+def test_autonomi_read_only_preview():
+    from autonomous_portfolio import preview_staged_autonomi_buys
+    proposals=[{"ticker":"TEST","action":"BUY","target_weight_pct":10},
+               {"ticker":"OTHER","action":"SELL","target_weight_pct":10}]
+    result=preview_staged_autonomi_buys(proposals,max_position_pct=8)
+    assert len(result)==1
+    assert result[0]["ticker"]=="TEST"
+    assert result[0]["plan"]["incremental_weights_pct"]==pytest.approx((2.4,2.4,3.2))
+    assert not result[0]["execution_authorized"]
