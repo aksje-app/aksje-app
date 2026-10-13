@@ -78,3 +78,74 @@ def entry_plan(engine: str, target_weight_pct: float, ceiling_pct: float,
         "requires_new_evidence_for_addons": enabled,
         "execution_authorized": False,
     }
+
+
+def propose_next_stage(position: dict, *, policy: StagedEntryPolicy,
+                       new_observations: int, original_thesis_valid: bool,
+                       positive_relative_strength: bool, score_not_weaker: bool,
+                       price_above_entry: bool, data_fresh: bool,
+                       cooldown_active: bool, overheated: bool) -> dict:
+    """Produce a non-executable proposal based on persisted stage evidence.
+
+    Caller must retain its own transactional locking and unique execution key.
+    A legacy position with no stage metadata is never silently migrated.
+    """
+    stage = position.get("entry_stage")
+    if not isinstance(stage, int) or isinstance(stage, bool) or stage not in (1, 2, 3):
+        return {"allowed": False, "reason": "MISSING_STAGE_HISTORY"}
+    if stage == 3:
+        return {"allowed": False, "reason": "FULLY_BUILT"}
+    identifier = str(position.get("position_id") or "").strip()
+    last_key = str(position.get("last_stage_event_key") or "").strip()
+    if not identifier or not last_key:
+        return {"allowed": False, "reason": "MISSING_AUDIT_ID"}
+    permitted = may_advance_stage(
+        policy=policy, current_stage=stage, new_observations=new_observations,
+        original_thesis_valid=original_thesis_valid,
+        positive_relative_strength=positive_relative_strength,
+        score_not_weaker=score_not_weaker,
+        price_above_entry=price_above_entry, data_fresh=data_fresh,
+        cooldown_active=cooldown_active, overheated=overheated,
+    )
+    if not permitted:
+        return {"allowed": False, "reason": "CONFIRMATION_INCOMPLETE"}
+    next_stage = stage + 1
+    return {
+        "allowed": True,
+        "stage": next_stage,
+        "idempotency_key": f"{identifier}:ENTRY_STAGE:{next_stage}",
+        "execution_authorized": False,
+        "reason": "ALL_CONFIRMATIONS_PRESENT_REQUIRES_ENGINE_GATE",
+    }
+
+
+def record_stage_event(position: dict, event: dict) -> dict:
+    """Pure state transition; caller must persist atomically with execution.
+
+    The event must be validated as an actually executed paper/shadow fill by
+    the engine. Merely proposing a trade never calls this function.
+    """
+    key = str(event.get("idempotency_key") or "")
+    stage = event.get("stage")
+    if not isinstance(stage, int) or isinstance(stage, bool) or stage not in (1, 2, 3):
+        raise ValueError("Invalid fill stage")
+    if not key or not str(event.get("executed_at") or "").strip():
+        raise ValueError("Execution key and timestamp required")
+    if not isinstance(event.get("fill_price"), (int, float)) or not isfinite(event["fill_price"]) or event["fill_price"] <= 0:
+        raise ValueError("Valid positive fill price required")
+    if not isinstance(event.get("filled_weight_pct"), (int, float)) or not isfinite(event["filled_weight_pct"]) or event["filled_weight_pct"] <= 0:
+        raise ValueError("Valid positive filled weight required")
+    prior = [dict(e) for e in position.get("entry_stage_events", [])]
+    if any(e.get("idempotency_key") == key for e in prior):
+        return dict(position)
+    existing_stage = position.get("entry_stage", 0)
+    if not isinstance(existing_stage, int) or isinstance(existing_stage, bool) or stage != existing_stage + 1:
+        raise ValueError("Stages must advance sequentially")
+    position_id = str(position.get("position_id") or "").strip()
+    if not position_id or key != f"{position_id}:ENTRY_STAGE:{stage}":
+        raise ValueError("Event key does not match position and stage")
+    out = dict(position)
+    out["entry_stage"] = stage
+    out["entry_stage_events"] = prior + [dict(event)]
+    out["last_stage_event_key"] = key
+    return out
