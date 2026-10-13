@@ -47,3 +47,48 @@ def early_loss_review(*, entry_at, observed_at, entry_price, current_price,
     else:
         result.update(action="BEHOLD",reason_codes=["NO_EARLY_LOSS_TRIGGER"])
     return result
+
+
+def validate_observation(*, observed_at, evaluated_at, max_age_minutes=60,
+                         provider_confirmed=False, session_count_verified=False):
+    """Verify provenance and age before any early-loss preview.
+
+    The caller must obtain these facts from its market provider/calendar.
+    Timestamp arithmetic alone cannot prove quote or session authenticity.
+    """
+    try:
+        observed = datetime.fromisoformat(str(observed_at).replace("Z", "+00:00"))
+        evaluated = datetime.fromisoformat(str(evaluated_at).replace("Z", "+00:00"))
+        age = (evaluated - observed).total_seconds() / 60
+        valid = (observed.tzinfo is not None and evaluated.tzinfo is not None
+                 and isinstance(max_age_minutes, (int, float))
+                 and isfinite(max_age_minutes) and max_age_minutes > 0
+                 and 0 <= age <= max_age_minutes
+                 and provider_confirmed is True and session_count_verified is True)
+    except (TypeError, ValueError, OverflowError):
+        valid = False
+    return {"verified":bool(valid), "execution_authorized":False,
+            "reason": "VERIFIED_OBSERVATION" if valid else "UNVERIFIED_OR_STALE_OBSERVATION"}
+
+
+def review_with_verified_observation(position, evidence, *, entry_field,
+                                     price_field, current_field):
+    """Strict adapter shared across engines. Never guesses session age."""
+    check = validate_observation(
+        observed_at=evidence.get("observed_at"),
+        evaluated_at=evidence.get("evaluated_at"),
+        max_age_minutes=evidence.get("max_age_minutes", 60),
+        provider_confirmed=evidence.get("provider_confirmed", False),
+        session_count_verified=evidence.get("session_count_verified", False))
+    result = early_loss_review(
+        entry_at=position.get(entry_field),
+        observed_at=evidence.get("observed_at"),
+        entry_price=position.get(price_field),
+        current_price=evidence.get(current_field),
+        thesis_valid=evidence.get("thesis_valid"),
+        score_change=evidence.get("score_change"),
+        relative_return_pct=evidence.get("relative_return_pct"),
+        data_fresh=check["verified"],
+        trading_sessions_since_entry=evidence.get("trading_sessions_since_entry"),
+        enabled=evidence.get("early_loss_preview_enabled", False))
+    return {**result, "observation_check":check}
