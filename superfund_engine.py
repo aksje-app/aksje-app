@@ -350,3 +350,11 @@ def preview_staged_pending_buys(state, parameters=None):
             "status": "PREVIEW_ONLY",
         })
     return output
+
+
+def preview_existing_superfund_risk(state, parameters=None, *, evidence_by_id=None):
+    """Non-executing review of held funds, regardless of available cash."""
+    from portfolio_risk_review import review_superfond_state
+    p = valid_parameters({**DEFAULTS, **(parameters or {})})
+    return review_superfond_state(state, evidence_by_id=evidence_by_id,
+                                  position_cap_pct=p["max_position_pct"])
