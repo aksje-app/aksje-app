@@ -107,7 +107,7 @@ def _render_superfund(st):
                         ('Kjøpskurs',f'{p["entry_nok"]:.2f} NOK'),('Siste modellkurs',f'{p["last_nok"]:.2f} NOK'),
                         ('Salgsgrense',f'{p.get("floor_nok",0):.2f} NOK')]+development_lines(info)),unsafe_allow_html=True)
                     st.caption('Modellkurs. Salgsgrensen garanterer ikke utførelseskurs.')
-                    render_development_chart(st,info)
+                    render_development_chart(st,info,chart_scope='portfolio_position')
                     with st.expander('Flere detaljer · '+p['name']):
                         st.markdown(card('Produkt og vurdering',detail_lines(info)+[
                             ('Rang ved kjøp → nå',f'{p["rank_at_buy"]} → {p["rank_now"]}')]),unsafe_allow_html=True)
@@ -122,7 +122,7 @@ def _render_superfund(st):
                         st.markdown(card('Produkt og ordre',detail_lines(ident)+[
                             ('Opprettet',date_label(o.get('requested_at'))),
                             ('Tidligst behandling',date_label(o.get('next_at')))]),unsafe_allow_html=True)
-                        render_development_chart(st,ident)
+                        render_development_chart(st,ident,chart_scope='portfolio_order')
                     if ident.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',ident['url'])
                 with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
                     for trade in model.get('trades',[])[-20:]:
@@ -146,16 +146,16 @@ def _render_superfund(st):
                     common=Counter(r.get('category','UKJENT') for r in top)
                     category,count=common.most_common(1)[0]
                     st.caption(f'{count} av {len(top)} i topp-listen tilhører {category}. Flere fond i samme kategori kan ha overlappende risiko; dette er ikke en diversifisert portefølje.')
-                def show(row,overall=False):
+                def show(row,overall=False,scope='candidate'):
                     if query and query not in ' '.join(str(row.get(k,'')) for k in ('name','isin','category','returns_currency')).lower():return
                     st.markdown(candidate_card(row,overall),unsafe_allow_html=True)
                     with st.expander('Flere detaljer · '+str(row.get('name') or row.get('isin'))):
                         st.markdown(card('Produkt og datakilde',detail_lines(row)),unsafe_allow_html=True)
-                        render_development_chart(st,row)
+                        render_development_chart(st,row,chart_scope=scope)
                     if row.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',row['url'])
                 view=st.radio('Rangeringsvisning',['Topp 25 samlet','Beste per investeringsland/region'],key='sf_ranking_view')
                 if view=='Topp 25 samlet':
-                    for row in top:show(row,True)
+                    for row in top:show(row,True,'top')
                 else:
                     st.caption('Opptil 25 ulike ISIN per område fra hele vurderingen. Samme poengregel som Topp 25; valutaene er ikke normalisert. Indeksnavn er en etikett, ikke verifiserte beholdninger.')
                     if 'country_candidates' not in s:st.warning('Eldre vurdering: landvisningen bruker opptil 100 lagrede kandidater. Full dekning etter neste komplette skanning.')
@@ -163,7 +163,7 @@ def _render_superfund(st):
                         with st.expander(f'{area} · {len(rows)} vist'):
                             for row in rows:
                                 st.caption(f"Plass {row['country_rank']} innen området")
-                                show(row)
+                                show(row,scope='country_'+str(area))
                 st.subheader('Kandidater etter kategori og avkastningsvaluta')
                 st.caption('Opptil 100 lagrede kandidater, inkludert blokkeringer. Kategori-rang er forskjellig fra plasseringen i Topp 25.')
                 groups={}
@@ -171,7 +171,7 @@ def _render_superfund(st):
                     groups.setdefault((row.get('category') or 'UKJENT',row.get('returns_currency') or 'UKJENT'),[]).append(row)
                 for (category,currency),rows in sorted(groups.items()):
                     with st.expander(f'{category} · {currency} · {len(rows)} vist'):
-                        for row in rows:show(row)
+                        for row in rows:show(row,scope='category_'+str(category)+'_'+str(currency))
                 st.markdown('**Hele overvåkingskatalogen**')
                 index=read('catalog_index.json',{})
                 pages=sorted(index.get('pages',{}))
