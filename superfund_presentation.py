@@ -197,7 +197,7 @@ def candidate_card(row, overall=False):
                 f"Topp {row.get('overall_rank', '—')}" if overall else None)
 
 
-def render_development_chart(st, row):
+def render_development_chart(st, row, chart_scope='default'):
     """Plot only observed timestamped NOK prices. Never interpolate invented NAV quotes."""
     points = row.get('price_history_nok') or []
     if len(points) < 2:
@@ -214,7 +214,7 @@ def render_development_chart(st, row):
         st.caption('For få gyldige, daterte kursobservasjoner for graf.')
         return
     duration = st.selectbox('Kursperiode', ['1 uke', '1 måned', '3 måneder', '1 år', 'Alle'],
-                            index=2, key='sf_chart_period_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
+                            index=2, key='sf_chart_period_'+str(chart_scope)+'_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
     days = {'1 uke':7, '1 måned':31, '3 måneder':92, '1 år':366}.get(duration)
     shown = frame if days is None else frame[frame['price_at'] >= frame['price_at'].max()-pd.Timedelta(days=days)]
     if len(shown) < 2:
