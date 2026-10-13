@@ -95,6 +95,8 @@ def test_empty_report_ui_explains_and_builds_zip(local,monkeypatch):
     monkeypatch.setattr(runtime,'catalog_page',lambda *a:pytest.fail('UI fetch'))
     app=AppTest.from_string('import streamlit as st\nfrom pages.superfund import render_superfund\nrender_superfund(st)').run()
     assert not app.exception
+    app.selectbox(key='sf_section').set_value('Rapporter og nedlastinger').run()
+    assert not app.exception
     assert any('Diagnose-ZIP kan lages allerede nå' in i.value for i in app.info)
     app.button(key='sf_build_diagnostic').click().run()
     assert not app.exception
