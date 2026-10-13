@@ -104,7 +104,11 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
         p.locator('[data-testid="stExpander"] summary').filter(has_text='Kandidater').first.wait_for()
         p.get_by_role('combobox',name='Vis område').wait_for()
         assert p.locator('.sf-tag').first.is_visible()
-        p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').get_by_text('19.43%',exact=True).first.wait_for()
+        # Pending model orders are shown in Portefølje, not Kandidater.
+        p.get_by_role('combobox',name='Vis område').click()
+        p.get_by_role('option',name='Portefølje',exact=True).click()
+        p.locator('[data-testid="stExpander"] summary').filter(has_text='Portefølje').first.wait_for()
+        p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').first.wait_for()
         p.locator('.st-key-aa_mobile_nav_overview button').click()
         p.get_by_role('heading',name='Start',exact=True).wait_for()
         p.locator('.st-key-aa_mobile_nav_superfund button').click()
