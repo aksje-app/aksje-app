@@ -92,8 +92,10 @@ def _render_superfund(st):
         set_global_navigation_state(st,nav='superfund',group='Fond',panel='Superfond',tab=st.session_state['sf_section'],subtab='')
     st.selectbox('Vis område',sections,key='sf_section',on_change=remember_section)
     st.session_state['sf_saved_section']=st.session_state['sf_section']
-    for title in sections:
-        with st.expander(title,expanded=title==st.session_state['sf_section']):
+    # Render only the active area. Rendering every collapsed area on every
+    # Streamlit rerun builds hundreds of widgets and can abort/slow navigation.
+    for title in [st.session_state['sf_section']]:
+        with st.expander(title, expanded=True):
             if title=='Portefølje':
                 render_overview(st,s)
                 st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
