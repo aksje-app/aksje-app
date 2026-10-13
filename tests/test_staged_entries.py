@@ -36,3 +36,21 @@ def test_increase_requires_all_validated_fresh_signals():
     assert not may_advance_stage(**{**kwargs, "cooldown_active": True})
     assert not may_advance_stage(**{**kwargs, "new_observations": 1})
     assert not may_advance_stage(**{**kwargs, "policy": StagedEntryPolicy()})
+
+
+@pytest.mark.parametrize("engine", ["super_portfolio", "autonomi", "superfond"])
+def test_cross_engine_plan_is_read_only_and_capped(engine):
+    from staged_entries import entry_plan
+    plan = entry_plan(engine, 15.0, 10.0, enabled=True)
+    assert plan["cumulative_weights_pct"] == pytest.approx((3, 6, 10))
+    assert plan["incremental_weights_pct"] == pytest.approx((3, 3, 4))
+    assert plan["execution_authorized"] is False
+    assert plan["requires_new_evidence_for_addons"] is True
+
+
+def test_cross_engine_plan_disabled_by_default():
+    from staged_entries import entry_plan
+    plan = entry_plan("super_portfolio", 10, 15)
+    assert not plan["enabled"]
+    assert not plan["execution_authorized"]
+    assert plan["target_weight_pct"] == 10
