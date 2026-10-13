@@ -79,10 +79,14 @@ def test_all_menus_render_long_text_nested_capacity_without_network(monkeypatch)
     monkeypatch.setattr(page,'request_scan',lambda:pytest.fail('Unexpected scan'))
     app=AppTest.from_string('import streamlit as st\nfrom pages.superfund import render_superfund\nrender_superfund(st)').run()
     assert not app.exception
-    assert len(app.expander)>=7
+    assert any(e.label=='Portefølje' for e in app.expander)
     markdown=' '.join(x.value for x in app.markdown)
-    assert '1725' in markdown and 'Et svært langt fondsnavn' in markdown
+    assert 'Et svært langt fondsnavn' in markdown
     assert 'max-height:none' in markdown
+    # Inactive sections are intentionally not rendered.
+    app.selectbox(key='sf_section').set_value('Diagnoser').run()
+    assert not app.exception
+    assert any('1725' in x.value for x in app.markdown)
 
 
 def test_optional_source_identity_fields_do_not_crash_catalogue():
@@ -136,6 +140,8 @@ def test_country_view_renders_actual_streamlit_radio(monkeypatch):
     monkeypatch.setattr(page,'snapshot',lambda:s)
     monkeypatch.setattr(page,'read',lambda name,default:default)
     app=AppTest.from_string('import streamlit as st\nfrom pages.superfund import render_superfund\nrender_superfund(st)').run()
+    app.selectbox(key='sf_section').set_value('Kandidater').run()
+    assert not app.exception
     app.radio(key='sf_ranking_view').set_value('Beste per investeringsland/region').run()
     assert not app.exception
     labels=[e.label for e in app.expander]

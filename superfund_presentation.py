@@ -197,17 +197,48 @@ def candidate_card(row, overall=False):
                 f"Topp {row.get('overall_rank', '—')}" if overall else None)
 
 
-def render_development_chart(st, row):
+def render_development_chart(st, row, chart_scope='default'):
+    """Plot only observed timestamped NOK prices. Never interpolate invented NAV quotes."""
     points = row.get('price_history_nok') or []
     if len(points) < 2:
-        st.caption('Kursgraf: færre enn to lagrede kursdatoer. Uke/måned/kvartal ovenfor er kildens periodetall.')
+        st.caption('Kursgraf: færre enn to lagrede kursobservasjoner. Intradagvisning er ikke tilgjengelig uten tidsstemplede intradagkurser.')
         return
     import pandas as pd
     frame = pd.DataFrame(points)
-    frame['price_at'] = pd.to_datetime(frame['price_at'], utc=True)
-    frame = frame.set_index('price_at').sort_index().rename(columns={'nok_price':'Observert modellkurs NOK'})
-    st.line_chart(frame, height=180, color='#75dcff')
-    st.caption('Lagrede kursobservasjoner omregnet til NOK på kursdatoen. Mellomliggende datoer er ikke fylt inn.')
+    frame['price_at'] = pd.to_datetime(frame['price_at'], utc=True, errors='coerce')
+    frame['nok_price'] = pd.to_numeric(frame['nok_price'], errors='coerce')
+    frame = (frame.dropna(subset=['price_at', 'nok_price'])
+             .sort_values('price_at').drop_duplicates(subset=['price_at'], keep='last'))
+    frame = frame[frame['nok_price'] > 0]
+    if len(frame) < 2:
+        st.caption('For få gyldige, daterte kursobservasjoner for graf.')
+        return
+    duration = st.selectbox('Kursperiode', ['1 uke', '1 måned', '3 måneder', '1 år', 'Alle'],
+                            index=2, key='sf_chart_period_'+str(chart_scope)+'_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
+    days = {'1 uke':7, '1 måned':31, '3 måneder':92, '1 år':366}.get(duration)
+    shown = frame if days is None else frame[frame['price_at'] >= frame['price_at'].max()-pd.Timedelta(days=days)]
+    if len(shown) < 2:
+        st.caption('Færre enn to faktiske kursobservasjoner i valgt periode.')
+        return
+    import plotly.graph_objects as go
+    change = shown['nok_price'].pct_change()*100
+    figure = go.Figure()
+    figure.add_trace(go.Scatter(x=shown['price_at'], y=shown['nok_price'], name='Observert modellkurs',
+                                mode='lines+markers', line=dict(color='#75dcff', width=2),
+                                marker=dict(size=5), connectgaps=False,
+                                hovertemplate='%{x|%d.%m.%Y %H:%M UTC}<br>%{y:,.2f} NOK<extra></extra>'))
+    abrupt = shown[(change.abs() >= 3).fillna(False)]
+    if not abrupt.empty:
+        figure.add_trace(go.Scatter(x=abrupt['price_at'], y=abrupt['nok_price'],
+                                    mode='markers', name='Endring minst 3 % mellom observasjoner',
+                                    marker=dict(color='#f9b44d',size=10,symbol='diamond'),
+                                    customdata=change.loc[abrupt.index],
+                                    hovertemplate='%{x|%d.%m.%Y %H:%M UTC}<br>%{y:,.2f} NOK<br>Fra forrige observasjon: %{customdata:+.2f}%<extra></extra>'))
+    figure.update_layout(height=290,margin=dict(l=0,r=0,t=12,b=0),
+                         xaxis_title=None,yaxis_title='NOK',legend=dict(orientation='h',y=1.13),
+                         hovermode='closest')
+    st.plotly_chart(figure,use_container_width=True,key='sf_curve_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
+    st.caption(f"{len(shown)} faktiske, tidsstemplede observasjoner. Diamanter markerer endringer på minst 3 % mellom registrerte kurser, ikke nødvendigvis intradagbevegelser. Ingen mellomliggende kurser er konstruert.")
 
 
 CSS = '''<style>
