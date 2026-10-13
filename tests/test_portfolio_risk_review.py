@@ -59,3 +59,17 @@ def test_real_engine_state_adapters_are_read_only():
     assert result[0]["action"]=="REDUSER"
     assert [sp,au,sf]==originals
     assert not any(x["execution_authorized"] for x in result)
+
+
+def test_each_engine_exposes_read_only_risk_preview():
+    from super_portfolio import preview_existing_super_portfolio_risk
+    from superfund_engine import preview_existing_superfund_risk
+    from autonomous_portfolio import preview_existing_autonomi_risk
+    sp={"config":{"max_position_pct":15},"positions":{"ABC":{
+        "entry_price":100,"last_price":99,"target_weight_pct":5}}}
+    sf={"cash":0,"positions":{"FUND":{
+        "entry_nok":100,"last_nok":99,"quantity":10}}}
+    au={"positions":{"XYZ":{"average_price":100,"last_price":99}}}
+    assert preview_existing_super_portfolio_risk(sp)[0]["execution_authorized"] is False
+    assert preview_existing_superfund_risk(sf)[0]["execution_authorized"] is False
+    assert preview_existing_autonomi_risk(au)[0]["execution_authorized"] is False
