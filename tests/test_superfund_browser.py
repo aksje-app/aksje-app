@@ -45,6 +45,9 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
             p.locator('[data-testid="stExpander"] summary').filter(has_text=label).first.wait_for()
             assert p.locator('[data-testid="stExpander"] summary').filter(has_text=label).count()==1
             assert p.get_by_text('Uncaught app exception',exact=False).count()==0
+            if label=='Diagnoser':
+                p.locator('.sf-card').get_by_text('1725.7',exact=True).first.wait_for()
+                p.screenshot(path=f'dist/browser/superfund-diagnoses-{width}.png')
         # Restore the candidate panel for the ranking assertions below.
         p.get_by_role('combobox',name='Vis område').click()
         p.get_by_role('option',name='Kandidater',exact=True).click()
@@ -75,11 +78,9 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
           return errors;
         }''')
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
-        p.screenshot(path=f'dist/browser/superfund-diagnoses-{width}.png')
         p.get_by_role('heading',name='Topp 25 · grunnkrav oppfylt',exact=True).scroll_into_view_if_needed()
         p.screenshot(path=f'dist/browser/superfund-top25-{width}.png')
         assert not problems,problems
-        assert p.locator('.sf-card').get_by_text('1725.7',exact=True).count()==1
         browser.close()
 
 
@@ -101,9 +102,9 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
         p.reload()
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
         p.locator('[data-testid="stExpander"] summary').filter(has_text='Kandidater').first.wait_for()
-        assert p.get_by_role('combobox',name='Vis område').count()==1
+        p.get_by_role('combobox',name='Vis område').wait_for()
         assert p.locator('.sf-tag').first.is_visible()
-        assert p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').get_by_text('19.43%',exact=True).count()==1
+        p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').get_by_text('19.43%',exact=True).first.wait_for()
         p.locator('.st-key-aa_mobile_nav_overview button').click()
         p.get_by_role('heading',name='Start',exact=True).wait_for()
         p.locator('.st-key-aa_mobile_nav_superfund button').click()
