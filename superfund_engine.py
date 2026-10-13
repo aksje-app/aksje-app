@@ -364,5 +364,5 @@ def preview_early_loss_superfund(position, evidence):
     """Non-executing early-loss review of a held model fund in NOK."""
     from early_loss_policy import review_with_verified_observation
     return review_with_verified_observation(position, evidence,
-        entry_field="entry_at", price_field="entry_nok", current_field="current_nok")
+        entry_field="bought_at", price_field="entry_nok", current_field="current_nok")
 
