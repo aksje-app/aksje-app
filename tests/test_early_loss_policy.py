@@ -41,3 +41,23 @@ def test_missing_or_stale_evidence_cannot_authorize_sale(change):
     r=early_loss_review(**{**BASE,**change})
     assert r["action"]=="OVERVAAK"
     assert not r["execution_authorized"]
+
+
+def test_all_engine_early_loss_adapters_are_advisory():
+    from super_portfolio import preview_early_loss_super_portfolio
+    from autonomous_portfolio import preview_early_loss_autonomi
+    from superfund_engine import preview_early_loss_superfund
+    evidence={"observed_at":"2026-10-13T12:00:00Z","current_price":98,
+              "current_nok":98,"data_fresh":True,
+              "trading_sessions_since_entry":1,"early_loss_preview_enabled":True}
+    results=[
+        preview_early_loss_super_portfolio(
+            {"entry_date":"2026-10-12T12:00:00Z","entry_price":100},evidence),
+        preview_early_loss_autonomi(
+            {"opened_at":"2026-10-12T12:00:00Z","average_price":100},evidence),
+        preview_early_loss_superfund(
+            {"entry_at":"2026-10-12T12:00:00Z","entry_nok":100},evidence),
+    ]
+    assert all(r["action"]=="SELG" for r in results)
+    assert all(r["execution_authorized"] is False for r in results)
+    assert preview_early_loss_superfund({"entry_nok":100},evidence)["action"]=="OVERVAAK"
