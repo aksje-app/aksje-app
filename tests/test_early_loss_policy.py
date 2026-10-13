@@ -58,7 +58,7 @@ def test_all_engine_early_loss_adapters_are_advisory():
         preview_early_loss_autonomi(
             {"opened_at":"2026-10-12T12:00:00Z","average_price":100},evidence),
         preview_early_loss_superfund(
-            {"entry_at":"2026-10-12T12:00:00Z","entry_nok":100},evidence),
+            {"bought_at":"2026-10-12T12:00:00Z","entry_nok":100},evidence),
     ]
     assert all(r["action"]=="SELG" for r in results)
     assert all(r["execution_authorized"] is False for r in results)
@@ -74,3 +74,16 @@ def test_observation_verification_blocks_unknown_provider_and_old_quote():
     assert not validate_observation(**{**baseline,"provider_confirmed":False})["verified"]
     assert not validate_observation(**{**baseline,"evaluated_at":"2026-10-13T14:00:00Z"})["verified"]
     assert not validate_observation(**{**baseline,"session_count_verified":False})["verified"]
+
+
+def test_superfund_uses_stored_purchase_date():
+    from superfund_engine import preview_early_loss_superfund
+    evidence={"observed_at":"2026-10-13T12:00:00Z",
+              "evaluated_at":"2026-10-13T12:05:00Z",
+              "provider_confirmed":True,"session_count_verified":True,
+              "trading_sessions_since_entry":1,"current_nok":98.0,
+              "early_loss_preview_enabled":True}
+    result=preview_early_loss_superfund(
+        {"bought_at":"2026-10-12T12:00:00Z","entry_nok":100.0},evidence)
+    assert result["action"]=="SELG"
+    assert result["execution_authorized"] is False
