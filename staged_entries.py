@@ -51,3 +51,30 @@ def may_advance_stage(*, policy: StagedEntryPolicy, current_stage: int,
         and price_above_entry and data_fresh
         and not cooldown_active and not overheated
     )
+
+
+SUPPORTED_ENGINES = frozenset({"super_portfolio", "autonomi", "superfond"})
+
+
+def entry_plan(engine: str, target_weight_pct: float, ceiling_pct: float,
+               *, enabled: bool = False) -> dict:
+    """Read-only cross-engine plan. Caller decides whether to enable integration.
+
+    The three stage weights are cumulative weights within the whole portfolio,
+    NOT three independently purchasable percentages. No trading side effects.
+    """
+    if engine not in SUPPORTED_ENGINES:
+        raise ValueError("Unknown portfolio engine")
+    policy = StagedEntryPolicy(enabled=enabled)
+    stages = tuple(round(stage_target_weight(target_weight_pct, n, policy=policy,
+                        ceiling_pct=ceiling_pct), 6) for n in (1, 2, 3))
+    increments = (stages[0], stages[1] - stages[0], stages[2] - stages[1])
+    return {
+        "engine": engine,
+        "enabled": enabled,
+        "target_weight_pct": round(stages[-1], 6),
+        "cumulative_weights_pct": stages,
+        "incremental_weights_pct": tuple(round(x, 6) for x in increments),
+        "requires_new_evidence_for_addons": enabled,
+        "execution_authorized": False,
+    }
