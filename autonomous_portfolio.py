@@ -3554,3 +3554,16 @@ def preview_existing_autonomi_risk(portfolio=None, *, evidence_by_ticker=None,
     holdings = portfolio if portfolio is not None else load_portfolio()
     return review_autonomi_state(holdings, evidence_by_ticker=evidence_by_ticker,
                                 position_cap_pct=position_cap_pct)
+
+
+def preview_early_loss_autonomi(position, evidence):
+    """Non-executing early-loss review of a Paper position."""
+    from early_loss_policy import early_loss_review
+    return early_loss_review(
+        entry_at=position.get("opened_at"), observed_at=evidence.get("observed_at"),
+        entry_price=position.get("average_price"), current_price=evidence.get("current_price"),
+        thesis_valid=evidence.get("thesis_valid"), score_change=evidence.get("score_change"),
+        relative_return_pct=evidence.get("relative_return_pct"),
+        data_fresh=evidence.get("data_fresh", False),
+        trading_sessions_since_entry=evidence.get("trading_sessions_since_entry"),
+        enabled=evidence.get("early_loss_preview_enabled", False))
