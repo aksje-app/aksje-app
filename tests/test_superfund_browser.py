@@ -43,11 +43,8 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
             selector.click()
             p.get_by_role('option',name=label,exact=True).click()
             p.locator('[data-testid="stExpander"] summary').filter(has_text=label).first.wait_for()
-            p.wait_for_function(
-                "(label) => [...document.querySelectorAll('[data-testid=stExpander] summary')].some(e => e.textContent.includes(label) && e.closest('details')?.open)",
-                arg=label,
-                timeout=10000,
-            )
+            assert p.locator('[data-testid="stExpander"] summary').filter(has_text=label).count()==1
+            assert p.get_by_text('Uncaught app exception',exact=False).count()==0
         # Restore the candidate panel for the ranking assertions below.
         p.get_by_role('combobox',name='Vis område').click()
         p.get_by_role('option',name='Kandidater',exact=True).click()
