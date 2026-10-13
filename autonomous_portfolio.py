@@ -3526,3 +3526,22 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
                 reset_portfolio(confirm); st.success("Kontoen er nullstilt."); st.rerun()
             except ValueError as exc:
                 st.error(str(exc))
+
+
+def preview_staged_autonomi_buys(proposals, *, max_position_pct):
+    """Read-only hypothetical three-stage sizing for Autonomi Paper BUY proposals.
+
+    Shares no write path with ordinary buying, learning probes or production.
+    """
+    from staged_entries import entry_plan
+    output = []
+    for proposal in proposals or []:
+        if str(proposal.get("action") or "").upper() != "BUY":
+            continue
+        weight = float(proposal.get("target_weight_pct") or 0)
+        output.append({
+            "ticker": str(proposal.get("ticker") or "").upper(),
+            "plan": entry_plan("autonomi", weight, max_position_pct, enabled=True),
+            "execution_authorized": False,
+        })
+    return output
