@@ -49,6 +49,8 @@ def test_all_engine_early_loss_adapters_are_advisory():
     from superfund_engine import preview_early_loss_superfund
     evidence={"observed_at":"2026-10-13T12:00:00Z","current_price":98,
               "current_nok":98,"data_fresh":True,
+              "evaluated_at":"2026-10-13T12:15:00Z",
+              "provider_confirmed":True,"session_count_verified":True,
               "trading_sessions_since_entry":1,"early_loss_preview_enabled":True}
     results=[
         preview_early_loss_super_portfolio(
@@ -61,3 +63,14 @@ def test_all_engine_early_loss_adapters_are_advisory():
     assert all(r["action"]=="SELG" for r in results)
     assert all(r["execution_authorized"] is False for r in results)
     assert preview_early_loss_superfund({"entry_nok":100},evidence)["action"]=="OVERVAAK"
+
+
+def test_observation_verification_blocks_unknown_provider_and_old_quote():
+    from early_loss_policy import validate_observation
+    baseline=dict(observed_at="2026-10-13T12:00:00Z",
+                  evaluated_at="2026-10-13T12:10:00Z",
+                  provider_confirmed=True,session_count_verified=True)
+    assert validate_observation(**baseline)["verified"]
+    assert not validate_observation(**{**baseline,"provider_confirmed":False})["verified"]
+    assert not validate_observation(**{**baseline,"evaluated_at":"2026-10-13T14:00:00Z"})["verified"]
+    assert not validate_observation(**{**baseline,"session_count_verified":False})["verified"]
