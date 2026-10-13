@@ -3131,3 +3131,10 @@ def preview_staged_super_portfolio_targets(target_weights_pct, config=None):
         )
         for ticker, weight in dict(target_weights_pct or {}).items()
     }
+
+
+def preview_existing_super_portfolio_risk(state=None, *, evidence_by_ticker=None):
+    """Read-only risk assessment; never initiates a trade."""
+    from portfolio_risk_review import review_super_portfolio_state
+    snapshot = state if state is not None else load_state()
+    return review_super_portfolio_state(snapshot, evidence_by_ticker=evidence_by_ticker)
