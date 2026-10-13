@@ -87,3 +87,19 @@ def test_addon_requires_audited_stage_and_all_signals():
     assert proposal["allowed"] and proposal["idempotency_key"]=="X:ENTRY_STAGE:2"
     assert proposal["execution_authorized"] is False
     assert not propose_next_stage(position,**{**checks,"price_above_entry":False})["allowed"]
+
+
+def test_superfund_preview_does_not_mutate_pending_orders():
+    from copy import deepcopy
+    from superfund_engine import preview_staged_pending_buys
+    state={"cash":100000,"positions":{},"orders":[
+        {"side":"BUY","id":"TEST","allocation":10000,"requested_at":"2026-10-13T12:00:00Z"},
+        {"side":"SELL","id":"OTHER","allocation":8000},
+    ]}
+    original=deepcopy(state)
+    rows=preview_staged_pending_buys(state)
+    assert state==original
+    assert len(rows)==1
+    assert rows[0]["stage_1_allocation_nok"]==3000
+    assert rows[0]["status"]=="PREVIEW_ONLY"
+    assert not rows[0]["execution_authorized"]
