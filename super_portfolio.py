@@ -3116,3 +3116,18 @@ def run_scheduled_shadow_cycle(
 
 def audit_rows(limit: int = 500) -> list[dict[str, Any]]:
     return read_events(AUDIT_KEY, AUDIT_PATH, limit=limit)
+
+
+def preview_staged_super_portfolio_targets(target_weights_pct, config=None):
+    """Non-executing staged-entry preview for new Shadow candidates only.
+
+    No modifications to positions or target weights used by evaluate().
+    """
+    from staged_entries import entry_plan
+    cfg = config or SuperPortfolioConfig()
+    return {
+        str(ticker): entry_plan(
+            "super_portfolio", float(weight), float(cfg.max_position_pct), enabled=True
+        )
+        for ticker, weight in dict(target_weights_pct or {}).items()
+    }
