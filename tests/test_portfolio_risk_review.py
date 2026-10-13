@@ -54,7 +54,8 @@ def test_real_engine_state_adapters_are_read_only():
     originals=deepcopy([sp,au,sf])
     assert review_super_portfolio_state(sp)[0]["action"]=="OVERVAAK"
     assert review_autonomi_state(au)[0]["action"]=="OVERVAAK"
-    result=review_superfond_state(sf,position_cap_pct=12.5)
+    result=review_superfond_state(sf,position_cap_pct=12.5,
+        evidence_by_id={"FUND":{"data_fresh":True}})
     assert result[0]["action"]=="REDUSER"
     assert [sp,au,sf]==originals
     assert not any(x["execution_authorized"] for x in result)
