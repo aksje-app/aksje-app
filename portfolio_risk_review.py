@@ -77,3 +77,66 @@ def review_portfolio(engine, positions, evidence_by_ticker):
             data_fresh=bool(evidence.get("data_fresh",False)),
         ))
     return result
+
+
+def review_super_portfolio_state(state, *, evidence_by_ticker=None):
+    """Normalize existing Super Portfolio Shadow positions for advisory review."""
+    positions = (state or {}).get("positions") or {}
+    cfg = (state or {}).get("config") or {}
+    cap = cfg.get("max_position_pct", 15.0)
+    normalized = {}
+    evidence = {}
+    for ticker, position in positions.items():
+        normalized[ticker] = {
+            "entry_price": position.get("entry_price"),
+            "last_price": position.get("last_price"),
+            "peak_price": position.get("peak_price"),
+        }
+        supplied = dict((evidence_by_ticker or {}).get(ticker) or {})
+        supplied.setdefault("position_weight_pct", position.get("target_weight_pct"))
+        supplied.setdefault("position_cap_pct", cap)
+        evidence[ticker] = supplied
+    return review_portfolio("super_portfolio", normalized, evidence)
+
+
+def review_autonomi_state(portfolio, *, evidence_by_ticker=None, position_cap_pct=None):
+    """Normalize existing Autonomi theoretical positions; missing evidence stays unknown."""
+    normalized = {}
+    evidence = {}
+    for ticker, position in ((portfolio or {}).get("positions") or {}).items():
+        normalized[ticker] = {
+            "entry_price": position.get("average_price"),
+            "last_price": position.get("last_price"),
+            "peak_price": position.get("highest_price"),
+        }
+        supplied = dict((evidence_by_ticker or {}).get(ticker) or {})
+        if position_cap_pct is not None:
+            supplied.setdefault("position_cap_pct", position_cap_pct)
+        evidence[ticker] = supplied
+    return review_portfolio("autonomi", normalized, evidence)
+
+
+def review_superfond_state(state, *, evidence_by_id=None, position_cap_pct=None):
+    """Normalize existing Superfond model holdings denominated in NOK."""
+    normalized = {}
+    evidence = {}
+    s = state or {}
+    equity = float(s.get("cash") or 0) + sum(
+        float(p.get("quantity") or 0) * float(p.get("last_nok") or 0)
+        for p in (s.get("positions") or {}).values()
+    )
+    for fund_id, position in (s.get("positions") or {}).items():
+        normalized[fund_id] = {
+            "entry_price": position.get("entry_nok"),
+            "last_price": position.get("last_nok"),
+            # No peak is assumed when historical peak is not reliably available.
+            "peak_price": position.get("peak_nok"),
+        }
+        supplied = dict((evidence_by_id or {}).get(fund_id) or {})
+        if equity > 0:
+            supplied.setdefault("position_weight_pct",
+                100 * float(position.get("quantity") or 0) * float(position.get("last_nok") or 0) / equity)
+        if position_cap_pct is not None:
+            supplied.setdefault("position_cap_pct", position_cap_pct)
+        evidence[fund_id] = supplied
+    return review_portfolio("superfond", normalized, evidence)
