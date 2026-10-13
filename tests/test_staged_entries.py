@@ -54,3 +54,36 @@ def test_cross_engine_plan_disabled_by_default():
     assert not plan["enabled"]
     assert not plan["execution_authorized"]
     assert plan["target_weight_pct"] == 10
+
+
+def test_stage_events_require_sequential_fill_and_are_idempotent():
+    from staged_entries import record_stage_event
+    p={"position_id":"shadow:ABC"}
+    first={"idempotency_key":"shadow:ABC:ENTRY_STAGE:1","stage":1,
+           "executed_at":"2026-10-13T12:00:00Z","fill_price":100.0,
+           "filled_weight_pct":3.0}
+    p1=record_stage_event(p,first)
+    assert p == {"position_id":"shadow:ABC"}
+    assert p1["entry_stage"] == 1
+    assert len(record_stage_event(p1,first)["entry_stage_events"]) == 1
+    with pytest.raises(ValueError):
+        record_stage_event(p1,{"idempotency_key":"shadow:ABC:ENTRY_STAGE:3",
+                               "stage":3,"executed_at":"2026-10-13","fill_price":105,
+                               "filled_weight_pct":4})
+    with pytest.raises(ValueError):
+        record_stage_event(p,{"**bad":1})
+
+
+def test_addon_requires_audited_stage_and_all_signals():
+    from staged_entries import propose_next_stage
+    checks=dict(policy=StagedEntryPolicy(enabled=True),
+                new_observations=2, original_thesis_valid=True,
+                positive_relative_strength=True, score_not_weaker=True,
+                price_above_entry=True, data_fresh=True,
+                cooldown_active=False, overheated=False)
+    assert propose_next_stage({"position_id":"X"},**checks)["reason"] == "MISSING_STAGE_HISTORY"
+    position={"position_id":"X","entry_stage":1,"last_stage_event_key":"X:ENTRY_STAGE:1"}
+    proposal=propose_next_stage(position,**checks)
+    assert proposal["allowed"] and proposal["idempotency_key"]=="X:ENTRY_STAGE:2"
+    assert proposal["execution_authorized"] is False
+    assert not propose_next_stage(position,**{**checks,"price_above_entry":False})["allowed"]
