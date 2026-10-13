@@ -3138,3 +3138,16 @@ def preview_existing_super_portfolio_risk(state=None, *, evidence_by_ticker=None
     from portfolio_risk_review import review_super_portfolio_state
     snapshot = state if state is not None else load_state()
     return review_super_portfolio_state(snapshot, evidence_by_ticker=evidence_by_ticker)
+
+
+def preview_early_loss_super_portfolio(position, evidence):
+    """Advisory only; verified trading-session count required."""
+    from early_loss_policy import early_loss_review
+    return early_loss_review(
+        entry_at=position.get("entry_date"), observed_at=evidence.get("observed_at"),
+        entry_price=position.get("entry_price"), current_price=evidence.get("current_price"),
+        thesis_valid=evidence.get("thesis_valid"), score_change=evidence.get("score_change"),
+        relative_return_pct=evidence.get("relative_return_pct"),
+        data_fresh=evidence.get("data_fresh", False),
+        trading_sessions_since_entry=evidence.get("trading_sessions_since_entry"),
+        enabled=evidence.get("early_loss_preview_enabled", False))
