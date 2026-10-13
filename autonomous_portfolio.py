@@ -3545,3 +3545,12 @@ def preview_staged_autonomi_buys(proposals, *, max_position_pct):
             "execution_authorized": False,
         })
     return output
+
+
+def preview_existing_autonomi_risk(portfolio=None, *, evidence_by_ticker=None,
+                                   position_cap_pct=None):
+    """Non-executing review of existing Autonomi Paper holdings."""
+    from portfolio_risk_review import review_autonomi_state
+    holdings = portfolio if portfolio is not None else load_portfolio()
+    return review_autonomi_state(holdings, evidence_by_ticker=evidence_by_ticker,
+                                position_cap_pct=position_cap_pct)
