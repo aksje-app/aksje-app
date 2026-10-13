@@ -41,3 +41,20 @@ def test_unknown_evidence_does_not_guess_sell_or_hold():
     r=review_existing_position(ticker="A",entry_price=100,current_price=99)
     assert r["action"]=="OVERVAAK"
     assert "INCOMPLETE_RISK_EVIDENCE" in r["reason_codes"]
+
+
+def test_real_engine_state_adapters_are_read_only():
+    from portfolio_risk_review import (
+        review_super_portfolio_state, review_autonomi_state, review_superfond_state)
+    from copy import deepcopy
+    sp={"positions":{"ABC":{"entry_price":100,"last_price":98,
+        "peak_price":103,"target_weight_pct":12}},"config":{"max_position_pct":15}}
+    au={"positions":{"ABC":{"average_price":100,"last_price":99,"highest_price":101}}}
+    sf={"cash":1000,"positions":{"FUND":{"entry_nok":100,"last_nok":99,"quantity":20}}}
+    originals=deepcopy([sp,au,sf])
+    assert review_super_portfolio_state(sp)[0]["action"]=="OVERVAAK"
+    assert review_autonomi_state(au)[0]["action"]=="OVERVAAK"
+    result=review_superfond_state(sf,position_cap_pct=12.5)
+    assert result[0]["action"]=="REDUSER"
+    assert [sp,au,sf]==originals
+    assert not any(x["execution_authorized"] for x in result)
