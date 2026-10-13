@@ -113,6 +113,12 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
         p.get_by_role('heading',name='Start',exact=True).wait_for()
         p.locator('.st-key-aa_mobile_nav_superfund button').click()
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        # Verify persisted Portfolio selection after returning through the mobile nav.
+        p.locator('[data-testid="stExpander"] summary').filter(has_text='Portefølje').first.wait_for()
+        p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').first.wait_for()
+        # Candidate tags must only be asserted when Candidate view is selected.
+        p.get_by_role('combobox',name='Vis område').click()
+        p.get_by_role('option',name='Kandidater',exact=True).click()
         p.locator('.sf-tag').first.wait_for(state='visible')
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
         p.screenshot(path=f'dist/browser/superfund-first-tap-{width}.png')
