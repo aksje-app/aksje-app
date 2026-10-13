@@ -44,7 +44,7 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
             p.get_by_role('option',name=label,exact=True).click()
             p.locator('[data-testid="stExpander"] summary').filter(has_text=label).first.wait_for()
             p.wait_for_function(
-                "(label) => [...document.querySelectorAll('[data-testid=stExpander] summary')].some(e => e.textContent.includes(label) && e.parentElement?.getAttribute('data-state') === 'open')",
+                "(label) => [...document.querySelectorAll('[data-testid=stExpander] summary')].some(e => e.textContent.includes(label) && e.closest('details')?.open)",
                 arg=label,
                 timeout=10000,
             )
