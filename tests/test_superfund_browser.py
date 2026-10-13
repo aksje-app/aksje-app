@@ -36,9 +36,21 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
         p.locator('.sf-card').first.scroll_into_view_if_needed()
         p.screenshot(path=f'dist/browser/superfund-pending-{width}.png')
-        # Streamlit renders collapsed content too; expand the complete menu set.
+        # Navigate using the app's actual section selector. Each selection
+        # triggers a Streamlit rerun; do not rely on every expander staying open.
         for label in ['Kandidater','Rapporter og nedlastinger','Nyheter og kilder','Læring og skygge','Parametre','Diagnoser']:
-            p.locator('[data-testid="stExpander"] summary').filter(has_text=label).first.click()
+            selector=p.get_by_role('combobox',name='Vis område')
+            selector.click()
+            p.get_by_role('option',name=label,exact=True).click()
+            p.locator('[data-testid="stExpander"] summary').filter(has_text=label).first.wait_for()
+            p.wait_for_function(
+                "(label) => [...document.querySelectorAll('[data-testid=stExpander] summary')].some(e => e.textContent.includes(label) && e.parentElement?.getAttribute('data-state') === 'open')",
+                arg=label,
+                timeout=10000,
+            )
+        # Restore the candidate panel for the ranking assertions below.
+        p.get_by_role('combobox',name='Vis område').click()
+        p.get_by_role('option',name='Kandidater',exact=True).click()
         p.get_by_role('heading',name='Topp 25 · grunnkrav oppfylt',exact=True).wait_for()
         problems=p.evaluate('''() => {
           const errors=[];
