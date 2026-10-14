@@ -39,3 +39,10 @@ def test_repeated_scan_same_nav_does_not_confirm():
     previous={r['owned_id']:r for r in first['candidates']}
     again=rotation_shadow(rows,owned,datetime(2026,10,15,tzinfo=timezone.utc),previous=previous)
     assert again['candidates'][0]['confirmations']==1
+
+def test_shadow_different_nav_dates_do_not_confirm():
+    rows=[row('held',1),row('new',3)]
+    rows[1]['price_at']='2026-10-13T00:00:00Z'
+    owned={'held':{'bought_at':'2026-09-20T00:00:00+00:00'}}
+    result=rotation_shadow(rows,owned,datetime(2026,10,14,tzinfo=timezone.utc))
+    assert result['candidates'][0]['confirmations']==0
