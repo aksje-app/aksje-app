@@ -219,6 +219,15 @@ def _render_superfund(st):
                             st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
                             st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
             elif title=='Kandidater':
+                shadow=s.get('rotation_shadow') or {}
+                if shadow:
+                    st.subheader('Fondsbytter · skyggeanalyse')
+                    st.caption('Bare simulert vurdering. Ingen salg eller kjøp gjennomføres. En poengforskjell er ikke dokumentert netto gevinst.')
+                    st.metric('Mulige bytter til vurdering',shadow.get('review_count',0))
+                    for item in shadow.get('candidates',[]):
+                        st.write(f"{item.get('owned_name') or item['owned_id']} · eid {item.get('held_days') if item.get('held_days') is not None else 'ukjent'} kalenderdager · {item['status']}")
+                        if item.get('challenger_id'):
+                            st.caption(f"Utfordrer: {item.get('challenger_name') or item['challenger_id']} · poengforskjell {item['score_gap']:+.2f}")
                 challenger=s.get('challenger_report') or {}
                 if challenger:
                     st.subheader('Intelligent utfordreroversikt')
