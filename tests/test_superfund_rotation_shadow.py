@@ -46,3 +46,21 @@ def test_shadow_different_nav_dates_do_not_confirm():
     owned={'held':{'bought_at':'2026-09-20T00:00:00+00:00'}}
     result=rotation_shadow(rows,owned,datetime(2026,10,14,tzinfo=timezone.utc))
     assert result['candidates'][0]['confirmations']==0
+
+def test_old_nav_cannot_qualify_for_review():
+    rows=[row('held',1),row('new',3)]
+    for item in rows:item['price_at']='2026-09-01T00:00:00Z'
+    owned={'held':{'bought_at':'2026-08-01T00:00:00+00:00'}}
+    prior={'held':{'challenger_id':'new','confirmations':3,'evidence_date':'2026-08-31'}}
+    result=rotation_shadow(rows,owned,datetime(2026,10,14,tzinfo=timezone.utc),previous=prior)
+    assert result['review_count']==0
+    assert result['candidates'][0]['status']=='STALE_NAV'
+    assert result['candidates'][0]['confirmations']==0
+
+def test_challenger_loses_advantage_resets_confirmations():
+    rows=[row('held',2),row('new',1)]
+    owned={'held':{'bought_at':'2026-08-01T00:00:00+00:00'}}
+    prior={'held':{'challenger_id':'new','confirmations':3,'evidence_date':'2026-10-13'}}
+    result=rotation_shadow(rows,owned,datetime(2026,10,14,tzinfo=timezone.utc),previous=prior)
+    assert result['review_count']==0
+    assert result['candidates'][0]['confirmations']==0
