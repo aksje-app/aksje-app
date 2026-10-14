@@ -1,5 +1,5 @@
 """Observed-only counterfactual: challenger return minus keeping the owned fund."""
-from datetime import datetime
+from datetime import date
 
 def _price(row):
     try:
@@ -20,10 +20,18 @@ def update_rotation_comparisons(rows, shadow, previous=None, cost_pct=0.6):
         da=str(owned.get("price_at") or "")[:10];db=str(new.get("price_at") or "")[:10]
         key=owner+"|"+challenger
         old=previous.get(key) or {}
-        if not a or not b or not da or not db:
-            records[key]={**old,"status":"MISSING_NAV","owned_id":owner,"challenger_id":challenger}
+        # Never combine prices from different NAV dates: this invents a
+        # performance advantage when one fund publishes later than the other.
+        try:
+            valid_dates=bool(date.fromisoformat(da) and date.fromisoformat(db))
+        except ValueError:
+            valid_dates=False
+        if not a or not b or not valid_dates or da!=db:
+            records[key]={**old,"status":"AWAITING_MATCHED_NAV","owned_id":owner,
+                          "challenger_id":challenger,
+                          "evidence_problem":"missing prices or different NAV dates"}
             continue
-        evidence_date=min(da,db)
+        evidence_date=da
         if old.get("last_observed_date") and evidence_date<=old["last_observed_date"]:
             records[key]=old
             continue
