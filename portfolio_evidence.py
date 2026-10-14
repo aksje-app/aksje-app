@@ -38,7 +38,7 @@ def classification(row: Mapping[str, Any]) -> dict[str, Any]:
         tags.add("TECHNOLOGY")
     unknown = {"", "UKJENT", "UNKNOWN", "NONE", "BROAD EQUITY"}
     known_industry = industry.upper() not in unknown
-    known_sector = sector.upper() not in unknown
+    known_sector = bool(ticker) and sector.upper() not in unknown
     curated_sector = ""
     if not known_industry and not known_sector:
         # Only explicit ticker metadata; never use generic "Broad equity" fallback.
