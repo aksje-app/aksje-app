@@ -1,6 +1,6 @@
 """Read-only render path; update clicks enqueue, never fetch market data."""
 from superfund_runtime import snapshot, read, config, request_scan, save_parameters, rollback
-from superfund_reports import csv_bytes, xlsx_bytes, pdf_bytes
+from superfund_reports import csv_bytes, xlsx_bytes, pdf_bytes, fund_pdf_bytes
 from ui_library.work_progress import render_progress, work_status
 from superfund_diagnostics import diagnostic_zip, learning_summary
 import json
@@ -126,6 +126,8 @@ def _render_superfund(st):
                         current=ranking_by_id[selected]
                         st.write(f"Poeng nå: {current['score_now']:.3f}" if current['score_now'] is not None else current['reason'])
                         st.caption(f"Kjøpspoeng: {current['score_at_buy']} · kategori-rang nå: {current['category_rank'] or 'ukjent'} · siste kursdato: {current['price_at'] or 'ukjent'}")
+                        st.download_button('PDF · lagre, skriv ut eller del', fund_pdf_bytes(s,selected), file_name='Superfond_'+str(selected_position.get('isin','fond'))+'.pdf', mime='application/pdf', key='sf_fund_pdf_'+selected, use_container_width=True)
+                        st.caption('Åpne den nedlastede PDF-filen for utskrift eller deling via iPhone/PC. Navigasjonsknapper er ikke med i PDF.')
                         selected_info=resolve_identity(s,selected_position)
                         st.markdown(card('Fondsopplysninger',detail_lines(selected_info)),unsafe_allow_html=True)
                         render_development_chart(st,selected_info,chart_scope='selected_fund')
