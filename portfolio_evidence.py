@@ -1,6 +1,7 @@
 """Pure presentation and exposure helpers; no trading or persistence."""
 from __future__ import annotations
 from typing import Any, Mapping
+from datetime import date, datetime, timezone
 
 # Business exposure differs from a provider's broad sector. Source checked
 # 2026-10-10: https://hafnia.com/about-hafnia/ (OSE HAFNI / NYSE HAFN).
@@ -64,6 +65,17 @@ def retention_explanation(ticker: str, state: Mapping[str, Any]) -> str:
         return f"Beholdes: ingen utført utskifting. Vurderingskode: {trace.get('exclusion_reason') or 'HOLD'}."
     return "Beholdningsgrunnlag ikke lagret for denne vurderingen."
 
+def ownership_duration(entry_date, now=None):
+    if not entry_date: return 'ukjent (kjøpsdato mangler)'
+    try:
+        bought=date.fromisoformat(str(entry_date)[:10])
+        today=(now or datetime.now(timezone.utc)).date()
+        days=(today-bought).days
+        return f'{days} kalenderdager' if days >= 0 else 'ukjent (fremtidig kjøpsdato)'
+    except (ValueError, TypeError):
+        return 'ukjent (ugyldig kjøpsdato)'
+
+
 def stop_alert_text(alerts) -> str:
     blocks = ["🛡️ SUPERPORTEFØLJE – STOPPKONTROLL"]
     for row in list(alerts)[:8]:
@@ -78,6 +90,7 @@ def stop_alert_text(alerts) -> str:
             margin = "salgsgrensen er nådd/passert"
         blocks.append("\n".join([
             f"{row.get('ticker') or '-'}: {headline}",
+            f"Eid i {ownership_duration(row.get('entry_date'))}",
             f"Kjøpskurs {float(row.get('entry_price') or 0):.2f} · topp {float(row.get('peak_price') or 0):.2f}",
             f"Siste kurs {current:.2f} · gevinst/tap {float(row.get('pnl_pct') or 0):+.2f}%",
             f"Salgsgrense {stop:.2f} · status {row.get('to') or '-'}",

@@ -299,6 +299,7 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             if week is not None and week>=3 and not row['blocks'] and (not prior_attention or (at(now)-at(prior_attention)).total_seconds()>172800):
                 payload['attention_history'][row['id']]=now
                 result['changes'].append({'side':'STERK UKEUTVIKLING',**{k:v for k,v in decision_context(row).items() if k!='price_history_nok'},
+                    'short_trend': __import__('superfund_presentation').short_trend_from_observations(row.get('observations') or []),
                     'reason':'Kildens periodeavkastning; valutaeffekt kan inngå.'})
         payload['attention_history']=dict(list(payload['attention_history'].items())[-500:])
         old_proposals={x['id'] for x in previous.get('risk',{}).get('proposals',[])}

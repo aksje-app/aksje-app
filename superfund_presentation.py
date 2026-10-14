@@ -72,6 +72,31 @@ def country_candidates(snapshot):
     return candidate_views(snapshot.get('candidates',[]))['country_candidates']
 
 
+def short_trend_from_observations(observations):
+    """Changes over prior distinct trading dates. Never manufacture missing NAV days."""
+    by_date = {}
+    for o in observations or []:
+        try:
+            day=str(o.get('price_at',''))[:10]
+            price=float(o.get('nok_price'))
+            if len(day)==10 and price>0 and price==price:
+                by_date[day]=price
+        except (TypeError,ValueError,OverflowError):
+            continue
+    days=sorted(by_date)
+    out={'quote_date': days[-1] if days else None, 'observed_days': len(days)}
+    for period in (1,2,3,5):
+        out['last_'+str(period)+'_sessions_pct'] = (
+            round((by_date[days[-1]]/by_date[days[-1-period]]-1)*100,2)
+            if len(days)>period else None)
+    if len(days)>=2:
+        recent=[by_date[d] for d in days[max(0,len(days)-6):]]
+        out['recent_peak_distance_pct']=round((by_date[days[-1]]/max(recent)-1)*100,2)
+    else:
+        out['recent_peak_distance_pct']=None
+    return out
+
+
 def notification_batch(events, limit=1000):
     """Whole fund blocks within Pushover's limit; remaining events stay queued."""
     header='SUPERFOND · MODELLHANDEL\nKandidatvarsler er ingen reell kjøpsordre.'
@@ -83,6 +108,24 @@ def notification_batch(events, limit=1000):
             block+='\nSiste uke: '+number(event['returns'].get('yield_1w'),'%')
             block+=' · '+dict(identity_lines(event))['Avkastningsvaluta']
             block+='\nInvesteringsområde: '+investment_focus(event)
+            trend=event.get('short_trend') or {}
+            if trend:
+                measures=[]
+                for n in (1,2,3):
+                    value=trend.get('last_'+str(n)+'_sessions_pct')
+                    if value is not None: measures.append(str(n)+' kursintervaller '+f'{value:+.2f}%')
+                block+='\nSiste kursdager: '+(' · '.join(measures) if measures else 'ikke tilstrekkelig NAV-historikk')
+                last=trend.get('last_1_sessions_pct')
+                three=trend.get('last_3_sessions_pct')
+                if last is not None and three is not None:
+                    if last<0 and three<0:
+                        block+='\nKort trend: SVEKKET (observasjon, ikke salgsordre)'
+                    elif last>0 and three>0:
+                        block+='\nKort trend: STIGENDE (ikke kjøpssignal)'
+                    else:
+                        block+='\nKort trend: BLANDET (avvent vurdering)'
+                if trend.get('recent_peak_distance_pct') is not None:
+                    block+='\nFra kortsiktig topp: '+f"{trend['recent_peak_distance_pct']:+.2f}%"
             block+='\nKursgrunnlag: '+date_label(event.get('price_at'))
         if event.get('reason'):block+='\n'+str(event['reason'])[:250]
         # One pathological old event must not permanently block delivery.
@@ -213,10 +256,13 @@ def render_development_chart(st, row, chart_scope='default'):
     if len(frame) < 2:
         st.caption('For få gyldige, daterte kursobservasjoner for graf.')
         return
-    duration = st.selectbox('Kursperiode', ['1 uke', '1 måned', '3 måneder', '1 år', 'Alle'],
+    duration = st.selectbox('Kursperiode', ['1 dag', '1 uke', '1 måned', 'Så langt i år', '1 år', '3 år', '5 år', 'Alle'],
                             index=2, key='sf_chart_period_'+str(chart_scope)+'_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
-    days = {'1 uke':7, '1 måned':31, '3 måneder':92, '1 år':366}.get(duration)
-    shown = frame if days is None else frame[frame['price_at'] >= frame['price_at'].max()-pd.Timedelta(days=days)]
+    days = {'1 dag':1, '1 uke':7, '1 måned':31, '1 år':366, '3 år':1096, '5 år':1827}.get(duration)
+    if duration == 'Så langt i år':
+        shown = frame[frame['price_at'] >= pd.Timestamp(year=frame['price_at'].max().year, month=1, day=1, tz='UTC')]
+    else:
+        shown = frame if days is None else frame[frame['price_at'] >= frame['price_at'].max()-pd.Timedelta(days=days)]
     if len(shown) < 2:
         st.caption('Færre enn to faktiske kursobservasjoner i valgt periode.')
         return
@@ -251,7 +297,7 @@ html body .stApp .st-key-superfund_page [data-testid="stVerticalBlock"] {gap:1re
 html body .stApp .st-key-superfund_page button, html body .stApp .st-key-superfund_page [data-testid="stLinkButton"] a {background:#123550!important;color:#fff!important;-webkit-text-fill-color:#fff!important;min-height:44px!important;height:auto!important;max-height:none!important;max-width:100%!important;line-height:1.45!important;padding:.65rem 1rem!important;white-space:normal!important;}
 html body .stApp .st-key-superfund_page button p, html body .stApp .st-key-superfund_page a p {color:inherit!important;-webkit-text-fill-color:inherit!important;}
 html body .stApp .st-key-superfund_page pre, html body .stApp .st-key-superfund_page pre code {background:#101e30!important;color:#e3eef9!important;-webkit-text-fill-color:#e3eef9!important;line-height:1.6!important;}
-.sf-card {background:#102035;border:1px solid #36516b;border-radius:14px;padding:1rem;margin:.6rem 0 1.2rem;overflow-wrap:anywhere;}
+.sf-risk-card {border:1px solid #3a5064;border-radius:14px;padding:14px 16px;margin:12px 0 5px;overflow-wrap:anywhere;line-height:1.55;}\n.sf-risk-name {font-weight:750;font-size:1.04rem;color:#f5f8fd;line-height:1.45;margin-bottom:9px;}\n.sf-risk-status {font-weight:750;font-size:.92rem;letter-spacing:.02em;margin-bottom:4px;}\n.sf-risk-drop {font-weight:650;color:#e4edf7;font-size:1rem;}\n@media print {.sf-risk-card {break-inside:avoid;} .stButton,.stDownloadButton,[data-testid="stExpanderToggleIcon"] {display:none!important;}}\n.sf-card {background:#102035;border:1px solid #36516b;border-radius:14px;padding:1rem;margin:.6rem 0 1.2rem;overflow-wrap:anywhere;}
 html body .stApp .sf-card h3 {color:#fff!important;font-size:18px!important;line-height:1.5!important;margin:0 0 .8rem!important;}
 .sf-fact {font-size:16px;display:flex;flex-wrap:wrap;gap:.2rem .6rem;margin:.45rem 0;line-height:1.6;color:#dce8f5;}
 .sf-fact span {color:#afc0d3;} .sf-fact strong {font-weight:500;}

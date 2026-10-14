@@ -2109,6 +2109,7 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
                 "transition": "EXIT" if executed_exit else ("ESCALATION" if escalating else "RECOVERY"),
                 "action": "SHADOW SELL UTFØRT" if executed_exit else ("FØLG NESTE MÅLING" if escalating else "INGEN HANDLING"),
                 "reason_code": row.get("stop_exit_reason_code"),
+                "entry_date": row.get("entry_date") or old.get("entry_date"),
                 "entry_price": row.get("entry_price"), "peak_price": row.get("peak_price"),
                 "current_price": row.get("last_price"), "stop_price": row.get("hard_stop_price"),
                 "pnl_pct": row.get("pnl_pct"), "drawdown_from_peak_pct": row.get("drawdown_from_peak_pct"),
