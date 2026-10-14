@@ -293,14 +293,20 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
                  'blocked_counts':{},'report_pending':previous.get('report_pending',False) or result['state']!='UNCHANGED','notification_pending':[],'attention_history':previous.get('attention_history',{})}
         for row in result['rows']:
             for reason in row['blocks']:payload['blocked_counts'][reason]=payload['blocked_counts'].get(reason,0)+1
+        from superfund_challengers import evaluate_challengers
+        challenger_report=evaluate_challengers(result['rows'],model.get('positions',{}),
+            previous.get('challenger_report',{}).get('rank_history',{}))
+        payload['challenger_report']=challenger_report
+        important_ids={r['id'] for r in challenger_report['rows'] if r['candidate']}
         for row in result['rows']:
             week=row.get('returns',{}).get('yield_1w')
             prior_attention=payload['attention_history'].get(row['id'])
-            if week is not None and week>=3 and not row['blocks'] and (not prior_attention or (at(now)-at(prior_attention)).total_seconds()>172800):
+            if row['id'] in important_ids and week is not None and week>=3 and not row['blocks'] and (not prior_attention or (at(now)-at(prior_attention)).total_seconds()>172800):
                 payload['attention_history'][row['id']]=now
                 result['changes'].append({'side':'STERK UKEUTVIKLING',**{k:v for k,v in decision_context(row).items() if k!='price_history_nok'},
                     'short_trend': __import__('superfund_presentation').short_trend_from_observations(row.get('observations') or []),
-                    'reason':'Kildens periodeavkastning; valutaeffekt kan inngå.'})
+                    'challenger': next((c for c in challenger_report['rows'] if c['id']==row['id']),{}),
+                    'reason':'Prioritert utfordrer; valutaeffekt og overlapp må vurderes.'})
         # Persist the exact alerted instrument for direct navigation, including
         # candidates that are not owned or present in the truncated Top 25.
         previous_alerts=previous.get('alert_funds') or {}
