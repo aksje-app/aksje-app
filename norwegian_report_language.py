@@ -170,6 +170,25 @@ SECTOR_LABELS: dict[str, str] = {
     "REAL ESTATE": "Eiendom",
     "COMMUNICATION SERVICES": "Kommunikasjon",
     "COMMUNICATIONS": "Kommunikasjon",
+    "COMMUNICATION": "Kommunikasjon",
+    "TELECOMMUNICATION SERVICES": "Telekommunikasjon",
+    "TELECOMMUNICATIONS": "Telekommunikasjon",
+    "CONSUMER GOODS": "Forbruksvarer",
+    "CONSUMER SERVICES": "Forbrukertjenester",
+    "CHEMICALS": "Kjemikalier",
+    "BASIC MATERIALS & CHEMICALS": "Materialer og kjemikalier",
+    "OIL & GAS": "Olje og gass",
+    "OIL AND GAS": "Olje og gass",
+    "RENEWABLE ENERGY": "Fornybar energi",
+    "CYBERSECURITY": "Cybersikkerhet",
+    "HEALTH CARE EQUIPMENT": "Medisinsk utstyr",
+    "HEALTHCARE EQUIPMENT": "Medisinsk utstyr",
+    "INDUSTRIAL GOODS": "Industrivarer",
+    "INDUSTRIAL EQUIPMENT": "Industrielt utstyr",
+    "RESTAURANTS": "Restauranter",
+    "UNKNOWN": "Ukjent",
+    "BROAD EQUITY": "Brede aksjer",
+    "OTHER": "Annet",
 }
 
 WORD_LABELS: dict[str, str] = {
@@ -267,7 +286,20 @@ def component_label(value: Any) -> str:
 
 
 def sector_label(value: Any) -> str:
-    return label_for(value)
+    """Presentation-only translation; source data stays unchanged for risk/trading."""
+    raw = str(value or "").strip()
+    if not raw:
+        return "Ukjent"
+    if raw.casefold().startswith("sektor:"):
+        return "Sektor: " + sector_label(raw.split(":", 1)[1])
+    if raw.casefold().startswith("sector:"):
+        return "Sektor: " + sector_label(raw.split(":", 1)[1])
+    return label_for(raw)
+
+
+def sector_display(value: Any) -> str:
+    """Norwegian sector for UI, Pushover and PDF without modifying classifications."""
+    return sector_label(value)
 
 
 def model_role_label(value: Any) -> str:
