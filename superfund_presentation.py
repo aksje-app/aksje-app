@@ -105,6 +105,10 @@ def notification_batch(events, limit=1000):
         side='STERK UKEUTVIKLING' if event['side']=='TIDLIG VARSEL' else event['side']
         block=side+'\n'+str(event.get('name') or event['id'])[:180]
         if event.get('returns'):
+            challenger=event.get('challenger') or {}
+            if challenger:
+                block+=f"\nPrioritet: #{challenger['rank']} av {challenger['total']} kvalifiserte"
+                block+=f" · bedre enn {challenger['outperforms_held']} av {challenger['same_group_held']} sammenlignbare eide"
             block+='\nSiste uke: '+number(event['returns'].get('yield_1w'),'%')
             block+=' · '+dict(identity_lines(event))['Avkastningsvaluta']
             block+='\nInvesteringsområde: '+investment_focus(event)
