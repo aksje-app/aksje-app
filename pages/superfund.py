@@ -219,6 +219,7 @@ def _render_superfund(st):
                             st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
                             st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
             elif title=='Kandidater':
+                comparisons=(s.get('rotation_comparison') or {}).get('pairs') or {}
                 shadow=s.get('rotation_shadow') or {}
                 if shadow:
                     st.subheader('Fondsbytter · skyggeanalyse')
@@ -227,6 +228,11 @@ def _render_superfund(st):
                     for item in shadow.get('candidates',[]):
                         st.write(f"{item.get('owned_name') or item['owned_id']} · eid {item.get('held_days') if item.get('held_days') is not None else 'ukjent'} kalenderdager · {item['status']}")
                         if item.get('challenger_id'):
+                            comparison=comparisons.get(item['owned_id']+'|'+item['challenger_id']) or {}
+                            if comparison.get('status')=='MEASURED':
+                                st.caption(f"Skyggetest fra {comparison.get('entry_date')}: behold {comparison['kept_return_pct']:+.2f} % · utfordrer {comparison['challenger_return_pct']:+.2f} % · differanse etter antatt kostnad {comparison['net_excess_return_pct']:+.2f} prosentpoeng ({comparison.get('observations',0)} kursmålinger)")
+                            else:
+                                st.caption('Skyggeavkastning: avventer to dokumenterte, nyere kursmålinger for begge fond.')
                             st.caption(f"Bekreftelser: {item.get('confirmations',0)} av {item.get('required_confirmations',3)} ulike vurderingsdatoer · antatt byttekostnad: "+(f"NOK {item['estimated_roundtrip_cost_nok']:,.2f}" if item.get('estimated_roundtrip_cost_nok') is not None else "ikke beregnet"))
                             st.caption("Kjent beholdningsoverlapp: "+(f"{item['known_holdings_overlap_pct']:.1f} %" if item.get('known_holdings_overlap_pct') is not None else "ukjent – må undersøkes"))
                             st.caption(f"Utfordrer: {item.get('challenger_name') or item['challenger_id']} · poengforskjell {item['score_gap']:+.2f}")
