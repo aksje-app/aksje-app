@@ -10,6 +10,17 @@ BUSINESS_OVERRIDES = {
     "HAFN": ("Shipping – produkttank", "https://hafnia.com/about-hafnia/"),
 }
 
+# Manually checked company descriptions for missing provider industry.
+# Presentation/evidence only; do not silently alter trading-sector penalties.
+VERIFIED_BUSINESS_FALLBACKS = {
+    "AKVA.OL": ("Akvakulturteknologi", "https://www.akvagroup.com/about-us/"),
+    "SUBC.OL": ("Offshore- og undervannstjenester", "https://www.subsea7.com/en/our-business.html"),
+    "HEXA-B.ST": ("Måleteknologi", "https://hexagon.com/en/about"),
+    "LOOMIS.ST": ("Kontanthåndtering og verdilogistikk", "https://www.loomis.com/en/about-us/"),
+    "CAKE": ("Restaurantdrift", "https://investors.thecheesecakefactory.com/about-us/company-overview/default.aspx"),
+    "ATCO-B.ST": ("Industrielt utstyr", "https://www.atlascopcogroup.com/en"),
+}
+
 def classification(row: Mapping[str, Any]) -> dict[str, Any]:
     ticker = str(row.get("ticker") or row.get("symbol") or "").upper()
     override = BUSINESS_OVERRIDES.get(ticker)
@@ -36,11 +47,12 @@ def classification(row: Mapping[str, Any]) -> dict[str, Any]:
         if curated_sector.upper() not in unknown:
             sector, known_sector = curated_sector, True
     # A sector is broader than an industry. Label the fallback explicitly.
-    display = override[0] if override else industry if known_industry else ("Sektor: " + sector if known_sector else "Ukjent")
-    source = override[1] if override else ("PROVIDER_INDUSTRY" if known_industry else "CURATED_TICKER_METADATA" if curated_sector else "PROVIDER_SECTOR" if known_sector else "MISSING")
+    verified = VERIFIED_BUSINESS_FALLBACKS.get(ticker) if not known_industry else None
+    display = override[0] if override else industry if known_industry else verified[0] if verified else ("Sektor: " + sector if known_sector else "Ukjent")
+    source = override[1] if override else ("PROVIDER_INDUSTRY" if known_industry else verified[1] if verified else "CURATED_TICKER_METADATA" if curated_sector else "PROVIDER_SECTOR" if known_sector else "MISSING")
     return {"industry": display,
             "risk_tags": sorted(tags), "classification_source": source,
-            "classification_known": bool(override or known_industry or known_sector)}
+            "classification_known": bool(override or known_industry or verified or known_sector)}
 
 def rank_text(position: Mapping[str, Any]) -> str:
     entry, current = position.get("entry_rank"), position.get("rank")
