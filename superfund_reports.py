@@ -14,11 +14,13 @@ def safe_text(value):
 
 def csv_bytes(snapshot):
     stream=StringIO(); writer=csv.writer(stream)
-    writer.writerow(['ISIN','Fond','Kategori','Kjøpstid','Rang ved kjøp','Rang nå','Antall','Verdi NOK','Gevinst NOK','Investeringsland / region','Registreringsland','Avkastningsvaluta'])
-    for p in snapshot.get('model',{}).get('positions',{}).values():
+    writer.writerow(['ISIN','Fond','Kategori','Kjøpstid','Rang ved kjøp','Rang nå','Poeng ved kjøp','Poeng nå','Rang blant eide','Antall','Verdi NOK','Gevinst NOK','Investeringsland / region','Registreringsland','Avkastningsvaluta'])
+    owned={r['id']:r for r in owned_rankings(snapshot)}
+    for key,p in snapshot.get('model',{}).get('positions',{}).items():
+        current=owned.get(key,{})
         value=p['quantity']*p['last_nok']
         ident=dict(identity_lines(resolve_identity(snapshot,p)))
-        writer.writerow([p['isin'],safe_text(p['name']),safe_text(p['category']),p['bought_at'],p['rank_at_buy'],p['rank_now'],p['quantity'],value,value-p['cost_nok'],safe_text(ident['Investeringsland / region']),safe_text(ident['Registreringsland']),safe_text(ident['Avkastningsvaluta'])])
+        writer.writerow([p['isin'],safe_text(p['name']),safe_text(p['category']),p['bought_at'],p['rank_at_buy'],p['rank_now'],p.get('score_at_buy'),current.get('score_now'),current.get('owned_rank'),p['quantity'],value,value-p['cost_nok'],safe_text(ident['Investeringsland / region']),safe_text(ident['Registreringsland']),safe_text(ident['Avkastningsvaluta'])])
     return ('\ufeff'+stream.getvalue()).encode('utf-8')
 
 
@@ -27,8 +29,9 @@ def xlsx_bytes(snapshot):
     wb=Workbook();ws=wb.active;ws.title='Superfond'
     for index,row in enumerate(csv.reader(StringIO(csv_bytes(snapshot).decode('utf-8-sig')))):
         if index:
-            row[4:6]=[int(x) for x in row[4:6]]
-            row[6:9]=[float(x) for x in row[6:9]]
+            row[4:6]=[int(x) if x else None for x in row[4:6]]
+            row[6:9]=[float(x) if x and i!=8 else int(x) if x else None for i,x in enumerate(row[6:9],6)]
+            row[9:12]=[float(x) if x else None for x in row[9:12]]
         ws.append(row)
     ws.freeze_panes='A2'; ws.auto_filter.ref=ws.dimensions
     for col in ws.columns:
