@@ -224,6 +224,14 @@ def fund_pdf_bytes(snapshot, position_id):
     write('Resultat siden kjøp: '+(f"{ranking['return_pct']:+.2f}%" if ranking.get('return_pct') is not None else 'ukjent'))
     write('Siste modellkurs (NOK): '+str(pos.get('last_nok')))
     write('Trailing-stop-grense (NOK): '+str(pos.get('floor_nok')))
+    risk_row=next((r for r in snapshot.get('risk',{}).get('positions',[]) if r.get('id')==position_id),None)
+    if risk_row:
+        write('Risikostatus: '+str(risk_row.get('stop_status') or 'Ikke tilgjengelig'))
+        drop=risk_row.get('drop_from_peak_pct')
+        write('Fall fra topp: '+(f'{float(drop):.2f}%' if drop is not None else 'ikke tilgjengelig'))
+        write('Risikogrunnlag: '+str(risk_row.get('source') or 'Ikke tilgjengelig'))
+    else:
+        write('Risikostatus: Ikke tilgjengelig i rapportens snapshot')
     ident=resolve_identity(snapshot,pos)
     write('Kursutvikling · daterte observasjoner i NOK','Heading2')
     chart=_fund_chart_flowable(ident.get('price_history_nok') or [])
