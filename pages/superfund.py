@@ -110,6 +110,24 @@ def _render_superfund(st):
                     st.caption(f"{pair['a']} / {pair['b']} · minst {pair['known_shared_pct']:.1f} % felles. Full overlapp er ukjent.")
             for exit in risk['quarantines']:
                 st.caption(exit['isin']+' · hendelseskarantene til '+date_label(exit['until'])+' · deretter to nye positive kursdatoer for samme eller tilsvarende eksponering')
+    # A notification targets an instrument, not merely the general Superfond page.
+    # Resolve only persisted evidence: no live scan or trading side-effects.
+    linked_id=str(st.query_params.get('aa_fund') or '').strip()
+    if linked_id:
+        alert_row=(s.get('alert_funds') or {}).get(linked_id)
+        if not alert_row:
+            alert_row=next((r for r in s.get('candidates',[]) if str(r.get('id'))==linked_id),None)
+        if alert_row:
+            st.subheader('Fond omtalt i varselet')
+            st.markdown(card(str(alert_row.get('name') or linked_id),detail_lines(alert_row)+development_lines(alert_row)),unsafe_allow_html=True)
+            render_development_chart(st,alert_row,chart_scope='push_fund')
+            if str(alert_row.get('url') or '').startswith('https://'):
+                st.link_button('Åpne fondet hos Nordnet',alert_row['url'])
+            if st.button('← Til Superfond-oversikten',key='sf_close_alert_fund'):
+                del st.query_params['aa_fund']
+                st.rerun()
+            return
+        st.warning('Fondet i varselet finnes ikke i siste lagrede datagrunnlag. Ingen ny skanning er startet.')
     sections=['Portefølje','Kandidater','Rapporter og nedlastinger','Nyheter og kilder','Læring og skygge','Parametre','Diagnoser']
     if st.session_state.get('sf_section') not in sections:
         restored=st.query_params.get('aa_tab') or st.session_state.get('sf_saved_section')
