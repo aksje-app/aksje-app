@@ -25,10 +25,15 @@ def classification(row: Mapping[str, Any]) -> dict[str, Any]:
         tags.add("ENERGY")
     if "TECH" in text:
         tags.add("TECHNOLOGY")
-    known = bool(override or industry.upper() not in {"", "UKJENT", "UNKNOWN", "NONE", "BROAD EQUITY"})
-    return {"industry": override[0] if override else industry or "Ukjent",
-            "risk_tags": sorted(tags), "classification_source": override[1] if override else "PROVIDER",
-            "classification_known": known}
+    unknown = {"", "UKJENT", "UNKNOWN", "NONE", "BROAD EQUITY"}
+    known_industry = industry.upper() not in unknown
+    known_sector = sector.upper() not in unknown
+    # A sector is broader than an industry. Label the fallback explicitly.
+    display = override[0] if override else industry if known_industry else ("Sektor: " + sector if known_sector else "Ukjent")
+    source = override[1] if override else ("PROVIDER_INDUSTRY" if known_industry else "PROVIDER_SECTOR" if known_sector else "MISSING")
+    return {"industry": display,
+            "risk_tags": sorted(tags), "classification_source": source,
+            "classification_known": bool(override or known_industry or known_sector)}
 
 def rank_text(position: Mapping[str, Any]) -> str:
     entry, current = position.get("entry_rank"), position.get("rank")
