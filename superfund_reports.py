@@ -4,6 +4,7 @@ from html import escape
 from io import BytesIO, StringIO
 import json
 from superfund_presentation import country_candidates, top_candidates, resolve_identity, identity_lines, RANKING_NOTE, date_label
+from superfund_owned_rankings import owned_rankings
 
 
 def safe_text(value):
@@ -87,6 +88,11 @@ def pdf_bytes(snapshot):
         line(r['indicator_method']);line(r['currency_note'])
         line(f"Scenario: aksjer -10% og valuta -10%, samlet -19%. Tap ved øvre eksponering NOK {r['stress']['portfolio_loss_upper_nok']:,.0f}. Ikke prognose.")
         for proposal in r['proposals']:line(f"Krever godkjenning: {proposal['name']} · reduser {proposal['fraction']*100:.1f}%")
+    line('Eide fond – aktuelle poeng og avkastning','Heading2')
+    for item in sorted(owned_rankings(snapshot),key=lambda x:(x['score_now'] is None,-(x['score_now'] or 0),x['name'])):
+        points=f"{item['score_now']:.3f}" if item['score_now'] is not None else 'mangler grunnlag'
+        profit=f"{item['return_pct']:+.2f}%" if item['return_pct'] is not None else 'ukjent'
+        line(f"{item['owned_rank'] or '—'}. {item['name']} · poeng nå {points} · ved kjøp {item['score_at_buy']} · siden kjøp {profit} · datodato {date_label(item['price_at'])}")
     line('Beholdninger','Heading2')
     for p in model.get('positions',{}).values():
         line(p['name']+' · '+p['isin'],'Heading3')
