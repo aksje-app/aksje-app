@@ -1,3 +1,4 @@
+import pytest
 from superfund_owned_rankings import owned_rankings
 
 def test_current_scores_recomputed_not_frozen():
@@ -6,8 +7,8 @@ def test_current_scores_recomputed_not_frozen():
        "candidates":[{"id":"a","returns":{"yield_1w":1,"yield_1m":2,"yield_3m":4},"price_at":"2026-10-14T00:00:00Z"},
                      {"id":"b","returns":{"yield_1w":3,"yield_1m":2,"yield_3m":4},"price_at":"2026-10-14T00:00:00Z"}]}
     result={x["id"]:x for x in owned_rankings(s)}
-    assert result["a"]["score_now"]==1.7
-    assert result["b"]["score_now"]==2.9
+    assert result["a"]["score_now"]==pytest.approx(1.7)
+    assert result["b"]["score_now"]==pytest.approx(2.9)
     assert result["b"]["owned_rank"]==1
     assert result["a"]["return_pct"]==10
     assert result["a"]["score_at_buy"]==99
