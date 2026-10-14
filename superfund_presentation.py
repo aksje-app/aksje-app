@@ -213,10 +213,13 @@ def render_development_chart(st, row, chart_scope='default'):
     if len(frame) < 2:
         st.caption('For få gyldige, daterte kursobservasjoner for graf.')
         return
-    duration = st.selectbox('Kursperiode', ['1 uke', '1 måned', '3 måneder', '1 år', 'Alle'],
+    duration = st.selectbox('Kursperiode', ['1 dag', '1 uke', '1 måned', 'Så langt i år', '1 år', '3 år', '5 år', 'Alle'],
                             index=2, key='sf_chart_period_'+str(chart_scope)+'_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
-    days = {'1 uke':7, '1 måned':31, '3 måneder':92, '1 år':366}.get(duration)
-    shown = frame if days is None else frame[frame['price_at'] >= frame['price_at'].max()-pd.Timedelta(days=days)]
+    days = {'1 dag':1, '1 uke':7, '1 måned':31, '1 år':366, '3 år':1096, '5 år':1827}.get(duration)
+    if duration == 'Så langt i år':
+        shown = frame[frame['price_at'] >= pd.Timestamp(year=frame['price_at'].max().year, month=1, day=1, tz='UTC')]
+    else:
+        shown = frame if days is None else frame[frame['price_at'] >= frame['price_at'].max()-pd.Timedelta(days=days)]
     if len(shown) < 2:
         st.caption('Færre enn to faktiske kursobservasjoner i valgt periode.')
         return
