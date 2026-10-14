@@ -23,18 +23,70 @@ st.session_state.setdefault("demo_sort","Risiko først")
 st.session_state.setdefault("demo_fund",None)
 st.session_state.setdefault("demo_section","Risikooversikt")
 st.selectbox("Vis område",["Risikooversikt","Fondsliste"],key="demo_section")
-def pdf_for(pos):
+def pdf_for(pos, period, dates, prices):
+    """Download the same synthetic series and selected period shown on screen."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from pathlib import Path
     stream=io.BytesIO()
     pdf=canvas.Canvas(stream,pagesize=A4)
-    pdf.setFont("Helvetica-Bold",16)
-    pdf.drawString(45,795,"Superfond DEMO / testreport")
-    pdf.setFont("Helvetica",11)
-    for i,line in enumerate(["Eksempelrapport, ikke reelle kursdata","Fund: "+pos["name"][:85],
-               "Status: "+pos["stop_status"],f'Drop from peak: {pos["drop_from_peak_pct"]:.2f}%',
-               "Source: simulated example data","No production transactions or model decisions"]):
-        pdf.drawString(45,755-i*24,line)
+    fontdir=Path(__file__).resolve().parent/'assets'/'fonts'
+    for family,path in (('DemoNoto','NotoSans-Regular.ttf'),('DemoNotoBold','NotoSans-Bold.ttf')):
+        if family not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(family,str(fontdir/path)))
+    pdf.setTitle('Superfond DEMO - '+pos['name'])
+    pdf.setFont('DemoNotoBold',17)
+    pdf.drawString(42,794,'Superfond – DEMO-rapport')
+    pdf.setFont('DemoNoto',10)
+    pdf.drawString(42,768,'Syntetiske eksempeldata – ikke virkelig fondskurs eller handelsbeslutning')
+    pdf.setFont('DemoNotoBold',12)
+    from reportlab.lib.utils import simpleSplit
+    heading=simpleSplit(pos['name'],'DemoNotoBold',12,510)
+    for i,line in enumerate(heading[:3]):pdf.drawString(42,736-i*18,line)
+    y=728-18*len(heading)
+    pdf.setFont('DemoNoto',10)
+    for line in (f'Valgt grafperiode: {period}',
+                 'Risikostatus: '+pos['stop_status'],
+                 f'Fall fra registrert topp: {pos["drop_from_peak_pct"]:.2f} %',
+                 'Landfordeling: '+pos['country'],
+                 'Datakilde: '+pos['source']):
+        for part in simpleSplit(line,'DemoNoto',10,510):
+            pdf.drawString(42,y,part);y-=16
+    y-=26
+    x0,x1=65,545
+    y0,y1=y-205,y
+    low,high=min(prices),max(prices)
+    span=high-low or max(abs(high)*0.01,0.01)
+    padding=span*0.08
+    bottom,top=low-padding,high+padding
+    pdf.setStrokeColorRGB(.75,.79,.83)
+    for tick in range(5):
+        ty=y0+(y1-y0)*tick/4
+        pdf.line(x0,ty,x1,ty)
+        pdf.setFont('DemoNoto',8)
+        pdf.drawRightString(x0-7,ty-3,f'{bottom+(top-bottom)*tick/4:.2f}')
+    # Positions reflect real spacing between synthetic observation timestamps.
+    ts=[d.to_pydatetime().timestamp() if hasattr(d,'to_pydatetime') else d.timestamp() for d in dates]
+    time_span=max(ts[-1]-ts[0],1)
+    pdf.setStrokeColorRGB(.08,.37,.73);pdf.setLineWidth(1.2)
+    path=pdf.beginPath()
+    for i,(stamp,value) in enumerate(zip(ts,prices)):
+        xx=x0+(stamp-ts[0])/time_span*(x1-x0)
+        yy=y0+(value-bottom)/(top-bottom)*(y1-y0)
+        if i==0:path.moveTo(xx,yy)
+        else:path.lineTo(xx,yy)
+    pdf.drawPath(path)
+    pdf.setFillColorRGB(.15,.18,.23)
+    pdf.setFont('DemoNoto',9)
+    pdf.drawString(x0,y0-19,str(dates[0].strftime('%d.%m.%Y')))
+    pdf.drawRightString(x1,y0-19,str(dates[-1].strftime('%d.%m.%Y')))
+    pdf.drawString(x0,y0-42,f'Laveste: {low:.2f} NOK   Høyeste: {high:.2f} NOK   Endring: {(prices[-1]/prices[0]-1)*100:+.2f} %')
+    pdf.setFont('DemoNoto',9)
+    pdf.drawString(42,y0-78,'Grafen bruker nøyaktig samme eksempelobservasjoner som skjermvisningen.')
+    pdf.drawString(42,y0-94,'Ingen navigasjonskontroller tas med i utskriften.')
     pdf.showPage();pdf.save()
     return stream.getvalue()
+
 if st.session_state.demo_fund:
     pos=next((p for p in funds if p["id"]==st.session_state.demo_fund),None)
     if pos:
@@ -70,7 +122,7 @@ if st.session_state.demo_fund:
         ).properties(height=280)
         st.altair_chart(plot,use_container_width=True)
         st.caption(f"DEMO laveste: {min(vals):.2f} NOK · høyeste: {max(vals):.2f} NOK · endring: {(vals[-1]/vals[0]-1)*100:+.2f} %")
-        st.download_button("PDF · lagre, skriv ut eller del (DEMO)",pdf_for(pos),file_name="superfond_demo.pdf",mime="application/pdf",use_container_width=True)
+        st.download_button("PDF · lagre, skriv ut eller del (DEMO)",pdf_for(pos,frame,dates,vals),file_name="superfond_demo.pdf",mime="application/pdf",use_container_width=True)
         with st.expander("Vis risikogrunnlag / landfordeling"):
             st.markdown("**Landfordeling:** "+pos["country"]);st.caption("Datagrunnlag: "+pos["source"]);st.info("Toppfall viser hvor mye siste modellkurs er under høyeste registrerte kurs siden kjøp. STOPP/ADVARSEL er modellstatus, ikke garanti for faktisk utførelse.")
 else:
