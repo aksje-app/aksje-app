@@ -67,7 +67,17 @@ def diagnostic_zip(progress=None):
     ranking_checks={'snapshot_at':snap.get('at'),'rankings':ranking,
                     'missing_scores':[r['id'] for r in ranking if not r['score_available']],
                     'source':'Frozen candidate returns: 60% 1w + 25% 1m + 15% 3m; no invented scores'}
-    entries=[('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks)]
+    rotation=snap.get('rotation_shadow') or {}
+    comparison=snap.get('rotation_comparison') or {}
+    challenger=snap.get('challenger_report') or {}
+    rotation_controls={'snapshot_at':snap.get('at'),'trade_execution_enabled':False,
+                       'shadow_mode':rotation.get('mode'),'comparison_mode':comparison.get('mode'),
+                       'review_count':rotation.get('review_count',0),
+                       'measured_pairs':comparison.get('measured_count',0),
+                       'challenger_totals':challenger.get('totals',{}),
+                       'data_status':'AVAILABLE' if rotation else 'AWAITING_FIRST_SNAPSHOT',
+                       'note':'Observasjoner, ikke ordre eller validert nettoforbedring.'}
+    entries=[('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger)]
     entries += [(name,read(name,{})) for name in ('job.json','request.json','capacity_watch.json','parameter_audit.json','risk_decisions.json','fx.json','news.json')]
     # Prioritise immutable learning/shadow evidence before catalogue bulk.
     paths=[f['key'][len(PREFIX):] for f in reversed(archive.get('frames',[])) if re.fullmatch(r'superfund/history/\d{4}-\d{2}-\d{2}\.json',f.get('key',''))]
@@ -110,7 +120,7 @@ def diagnostic_zip(progress=None):
             else:add(name,value)
             if progress:progress(n,total,name)
         add('controls.json',checks)
-        z.writestr('README.txt','Superfond diagnose. snapshot.json inneholder hovedmodell, læring, skygger, regler, handler og kandidater. controls.json viser kontrollfunn. manifest.json viser eksakt dekning, sjekksummer og utelatelser. Ingen nye analyser utført. Historikk som mangler eller er utelatt er ikke kontrollert. Nedlastingen krever innlogget app.\n')
+        z.writestr('README.txt','Superfond diagnose. snapshot.json inneholder hovedmodell, læring, skygger, regler, handler og kandidater. controls.json viser kontrollfunn. manifest.json viser eksakt dekning, sjekksummer og utelatelser. rotation_controls.json dokumenterer utfordrerfilter, bekreftelser og resultater uten å aktivere handler. Ingen nye analyser utført. Historikk som mangler eller er utelatt er ikke kontrollert. Nedlastingen krever innlogget app.\n')
         z.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False,indent=2))
     if out.tell()>MAX_ZIP_BYTES:raise ValueError('Diagnose-ZIP overskrider 32 MiB')
     return out.getvalue(),'Superfond_diagnose_'+stamp[:10]+'.zip'

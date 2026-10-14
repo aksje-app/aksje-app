@@ -1,0 +1,22 @@
+name: Superfond rotation validation
+on:
+  push:
+    branches:
+      - test/superfond-rotation-validation-20261014
+  pull_request:
+    paths:
+      - 'superfund_rotation_*.py'
+      - 'superfund_challengers.py'
+      - 'tests/test_superfund_rotation_*.py'
+      - '.github/workflows/superfund-rotation.yml'
+jobs:
+  rotation-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pytest
+      - run: python -m compileall -q superfund_challengers.py superfund_rotation_shadow.py superfund_rotation_comparison.py superfund_runtime.py pages/superfund.py
+      - run: python -m pytest -q tests/test_superfund_challengers.py tests/test_superfund_rotation_shadow.py tests/test_superfund_rotation_comparison.py tests/test_superfund_rotation_diagnostics.py

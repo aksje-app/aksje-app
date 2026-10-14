@@ -184,6 +184,11 @@ jobs:
             cp "$file" "delta_root/$file"
           done < dist/changed_files_delta.txt
 
+          if [ ! -s dist/changed_files_delta.txt ]; then
+            # A tests/docs-only PR is valid: ship an explicit no-code-change
+            # marker rather than failing zip with "Nothing to do".
+            printf '%s\n' 'No deployable Python or render.yaml files changed.' > delta_root/NO_DEPLOYABLE_CHANGES.txt
+          fi
           (
             cd delta_root
             zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34p_DELTA.zip .
