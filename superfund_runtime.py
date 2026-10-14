@@ -297,6 +297,8 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
         challenger_report=evaluate_challengers(result['rows'],model.get('positions',{}),
             previous.get('challenger_report',{}).get('rank_history',{}))
         payload['challenger_report']=challenger_report
+        from superfund_rank_audit import owned_rank_audit
+        payload['owned_rank_audit']=owned_rank_audit(result['rows'],model.get('positions',{}))
         from superfund_rotation_shadow import rotation_shadow
         payload['rotation_shadow']=rotation_shadow(result['rows'],model.get('positions',{}),now,
             previous={r['owned_id']:r for r in previous.get('rotation_shadow',{}).get('candidates',[])})
