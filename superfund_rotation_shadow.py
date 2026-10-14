@@ -38,11 +38,20 @@ def rotation_shadow(rows, positions, now, *, min_days=15, min_gap=1.0, previous=
         gap=float(best["score"])-float(old["score"]) if best else None
         eligible=days is not None and days>=min_days and gap is not None and gap>=min_gap
         prior=previous.get(id) or {}
-        confirmations=(int(prior.get("confirmations") or 0)+1 if eligible and
-                       prior.get("challenger_id")==best["id"] and
-                       prior.get("last_date")!=stamp.date().isoformat() else 1 if eligible else 0)
-        if eligible and prior.get("last_date")==stamp.date().isoformat():
-            confirmations=max(confirmations,int(prior.get("confirmations") or 0))
+        # Require fresh observed NAV dates for BOTH funds, not repeated scans.
+        owned_date=str(old.get("price_at") or "")[:10]
+        new_date=str(best.get("price_at") or "")[:10] if best else ""
+        evidence_date=min(owned_date,new_date) if owned_date and new_date else ""
+        prior_date=str(prior.get("evidence_date") or "")
+        fresh=bool(evidence_date and len(evidence_date)==10 and
+                   (not prior_date or evidence_date>prior_date))
+        consecutive=eligible and prior.get("challenger_id")==best["id"]
+        if eligible and fresh:
+            confirmations=(int(prior.get("confirmations") or 0)+1 if consecutive else 1)
+        elif eligible and evidence_date==prior_date and consecutive:
+            confirmations=int(prior.get("confirmations") or 0)
+        else:
+            confirmations=0
         overlap=_overlap(old,best) if best else None
         price=pos.get("last_nok")
         size=pos.get("quantity")
@@ -54,7 +63,7 @@ def rotation_shadow(rows, positions, now, *, min_days=15, min_gap=1.0, previous=
                        "owned_score":old["score"],"challenger_id":best["id"] if best else None,
                        "challenger_name":best.get("name") if best else None,"score_gap":gap,
                        "status":status,"confirmations":confirmations,"required_confirmations":min_confirmations,
-                       "last_date":stamp.date().isoformat() if stamp else None,
+                       "last_date":stamp.date().isoformat() if stamp else None, "evidence_date":evidence_date,
                        "known_holdings_overlap_pct":overlap,"estimated_roundtrip_cost_nok":estimated_cost_nok,
                        "cost_assumption_pct":estimated_roundtrip_pct,
                        "reason":"Advisory only: confirm net benefit, missing overlap, prices and settlement before any decision." if confirmed
