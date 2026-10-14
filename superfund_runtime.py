@@ -298,7 +298,11 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
             previous.get('challenger_report',{}).get('rank_history',{}))
         payload['challenger_report']=challenger_report
         from superfund_rotation_shadow import rotation_shadow
-        payload['rotation_shadow']=rotation_shadow(result['rows'],model.get('positions',{}),now,\n            previous={r['owned_id']:r for r in previous.get('rotation_shadow',{}).get('candidates',[])})
+        payload['rotation_shadow']=rotation_shadow(result['rows'],model.get('positions',{}),now,
+            previous={r['owned_id']:r for r in previous.get('rotation_shadow',{}).get('candidates',[])})
+        from superfund_rotation_comparison import update_rotation_comparisons
+        payload['rotation_comparison']=update_rotation_comparisons(result['rows'],payload['rotation_shadow'],
+            previous.get('rotation_comparison',{}).get('pairs',{}))
         important_ids={r['id'] for r in challenger_report['rows'] if r['candidate']}
         for row in result['rows']:
             week=row.get('returns',{}).get('yield_1w')
