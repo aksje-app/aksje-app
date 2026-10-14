@@ -1,4 +1,5 @@
 """Bounded snapshot views and escaped, wrapping Superfond cards. No network I/O."""
+from norwegian_report_language import sector_label
 from collections import Counter
 from datetime import datetime
 from html import escape
@@ -151,13 +152,14 @@ def norwegian_fund_sector(row):
     name=str(row.get('name') or '').upper()
     if ('ENERGY SELECT SECTOR' in name or 'ENERGY SECTOR' in name):
         return 'Energi – olje og gass (USA)' if ('U.S.' in name or 'S&P 500' in name) else 'Energi – olje og gass'
-    return None
+    category = row.get('category') or row.get('sector')
+    return sector_label(category) if category and sector_label(category) != str(category) else None
 
 
 def primary_identity_lines(row):
     facts = dict(identity_lines(row))
     return [('Type', facts['Type']), ('Investeringsområde', investment_focus(row)),
-            ('Kategori', facts['Kategori']), ('Avkastningsvaluta', facts['Avkastningsvaluta'])]
+            ('Kategori', sector_label(facts['Kategori'])), ('Avkastningsvaluta', facts['Avkastningsvaluta'])]
 
 
 def development_lines(row):
