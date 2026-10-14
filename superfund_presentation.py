@@ -111,6 +111,8 @@ def notification_batch(events, limit=1000):
                 block+=f" · bedre enn {challenger['outperforms_held']} av {challenger['same_group_held']} sammenlignbare eide"
             block+='\nSiste uke: '+number(event['returns'].get('yield_1w'),'%')
             block+=' · '+dict(identity_lines(event))['Avkastningsvaluta']
+            sector=norwegian_fund_sector(event)
+            if sector:block+='\nSektor: '+sector
             block+='\nInvesteringsområde: '+investment_focus(event)
             trend=event.get('short_trend') or {}
             if trend:
@@ -144,6 +146,14 @@ def notification_batch(events, limit=1000):
     return text,len(blocks)
 
 
+def norwegian_fund_sector(row):
+    """Conservative sector label from an explicit sector-tracking fund name."""
+    name=str(row.get('name') or '').upper()
+    if ('ENERGY SELECT SECTOR' in name or 'ENERGY SECTOR' in name):
+        return 'Energi – olje og gass (USA)' if ('U.S.' in name or 'S&P 500' in name) else 'Energi – olje og gass'
+    return None
+
+
 def primary_identity_lines(row):
     facts = dict(identity_lines(row))
     return [('Type', facts['Type']), ('Investeringsområde', investment_focus(row)),
@@ -160,7 +170,8 @@ def development_lines(row):
 
 
 def detail_lines(row):
-    return identity_lines(row)[1:4] + [('ISIN',row.get('isin','Ikke oppgitt')),
+    sector=norwegian_fund_sector(row)
+    return identity_lines(row)[1:4] + ([('Sektor',sector)] if sector else []) + [('ISIN',row.get('isin','Ikke oppgitt')),
             ('Rangeringspoeng',number(row.get('score'))), ('Hentet',date_label(row.get('observed_at')))]
 
 
