@@ -170,6 +170,35 @@ SECTOR_LABELS: dict[str, str] = {
     "REAL ESTATE": "Eiendom",
     "COMMUNICATION SERVICES": "Kommunikasjon",
     "COMMUNICATIONS": "Kommunikasjon",
+    "OIL & GAS": "Olje og gass",
+    "OIL AND GAS": "Olje og gass",
+    "ENERGY SECTOR": "Energi – olje og gass",
+    "CHEMICALS": "Kjemikalier",
+    "SEMICONDUCTORS": "Halvledere",
+    "SOFTWARE": "Programvare",
+    "HARDWARE": "Maskinvare",
+    "CYBERSECURITY": "Cybersikkerhet",
+    "BANKS": "Bank",
+    "INSURANCE": "Forsikring",
+    "PHARMACEUTICALS": "Legemidler",
+    "BIOTECHNOLOGY": "Bioteknologi",
+    "TELECOMMUNICATIONS": "Telekommunikasjon",
+    "RENEWABLE ENERGY": "Fornybar energi",
+    "TRANSPORTATION": "Transport",
+    "AUTOMOTIVE": "Bilindustri",
+    "AEROSPACE & DEFENSE": "Luftfart og forsvar",
+    "FOOD & BEVERAGE": "Mat og drikke",
+    "RETAIL": "Detaljhandel",
+    "MEDIA & ENTERTAINMENT": "Medier og underholdning",
+    "METALS & MINING": "Metaller og gruvedrift",
+    "CONSTRUCTION": "Bygg og anlegg",
+    "EQUITY": "Aksjer",
+    "EQUITIES": "Aksjer",
+    "BONDS": "Obligasjoner",
+    "FIXED INCOME": "Rentepapirer",
+    "OTHER": "Annet",
+    "UNKNOWN": "Ukjent",
+
 }
 
 WORD_LABELS: dict[str, str] = {
@@ -267,7 +296,17 @@ def component_label(value: Any) -> str:
 
 
 def sector_label(value: Any) -> str:
-    return label_for(value)
+    """Translate known sector names for display; preserve unrecognized source text."""
+    if value is None:
+        return "Ukjent"
+    raw = str(value).strip()
+    if not raw:
+        return "Ukjent"
+    if raw.upper().startswith("SEKTOR: "):
+        return "Sektor: " + sector_label(raw.split(":", 1)[1])
+    if raw.upper().startswith("SECTOR: "):
+        return "Sektor: " + sector_label(raw.split(":", 1)[1])
+    return SECTOR_LABELS.get(raw.upper(), raw)
 
 
 def model_role_label(value: Any) -> str:
