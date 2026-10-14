@@ -14,3 +14,13 @@ def test_missing_short_history_is_not_invented():
     text,count=notification_batch([event])
     assert count==1
     assert 'ikke tilstrekkelig NAV-historikk' in text
+
+def test_alert_calls_falling_trend_observation_not_trade_signal():
+    obs=[{'price_at':f'2026-10-{d:02d}T12:00:00Z','nok_price':p} for d,p in [(8,110),(9,109),(12,107),(13,105),(14,102)]]
+    event={'side':'STERK UKEUTVIKLING','id':'a','name':'Example','returns':{'yield_1w':6.0},
+           'short_trend':short_trend_from_observations(obs)}
+    message,count=notification_batch([event])
+    assert count==1
+    assert 'SVEKKET' in message
+    assert 'ikke salgsordre' in message
+    assert 'kursintervaller' in message
