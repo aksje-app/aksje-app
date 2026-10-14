@@ -62,7 +62,12 @@ def diagnostic_zip(progress=None):
               'consistency':'Hvert dokument leses én gang. Snapshot er atomisk; katalog kan oppdateres under eksport.'}
     index=read('catalog_index.json',{});snap=read('snapshot.json',{});archive=read('learning_index.json',{})
     checks=controls(snap,index)
-    entries=[('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config())]
+    from superfund_owned_rankings import owned_rankings
+    ranking=owned_rankings(snap)
+    ranking_checks={'snapshot_at':snap.get('at'),'rankings':ranking,
+                    'missing_scores':[r['id'] for r in ranking if not r['score_available']],
+                    'source':'Frozen candidate returns: 60% 1w + 25% 1m + 15% 3m; no invented scores'}
+    entries=[('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks)]
     entries += [(name,read(name,{})) for name in ('job.json','request.json','capacity_watch.json','parameter_audit.json','risk_decisions.json','fx.json','news.json')]
     # Prioritise immutable learning/shadow evidence before catalogue bulk.
     paths=[f['key'][len(PREFIX):] for f in reversed(archive.get('frames',[])) if re.fullmatch(r'superfund/history/\d{4}-\d{2}-\d{2}\.json',f.get('key',''))]
