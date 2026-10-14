@@ -2112,6 +2112,8 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
                 "entry_date": row.get("entry_date") or old.get("entry_date"),
                 "entry_price": row.get("entry_price"), "peak_price": row.get("peak_price"),
                 "current_price": row.get("last_price"), "stop_price": row.get("hard_stop_price"),
+                "shadow_exit_price": row.get("shadow_exit_price") if executed_exit else None,
+                "shadow_exit_at": row.get("shadow_exit_at") if executed_exit else None,
                 "pnl_pct": row.get("pnl_pct"), "drawdown_from_peak_pct": row.get("drawdown_from_peak_pct"),
                 "distance_pct": row.get("distance_to_hard_stop_pct"),
                 "distance_change_pct": row.get("stop_distance_change_pct"),
@@ -2857,6 +2859,8 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     story.append(Spacer(1, 8)); story.append(Paragraph("SHADOW EXECUTED", styles["Heading2"]))
     for change in list(data.get("last_changes") or [])[:12]:
         story.append(Paragraph(f"{_weight_change_text(change)} · {change.get('reason','')}", styles["Normal"]))
+        if change.get("action")=="SELL" and change.get("exit_price") is not None:
+            story.append(Paragraph(f"Simulert salgskurs: {_f(change.get('exit_price')):.2f} · Salgsregistrering: {change.get('exit_at') or 'tidspunkt ikke tilgjengelig'} · ikke en børsutførelse",styles["Normal"]))
     doc.build(story)
     return out.getvalue()
 
@@ -2976,13 +2980,15 @@ def run_lightweight_stop_surveillance(
         if stop_exit:
             reason_code, reason = stop_exit
             pos["stop_exit_reason_code"] = reason_code
+            pos["shadow_exit_price"] = pos.get("last_price")
+            pos["shadow_exit_at"] = reference.isoformat(timespec="seconds")
             exited[ticker] = pos
             changes.append({
                 "action": "SELL", "ticker": ticker,
                 "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0,
                 "reason_code": reason_code, "reason": reason,
                 "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
-                "exit_price": pos.get("last_price"), "pnl_pct": pos.get("pnl_pct"),
+                "exit_price": pos.get("last_price"), "exit_at": reference.isoformat(timespec="seconds"), "pnl_pct": pos.get("pnl_pct"),
                 "decision_run_id": f"STOP-{reference.strftime('%Y%m%d-%H%M%S')}",
             })
         else:
