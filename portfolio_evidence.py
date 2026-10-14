@@ -50,6 +50,8 @@ def classification(row: Mapping[str, Any]) -> dict[str, Any]:
     verified = VERIFIED_BUSINESS_FALLBACKS.get(ticker) if not known_industry else None
     display = override[0] if override else industry if known_industry else verified[0] if verified else ("Sektor: " + sector if known_sector else "Ukjent")
     source = override[1] if override else ("PROVIDER_INDUSTRY" if known_industry else verified[1] if verified else "CURATED_TICKER_METADATA" if curated_sector else "PROVIDER_SECTOR" if known_sector else "MISSING")
+    from norwegian_report_language import sector_label
+    display = sector_label(display)
     return {"industry": display,
             "risk_tags": sorted(tags), "classification_source": source,
             "classification_known": bool(override or known_industry or verified or known_sector)}
