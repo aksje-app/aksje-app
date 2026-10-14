@@ -28,9 +28,16 @@ def classification(row: Mapping[str, Any]) -> dict[str, Any]:
     unknown = {"", "UKJENT", "UNKNOWN", "NONE", "BROAD EQUITY"}
     known_industry = industry.upper() not in unknown
     known_sector = sector.upper() not in unknown
+    curated_sector = ""
+    if not known_industry and not known_sector:
+        # Only explicit ticker metadata; never use generic "Broad equity" fallback.
+        from security_metadata import _source_meta
+        curated_sector = str(_source_meta(ticker).get("sector") or "").strip()
+        if curated_sector.upper() not in unknown:
+            sector, known_sector = curated_sector, True
     # A sector is broader than an industry. Label the fallback explicitly.
     display = override[0] if override else industry if known_industry else ("Sektor: " + sector if known_sector else "Ukjent")
-    source = override[1] if override else ("PROVIDER_INDUSTRY" if known_industry else "PROVIDER_SECTOR" if known_sector else "MISSING")
+    source = override[1] if override else ("PROVIDER_INDUSTRY" if known_industry else "CURATED_TICKER_METADATA" if curated_sector else "PROVIDER_SECTOR" if known_sector else "MISSING")
     return {"industry": display,
             "risk_tags": sorted(tags), "classification_source": source,
             "classification_known": bool(override or known_industry or known_sector)}
