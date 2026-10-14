@@ -5,6 +5,7 @@ from ui_library.work_progress import render_progress, work_status
 from superfund_diagnostics import diagnostic_zip, learning_summary
 import json
 from superfund_portfolio_overview import render_overview
+from superfund_owned_rankings import owned_rankings
 from superfund_presentation import CSS, RANKING_NOTE, country_candidates, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label, primary_identity_lines, development_lines, detail_lines, render_development_chart, number
 
 
@@ -98,6 +99,42 @@ def _render_superfund(st):
         with st.expander(title, expanded=True):
             if title=='Portefølje':
                 render_overview(st,s)
+                st.subheader('Eide fond · løpende rangering')
+                ranking=owned_rankings(s)
+                ranking_by_id={r['id']:r for r in ranking}
+                sort_choice=st.selectbox('Sorter fondene', ['Aktuelle poeng', 'Avkastning siden kjøp', 'Navn'], key='sf_owned_sort')
+                if sort_choice=='Aktuelle poeng':
+                    ranking.sort(key=lambda r:(r['score_now'] is None, -(r['score_now'] or 0),r['name']))
+                elif sort_choice=='Avkastning siden kjøp':
+                    ranking.sort(key=lambda r:(r['return_pct'] is None,-(r['return_pct'] or 0),r['name']))
+                else:
+                    ranking.sort(key=lambda r:r['name'].casefold())
+                for rank_row in ranking:
+                    score_str=f"{rank_row['score_now']:.2f}" if rank_row['score_now'] is not None else 'Ingen nye poeng'
+                    return_str=f"{rank_row['return_pct']:+.2f} %" if rank_row['return_pct'] is not None else 'Ukjent'
+                    label=f"{rank_row['name']} · #{rank_row['owned_rank'] or '—'} · poeng {score_str} · {return_str}"
+                    if st.button(label,key='sf_open_'+rank_row['id'],use_container_width=True):
+                        st.session_state['sf_selected_fund']=rank_row['id']
+                selected=st.session_state.get('sf_selected_fund')
+                if selected and selected in model.get('positions',{}):
+                    selected_position=model['positions'][selected]
+                    if st.button('← Tilbake til porteføljerangeringen',key='sf_return_fund',use_container_width=True):
+                        st.session_state.pop('sf_selected_fund',None)
+                        st.rerun()
+                    else:
+                        st.subheader(selected_position['name']+' · fondsanalyse')
+                        current=ranking_by_id[selected]
+                        st.write(f"Poeng nå: {current['score_now']:.3f}" if current['score_now'] is not None else current['reason'])
+                        st.caption(f"Kjøpspoeng: {current['score_at_buy']} · kategori-rang nå: {current['category_rank'] or 'ukjent'} · siste kursdato: {current['price_at'] or 'ukjent'}")
+                        selected_info=resolve_identity(s,selected_position)
+                        st.markdown(card('Fondsopplysninger',detail_lines(selected_info)),unsafe_allow_html=True)
+                        render_development_chart(st,selected_info,chart_scope='selected_fund')
+                        for heading, field in [('Land og regioner','regions'),('Sektorer','sectors'),('Største investeringer','holdings')]:
+                            with st.expander(heading):
+                                rows=selected_position.get(field,[])
+                                if rows:
+                                    st.dataframe([{'Navn':x.get('displayName') or x.get('name') or x.get('exposureType'),'Andel %':x.get('weight'),'Kilde':selected_position.get('regions_verified_at') if field!='holdings' else None} for x in rows],hide_index=True,use_container_width=True)
+                                else: st.info('Ikke dokumentert i siste fondsdata.')
                 st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
                 for p in model.get('positions',{}).values():
                     info=resolve_identity(s,p)
