@@ -287,7 +287,7 @@ def render_development_chart(st, row, chart_scope='default'):
     figure.update_layout(height=290,margin=dict(l=0,r=0,t=12,b=0),
                          xaxis_title=None,yaxis_title='NOK',legend=dict(orientation='h',y=1.13),
                          hovermode='closest')
-    st.plotly_chart(figure,use_container_width=True,config={'displayModeBar':False,'scrollZoom':False,'doubleClick':'reset'},key='sf_curve_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
+    st.plotly_chart(figure,width='stretch',config={'displayModeBar':False,'scrollZoom':False,'doubleClick':'reset'},key='sf_curve_'+str(row.get('id') or row.get('isin') or row.get('name') or 'unknown'))
     st.caption(f"{len(shown)} faktiske, tidsstemplede observasjoner. Diamanter markerer endringer på minst 3 % mellom registrerte kurser, ikke nødvendigvis intradagbevegelser. Ingen mellomliggende kurser er konstruert.")
 
 
