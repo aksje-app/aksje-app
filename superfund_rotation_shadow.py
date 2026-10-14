@@ -61,13 +61,18 @@ def rotation_shadow(rows, positions, now, *, min_days=15, min_gap=1.0, previous=
         size=pos.get("quantity")
         try:estimated_cost_nok=round(float(price)*float(size)*estimated_roundtrip_pct/100,2)
         except (ValueError,TypeError):estimated_cost_nok=None
-        confirmed=eligible and confirmations>=min_confirmations
-        status="REVIEW_ONLY" if confirmed else "CONFIRMING" if eligible else "WATCH"
+        # Do not present stale or future-dated NAV as a current recommendation.
+        age=(stamp.date()-date.fromisoformat(evidence_date)).days if stamp and evidence_date else None
+        usable=age is not None and 0<=age<=7
+        if not usable:confirmations=0
+        confirmed=eligible and usable and confirmations>=min_confirmations
+        status="REVIEW_ONLY" if confirmed else "CONFIRMING" if eligible and usable else "STALE_NAV" if eligible else "WATCH"
         result.append({"owned_id":id,"owned_name":pos.get("name"),"held_days":days,
                        "owned_score":old["score"],"challenger_id":best["id"] if best else None,
                        "challenger_name":best.get("name") if best else None,"score_gap":gap,
                        "status":status,"confirmations":confirmations,"required_confirmations":min_confirmations,
                        "last_date":stamp.date().isoformat() if stamp else None, "evidence_date":evidence_date,
+                       "nav_age_days":age,
                        "known_holdings_overlap_pct":overlap,"estimated_roundtrip_cost_nok":estimated_cost_nok,
                        "cost_assumption_pct":estimated_roundtrip_pct,
                        "reason":"Advisory only: confirm net benefit, missing overlap, prices and settlement before any decision." if confirmed
