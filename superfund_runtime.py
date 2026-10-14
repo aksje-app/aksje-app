@@ -301,6 +301,16 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
                 result['changes'].append({'side':'STERK UKEUTVIKLING',**{k:v for k,v in decision_context(row).items() if k!='price_history_nok'},
                     'short_trend': __import__('superfund_presentation').short_trend_from_observations(row.get('observations') or []),
                     'reason':'Kildens periodeavkastning; valutaeffekt kan inngå.'})
+        # Persist the exact alerted instrument for direct navigation, including
+        # candidates that are not owned or present in the truncated Top 25.
+        previous_alerts=previous.get('alert_funds') or {}
+        alert_funds=dict(list(previous_alerts.items())[-39:])
+        new_ids={e.get('id') for e in result['changes'] if e.get('side')=='STERK UKEUTVIKLING'}
+        for row in result['rows']:
+            if row['id'] in new_ids:
+                alert_funds.pop(row['id'],None)
+                alert_funds[row['id']]=decision_context(row)
+        payload['alert_funds']=dict(list(alert_funds.items())[-40:])
         payload['attention_history']=dict(list(payload['attention_history'].items())[-500:])
         old_proposals={x['id'] for x in previous.get('risk',{}).get('proposals',[])}
         for proposal in risk['proposals']:
@@ -368,9 +378,15 @@ def deliver_pending():
         from superfund_presentation import notification_batch
         text,count=notification_batch(s['notification_pending'])
         changes=s['notification_pending'][:count]
-        # Standard notifier handles quiet periods; no live broker execution.
+        # Direct link to the first fund actually described in this Pushover batch.
+        # Each queued alert retains its immutable source ID, not its list position.
+        from urllib.parse import urlencode
+        first=next((e for e in changes if e.get('side')=='STERK UKEUTVIKLING' and e.get('id')),None)
+        base='https://aksje-app.onrender.com/'
+        target=base+'?'+urlencode({'aa_nav':'superfund','aa_tab':'Kandidater',
+                                   **({'aa_fund':str(first['id'])} if first else {})})
         ok, detail=normalize_notification_result(send_pushover_alert(text,title='Superfondportefølje',
-            url=s.get('report',{}).get('url') or None,url_title='Superfond i appen',priority=0))
+            url=target,url_title=('Åpne omtalt fond' if first else 'Superfond i appen'),priority=0))
         s['delivery']={'at':now_iso(),'sent':ok,'detail':str(detail)[:200]}
         if ok:s['notification_pending']=s['notification_pending'][len(changes):]
         write('snapshot.json',s)
