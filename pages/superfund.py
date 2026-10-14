@@ -19,7 +19,7 @@ def render_superfund(st):
 def _render_superfund(st):
     st.title('Superfondportefølje')
     st.caption('Automatisk modellhandel · egen kapital og historikk · ingen reelle Nordnet-ordre')
-    if st.button('Oppdater Superfond',key='superfund_queue',use_container_width=True):
+    if st.button('Oppdater Superfond',key='superfund_queue',width='stretch'):
         request_scan();st.success('Lagt i kø. Gjentatte trykk oppretter ikke flere jobber.')
     job=read('job.json',{});request=read('request.json',{})
     visible_state=job.get('state') if job.get('state') in ('DEFERRED_CAPACITY','DEFERRED_BUSY','FAILED') else request.get('state',job.get('state','VENTER PÅ FØRSTE SKANNING'))
@@ -89,7 +89,7 @@ def _render_superfund(st):
                     if row.get('regions'):
                         st.dataframe([{'Land / region':r.get('displayName') or r.get('exposureType','Ukjent'),
                                        'Andel %':r.get('weight')} for r in row['regions']],
-                                     hide_index=True,use_container_width=True)
+                                     hide_index=True,width='stretch')
                         st.caption('Rapportert: '+date_label(row.get('regions_verified_at')))
                     else: st.caption('Ingen verifisert landfordeling tilgjengelig.')
             decisions=read('risk_decisions.json',{})
@@ -158,13 +158,13 @@ def _render_superfund(st):
                     score_str=f"{rank_row['score_now']:.2f}" if rank_row['score_now'] is not None else 'Ingen nye poeng'
                     return_str=f"{rank_row['return_pct']:+.2f} %" if rank_row['return_pct'] is not None else 'Ukjent'
                     label=f"{rank_row['name']} · #{rank_row['owned_rank'] or '—'} · poeng {score_str} · {return_str}"
-                    if st.button(label,key='sf_open_'+rank_row['id'],use_container_width=True):
+                    if st.button(label,key='sf_open_'+rank_row['id'],width='stretch'):
                         st.session_state['sf_selected_fund']=rank_row['id']
                         st.rerun()
                 selected=st.session_state.get('sf_selected_fund')
                 if selected and selected in model.get('positions',{}):
                     selected_position=model['positions'][selected]
-                    if st.button('← Tilbake til porteføljerangeringen',key='sf_return_fund',use_container_width=True):
+                    if st.button('← Tilbake til porteføljerangeringen',key='sf_return_fund',width='stretch'):
                         st.session_state.pop('sf_selected_fund',None)
                         st.rerun()
                     else:
@@ -172,7 +172,7 @@ def _render_superfund(st):
                         current=ranking_by_id[selected]
                         st.write(f"Poeng nå: {current['score_now']:.3f}" if current['score_now'] is not None else current['reason'])
                         st.caption(f"Kjøpspoeng: {current['score_at_buy']} · kategori-rang nå: {current['category_rank'] or 'ukjent'} · siste kursdato: {current['price_at'] or 'ukjent'}")
-                        st.download_button('PDF · lagre, skriv ut eller del', fund_pdf_bytes(s,selected), file_name='Superfond_'+str(selected_position.get('isin','fond'))+'.pdf', mime='application/pdf', key='sf_fund_pdf_'+selected, use_container_width=True)
+                        st.download_button('PDF · lagre, skriv ut eller del', fund_pdf_bytes(s,selected), file_name='Superfond_'+str(selected_position.get('isin','fond'))+'.pdf', mime='application/pdf', key='sf_fund_pdf_'+selected, width='stretch')
                         st.caption('Åpne den nedlastede PDF-filen for utskrift eller deling via iPhone/PC. Navigasjonsknapper er ikke med i PDF.')
                         selected_info=resolve_identity(s,selected_position)
                         st.markdown(card('Fondsopplysninger',detail_lines(selected_info)),unsafe_allow_html=True)
@@ -181,7 +181,7 @@ def _render_superfund(st):
                             with st.expander(heading):
                                 rows=selected_position.get(field,[])
                                 if rows:
-                                    st.dataframe([{'Navn':x.get('displayName') or x.get('name') or x.get('exposureType'),'Andel %':x.get('weight'),'Kilde':selected_position.get('regions_verified_at') if field!='holdings' else None} for x in rows],hide_index=True,use_container_width=True)
+                                    st.dataframe([{'Navn':x.get('displayName') or x.get('name') or x.get('exposureType'),'Andel %':x.get('weight'),'Kilde':selected_position.get('regions_verified_at') if field!='holdings' else None} for x in rows],hide_index=True,width='stretch')
                                 else: st.info('Ikke dokumentert i siste fondsdata.')
                 if selected not in model.get('positions',{}):
                     st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
@@ -319,7 +319,7 @@ def _render_superfund(st):
                         st.link_button('Produkt hos Nordnet',row['url'])
             elif title=='Rapporter og nedlastinger':
                 if s:
-                    if st.button('Lag rapporter for nedlasting',key='sf_prepare_reports',use_container_width=True):
+                    if st.button('Lag rapporter for nedlasting',key='sf_prepare_reports',width='stretch'):
                         with work_status(st,'Lager Superfond-rapporter'):
                             bar=st.progress(0,text='Lager PDF')
                             pdf=pdf_bytes(s);bar.progress(33,text='Lager CSV')
@@ -329,9 +329,9 @@ def _render_superfund(st):
                             bar.progress(100,text='Tre rapportfiler er klare for nedlasting')
                     exports=st.session_state.get('sf_exports',{})
                     if exports and exports.get('at')==s.get('at'):
-                        st.download_button('Last ned PDF',exports['pdf'],'Superfond.pdf','application/pdf',use_container_width=True)
-                        st.download_button('Last ned CSV',exports['csv'],'Superfond.csv','text/csv',use_container_width=True)
-                        st.download_button('Last ned Excel',exports['excel'],'Superfond.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',use_container_width=True)
+                        st.download_button('Last ned PDF',exports['pdf'],'Superfond.pdf','application/pdf',width='stretch')
+                        st.download_button('Last ned CSV',exports['csv'],'Superfond.csv','text/csv',width='stretch')
+                        st.download_button('Last ned Excel',exports['excel'],'Superfond.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',width='stretch')
                     else:st.caption('Trykk «Lag rapporter for nedlasting». Filene bruker siste komplette vurdering.')
                     st.caption('Rapportlenker går til denne siden i den innloggede appen. Ingen offentlig PDF publiseres.')
                     if s.get('report_pending'):st.warning('Rapportlenken venter på klargjøring; nedlastingene bruker siste komplette snapshot.')
@@ -340,7 +340,7 @@ def _render_superfund(st):
                     st.info('PDF, CSV og Excel blir tilgjengelige etter første komplette katalogpass og lagrede vurdering. Diagnose-ZIP kan lages allerede nå.')
                     st.caption(f'{done} katalogsider lagret · jobbstatus {job.get("state","VENTER")}. '+job.get('message',''))
                 st.caption('Diagnose-ZIP inkluderer drift, datakilder, hovedmodell, læring, shadow-regler, historikk og kontrollfunn. Eventuelle utelatelser oppgis i manifestet. Ingen nye markedsoppslag.')
-                if st.button('Lag diagnose-ZIP',key='sf_build_diagnostic',use_container_width=True):
+                if st.button('Lag diagnose-ZIP',key='sf_build_diagnostic',width='stretch'):
                     with work_status(st,'Lager Superfond diagnose-ZIP'):
                         bar=st.progress(0,text='Samler lagret diagnosegrunnlag')
                         def update(n,total,name):bar.progress(min(99,int(n/total*100)),text=f'{n} av {total} dokumenter · {name}')
@@ -348,7 +348,7 @@ def _render_superfund(st):
                         bar.progress(100,text='Diagnose-ZIP ferdig og klar for nedlasting')
                 if st.session_state.get('sf_diagnostic_download'):
                     data,filename=st.session_state['sf_diagnostic_download']
-                    st.download_button('Last ned diagnose-ZIP',data,filename,'application/zip',key='sf_diagnostic_download_button',use_container_width=True)
+                    st.download_button('Last ned diagnose-ZIP',data,filename,'application/zip',key='sf_diagnostic_download_button',width='stretch')
             elif title=='Nyheter og kilder':
                 st.caption('E24 RSS og publiseringer på produktsider. Relevans er søketreff; ingen automatisk nyhetsscore.')
                 news=read('news.json',{})
