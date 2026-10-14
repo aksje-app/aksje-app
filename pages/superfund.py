@@ -220,6 +220,13 @@ def _render_superfund(st):
                             st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
             elif title=='Kandidater':
                 comparisons=(s.get('rotation_comparison') or {}).get('pairs') or {}
+                rank_audit=s.get('owned_rank_audit') or {}
+                if rank_audit:
+                    st.subheader('Eide fond mot Topp 15 · rangeringskontroll')
+                    st.caption('Global plass er en oversikt, ikke et direkte kjøpssignal på tvers av valutaer. Utskifting er kun vurdering.')
+                    for item in rank_audit.get('positions',[]):
+                        st.write(f"{item.get('name') or item['id']} · gruppeplass {item.get('group_rank') or 'ikke kvalifisert'} / {item.get('group_total',0)} · global plass {item.get('global_position') or 'ukjent'} / {item.get('global_total',0)} · {item['action']}")
+                        if item.get('blocks'):st.caption('Blokkeringer: '+', '.join(item['blocks']))
                 shadow=s.get('rotation_shadow') or {}
                 if shadow:
                     st.subheader('Fondsbytter · skyggeanalyse')
