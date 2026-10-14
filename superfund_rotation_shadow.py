@@ -41,10 +41,14 @@ def rotation_shadow(rows, positions, now, *, min_days=15, min_gap=1.0, previous=
         # Require fresh observed NAV dates for BOTH funds, not repeated scans.
         owned_date=str(old.get("price_at") or "")[:10]
         new_date=str(best.get("price_at") or "")[:10] if best else ""
-        evidence_date=min(owned_date,new_date) if owned_date and new_date else ""
+        from datetime import date
+        try:
+            matched=bool(date.fromisoformat(owned_date) and date.fromisoformat(new_date)) and owned_date==new_date
+        except ValueError:
+            matched=False
+        evidence_date=owned_date if matched else ""
         prior_date=str(prior.get("evidence_date") or "")
-        fresh=bool(evidence_date and len(evidence_date)==10 and
-                   (not prior_date or evidence_date>prior_date))
+        fresh=bool(evidence_date and (not prior_date or evidence_date>prior_date))
         consecutive=eligible and prior.get("challenger_id")==best["id"]
         if eligible and fresh:
             confirmations=(int(prior.get("confirmations") or 0)+1 if consecutive else 1)
