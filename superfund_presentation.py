@@ -113,8 +113,17 @@ def notification_batch(events, limit=1000):
                 measures=[]
                 for n in (1,2,3):
                     value=trend.get('last_'+str(n)+'_sessions_pct')
-                    if value is not None: measures.append(str(n)+' handelsdager '+f'{value:+.2f}%')
+                    if value is not None: measures.append(str(n)+' kursintervaller '+f'{value:+.2f}%')
                 block+='\nSiste kursdager: '+(' · '.join(measures) if measures else 'ikke tilstrekkelig NAV-historikk')
+                last=trend.get('last_1_sessions_pct')
+                three=trend.get('last_3_sessions_pct')
+                if last is not None and three is not None:
+                    if last<0 and three<0:
+                        block+='\nKort trend: SVEKKET (observasjon, ikke salgsordre)'
+                    elif last>0 and three>0:
+                        block+='\nKort trend: STIGENDE (ikke kjøpssignal)'
+                    else:
+                        block+='\nKort trend: BLANDET (avvent vurdering)'
                 if trend.get('recent_peak_distance_pct') is not None:
                     block+='\nFra kortsiktig topp: '+f"{trend['recent_peak_distance_pct']:+.2f}%"
             block+='\nKursgrunnlag: '+date_label(event.get('price_at'))
