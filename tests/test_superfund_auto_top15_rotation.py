@@ -37,3 +37,14 @@ def test_buy_hold_never_rotates():
         for i in range(2,18)]
     s,_=e.cycle(s,rows,'2026-11-04T15:00:00+00:00',buy_hold=True)
     assert not [o for o in s['orders'] if o['side']=='SELL']
+
+def test_brazil_event_cannot_rotate_into_another_brazil_fund():
+    s=_held()
+    # Verify the country-risk gate itself also rejects a Brazilian challenger.
+    from superfund_event_risk import related, active, brazil_weight
+    a=item(day='2026-10-14')
+    b=item('NO0000000002:78',day='2026-10-14')
+    for r in (a,b):
+        r['detail']['regions']=[{'exposureType':'BRAZIL','weight':100}]
+    assert active(e.at('2026-10-14T15:00:00+00:00'))
+    assert brazil_weight(a)[0]==1 and related(a,b)
