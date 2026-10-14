@@ -92,7 +92,7 @@ def pdf_bytes(snapshot):
     for item in sorted(owned_rankings(snapshot),key=lambda x:(x['score_now'] is None,-(x['score_now'] or 0),x['name'])):
         points=f"{item['score_now']:.3f}" if item['score_now'] is not None else 'mangler grunnlag'
         profit=f"{item['return_pct']:+.2f}%" if item['return_pct'] is not None else 'ukjent'
-        line(f"{item['owned_rank'] or '—'}. {item['name']} · poeng nå {points} · ved kjøp {item['score_at_buy']} · siden kjøp {profit} · datodato {date_label(item['price_at'])}")
+        line(f"{item['owned_rank'] or '—'}. {item['name']} · poeng nå {points} · ved kjøp {item['score_at_buy']} · siden kjøp {profit} · kursdato {date_label(item['price_at'])}")
     line('Beholdninger','Heading2')
     for p in model.get('positions',{}).values():
         line(p['name']+' · '+p['isin'],'Heading3')
@@ -146,3 +146,38 @@ def prepare_report_link(snapshot):
     return {'url':base+'/?aa_nav=superfund','at':snapshot['at'],
             'run_id':'SF-'+snapshot.get('model',{}).get('last_frame','unknown'),
             'access':'APP_LOGIN_REQUIRED','delivery':'APP_DOWNLOADS'}
+
+def fund_pdf_bytes(snapshot, position_id):
+    """Print-ready per-fund report; no navigation controls or external sharing token."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    positions=snapshot.get('model',{}).get('positions',{})
+    pos=positions[position_id]
+    ranking=next((r for r in owned_rankings(snapshot) if r['id']==position_id),{})
+    styles=getSampleStyleSheet();parts=[];output=BytesIO()
+    def write(value,style='Normal'):
+        parts.append(Paragraph(escape(str(value)),styles[style]))
+        parts.append(Spacer(1,8))
+    write(pos['name'],'Title')
+    write('Superfond modellrapport | '+str(snapshot.get('at','')))
+    write('ISIN: '+str(pos.get('isin','')))
+    write('Modellportefølje. Ikke dokumentasjon av en reell meglerordre.')
+    score=ranking.get('score_now')
+    write('Oppdatert poeng: '+(f'{score:.3f}' if score is not None else 'Utilgjengelig – manglende trenddata'))
+    write('Rang blant eide fond: '+str(ranking.get('owned_rank') or 'ikke tilgjengelig'))
+    write('Poeng ved kjøp: '+str(pos.get('score_at_buy','ukjent')))
+    write('Resultat siden kjøp: '+(f"{ranking['return_pct']:+.2f}%" if ranking.get('return_pct') is not None else 'ukjent'))
+    write('Siste modellkurs (NOK): '+str(pos.get('last_nok')))
+    write('Trailing-stop-grense (NOK): '+str(pos.get('floor_nok')))
+    ident=resolve_identity(snapshot,pos)
+    for label,value in identity_lines(ident):write(label+': '+str(value))
+    for title,key in [('Land og regioner','regions'),('Sektorer','sectors'),('Største beholdninger','holdings')]:
+        write(title,'Heading2')
+        rows=pos.get(key) or []
+        if not rows:write('Ikke tilgjengelig i siste rapporterte datasett.')
+        for item in rows[:30]:
+            write(str(item.get('displayName') or item.get('name') or item.get('exposureType') or 'Ukjent')+' · '+str(item.get('weight','?'))+' %')
+    write('Fordeling og selskaper er rapporterte fondsdata, ikke sanntidsbeholdning. Rapportert datotid: '+str(pos.get('regions_verified_at') or 'ukjent'))
+    SimpleDocTemplate(output,pagesize=A4).build(parts)
+    return output.getvalue()
