@@ -276,8 +276,11 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None)
                           and r.get('category')==old.get('category')
                           and r.get('returns_currency')==old.get('returns_currency')),
                          key=lambda r:(-r['score'],r['id']))
+            global_qualified=sorted((r for r in rows if r.get('score') is not None
+                                     and not r.get('blocks')),key=lambda r:(-r['score'],r['id']))
+            global_rank=next((i for i,r in enumerate(global_qualified,1) if r['id']==key),None)
             group_rank=next((i for i,r in enumerate(group,1) if r['id']==key),None)
-            if group_rank is not None and group_rank<=15:continue
+            if global_rank is not None and global_rank<=15:continue
             better=next((r for r in group if r['id'] not in s['positions']
                          and r['score']>old['score']
                          and event_risk.intersection(r,pos)<40
@@ -287,7 +290,7 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None)
             s['orders'].append({**{k:v for k,v in identity(old).items() if k!='price_at'},
                  'id':key,'isin':old['isin'],'side':'SELL','requested_at':now.isoformat(),
                  'next_at':old.get('detail',{}).get('trading',{}).get('nextSellAt'),
-                 'reason':f"ROTATION_TOP15: rang {group_rank or 'ikke kvalifisert'}, "
+                 'reason':f"ROTATION_TOP15: global kvalifisert rang {global_rank or 'ikke kvalifisert'}, "
                           f"sterkere sammenlignbar kandidat {better['id']} "
                           f"(score {better['score']:.3f} mot {old['score']:.3f}); "
                           "modellsalg ved neste gyldige kursdato."})
