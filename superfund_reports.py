@@ -197,7 +197,19 @@ def fund_pdf_bytes(snapshot, position_id):
     positions=snapshot.get('model',{}).get('positions',{})
     pos=positions[position_id]
     ranking=next((r for r in owned_rankings(snapshot) if r['id']==position_id),{})
+    from pathlib import Path
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
     styles=getSampleStyleSheet();parts=[];output=BytesIO()
+    fonts=Path(__file__).resolve().parent/'assets/fonts'
+    for font_name,filename in [('SuperfundNoto','NotoSans-Regular.ttf'),
+                               ('SuperfundNotoBold','NotoSans-Bold.ttf')]:
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(font_name,str(fonts/filename)))
+    for style in styles.byName.values():
+        if hasattr(style,'fontName'):
+            style.fontName='SuperfundNotoBold' if style.name in ('Title','Heading1','Heading2','Heading3') else 'SuperfundNoto'
+            style.leading=max(style.leading,style.fontSize*1.4)
     def write(value,style='Normal'):
         parts.append(Paragraph(escape(str(value)),styles[style]))
         parts.append(Spacer(1,8))
