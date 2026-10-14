@@ -195,6 +195,15 @@ def _render_superfund(st):
                         ('Kjøpskurs',f'{p["entry_nok"]:.2f} NOK'),('Siste modellkurs',f'{p["last_nok"]:.2f} NOK'),
                         ('Salgsgrense',f'{p.get("floor_nok",0):.2f} NOK')]+development_lines(info)),unsafe_allow_html=True)
                     st.caption('Modellkurs. Salgsgrensen garanterer ikke utførelseskurs.')
+                    if 'BRAZIL' in str(p.get('name','')).upper() or 'BRASIL' in str(p.get('name','')).upper():
+                        floor=p.get('floor_nok')
+                        last=p.get('last_nok')
+                        weak_dates=p.get('weak_trend_dates',0)
+                        waiting=[o for o in model.get('orders',[]) if o.get('id')==p.get('id') and o.get('side')=='SELL']
+                        st.info('Brasil-fondet er fortsatt eid i modellen. Lavere rangeringspoeng utløser ikke salg alene. Salg vurderes ved brutt salgsgrense eller minst to svake, forskjellige kursdatoer.')
+                        st.caption(f"Kontroll: siste kurs {last:.2f} NOK · salgsgrense {float(floor or 0):.2f} NOK · svake kursdatoer {weak_dates}/2 · ventende salgsordre {'ja' if waiting else 'nei'}.")
+                        if waiting: st.caption('Modellsalg avventer ny kursobservasjon etter ordrebeslutningen.')
+
                     render_development_chart(st,info,chart_scope='portfolio_position')
                     with st.expander('Flere detaljer · '+p['name']):
                         st.markdown(card('Produkt og vurdering',detail_lines(info)+[
