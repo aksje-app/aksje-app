@@ -1,3 +1,4 @@
+from norwegian_report_language import sector_label
 """Read-only Superfond portfolio overview, based only on persisted snapshots."""
 from collections import defaultdict
 
@@ -19,7 +20,7 @@ def portfolio_rows(snapshot):
         cost = float(position.get("cost_nok") or 0)
         pnl = value - cost
         rows.append(dict(id=str(position.get("id") or key), name=str(position.get("name") or info.get("name") or key),
-                         country=investment_group(info), sector=str(info.get("category") or "Ukjent kategori"),
+                         country=investment_group(info), sector=sector_label(info.get("category") or "Ukjent kategori"),
                          value_nok=value, weight_pct=value / equity * 100 if equity > 0 else 0,
                          pnl_nok=pnl, pnl_pct=pnl / cost * 100 if cost > 0 else None,
                          info=info, position=position))
