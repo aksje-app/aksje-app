@@ -397,7 +397,7 @@ def deliver_pending():
         from urllib.parse import urlencode
         first=next((e for e in changes if e.get('side')=='STERK UKEUTVIKLING' and e.get('id')),None)
         base='https://aksje-app.onrender.com/'
-        target=base+'?'+urlencode({'aa_nav':'superfund','aa_tab':'Kandidater',
+        target=base+'?'+urlencode({'mobile_nav':'superfund','aa_nav':'superfund','aa_tab':'Kandidater',
                                    **({'aa_fund':str(first['id'])} if first else {})})
         ok, detail=normalize_notification_result(send_pushover_alert(text,title='Superfondportefølje',
             url=target,url_title=('Åpne omtalt fond' if first else 'Superfond i appen'),priority=0))
