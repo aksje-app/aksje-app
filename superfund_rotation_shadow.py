@@ -8,7 +8,7 @@ def _dt(value):
     except (ValueError,TypeError):return None
 
 def _holdings(row):
-    holdings=row.get("holdings") or row.get("detail",{}).get("holdings") or []
+    holdings=row.get("holdings") or (row.get("detail") or {}).get("holdings") or []
     return {str(x.get("isin") or x.get("name") or "").upper():float(x.get("weight") or 0)
             for x in holdings if isinstance(x,dict) and (x.get("isin") or x.get("name"))}
 
@@ -53,7 +53,10 @@ def rotation_shadow(rows, positions, now, *, min_days=15, min_gap=1.0, previous=
         result.append({"owned_id":id,"owned_name":pos.get("name"),"held_days":days,
                        "owned_score":old["score"],"challenger_id":best["id"] if best else None,
                        "challenger_name":best.get("name") if best else None,"score_gap":gap,
-                       "status":status,"confirmations":confirmations,"required_confirmations":min_confirmations,\n                       "last_date":stamp.date().isoformat() if stamp else None,\n                       "known_holdings_overlap_pct":overlap,"estimated_roundtrip_cost_nok":estimated_cost_nok,\n                       "cost_assumption_pct":estimated_roundtrip_pct,
+                       "status":status,"confirmations":confirmations,"required_confirmations":min_confirmations,
+                       "last_date":stamp.date().isoformat() if stamp else None,
+                       "known_holdings_overlap_pct":overlap,"estimated_roundtrip_cost_nok":estimated_cost_nok,
+                       "cost_assumption_pct":estimated_roundtrip_pct,
                        "reason":"Advisory only: confirm net benefit, missing overlap, prices and settlement before any decision." if confirmed
                        else "Minimum holding period or comparable improvement not established."})
     return {"as_of":stamp.isoformat() if stamp else str(now),"mode":"SHADOW_ONLY",
