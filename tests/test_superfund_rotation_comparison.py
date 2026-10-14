@@ -16,4 +16,10 @@ def test_rotation_comparison_tracks_net_difference_only_on_new_nav():
 def test_missing_observed_prices_never_claim_outperformance():
     shadow={'candidates':[{'owned_id':'a','challenger_id':'b','status':'REVIEW_ONLY'}]}
     result=update_rotation_comparisons([fund('a',100,'2026-10-13'),{'id':'b','price_at':'2026-10-13'}],shadow)
-    assert result['pairs']['a|b']['status']=='MISSING_NAV'
+    assert result['pairs']['a|b']['status']=='AWAITING_MATCHED_NAV'
+
+def test_mismatched_nav_dates_cannot_create_false_outperformance():
+    shadow={'candidates':[{'owned_id':'a','challenger_id':'b','status':'CONFIRMING'}]}
+    result=update_rotation_comparisons([fund('a',100,'2026-10-13'),fund('b',110,'2026-10-14')],shadow)
+    assert result['pairs']['a|b']['status']=='AWAITING_MATCHED_NAV'
+    assert result['measured_count']==0
