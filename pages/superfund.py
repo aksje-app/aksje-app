@@ -227,7 +227,7 @@ def _render_superfund(st):
                     for item in shadow.get('candidates',[]):
                         st.write(f"{item.get('owned_name') or item['owned_id']} · eid {item.get('held_days') if item.get('held_days') is not None else 'ukjent'} kalenderdager · {item['status']}")
                         if item.get('challenger_id'):
-                            st.caption(f"Bekreftelser: {item.get('confirmations',0)} av {item.get('required_confirmations',3)} ulike kursdatoer · antatt byttekostnad: "+(f"NOK {item['estimated_roundtrip_cost_nok']:,.2f}" if item.get('estimated_roundtrip_cost_nok') is not None else "ikke beregnet"))
+                            st.caption(f"Bekreftelser: {item.get('confirmations',0)} av {item.get('required_confirmations',3)} ulike vurderingsdatoer · antatt byttekostnad: "+(f"NOK {item['estimated_roundtrip_cost_nok']:,.2f}" if item.get('estimated_roundtrip_cost_nok') is not None else "ikke beregnet"))
                             st.caption("Kjent beholdningsoverlapp: "+(f"{item['known_holdings_overlap_pct']:.1f} %" if item.get('known_holdings_overlap_pct') is not None else "ukjent – må undersøkes"))
                             st.caption(f"Utfordrer: {item.get('challenger_name') or item['challenger_id']} · poengforskjell {item['score_gap']:+.2f}")
                 challenger=s.get('challenger_report') or {}
