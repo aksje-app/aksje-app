@@ -2248,12 +2248,14 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             if stop_exit:
                 reason_code, reason = stop_exit
                 pos["stop_exit_reason_code"] = reason_code
+                pos["shadow_exit_price"] = pos.get("last_price")
+                pos["shadow_exit_at"] = now_iso
                 risk_exit_positions[ticker] = dict(pos)
                 changes.append({
                     "action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")),
                     "to_pct": 0.0, "reason_code": reason_code, "reason": reason,
                     "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
-                    "exit_price": pos.get("last_price"), "pnl_pct": pos.get("pnl_pct"),
+                    "exit_price": pos.get("last_price"), "exit_at": now_iso, "pnl_pct": pos.get("pnl_pct"),
                     "peak_gain_pct": pos.get("peak_gain_pct"), "profit_giveback_pct": pos.get("profit_giveback_pct"),
                     "mfe_retained_pct": pos.get("mfe_retained_pct"), "protected_gain_pct": pos.get("protected_gain_pct"),
                     "decision_run_id": decision_run_id,
@@ -2314,12 +2316,14 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             if stop_exit:
                 reason_code, reason = stop_exit
                 pos["stop_exit_reason_code"] = reason_code
+                pos["shadow_exit_price"] = pos.get("last_price")
+                pos["shadow_exit_at"] = now_iso
                 risk_exit_positions[ticker] = dict(pos)
                 changes.append({
                     "action": "SELL", "ticker": ticker, "from_pct": _f(old.get("target_weight_pct")), "to_pct": 0.0,
                     "reason_code": reason_code, "reason": reason,
                     "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
-                    "exit_price": pos.get("last_price"), "pnl_pct": pos.get("pnl_pct"),
+                    "exit_price": pos.get("last_price"), "exit_at": now_iso, "pnl_pct": pos.get("pnl_pct"),
                     "decision_run_id": decision_run_id,
                 })
                 continue
