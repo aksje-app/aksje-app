@@ -219,6 +219,17 @@ def _render_superfund(st):
                             st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
                             st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
             elif title=='Kandidater':
+                challenger=s.get('challenger_report') or {}
+                if challenger:
+                    st.subheader('Intelligent utfordreroversikt')
+                    counts=challenger.get('totals') or {}
+                    st.caption(f"{counts.get('prioritized',0)} prioriterte · {counts.get('early_watch',0)} i tidlig overvåking · {counts.get('filtered',0)} filtrert fra varsler")
+                    for item in (r for r in challenger.get('rows',[]) if r.get('candidate')) :
+                        st.write(f"#{item['rank']} · {item.get('name') or item['id']} · bedre poeng enn {item['outperforms_held']} av {item['same_group_held']} sammenlignbare eide fond")
+                    with st.expander('Se filtrerte kandidater og forklaring'):
+                        st.caption('Samme kategori og avkastningsvaluta kreves for direkte poengsammenligning. Dette endrer ikke handelsreglene.')
+                        for item in (r for r in challenger.get('rows',[]) if not r.get('candidate')):
+                            st.caption(f"#{item['rank']} · {item.get('name') or item['id']} · {item['reason']}")
                 st.subheader('Topp 25 · grunnkrav oppfylt')
                 st.caption(RANKING_NOTE)
                 summary=s.get('candidate_summary',{})
