@@ -6,6 +6,7 @@ from superfund_diagnostics import diagnostic_zip, learning_summary
 import json
 from superfund_portfolio_overview import render_overview
 from superfund_owned_rankings import owned_rankings
+from superfund_risk_cards import sorted_risk_positions, risk_counts, status_palette
 from superfund_presentation import CSS, RANKING_NOTE, country_candidates, candidate_card, card, identity_lines, resolve_identity, top_candidates, date_label, primary_identity_lines, development_lines, detail_lines, render_development_chart, number
 
 
@@ -62,9 +63,35 @@ def _render_superfund(st):
             st.caption(risk['currency_note'])
             st.write(f"Risikoindikator: {risk['risk_indicator']} av 100")
             st.caption(risk['indicator_method'])
-            for pos in risk['positions']:
-                st.write(f"{pos['name']} · {pos['stop_status']} · {pos['drop_from_peak_pct']:.2f} % under topp")
-                st.caption(pos['source'])
+            risk_positions=sorted_risk_positions(risk.get('positions',[]))
+            counts=risk_counts(risk_positions)
+            st.markdown('**Risikooversikt · '+ ' · '.join(
+                f"{counts[label]} {label.lower()}" for label in ('STOPP','NÆR STOPP','ADVARSEL','NORMAL'))+'**')
+            if not risk_positions:
+                st.info('Ingen fondsposisjoner er registrert i risikooversikten.')
+            for pos in risk_positions:
+                label=pos.get('stop_status','UKJENT')
+                accent,bg=status_palette(label)
+                from html import escape as html_escape
+                name=html_escape(str(pos.get('name') or 'Ukjent fond'))
+                pct=pos.get('drop_from_peak_pct')
+                pct_label=f"{float(pct):.2f} % under registrert topp" if pct is not None else 'Toppfall ikke tilgjengelig'
+                st.markdown(
+                    f'<div class="sf-risk-card" style="border-left:5px solid {accent};background:{bg}">'
+                    f'<div class="sf-risk-name">{name}</div>'
+                    f'<div class="sf-risk-status" style="color:{accent}">● {html_escape(label)}</div>'
+                    f'<div class="sf-risk-drop">{html_escape(pct_label)}</div></div>',
+                    unsafe_allow_html=True)
+                with st.expander('Vis risikogrunnlag / landfordeling · '+str(pos.get('name') or 'Fond')):
+                    st.caption('Datakilde: '+str(pos.get('source') or 'Ikke tilgjengelig'))
+                    st.caption('Snapshot: '+date_label(s.get('at')))
+                    row=model.get('positions',{}).get(pos.get('id'),{})
+                    if row.get('regions'):
+                        st.dataframe([{'Land / region':r.get('displayName') or r.get('exposureType','Ukjent'),
+                                       'Andel %':r.get('weight')} for r in row['regions']],
+                                     hide_index=True,use_container_width=True)
+                        st.caption('Rapportert: '+date_label(row.get('regions_verified_at')))
+                    else: st.caption('Ingen verifisert landfordeling tilgjengelig.')
             decisions=read('risk_decisions.json',{})
             from superfund_runtime import decide_risk_proposal
             for proposal in risk['proposals']:
