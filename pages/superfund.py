@@ -109,12 +109,13 @@ def _render_superfund(st):
                     ranking.sort(key=lambda r:(r['return_pct'] is None,-(r['return_pct'] or 0),r['name']))
                 else:
                     ranking.sort(key=lambda r:r['name'].casefold())
-                for rank_row in ranking:
+                for rank_row in ([] if st.session_state.get('sf_selected_fund') in model.get('positions',{}) else ranking):
                     score_str=f"{rank_row['score_now']:.2f}" if rank_row['score_now'] is not None else 'Ingen nye poeng'
                     return_str=f"{rank_row['return_pct']:+.2f} %" if rank_row['return_pct'] is not None else 'Ukjent'
                     label=f"{rank_row['name']} · #{rank_row['owned_rank'] or '—'} · poeng {score_str} · {return_str}"
                     if st.button(label,key='sf_open_'+rank_row['id'],use_container_width=True):
                         st.session_state['sf_selected_fund']=rank_row['id']
+                        st.rerun()
                 selected=st.session_state.get('sf_selected_fund')
                 if selected and selected in model.get('positions',{}):
                     selected_position=model['positions'][selected]
@@ -138,7 +139,7 @@ def _render_superfund(st):
                                     st.dataframe([{'Navn':x.get('displayName') or x.get('name') or x.get('exposureType'),'Andel %':x.get('weight'),'Kilde':selected_position.get('regions_verified_at') if field!='holdings' else None} for x in rows],hide_index=True,use_container_width=True)
                                 else: st.info('Ikke dokumentert i siste fondsdata.')
                 st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
-                for p in model.get('positions',{}).values():
+                for p in ([] if selected in model.get('positions',{}) else model.get('positions',{}).values()):
                     info=resolve_identity(s,p)
                     value=p['quantity']*p['last_nok'];result=value-p['cost_nok']
                     st.markdown(card(p['name'], primary_identity_lines(info)+[
@@ -152,7 +153,7 @@ def _render_superfund(st):
                     with st.expander('Flere detaljer · '+p['name']):
                         st.markdown(card('Produkt og vurdering',detail_lines(info)+[
                             ('Rang ved kjøp → nå',f'{p["rank_at_buy"]} → {p["rank_now"]}')]),unsafe_allow_html=True)
-                for o in model.get('orders',[]):
+                for o in ([] if selected in model.get('positions',{}) else model.get('orders',[])):
                     ident=resolve_identity(s,o)
                     st.markdown(card(ident.get('name') or o.get('isin') or o['id'], primary_identity_lines(ident)+development_lines(ident)+[
                         ('Risiko',number(ident.get('risk'),' av 7')),('Årlig kostnad',number(ident.get('cost_pct'),'%')),
@@ -165,7 +166,8 @@ def _render_superfund(st):
                             ('Tidligst behandling',date_label(o.get('next_at')))]),unsafe_allow_html=True)
                         render_development_chart(st,ident,chart_scope='portfolio_order')
                     if ident.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',ident['url'])
-                with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
+                if selected not in model.get('positions',{}):
+                  with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
                     for trade in model.get('trades',[])[-20:]:
                         st.write(trade['side']+' · '+trade.get('name',trade['id']))
                         st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
