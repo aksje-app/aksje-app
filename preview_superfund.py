@@ -1,5 +1,6 @@
 """Isolated Streamlit preview: no production storage, login, workers, or brokerage actions."""
 import io
+import math
 from datetime import datetime,timedelta,timezone
 import streamlit as st
 from superfund_risk_cards import sorted_risk_positions,risk_counts,status_palette
@@ -16,7 +17,7 @@ funds=[
     {"id":"br","name":"Eksempel Brasil UCITS ETF","stop_status":"NÆR STOPP","drop_from_peak_pct":2.82,"source":"DEMO: simulert landfordeling","country":"Brasil 62 %, annet 38 %","price":102.2},
     {"id":"hc","name":"Eksempel Global Health Care UCITS ETF USD Acc","stop_status":"ADVARSEL","drop_from_peak_pct":2.22,"source":"DEMO: simulert landfordeling","country":"USA 75 %, annet 25 %","price":98.3},
     {"id":"gl","name":"Eksempel Global Equity UCITS ETF med langt produktnavn for mobiltesting","stop_status":"NORMAL","drop_from_peak_pct":0.65,"source":"DEMO: simulert landfordeling","country":"USA 62 %, Europa 28 %, annet 10 %","price":108.7},
-    {"id":"en","name":"Eksempel Energy ETF","stop_status":"STOPP","drop_from_peak_pct":3.12,"source":"DEMO: simulert landfordeling","country":"Global 100 %","price":95.5},
+    {"id":"en","name":"Eksempel Energy ETF","stop_status":"STOPP","drop_from_peak_pct":3.12,"source":"DEMO: landfordeling ikke dokumentert","country":"Landfordeling er ukjent. Global er ikke en verifisert prosentfordeling.","price":95.5},
 ]
 st.session_state.setdefault("demo_sort","Risiko først")
 st.session_state.setdefault("demo_fund",None)
@@ -46,12 +47,25 @@ if st.session_state.demo_fund:
         counts={"1D":2,"1U":7,"1M":30,"YTD":180,"1Å":365,"3Å":1095,"5Å":1825}
         length=counts[frame]
         import pandas as pd
-        dates=[datetime.now(timezone.utc)-timedelta(days=length-i) for i in range(length+1)]
-        vals=[pos["price"]*(1+0.0004*i+0.014*((i%19)-9)/9) for i in range(length+1)]
-        st.line_chart(pd.DataFrame({"DEMO NOK":vals},index=dates))
+        # Synthetic irregular trend with several rises and pullbacks, never real NAV.
+        # Use market-like business dates and do not fabricate intraday precision.
+        n=max(2, int(length*5/7))
+        dates=pd.bdate_range(end=pd.Timestamp.now(tz="UTC"),periods=n)
+        vals=[]
+        value=float(pos["price"])
+        for i in range(n):
+            step=0.0018*math.sin(i*0.31+1.4)+0.0022*math.sin(i*1.67)-0.0009*math.cos(i*0.06)
+            if i>n*.72 and i<n*.79: step-=0.005
+            if i>n*.89: step+=0.0015
+            value*=1+step
+            vals.append(round(value,3))
+        st.caption("Kun illustrasjon: uregelmessig syntetisk kursutvikling. Virkelige fondsgrafer viser bare dokumenterte kursdatoer.")
+        chart=pd.DataFrame({"DEMO NOK":vals},index=dates)
+        st.line_chart(chart,height=280)
+        st.caption(f"DEMO laveste: {min(vals):.2f} NOK · høyeste: {max(vals):.2f} NOK · endring: {(vals[-1]/vals[0]-1)*100:+.2f} %")
         st.download_button("PDF · lagre, skriv ut eller del (DEMO)",pdf_for(pos),file_name="superfond_demo.pdf",mime="application/pdf",use_container_width=True)
         with st.expander("Vis risikogrunnlag / landfordeling"):
-            st.write(pos["country"]);st.caption(pos["source"])
+            st.markdown("**Landfordeling:** "+pos["country"]);st.caption("Datagrunnlag: "+pos["source"]);st.info("Toppfall viser hvor mye siste modellkurs er under høyeste registrerte kurs siden kjøp. STOPP/ADVARSEL er modellstatus, ikke garanti for faktisk utførelse.")
 else:
     counts=risk_counts(funds)
     st.markdown("**"+ " · ".join(f"{counts[k]} {k.lower()}" for k in ("STOPP","NÆR STOPP","ADVARSEL","NORMAL"))+"**")
