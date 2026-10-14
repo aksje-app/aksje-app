@@ -43,7 +43,7 @@ def render_overview(st, snapshot):
     table = pd.DataFrame([{"Fond/ETF":r["name"],"Land/region":r["country"],"Sektor/kategori":r["sector"],
                            "Verdi NOK":round(r["value_nok"]),"Andel %":round(r["weight_pct"],2),
                            "Resultat NOK":round(r["pnl_nok"]),"Siden kjøp %":round(r["pnl_pct"],2) if r["pnl_pct"] is not None else None} for r in ordered])
-    st.dataframe(table,hide_index=True,use_container_width=True)
+    st.dataframe(table,hide_index=True,width='stretch')
     st.caption("Trykk på fondets detaljer nedenfor for kursgraf og kjøpsinformasjon.")
     # This widget is already rendered inside the parent Portefølje expander:
     # do not nest Streamlit expanders, which breaks the surrounding menu tree.

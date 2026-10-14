@@ -17,7 +17,7 @@ def render_table(
     """Single compatibility wrapper for read-only tabular output."""
     kwargs: dict[str, Any] = {
         "hide_index": hide_index,
-        "use_container_width": use_container_width,
+        "width": "stretch" if use_container_width else "content",
     }
     if key:
         kwargs["key"] = key

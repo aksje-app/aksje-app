@@ -90,7 +90,7 @@ def pdf_for(pos, period, dates, prices):
 if st.session_state.demo_fund:
     pos=next((p for p in funds if p["id"]==st.session_state.demo_fund),None)
     if pos:
-        if st.button("← Tilbake til fondsliste",use_container_width=True):
+        if st.button("← Tilbake til fondsliste",width='stretch'):
             st.session_state.demo_fund=None
             st.rerun()
         st.subheader(pos["name"])
@@ -120,9 +120,9 @@ if st.session_state.demo_fund:
             y=alt.Y('DEMO NOK:Q',title='Kurs NOK',scale=alt.Scale(zero=False)),
             tooltip=[alt.Tooltip('Dato:T',format='%d.%m.%Y'),alt.Tooltip('DEMO NOK:Q',format='.2f')]
         ).properties(height=280)
-        st.altair_chart(plot,use_container_width=True)
+        st.altair_chart(plot,width='stretch')
         st.caption(f"DEMO laveste: {min(vals):.2f} NOK · høyeste: {max(vals):.2f} NOK · endring: {(vals[-1]/vals[0]-1)*100:+.2f} %")
-        st.download_button("PDF · lagre, skriv ut eller del (DEMO)",pdf_for(pos,frame,dates,vals),file_name="superfond_demo.pdf",mime="application/pdf",use_container_width=True)
+        st.download_button("PDF · lagre, skriv ut eller del (DEMO)",pdf_for(pos,frame,dates,vals),file_name="superfond_demo.pdf",mime="application/pdf",width='stretch')
         with st.expander("Vis risikogrunnlag / landfordeling"):
             st.markdown("**Landfordeling:** "+pos["country"]);st.caption("Datagrunnlag: "+pos["source"]);st.info("Toppfall viser hvor mye siste modellkurs er under høyeste registrerte kurs siden kjøp. STOPP/ADVARSEL er modellstatus, ikke garanti for faktisk utførelse.")
 else:
@@ -139,6 +139,6 @@ else:
             st.caption("Tallene er fiktive – viser hvordan kildens faktisk rapporterte prosentandeler skal presenteres.")
             st.caption("Kilde: "+pos["source"])
             st.info("Fall fra topp er forskjellen fra høyeste registrerte kurs til siste modellkurs. Det er ikke fondets totale avkastning. Ukjent landfordeling skal vises som ukjent, ikke som 100 % i et land.")
-        if st.button("Åpne fondsanalyse · "+pos["name"],key="demo_open_"+pos["id"],use_container_width=True):
+        if st.button("Åpne fondsanalyse · "+pos["name"],key="demo_open_"+pos["id"],width='stretch'):
             st.session_state.demo_fund=pos["id"];st.rerun()
 st.caption("PR #80 · isolert visningsdemo. Det er ikke koblet til aksje-app sin ordinære app, lagring eller bakgrunnsjobber.")
