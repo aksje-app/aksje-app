@@ -72,6 +72,31 @@ def country_candidates(snapshot):
     return candidate_views(snapshot.get('candidates',[]))['country_candidates']
 
 
+def short_trend_from_observations(observations):
+    """Changes over prior distinct trading dates. Never manufacture missing NAV days."""
+    by_date = {}
+    for o in observations or []:
+        try:
+            day=str(o.get('price_at',''))[:10]
+            price=float(o.get('nok_price'))
+            if len(day)==10 and price>0 and price==price:
+                by_date[day]=price
+        except (TypeError,ValueError,OverflowError):
+            continue
+    days=sorted(by_date)
+    out={'quote_date': days[-1] if days else None, 'observed_days': len(days)}
+    for period in (1,2,3,5):
+        out['last_'+str(period)+'_sessions_pct'] = (
+            round((by_date[days[-1]]/by_date[days[-1-period]]-1)*100,2)
+            if len(days)>period else None)
+    if len(days)>=2:
+        recent=[by_date[d] for d in days[max(0,len(days)-6):]]
+        out['recent_peak_distance_pct']=round((by_date[days[-1]]/max(recent)-1)*100,2)
+    else:
+        out['recent_peak_distance_pct']=None
+    return out
+
+
 def notification_batch(events, limit=1000):
     """Whole fund blocks within Pushover's limit; remaining events stay queued."""
     header='SUPERFOND · MODELLHANDEL\nKandidatvarsler er ingen reell kjøpsordre.'
@@ -83,6 +108,15 @@ def notification_batch(events, limit=1000):
             block+='\nSiste uke: '+number(event['returns'].get('yield_1w'),'%')
             block+=' · '+dict(identity_lines(event))['Avkastningsvaluta']
             block+='\nInvesteringsområde: '+investment_focus(event)
+            trend=event.get('short_trend') or {}
+            if trend:
+                measures=[]
+                for n in (1,2,3):
+                    value=trend.get('last_'+str(n)+'_sessions_pct')
+                    if value is not None: measures.append(str(n)+' handelsdager '+f'{value:+.2f}%')
+                block+='\nSiste kursdager: '+(' · '.join(measures) if measures else 'ikke tilstrekkelig NAV-historikk')
+                if trend.get('recent_peak_distance_pct') is not None:
+                    block+='\nFra kortsiktig topp: '+f"{trend['recent_peak_distance_pct']:+.2f}%"
             block+='\nKursgrunnlag: '+date_label(event.get('price_at'))
         if event.get('reason'):block+='\n'+str(event['reason'])[:250]
         # One pathological old event must not permanently block delivery.
