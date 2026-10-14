@@ -1,6 +1,6 @@
-from norwegian_report_language import sector_label
 """Streamlit renderer for Super Portfolio RC16.32l."""
 from __future__ import annotations
+from norwegian_report_language import sector_label
 from portfolio_evidence import classification, rank_text, score_text, retention_explanation
 
 
