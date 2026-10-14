@@ -20,9 +20,9 @@ def test_stop_alert_displays_model_fill_separately():
     assert '2026-10-14T17:50:16+00:00' in text
     assert 'ingen faktisk børsutførelse' in text
 
-def test_known_ticker_metadata_fills_missing_provider_sector():
+def test_verified_company_description_preferred_to_generic_sector():
     x=classification({'ticker':'ATCO-B.ST','sector':'Ukjent'})
-    assert x['industry']=='Sektor: Industrials'
+    assert x['industry']=='Industrielt utstyr'
     assert x['classification_source'].startswith('https://www.atlascopcogroup.com')
 
 def test_verified_business_fallback_for_all_six_held_tickers():
