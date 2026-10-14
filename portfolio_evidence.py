@@ -93,6 +93,12 @@ def stop_alert_text(alerts) -> str:
         margin = "ukjent" if fall is None else f"{max(0, fall):.2f}%"
         if fall is not None and fall <= 0:
             margin = "salgsgrensen er nådd/passert"
+        fill_info = []
+        if action == "SHADOW SELL UTFØRT":
+            fill = row.get("shadow_exit_price")
+            fill_info.append(f"Simulert salgskurs {float(fill):.2f}" if fill is not None else "Simulert salgskurs: ikke dokumentert")
+            fill_info.append(f"Registrert salg: {row.get('shadow_exit_at') or 'tidspunkt mangler'}")
+            fill_info.append("Skyggeordre – ingen faktisk børsutførelse")
         blocks.append("\n".join([
             f"{row.get('ticker') or '-'}: {headline}",
             f"Eid i {ownership_duration(row.get('entry_date'))}",
@@ -101,6 +107,7 @@ def stop_alert_text(alerts) -> str:
             f"Salgsgrense {stop:.2f} · status {row.get('to') or '-'}",
             f"Mulig kursfall før salgsgrensen nås: {margin}",
             f"Beregnet gevinst/tap ved salgsgrensen: {stop_result}",
+            *fill_info,
         ]))
     blocks.append("Gevinstbeskyttelse aktiveres ved minst +2% registrert toppgevinst. En andel av toppgevinsten beholdes; ellers maks trailing stop 3%. Salgsgrensen er en utløser, ikke garantert salgskurs. Kostnader kommer i tillegg.")
     return "\n\n".join(blocks)
