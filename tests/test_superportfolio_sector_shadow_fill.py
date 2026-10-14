@@ -19,3 +19,8 @@ def test_stop_alert_displays_model_fill_separately():
     assert 'Simulert salgskurs 152.96' in text
     assert '2026-10-14T17:50:16+00:00' in text
     assert 'ingen faktisk børsutførelse' in text
+
+def test_known_ticker_metadata_fills_missing_provider_sector():
+    x=classification({'ticker':'ATCO-B.ST','sector':'Ukjent'})
+    assert x['industry']=='Sektor: Industrials'
+    assert x['classification_source']=='CURATED_TICKER_METADATA'
