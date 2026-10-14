@@ -61,7 +61,14 @@ if st.session_state.demo_fund:
             vals.append(round(value,3))
         st.caption("Kun illustrasjon: uregelmessig syntetisk kursutvikling. Virkelige fondsgrafer viser bare dokumenterte kursdatoer.")
         chart=pd.DataFrame({"DEMO NOK":vals},index=dates)
-        st.line_chart(chart,height=280)
+        import altair as alt
+        points=chart.reset_index().rename(columns={'index':'Dato'})
+        plot=alt.Chart(points).mark_line(strokeWidth=1.5,interpolate='linear').encode(
+            x=alt.X('Dato:T',title='Kursdato',axis=alt.Axis(format='%b %Y')),
+            y=alt.Y('DEMO NOK:Q',title='Kurs NOK',scale=alt.Scale(zero=False)),
+            tooltip=[alt.Tooltip('Dato:T',format='%d.%m.%Y'),alt.Tooltip('DEMO NOK:Q',format='.2f')]
+        ).properties(height=280)
+        st.altair_chart(plot,use_container_width=True)
         st.caption(f"DEMO laveste: {min(vals):.2f} NOK · høyeste: {max(vals):.2f} NOK · endring: {(vals[-1]/vals[0]-1)*100:+.2f} %")
         st.download_button("PDF · lagre, skriv ut eller del (DEMO)",pdf_for(pos),file_name="superfond_demo.pdf",mime="application/pdf",use_container_width=True)
         with st.expander("Vis risikogrunnlag / landfordeling"):
@@ -76,7 +83,10 @@ else:
         accent,bg=status_palette(pos["stop_status"])
         st.markdown(f'<div class="sf-risk-card" style="border-left:5px solid {accent};background:{bg}"><div class="sf-risk-name">{escape(pos["name"])}</div><div class="sf-risk-status" style="color:{accent}">● {escape(pos["stop_status"])}</div><div class="sf-risk-drop">{pos["drop_from_peak_pct"]:.2f} % under registrert topp</div></div>',unsafe_allow_html=True)
         with st.expander("Vis risikogrunnlag / landfordeling · "+pos["name"]):
-            st.write(pos["country"]);st.caption(pos["source"])
+            st.markdown("**Eksempel på landfordeling:** "+pos["country"])
+            st.caption("Tallene er fiktive – viser hvordan kildens faktisk rapporterte prosentandeler skal presenteres.")
+            st.caption("Kilde: "+pos["source"])
+            st.info("Fall fra topp er forskjellen fra høyeste registrerte kurs til siste modellkurs. Det er ikke fondets totale avkastning. Ukjent landfordeling skal vises som ukjent, ikke som 100 % i et land.")
         if st.button("Åpne fondsanalyse · "+pos["name"],key="demo_open_"+pos["id"],use_container_width=True):
             st.session_state.demo_fund=pos["id"];st.rerun()
 st.caption("PR #80 · isolert visningsdemo. Det er ikke koblet til aksje-app sin ordinære app, lagring eller bakgrunnsjobber.")
