@@ -96,11 +96,11 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
             with col:
                 label=f'{_NAV_ICONS.get(item.slug, "•")}\n{item.label}'
                 if item.slug == "more":
-                    if st_module.button(label, key="aa_mobile_nav_more", use_container_width=True):
+                    if st_module.button(label, key="aa_mobile_nav_more", width='stretch'):
                         st_module.session_state["aa_mobile_more_open"] = not bool(st_module.session_state.get("aa_mobile_more_open"))
                         st_module.rerun()
                 else:
-                    st_module.button(label, key=f"aa_mobile_nav_{item.slug}", use_container_width=True,
+                    st_module.button(label, key=f"aa_mobile_nav_{item.slug}", width='stretch',
                                      on_click=_navigate, args=(_LEGACY_TARGETS[item.slug],))
 
     if st_module.session_state.get("aa_mobile_more_open"):
@@ -109,9 +109,9 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
             extra_cols=st_module.columns(2, gap="small")
             for idx,item in enumerate(MORE_ROUTES):
                 with extra_cols[idx % 2]:
-                    st_module.button(item.label, key=f"aa_mobile_more_{item.slug}", use_container_width=True,
+                    st_module.button(item.label, key=f"aa_mobile_more_{item.slug}", width='stretch',
                                      on_click=_navigate, args=(_LEGACY_TARGETS[item.slug],))
-            if st_module.button("Lukk", key="aa_mobile_more_close", use_container_width=True):
+            if st_module.button("Lukk", key="aa_mobile_more_close", width='stretch'):
                 st_module.session_state["aa_mobile_more_open"] = False
                 st_module.rerun()
     return current
