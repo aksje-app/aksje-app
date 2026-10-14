@@ -1,3 +1,4 @@
+from norwegian_report_language import sector_label
 """Streamlit renderer for Super Portfolio RC16.32l."""
 from __future__ import annotations
 from portfolio_evidence import classification, rank_text, score_text, retention_explanation
@@ -508,7 +509,7 @@ def render_super_portfolio(_legacy_context) -> None:
                 "Data":f"{fr.get('icon','⚪')} {fr.get('status','-')}",
             })
             technical_rows.append({
-                "Aksje":ticker,"Bransje":classification(pos)["industry"],"Sektor":pos.get("sector"),"Stop":f"{pos.get('stop_icon','')} {pos.get('stop_status','')}",
+                "Aksje":ticker,"Bransje":classification(pos)["industry"],"Sektor":sector_label(pos.get("sector")),"Stop":f"{pos.get('stop_icon','')} {pos.get('stop_status','')}",
                 "Press":f"{pos.get('stop_pressure_icon','')} {pos.get('stop_pressure','')} {pos.get('stop_direction_arrow','→')}",
                 "Fra topp %":pos.get("drawdown_from_peak_pct"),"Stopkurs":pos.get("hard_stop_price"),
                 "AI-score":round(score,1),"Rank ved kjøp → nå":rank_text(pos),"AI ved kjøp → nå":score_text(pos),"Beste rank siden kjøp":pos.get("best_rank_since_entry"),
