@@ -138,7 +138,8 @@ def _render_superfund(st):
                                 if rows:
                                     st.dataframe([{'Navn':x.get('displayName') or x.get('name') or x.get('exposureType'),'Andel %':x.get('weight'),'Kilde':selected_position.get('regions_verified_at') if field!='holdings' else None} for x in rows],hide_index=True,use_container_width=True)
                                 else: st.info('Ikke dokumentert i siste fondsdata.')
-                st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
+                if selected not in model.get('positions',{}):
+                    st.write(f"Kontanter: NOK {model.get('cash',config()['capital_nok']):,.0f}")
                 for p in ([] if selected in model.get('positions',{}) else model.get('positions',{}).values()):
                     info=resolve_identity(s,p)
                     value=p['quantity']*p['last_nok'];result=value-p['cost_nok']
@@ -167,11 +168,11 @@ def _render_superfund(st):
                         render_development_chart(st,ident,chart_scope='portfolio_order')
                     if ident.get('url','').startswith('https://'):st.link_button('Åpne hos Nordnet',ident['url'])
                 if selected not in model.get('positions',{}):
-                  with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
-                    for trade in model.get('trades',[])[-20:]:
-                        st.write(trade['side']+' · '+trade.get('name',trade['id']))
-                        st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
-                        st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
+                    with st.expander('Hvorfor kjøpt eller solgt · siste modellhandler'):
+                        for trade in model.get('trades',[])[-20:]:
+                            st.write(trade['side']+' · '+trade.get('name',trade['id']))
+                            st.caption(trade.get('reason','Begrunnelse mangler i eldre data'))
+                            st.caption('Beslutning: '+trade.get('requested_at','')+' · modellutførelse: '+trade.get('executed_at',''))
             elif title=='Kandidater':
                 st.subheader('Topp 25 · grunnkrav oppfylt')
                 st.caption(RANKING_NOTE)
