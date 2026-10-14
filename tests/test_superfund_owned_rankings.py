@@ -10,7 +10,7 @@ def test_current_scores_recomputed_not_frozen():
     assert result["a"]["score_now"]==pytest.approx(1.7)
     assert result["b"]["score_now"]==pytest.approx(2.9)
     assert result["b"]["owned_rank"]==1
-    assert result["a"]["return_pct"]==10
+    assert result["a"]["return_pct"]==pytest.approx(10)
     assert result["a"]["score_at_buy"]==99
 
 def test_missing_quotes_do_not_inherit_purchase_score():
