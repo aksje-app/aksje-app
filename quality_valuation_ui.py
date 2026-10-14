@@ -538,7 +538,7 @@ def _render_quality_report_choices(st: Any, result: Mapping[str, Any]) -> None:
                 "kvalitet_verdsettelse.pdf",
                 "application/pdf",
                 key="qv_pdf_fallback",
-                use_container_width=True,
+                width='stretch',
             )
             if extended_pdf is not None:
                 st.download_button(
@@ -547,7 +547,7 @@ def _render_quality_report_choices(st: Any, result: Mapping[str, Any]) -> None:
                     "kvalitet_utvidet_analyse.pdf",
                     "application/pdf",
                     key="qv_extended_pdf_fallback",
-                    use_container_width=True,
+                    width='stretch',
                 )
             st.download_button(
                 "Diagnose",
@@ -555,7 +555,7 @@ def _render_quality_report_choices(st: Any, result: Mapping[str, Any]) -> None:
                 "kvalitet_verdsettelse_diagnose.json",
                 "application/json",
                 key="qv_diagnosis_fallback",
-                use_container_width=True,
+                width='stretch',
             )
 
 
