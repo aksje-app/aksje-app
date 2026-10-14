@@ -214,7 +214,7 @@ def _file_landing_actions(static_url: str, *, return_href: str, return_label: st
 
 
 def _return_to_report_choices(st, return_to: str) -> None:
-    if st.button(_return_label(return_to), key="public_file_back", use_container_width=True):
+    if st.button(_return_label(return_to), key="public_file_back", width='stretch'):
         st.query_params.clear()
         for key, value in _return_query(return_to).items():
             st.query_params[key] = value
@@ -275,7 +275,7 @@ def _render_in_app_file(st, artifact: dict, *, return_to: str, static_url: str) 
             file_name=filename,
             mime=mime,
             key="public_file_download",
-            use_container_width=True,
+            width='stretch',
         )
 
 
