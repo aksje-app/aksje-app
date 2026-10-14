@@ -12,7 +12,7 @@ def test_top15_queues_sell_without_confirmation_wait():
     s=_held()
     rows=[item(day='2026-11-04',week=2)]+[
         item('NO000000%04d:78'%i,day='2026-11-04',week=5-i*.01)
-        for i in range(1,17)]
+        for i in range(2,18)]
     s,_=step(s,rows,'2026-11-04')
     sells=[o for o in s['orders'] if o['side']=='SELL']
     assert len(sells)==1
@@ -26,7 +26,7 @@ def test_no_rotation_without_qualified_better_candidate():
     s=_held()
     rows=[item(day='2026-11-04',week=2)]+[
         item('NO000000%04d:78'%i,day='2026-11-04',week=5-i*.01,risk=7)
-        for i in range(1,17)]
+        for i in range(2,18)]
     s,_=step(s,rows,'2026-11-04')
     assert not [o for o in s['orders'] if o['side']=='SELL']
 
@@ -34,6 +34,6 @@ def test_buy_hold_never_rotates():
     s=_held()
     rows=[item(day='2026-11-04',week=2)]+[
         item('NO000000%04d:78'%i,day='2026-11-04',week=5-i*.01)
-        for i in range(1,17)]
+        for i in range(2,18)]
     s,_=e.cycle(s,rows,'2026-11-04T15:00:00+00:00',buy_hold=True)
     assert not [o for o in s['orders'] if o['side']=='SELL']
