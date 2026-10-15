@@ -83,6 +83,8 @@ def diagnostic_zip(progress=None):
               'learning_observation_start':(snap.get('learning') or {}).get('paired_start'),
               'shadow_names':sorted((snap.get('shadows') or {}).keys()),
               'shadow_comparison_available':bool((snap.get('learning') or {}).get('paired_start')),
+              'timestamp_quality':{'snapshot_at_present':bool(snap.get('at')),
+                                   'paired_start_present':bool((snap.get('learning') or {}).get('paired_start'))},
               'evidence_type':'SAVED_SNAPSHOT_ONLY',
               'warning':'Rullerende kurshistorikk er ikke det samme som utvikling etter signalstart.'}
     entries=[('decision_timeline.json',timeline),('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger)]
