@@ -16,3 +16,7 @@ def test_rotation_evidence_present_in_diagnostic_zip():
         for name in ('rotation_controls.json','rotation_shadow.json','rotation_comparison.json','challenger_report.json'):
             assert name in z.namelist()
         assert json.loads(z.read('rotation_controls.json'))['trade_execution_enabled'] is False
+        timeline=json.loads(z.read('decision_timeline.json'))
+        assert timeline['snapshot_at']=='2026-10-14T12:00:00Z'
+        assert timeline['evidence_type']=='SAVED_SNAPSHOT_ONLY'
+        assert timeline['shadow_names']==[]
