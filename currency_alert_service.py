@@ -528,6 +528,21 @@ def _run_currency_alert_checks_locked(
             "next_alert_allowed_at": next_alert_allowed.isoformat() if next_alert_allowed else None,
         })
 
+    # Separate rolling percentage signals; manual limit alerts are unchanged.
+    try:
+        from fx_rolling_percent import evaluate as evaluate_fx_percent
+        for fx_row in results:
+            if fx_row.get("rate") is None or fx_row.get("status") in {"error", "disabled"}:
+                continue
+            if str(fx_row.get("symbol")) != "BRLNOK=X" or not notify:
+                continue
+            pct_result = evaluate_fx_percent(
+                settings, symbol=fx_row["symbol"], pair=fx_row["pair"],
+                rate=fx_row["rate"], sender=sender, now=now,
+            )
+            fx_row["percent_signal"] = pct_result
+    except Exception as exc:
+        _event("percent_fx_check_failed", error=str(exc)[:240])
     settings[STATE_KEY] = root
     save_settings(settings)
     _event("scanner_completed", run_id=run_id, checked=len(results), sent=sum(1 for r in results if r.get("sent")), source=source)
