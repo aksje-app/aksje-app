@@ -166,3 +166,14 @@ def test_super_portfolio_pdf_labels_missing_market_timestamps():
     assert "Tidsgrunnlag:" in pdf_text
     assert "Manglende tidspunkt" in pdf_text
     assert "Ikke bekreftet oppdatert" in pdf_text
+
+
+def test_super_portfolio_pdf_does_not_claim_live_prices_from_timestamps():
+    state = super_portfolio.default_state(super_portfolio.SuperPortfolioConfig())
+    state.update({"source_run_id": "TIMESTAMP-PRESENT-TEST",
+                  "last_assessment_snapshot_at": "2026-10-15T10:00:00+00:00",
+                  "last_full_assessment_at": "2026-10-15T10:05:00+00:00",
+                  "last_stop_surveillance_at": "2026-10-15T10:10:00+00:00"})
+    pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(super_portfolio.build_pdf(state))).pages)
+    assert "Alle tre tidspunkter registrert" in pdf_text
+    assert "Dette bekrefter ikke at kursene er sanntidskurser" in pdf_text
