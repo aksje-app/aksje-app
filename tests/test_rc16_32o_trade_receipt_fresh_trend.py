@@ -177,3 +177,11 @@ def test_super_portfolio_pdf_does_not_claim_live_prices_from_timestamps():
     pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(super_portfolio.build_pdf(state))).pages)
     assert "Alle tre tidspunkter registrert" in pdf_text
     assert "Dette bekrefter ikke at kursene er sanntidskurser" in pdf_text
+
+
+def test_portfolio_pdf_distinguishes_historical_trend_and_shadow_return():
+    state = super_portfolio.default_state(super_portfolio.SuperPortfolioConfig())
+    pdf_text = '\n'.join(page.extract_text() or '' for page in PdfReader(BytesIO(super_portfolio.build_pdf(state))).pages)
+    assert 'Historisk kursutvikling før et signal' in pdf_text
+    assert 'ikke avkastning etter signalstart' in pdf_text
+    assert 'shadow-/paper-porteføljen' in pdf_text
