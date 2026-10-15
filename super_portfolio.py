@@ -2780,6 +2780,16 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     story.append(Paragraph(f"NAV-sporing fra: {data.get('portfolio_tracking_started_at') or '-'}", styles["Normal"]))
     story.append(Paragraph(f"Sist fullstendig vurdert: {data.get('last_full_assessment_at') or 'ukjent'} · Sist stopkontrollert: {data.get('last_stop_surveillance_at') or 'ukjent'}", styles["Normal"]))
     story.append(Paragraph(f"Markedsgrunnlag fra: {data.get('last_assessment_snapshot_at') or 'ukjent'}", styles["Normal"]))
+    evidence_times = (
+        ("Markedsgrunnlag", data.get("last_assessment_snapshot_at")),
+        ("Full vurdering", data.get("last_full_assessment_at")),
+        ("Stopkontroll", data.get("last_stop_surveillance_at")),
+    )
+    missing_times = [label for label, value in evidence_times if not str(value or "").strip()]
+    story.append(Paragraph(
+        "Tidsgrunnlag: " + ("Manglende tidspunkt for " + ", ".join(missing_times) + ". Ikke bekreftet oppdatert." if missing_times else "Alle tre tidspunkter registrert. Dette bekrefter ikke at kursene er sanntidskurser."),
+        styles["Normal"],
+    ))
     story.append(Spacer(1, 6))
     health = data.get("portfolio_health") if isinstance(data.get("portfolio_health"), Mapping) else {}
     if health:
