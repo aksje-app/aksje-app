@@ -515,8 +515,13 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
             + (f"Kurs {price:.2f}" if price is not None else "Kurs -"))
     body += f" · {since_label} {_fmt_signed(changes.get('scan_price_amount'),2,' kr')}/{_fmt_signed(changes.get('scan_price_pct'),2,'%')}\n"
     body += f"\nRullerende kursutvikling frem til siste kurs: {horizon('1')} · {horizon('3')} · {horizon('5')}\n"
-    body += (f"Fra oppfolging startet {row.get('first_seen_at') or 'tidspunkt ukjent'}: "
-             f"startkurs {_fmt_signed(initial_price,2,' kr')} · "
+    start_at = str(row.get('first_seen_at') or '').strip()
+    try:
+        start_label = datetime.fromisoformat(start_at.replace('Z', '+00:00')).strftime('%d.%m.%Y kl. %H:%M %z') if start_at else 'tidspunkt ukjent'
+    except ValueError:
+        start_label = start_at or 'tidspunkt ukjent'
+    body += (f"Fra oppfølging startet {start_label}: "
+             f"startkurs {f'{initial_price:.2f} kr' if initial_price is not None else '-'} · "
              f"endring {_fmt_signed(signal_amount,2,' kr')}/{_fmt_signed(signal_pct,2,'%')}\n")
     if row.get("follow_up_complete"):
         body += f"Sluttstatus etter {FOLLOW_UP_SESSIONS} observerte børsdager: {row.get('status','UKJENT')}\n"
