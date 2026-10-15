@@ -28,5 +28,10 @@ def test_rotation_evidence_present_in_diagnostic_zip():
         assert timeline['learning_records_present'] is False
         assert timeline['rotation_observations'] == 1
         assert timeline['rotation_measured_pairs'] == 1
+        assert timeline['shadow_comparison_available'] is True
+        assert timeline['learning_baseline_available'] is False
+        assert timeline['evidence_quality']['learning'] == 'BASELINE_MISSING'
+        assert timeline['evidence_quality']['shadow'] == 'MEASURED_PAIRS_RECORDED'
+        assert timeline['evidence_quality']['validation'] == 'NOT_VERIFIED_BY_EXPORT'
     assert read_calls.count('snapshot.json') == 1
     assert 'decision_timeline.json' not in read_calls
