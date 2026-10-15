@@ -514,8 +514,15 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
             f"{exchange} · {country}\nFresh Trend-oppfølging: dag {row.get('follow_up_session','-')} av {FOLLOW_UP_SESSIONS} børsdager · signalalder {fs.get('trend_age_sessions', row.get('trend_age_sessions','-'))} økter\n"
             + (f"Kurs {price:.2f}" if price is not None else "Kurs -"))
     body += f" · {since_label} {_fmt_signed(changes.get('scan_price_amount'),2,' kr')}/{_fmt_signed(changes.get('scan_price_pct'),2,'%')}\n"
-    body += f"Historisk kursutvikling bakover: {horizon('1')} · {horizon('3')} · {horizon('5')}\n"
-    body += f"Utvikling siden signalstart: {_fmt_signed(signal_amount,2,' kr')}/{_fmt_signed(signal_pct,2,'%')}\n"
+    body += f"\nRullerende kursutvikling frem til siste kurs: {horizon('1')} · {horizon('3')} · {horizon('5')}\n"
+    start_at = str(row.get('first_seen_at') or '').strip()
+    try:
+        start_label = datetime.fromisoformat(start_at.replace('Z', '+00:00')).strftime('%d.%m.%Y kl. %H:%M %z') if start_at else 'tidspunkt ukjent'
+    except ValueError:
+        start_label = start_at or 'tidspunkt ukjent'
+    body += (f"Fra oppfølging startet {start_label}: "
+             f"startkurs {f'{initial_price:.2f} kr' if initial_price is not None else '-'} · "
+             f"endring {_fmt_signed(signal_amount,2,' kr')}/{_fmt_signed(signal_pct,2,'%')}\n")
     if row.get("follow_up_complete"):
         body += f"Sluttstatus etter {FOLLOW_UP_SESSIONS} observerte børsdager: {row.get('status','UKJENT')}\n"
     body += f"Score {path} · sist {float(c.get('Score delta') or 0):+.1f}\n"
@@ -537,7 +544,8 @@ def _batch_message(alerts: Sequence[Mapping[str, Any]]) -> tuple[str, str]:
     title = f"{'🔴' if counts[1] else '🟠' if counts[2] else '🟡'} {len(ordered)} NYE SIGNALER · PRIORITERT"
     lines = [f"P1 {counts[1]} · P2 {counts[2]} · P3 {counts[3]} · P4 {counts[4]}"]
     for index, item in enumerate(ordered[:8], 1):
-        lines.append(f"{index}. {item.get('ticker') or '-'} · {item.get('status') or 'UKJENT'} · {item.get('scope') or ''}")
+        lines.append(f"\n{index}. {item.get('ticker') or '-'} · {item.get('status') or 'UKJENT'} · {item.get('scope') or ''}")
+    lines.append("")
     lines.append("Åpne P1 først, deretter P2. Uendrede signaler er utelatt.")
     return title, "\n".join(lines)
 

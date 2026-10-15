@@ -77,7 +77,21 @@ def diagnostic_zip(progress=None):
                        'challenger_totals':challenger.get('totals',{}),
                        'data_status':'AVAILABLE' if rotation else 'AWAITING_FIRST_SNAPSHOT',
                        'note':'Observasjoner, ikke ordre eller validert nettoforbedring.'}
-    entries=[('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger)]
+    # Metadata only: reuse the loaded snapshot; no extra DB queries or shadow work.
+    timeline={'exported_at_utc':stamp,'snapshot_at':snap.get('at'),
+              'learning_status':checks.get('learning_status'),
+              'learning_observation_start':(snap.get('learning') or {}).get('paired_start'),
+              'shadow_names':sorted((snap.get('shadows') or {}).keys()),
+              'shadow_comparison_available':bool((snap.get('learning') or {}).get('paired_start')),
+              'shadow_records_present':bool(snap.get('shadows')),
+              'learning_records_present':bool(snap.get('learning')),
+              'rotation_observations':rotation.get('review_count',0),
+              'rotation_measured_pairs':comparison.get('measured_count',0),
+              'timestamp_quality':{'snapshot_at_present':bool(snap.get('at')),
+                                   'paired_start_present':bool((snap.get('learning') or {}).get('paired_start'))},
+              'evidence_type':'SAVED_SNAPSHOT_ONLY',
+              'warning':'Rullerende kurshistorikk er ikke det samme som utvikling etter signalstart.'}
+    entries=[('decision_timeline.json',timeline),('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger)]
     entries += [(name,read(name,{})) for name in ('job.json','request.json','capacity_watch.json','parameter_audit.json','risk_decisions.json','fx.json','news.json')]
     # Prioritise immutable learning/shadow evidence before catalogue bulk.
     paths=[f['key'][len(PREFIX):] for f in reversed(archive.get('frames',[])) if re.fullmatch(r'superfund/history/\d{4}-\d{2}-\d{2}\.json',f.get('key',''))]

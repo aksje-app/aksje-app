@@ -53,8 +53,13 @@ def fit_pushover_message(message, *, required_tail="", limit=PUSHOVER_MESSAGE_LI
         text = text[:-len(tail)].rstrip()
     lines = []
     for line in text.splitlines():
-        if not lines or line != lines[-1]:
-            lines.append(line)
+        # Preserve one blank separator between independent events. Deduplicate
+        # repeated nonempty lines without collapsing intentional whitespace.
+        if line == "" and lines and lines[-1] == "":
+            continue
+        if line and lines and line == lines[-1]:
+            continue
+        lines.append(line)
     suffix = ("\n" + tail) if tail else ""
     if len("\n".join(lines) + suffix) <= int(limit):
         return "\n".join(lines) + suffix

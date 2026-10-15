@@ -95,8 +95,9 @@ def test_fresh_trend_distinguishes_historical_returns_from_signal_follow_up():
     })
     assert title
     assert "Fresh Trend-oppfølging: dag 1 av 5 børsdager" in body
-    assert "Historisk kursutvikling bakover" in body
-    assert "Utvikling siden signalstart" in body
+    assert "Rullerende kursutvikling frem til siste kurs" in body
+    assert "Fra oppfølging startet tidspunkt ukjent" in body
+    assert "startkurs 132.00 kr" in body
 
 
 def test_super_portfolio_uses_canonical_version_and_plain_weight_language():
@@ -131,3 +132,27 @@ def test_postgres_trade_schema_preserves_delivery_and_entry_metadata():
     source = open(paper_store.__file__, encoding="utf-8").read()
     for column in ("exchange", "entry_score", "exit_score", "score_path", "trade_id"):
         assert f"ADD COLUMN IF NOT EXISTS {column}" in source
+
+
+def test_pushover_fit_keeps_blank_event_separator():
+    text = "Aksje A: ny hendelse\n\nAksje B: annen hendelse"
+    assert notifier.fit_pushover_message(text, limit=300) == text
+    assert "\n\n" in notifier.fit_pushover_message(text + "\n" + ("Ekstra informasjon\n" * 10), limit=115)
+
+
+def test_batch_alerts_separate_events_and_conclusion():
+    title, body = fresh._batch_message([
+        {"ticker": "AAA.OL", "priority_level": 2, "status": "AKSELERERER", "scope": "KANDIDAT"},
+        {"ticker": "BBB.OL", "priority_level": 1, "status": "MISTER MOMENT", "scope": "EID"},
+    ])
+    assert "2 NYE SIGNALER" in title
+    assert "\n\n1. BBB.OL" in body
+    assert "\n\n2. AAA.OL" in body
+    assert "\n\nÅpne P1" in body
+    assert "\n\n2. AAA.OL" in notifier.fit_pushover_message(body, limit=1024)
+
+
+def test_signal_followup_displays_readable_start_time():
+    title, body = fresh._message({'ticker': 'EXAMPLE.OL', 'first_seen_at': '2026-10-15T10:30:00+00:00', 'last_price': 101.0, 'initial_price': 100.0, 'components': {}, 'changes': {}, 'direction': {}})
+    assert '15.10.2026 kl. 10:30 +0000' in body
+    assert 'startkurs 100.00 kr' in body
