@@ -33,5 +33,10 @@ def test_rotation_evidence_present_in_diagnostic_zip():
         assert timeline['evidence_quality']['learning'] == 'BASELINE_MISSING'
         assert timeline['evidence_quality']['shadow'] == 'MEASURED_PAIRS_RECORDED'
         assert timeline['evidence_quality']['validation'] == 'NOT_VERIFIED_BY_EXPORT'
+        audit=timeline['improvement_audit']
+        assert timeline['roadmap_phase']=='FASE_1_LAERING_OG_SHADOW_REVISJON'
+        assert audit['implementation_confirmed'] is False
+        assert audit['audit_status']=='INCOMPLETE'
+        assert 'parameter_diff' in audit['required_evidence']
     assert read_calls.count('snapshot.json') == 1
     assert 'decision_timeline.json' not in read_calls
