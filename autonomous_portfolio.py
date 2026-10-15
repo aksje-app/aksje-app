@@ -1915,10 +1915,21 @@ def run_autonomous_cycle(
     for ticker, pos in list((portfolio.get("positions") or {}).items()):
         capital_cleanup["evaluated"] += 1
         candidate = candidate_map.get(ticker, {})
-        price = _candidate_price(candidate, pos)
+        # A held position's last/average price is valuation history, not new
+        # execution evidence. Without a fresh candidate quote, never create a
+        # simulated exit, alter score history or claim a new market mark.
+        if not candidate:
+            capital_cleanup["missing_price"] += 1
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                              "action": "HOLD", "reason_code": "NO_CURRENT_CANDIDATE",
+                              "reason": "Ingen oppdatert kandidatkurs; siste verdsetting beholdes uten modellhandel"})
+            continue
+        price = _candidate_price(candidate)
         if price <= 0:
             capital_cleanup["missing_price"] += 1
-            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "HOLD", "reason": "Mangler ny pris; eksisterende markering beholdes"})
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                              "action": "HOLD", "reason_code": "NO_CURRENT_MARKET_PRICE",
+                              "reason": "Mangler dokumentert kandidatkurs; siste verdsetting beholdes uten modellhandel"})
             continue
         pos["last_price"] = price
         pos["highest_price"] = max(_f(pos.get("highest_price"), price), price)
