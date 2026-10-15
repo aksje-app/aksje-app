@@ -462,6 +462,12 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["fresh_trend_monitor"] = {"state": "FAILED", "error": str(exc)[:500]}
 
+    try:
+        from autonomy_stop_watch import run_due_autonomy_stop_watch
+        state["autonomy_stop_watch"] = dict(run_due_autonomy_stop_watch() or {})
+    except Exception as exc:
+        state["autonomy_stop_watch"] = {"state": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+
     # Retry only delivery artifacts from an already stored run. Market scan,
     # Autonomy and learning are never repeated by this step.
     try:
