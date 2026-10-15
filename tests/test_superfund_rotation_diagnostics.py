@@ -24,5 +24,9 @@ def test_rotation_evidence_present_in_diagnostic_zip():
         assert timeline['shadow_names']==[]
         assert timeline['timestamp_quality']['snapshot_at_present'] is True
         assert timeline['timestamp_quality']['paired_start_present'] is False
+        assert timeline['shadow_records_present'] is False
+        assert timeline['learning_records_present'] is False
+        assert timeline['rotation_observations'] == 1
+        assert timeline['rotation_measured_pairs'] == 1
     assert read_calls.count('snapshot.json') == 1
     assert 'decision_timeline.json' not in read_calls
