@@ -38,5 +38,8 @@ def test_rotation_evidence_present_in_diagnostic_zip():
         assert audit['implementation_confirmed'] is False
         assert audit['audit_status']=='INCOMPLETE'
         assert 'parameter_diff' in audit['required_evidence']
+        performance=timeline['learning_vs_performance']
+        assert performance['technical_run_success_is_strategy_validation'] is False
+        assert performance['strategy_profitability_verified_by_export'] is False
     assert read_calls.count('snapshot.json') == 1
     assert 'decision_timeline.json' not in read_calls
