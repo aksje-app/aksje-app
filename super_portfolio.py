@@ -1057,7 +1057,12 @@ def _verified_next_session_open(row: Mapping[str, Any], pending: dict[str, Any],
     # Synthetic/frozen replay candidates keep their original recorded fills.
     # Real market-scan candidates must pass live session verification.
     candidate = row.get("raw_candidate") if isinstance(row.get("raw_candidate"), Mapping) else row
-    if str(candidate.get("source") or "") != "Super Portfolio independent market universe":
+    source = str(candidate.get("source") or "").strip()
+    # Explicit alternative live sources must not bypass next-session checks.
+    # Keep only source-less legacy replay fixtures on their existing path.
+    if source and source != "Super Portfolio independent market universe":
+        return ["ENTRY_SOURCE_UNVERIFIED"], 0.0
+    if not source:
         return [], 0.0
     aliases = {"SE": "SVERIGE", "NO": "NORGE", "US": "USA", "BR": "BRASIL"}
     market = aliases.get(str(row.get("market") or row.get("country") or "").upper(), str(row.get("market") or row.get("country") or "").upper())
