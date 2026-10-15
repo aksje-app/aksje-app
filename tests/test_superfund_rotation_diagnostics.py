@@ -7,7 +7,9 @@ def test_rotation_evidence_present_in_diagnostic_zip():
               'rotation_shadow':{'mode':'SHADOW_ONLY','review_count':1,'candidates':[]},
               'rotation_comparison':{'mode':'SHADOW_ONLY','measured_count':1,'pairs':{}},
               'challenger_report':{'totals':{'evaluated':5},'rows':[]}}
+    read_calls=[]
     def fake_read(name,default=None):
+        read_calls.append(name)
         if name=='snapshot.json':return snapshot
         return {} if default is None else default
     with patch('superfund_runtime.read',side_effect=fake_read),patch('superfund_runtime.config',return_value={}):
@@ -22,3 +24,5 @@ def test_rotation_evidence_present_in_diagnostic_zip():
         assert timeline['shadow_names']==[]
         assert timeline['timestamp_quality']['snapshot_at_present'] is True
         assert timeline['timestamp_quality']['paired_start_present'] is False
+    assert read_calls.count('snapshot.json') == 1
+    assert 'decision_timeline.json' not in read_calls
