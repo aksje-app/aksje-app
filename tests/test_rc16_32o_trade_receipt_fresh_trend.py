@@ -95,8 +95,9 @@ def test_fresh_trend_distinguishes_historical_returns_from_signal_follow_up():
     })
     assert title
     assert "Fresh Trend-oppfølging: dag 1 av 5 børsdager" in body
-    assert "Historisk kursutvikling bakover" in body
-    assert "Utvikling siden signalstart" in body
+    assert "Rullerende kursutvikling frem til siste kurs" in body
+    assert "Fra oppfolging startet tidspunkt ukjent" in body
+    assert "startkurs +132.00 kr" in body
 
 
 def test_super_portfolio_uses_canonical_version_and_plain_weight_language():
