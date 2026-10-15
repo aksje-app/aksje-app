@@ -2966,7 +2966,12 @@ def run_lightweight_stop_surveillance(
     for ticker, old in previous.items():
         quote = dict(prices.get(ticker) or {})
         current_price = _f(quote.get("last_price"))
-        if current_price <= 0:
+        # Historical daily closes are not proof of a new price observation.
+        # Fail closed for same-day stop execution when today's market bar is
+        # absent; the old valuation stays visible but is not a fresh fill.
+        quote_session = str(quote.get("session_date") or "")[:10]
+        market_session = reference.date().isoformat()
+        if current_price <= 0 or quote_session != market_session:
             positions[ticker] = old
             continue
         pos = dict(old)

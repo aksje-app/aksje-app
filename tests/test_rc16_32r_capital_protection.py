@@ -186,7 +186,7 @@ def test_lightweight_surveillance_executes_and_notifies_confirmed_exit() -> None
         "PROFIT_PROTECT_TRIGGER_PCT": 2.0, "PROFIT_RETENTION_2_3_PCT": 40.0,
         "PROFIT_RETENTION_3_5_PCT": 55.0, "PROFIT_RETENTION_5_8_PCT": 65.0,
         "PROFIT_RETENTION_8_PLUS_PCT": 70.0, "PROFIT_EXIT_WATCH_BUFFER_PCT": 0.50,
-        "_coarse_market_snapshot": lambda tickers, market: {"VLO": {"last_price": 107.0}},
+        "_coarse_market_snapshot": lambda tickers, market: {"VLO": {"last_price": 107.0, "session_date": "2026-09-23"}},
         "load_state": lambda: {}, "save_state": lambda value: saved.append(dict(value)),
         "append_event": lambda *args, **kwargs: None, "AUDIT_KEY": "audit", "AUDIT_PATH": "audit.jsonl",
         "_now": lambda: "2026-09-23T12:00:00+00:00",
