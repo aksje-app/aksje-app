@@ -171,7 +171,12 @@ jobs:
 
           BASE_REF="${{ github.base_ref }}"
           if [ -z "$BASE_REF" ]; then BASE_REF="main"; fi
-          git fetch origin "$BASE_REF" --depth=1 || true
+          # Keep full history: a depth=1 fetch can destroy the merge base.
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            git fetch --unshallow origin
+          fi
+          git fetch origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          git merge-base "origin/$BASE_REF" HEAD >/dev/null
           git diff --name-only "origin/$BASE_REF"...HEAD > dist/changed_files_all.txt
 
           grep -E '(\.py$|^render\.yaml$)' dist/changed_files_all.txt \
