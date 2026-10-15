@@ -132,3 +132,9 @@ def test_postgres_trade_schema_preserves_delivery_and_entry_metadata():
     source = open(paper_store.__file__, encoding="utf-8").read()
     for column in ("exchange", "entry_score", "exit_score", "score_path", "trade_id"):
         assert f"ADD COLUMN IF NOT EXISTS {column}" in source
+
+
+def test_pushover_fit_keeps_blank_event_separator():
+    text = "Aksje A: ny hendelse\n\nAksje B: annen hendelse"
+    assert notifier.fit_pushover_message(text, limit=300) == text
+    assert "\n\n" in notifier.fit_pushover_message(text + "\n" + ("Ekstra informasjon\n" * 10), limit=115)
