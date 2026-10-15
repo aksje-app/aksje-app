@@ -14,6 +14,10 @@ def run(monkeypatch, *, position_value=1000, max_positions=30, omit=None):
         'opened_at': '2026-10-08T10:00:00+00:00', 'marker': 'preserve'}
     portfolio = {'cash': 100000 - position_value, 'positions': {'AAA': position},
         'status': 'ACTIVE', 'high_watermark': 100000, 'initial_cash': 100000}
+    # Fixed historical time: accounting assertions must not expire into the
+    # unrelated 5-day cash-exit policy as the wall clock advances.
+    from datetime import datetime, timezone
+    monkeypatch.setattr(ap, '_clock', lambda tz=None: datetime(2026, 10, 9, 15, tzinfo=timezone.utc))
     monkeypatch.setattr(ap, 'load_parameters', lambda: params)
     monkeypatch.setattr(ap, 'load_portfolio', lambda: deepcopy(portfolio))
     monkeypatch.setattr(ap, 'load_learning_portfolio', lambda: {'positions': {}, 'cash': 0})
