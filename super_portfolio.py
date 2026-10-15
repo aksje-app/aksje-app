@@ -2778,6 +2778,7 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
         styles["Heading2"],
     ))
     story.append(Paragraph(f"NAV-sporing fra: {data.get('portfolio_tracking_started_at') or '-'}", styles["Normal"]))
+    story.append(Paragraph("Tolkning: Historisk kursutvikling før et signal er ikke avkastning etter signalstart. NAV-sporing gjelder shadow-/paper-porteføljen, ikke dokumentert realisert avkastning.", styles["Normal"]))
     story.append(Paragraph(f"Sist fullstendig vurdert: {data.get('last_full_assessment_at') or 'ukjent'} · Sist stopkontrollert: {data.get('last_stop_surveillance_at') or 'ukjent'}", styles["Normal"]))
     story.append(Paragraph(f"Markedsgrunnlag fra: {data.get('last_assessment_snapshot_at') or 'ukjent'}", styles["Normal"]))
     evidence_times = (
