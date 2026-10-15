@@ -156,3 +156,13 @@ def test_signal_followup_displays_readable_start_time():
     title, body = fresh._message({'ticker': 'EXAMPLE.OL', 'first_seen_at': '2026-10-15T10:30:00+00:00', 'last_price': 101.0, 'initial_price': 100.0, 'components': {}, 'changes': {}, 'direction': {}})
     assert '15.10.2026 kl. 10:30 +0000' in body
     assert 'startkurs 100.00 kr' in body
+
+
+def test_super_portfolio_pdf_labels_missing_market_timestamps():
+    state = super_portfolio.default_state(super_portfolio.SuperPortfolioConfig())
+    state.update({"source_run_id": "TIMESTAMP-TEST", "last_assessment_snapshot_at": None,
+                  "last_full_assessment_at": None, "last_stop_surveillance_at": None})
+    pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(super_portfolio.build_pdf(state))).pages)
+    assert "Tidsgrunnlag:" in pdf_text
+    assert "Manglende tidspunkt" in pdf_text
+    assert "Ikke bekreftet oppdatert" in pdf_text
