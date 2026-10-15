@@ -138,3 +138,15 @@ def test_pushover_fit_keeps_blank_event_separator():
     text = "Aksje A: ny hendelse\n\nAksje B: annen hendelse"
     assert notifier.fit_pushover_message(text, limit=300) == text
     assert "\n\n" in notifier.fit_pushover_message(text + "\n" + ("Ekstra informasjon\n" * 10), limit=115)
+
+
+def test_batch_alerts_separate_events_and_conclusion():
+    title, body = fresh._batch_message([
+        {"ticker": "AAA.OL", "priority_level": 2, "status": "AKSELERERER", "scope": "KANDIDAT"},
+        {"ticker": "BBB.OL", "priority_level": 1, "status": "MISTER MOMENT", "scope": "EID"},
+    ])
+    assert "2 NYE SIGNALER" in title
+    assert "\n\n1. BBB.OL" in body
+    assert "\n\n2. AAA.OL" in body
+    assert "\n\nÅpne P1" in body
+    assert "\n\n2. AAA.OL" in notifier.fit_pushover_message(body, limit=1024)
