@@ -76,3 +76,14 @@ def test_next_session_valid_open_can_fill():
     )
     assert reasons == []
     assert fill == 100
+
+
+def test_unknown_live_entry_source_is_not_automatically_executable():
+    from datetime import datetime, timezone
+    from super_portfolio import _verified_next_session_open
+    row = {"market": "SVERIGE", "ticker": "TEST.ST", "source": "alternative-market-feed",
+           "session_open": 100, "previous_close": 99, "session_date": "2026-10-12"}
+    reasons, fill = _verified_next_session_open(
+        row, {"entry_signal_date": "2026-10-09"},
+        datetime(2026, 10, 12, 12, tzinfo=timezone.utc))
+    assert reasons == ["ENTRY_SOURCE_UNVERIFIED"] and fill == 0
