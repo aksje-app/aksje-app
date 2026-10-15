@@ -20,3 +20,5 @@ def test_rotation_evidence_present_in_diagnostic_zip():
         assert timeline['snapshot_at']=='2026-10-14T12:00:00Z'
         assert timeline['evidence_type']=='SAVED_SNAPSHOT_ONLY'
         assert timeline['shadow_names']==[]
+        assert timeline['timestamp_quality']['snapshot_at_present'] is True
+        assert timeline['timestamp_quality']['paired_start_present'] is False
