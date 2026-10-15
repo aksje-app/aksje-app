@@ -102,6 +102,13 @@ def diagnostic_zip(progress=None):
                   'reason':'Eksporten dokumenterer lagrede observasjoner, ikke kobling til endrede handelsparametere.',
                   'required_evidence':['proposed_change','approval','parameter_diff','commit','post_change_outcome'],
               },
+              'learning_vs_performance':{
+                  'technical_run_success_is_strategy_validation':False,
+                  'strategy_profitability_verified_by_export':False,
+                  'measured_shadow_pairs':comparison.get('measured_count',0),
+                  'learning_validation_state':(snap.get('learning') or {}).get('status','UNKNOWN'),
+                  'conclusion':'Teknisk PASS er ikke dokumentasjon på lønnsom strategi. Ingen verifisert forbedring uten uavhengig resultatkontroll.',
+              },
               'evidence_type':'SAVED_SNAPSHOT_ONLY',
               'warning':'Rullerende kurshistorikk er ikke det samme som utvikling etter signalstart.'}
     entries=[('decision_timeline.json',timeline),('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger)]
