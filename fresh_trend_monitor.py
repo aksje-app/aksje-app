@@ -540,6 +540,7 @@ def _batch_message(alerts: Sequence[Mapping[str, Any]]) -> tuple[str, str]:
     lines = [f"P1 {counts[1]} · P2 {counts[2]} · P3 {counts[3]} · P4 {counts[4]}"]
     for index, item in enumerate(ordered[:8], 1):
         lines.append(f"\n{index}. {item.get('ticker') or '-'} · {item.get('status') or 'UKJENT'} · {item.get('scope') or ''}")
+    lines.append("")
     lines.append("Åpne P1 først, deretter P2. Uendrede signaler er utelatt.")
     return title, "\n".join(lines)
 
