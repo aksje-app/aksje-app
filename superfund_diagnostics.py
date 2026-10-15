@@ -88,6 +88,11 @@ def diagnostic_zip(progress=None):
               'learning_records_present':bool(snap.get('learning')),
               'rotation_observations':rotation.get('review_count',0),
               'rotation_measured_pairs':comparison.get('measured_count',0),
+              'evidence_quality':{
+                  'learning':'BASELINE_RECORDED' if (snap.get('learning') or {}).get('paired_start') else 'BASELINE_MISSING',
+                  'shadow':'MEASURED_PAIRS_RECORDED' if comparison.get('measured_count',0) else 'NO_MEASURED_PAIRS',
+                  'validation':'NOT_VERIFIED_BY_EXPORT',
+              },
               'timestamp_quality':{'snapshot_at_present':bool(snap.get('at')),
                                    'paired_start_present':bool((snap.get('learning') or {}).get('paired_start'))},
               'evidence_type':'SAVED_SNAPSHOT_ONLY',
