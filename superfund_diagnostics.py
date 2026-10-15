@@ -95,6 +95,13 @@ def diagnostic_zip(progress=None):
               },
               'timestamp_quality':{'snapshot_at_present':bool(snap.get('at')),
                                    'paired_start_present':bool((snap.get('learning') or {}).get('paired_start'))},
+              'roadmap_phase':'FASE_1_LAERING_OG_SHADOW_REVISJON',
+              'improvement_audit':{
+                  'implementation_confirmed':False,
+                  'audit_status':'INCOMPLETE',
+                  'reason':'Eksporten dokumenterer lagrede observasjoner, ikke kobling til endrede handelsparametere.',
+                  'required_evidence':['proposed_change','approval','parameter_diff','commit','post_change_outcome'],
+              },
               'evidence_type':'SAVED_SNAPSHOT_ONLY',
               'warning':'Rullerende kurshistorikk er ikke det samme som utvikling etter signalstart.'}
     entries=[('decision_timeline.json',timeline),('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger)]
