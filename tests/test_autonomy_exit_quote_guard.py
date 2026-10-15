@@ -17,7 +17,7 @@ def test_missing_candidate_must_not_execute_sale_from_cached_price():
         portfolio=p,trades=[],now=datetime(2026,10,14,18,0,tzinfo=timezone.utc),run_id='AUDIT-MISSING')
     assert 'CMBTO.OL' in result['portfolio']['positions']
     assert not [t for t in result['trades'] if t.get('ticker')=='CMBTO.OL']
-    assert any(d.get('reason_code')=='NO_CURRENT_CANDIDATE' for d in result['decisions'])
+    assert any(d.get('reason_code')=='NO_CURRENT_CANDIDATE' for d in result['portfolio_decisions'])
 
 def test_candidate_without_quote_must_not_sell_at_entry_price():
     p=_portfolio()
@@ -26,4 +26,4 @@ def test_candidate_without_quote_must_not_sell_at_entry_price():
         portfolio=p,trades=[],now=datetime(2026,10,14,18,0,tzinfo=timezone.utc),run_id='AUDIT-NO-PRICE')
     assert 'CMBTO.OL' in result['portfolio']['positions']
     assert not [t for t in result['trades'] if t.get('ticker')=='CMBTO.OL']
-    assert any(d.get('reason_code')=='NO_CURRENT_MARKET_PRICE' for d in result['decisions'])
+    assert any(d.get('reason_code')=='NO_CURRENT_MARKET_PRICE' for d in result['portfolio_decisions'])
