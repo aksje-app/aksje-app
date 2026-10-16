@@ -1,0 +1,68 @@
+name: Render post-deploy verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: "Full expected Git commit SHA already deployed on Render"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RENDER_SERVICE_ID: srv-d7obt5e47okc739susgg
+      APP_URL: https://aksje-app.onrender.com
+      EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+    steps:
+      - name: Verify running Render commit and HTTP health
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.request
+
+          expected = os.environ["EXPECTED_COMMIT"].strip().lower()
+          if not re.fullmatch(r"[0-9a-f]{40}", expected):
+              sys.exit("Expected commit must be a full 40-character SHA.")
+          token = os.environ.get("RENDER_API_KEY", "")
+          if not token:
+              sys.exit("RENDER_API_KEY GitHub Actions secret is not configured.")
+          url = "https://api.render.com/v1/services/" + os.environ["RENDER_SERVICE_ID"] + "/deploys?limit=1"
+          request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
+          with urllib.request.urlopen(request, timeout=15) as response:
+              deployments = json.load(response)
+          if not deployments:
+              sys.exit("No Render deploy found.")
+          deploy = deployments[0].get("deploy") or deployments[0]
+          actual = ((deploy.get("commit") or {}).get("id") or "").lower()
+          status = deploy.get("status")
+          print("Render deploy status:", status, "commit:", actual)
+          if status != "live":
+              sys.exit("Latest Render deploy is not live.")
+          if actual != expected:
+              sys.exit("Render is live but running a different commit than expected.")
+          health_url = os.environ["APP_URL"].rstrip("/") + "/_stcore/health"
+          with urllib.request.urlopen(health_url, timeout=20) as response:
+              code = response.status
+          if code != 200:
+              sys.exit("Streamlit health check returned " + str(code))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as report:
+              report.write("## Render post-deploy verification\\n\\n")
+              report.write("- Commit: `" + actual + "`\\n")
+              report.write("- Deploy status: live\\n")
+              report.write("- Streamlit health: HTTP 200\\n")
+              report.write("- Does not validate trading outcomes or strategy configuration.\\n")
+          print("PASS: expected version is live and Streamlit health responds.")
+          PY

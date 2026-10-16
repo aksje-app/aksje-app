@@ -162,12 +162,17 @@ jobs:
           PYTHONPATH: .
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
         run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py
+      - name: Set traceable build identifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RELEASE_ID=build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:12}" >> "$GITHUB_ENV"
       - name: Build FULL and clean DELTA packages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist delta_root
-          git archive --format=zip --output=dist/AI_Aksje_Analyzer_v19_22_0_RC16.34p_FULL.zip HEAD
+          git archive --format=zip --output=dist/AI_Aksje_Analyzer_${RELEASE_ID}_FULL.zip HEAD
 
           BASE_REF="${{ github.base_ref }}"
           if [ -z "$BASE_REF" ]; then BASE_REF="main"; fi
@@ -196,28 +201,41 @@ jobs:
           fi
           (
             cd delta_root
-            zip -qr ../dist/AI_Aksje_Analyzer_v19_22_0_RC16.34p_DELTA.zip .
+            zip -qr ../dist/AI_Aksje_Analyzer_${RELEASE_ID}_DELTA.zip .
           )
-          sha256sum dist/AI_Aksje_Analyzer_v19_22_0_RC16.34p_FULL.zip \
-                    dist/AI_Aksje_Analyzer_v19_22_0_RC16.34p_DELTA.zip \
-            > dist/SHA256SUMS_RC16.34p.txt
+          sha256sum dist/AI_Aksje_Analyzer_${RELEASE_ID}_FULL.zip \
+                    dist/AI_Aksje_Analyzer_${RELEASE_ID}_DELTA.zip \
+            > dist/SHA256SUMS_${RELEASE_ID}.txt
 
           echo "Clean DELTA files:"
           cat dist/changed_files_delta.txt
+      - name: Summarise release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Release candidate: ${RELEASE_ID}"
+            echo "Commit: \`${GITHUB_SHA}\`"
+            echo "Built FULL and DELTA artifacts. No deployment or trading-rule activation."
+            echo "### Changed files"
+            sed 's/^/- /' dist/changed_files_all.txt
+            echo "### Checksums"
+            cat "dist/SHA256SUMS_${RELEASE_ID}.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload FULL package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34p_FULL
+          name: AI_Aksje_Analyzer_FULL_${{ github.run_number }}
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34p_FULL.zip
-            dist/SHA256SUMS_RC16.34p.txt
+            dist/*_FULL.zip
+            dist/SHA256SUMS_*.txt
           if-no-files-found: error
       - name: Upload clean DELTA package
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Aksje_Analyzer_RC16.34p_DELTA
+          name: AI_Aksje_Analyzer_DELTA_${{ github.run_number }}
           path: |
-            dist/AI_Aksje_Analyzer_v19_22_0_RC16.34p_DELTA.zip
+            dist/*_DELTA.zip
             dist/changed_files_delta.txt
-            dist/SHA256SUMS_RC16.34p.txt
+            dist/SHA256SUMS_*.txt
           if-no-files-found: error
