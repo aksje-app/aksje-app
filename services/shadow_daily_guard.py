@@ -33,13 +33,15 @@ def evaluate(now=None):
     if not registered: failures.append("Ingen observasjonsregistrering siste 24 t")
     if not evaluated: failures.append("Ingen utfallsevaluering siste 24 t")
     if not acceptance: failures.append("Ingen aksept-/kvalitetsrapport")
-    latest = evaluated[-1] if evaluated else {}
+    latest = max(evaluated, key=lambda r: str(r.get("at") or ""), default={})
+    production_changed = any(r.get("production_changed") is True for r in window)
+    if production_changed: failures.append("Uventet endring i produksjon registrert")
     status = "RØD" if failures else ("GUL" if acceptance.get("strategy_readiness") != "VALIDATED" else "GRØNN")
     return {"date": today.isoformat(), "status": status, "failures": failures,
             "registrations": len(registered), "evaluations": len(evaluated),
             "active": latest.get("active"), "matured": latest.get("matured"),
             "strategy_readiness": acceptance.get("strategy_readiness", "UKJENT"),
-            "production_changed": any(r.get("production_changed") is True for r in window)}
+            "production_changed": production_changed}
 
 
 def send_daily_if_due(*, now=None):
@@ -47,6 +49,8 @@ def send_daily_if_due(*, now=None):
     today = now.astimezone(ZoneInfo("America/Fortaleza")).date()
     if not START <= today <= END:
         return {"status": "OUTSIDE_MONITORING_WINDOW"}
+    if now.astimezone(ZoneInfo("America/Fortaleza")).hour < 8:
+        return {"status": "NOT_DUE_YET", "date": today.isoformat()}
     ledger = read_json(LEDGER, LEDGER_PATH, {})
     ledger = dict(ledger) if isinstance(ledger, dict) else {}
     prior = ledger.get(today.isoformat(), {})
