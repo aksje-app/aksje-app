@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping, Sequence
 from candidate_market_data import enrich_candidate_rows
 from services.deep_value_shadow_service import deep_value_evidence
+from services.value_factor_audit import extended_value_factors
 
 def _num(value: Any) -> float | None:
     try:
@@ -44,6 +45,7 @@ def full_market_prescreen(tickers: Sequence[str], finalist_limit: int=20, *, pro
             row=by_ticker.get(ticker,{"ticker":ticker,"data_fetch_status":"ERROR","data_fetch_error":"Mangler resultat"})
             row["quality_prescreen_score"]=prescreen_score(row)
             row["deep_value_shadow"] = deep_value_evidence(row)
+            row["extended_value_factors"] = extended_value_factors(row)
             rows.append(row); completed+=1
             if progress: progress(completed,total,ticker)
     usable=[r for r in rows if str(r.get("data_fetch_status") or "").upper() not in {"ERROR","QUARANTINED"} and r.get("last_price") not in (None,"")]
