@@ -103,7 +103,9 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
         p.locator('[data-testid="stExpander"] summary').filter(has_text='Kandidater').first.wait_for()
         p.get_by_role('combobox',name='Vis område').wait_for()
-        assert p.locator('.sf-tag').first.is_visible()
+        # Streamlit can complete the selector render before candidate cards finish rerunning.
+        # Wait for the actual candidate tag, rather than checking visibility immediately.
+        p.locator('.sf-tag').first.wait_for(state='visible', timeout=15000)
         # Pending model orders are shown in Portefølje, not Kandidater.
         p.get_by_role('combobox',name='Vis område').click()
         p.get_by_role('option',name='Portefølje',exact=True).click()

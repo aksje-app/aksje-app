@@ -1,0 +1,65 @@
+name: Roadmap fast parallel checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'services/value_*.py'
+      - 'services/deep_value_shadow_service.py'
+      - 'quality_market_prescreen.py'
+      - 'candidate_market_data.py'
+      - 'scripts/run_value_shadow_backtest.py'
+      - 'tests/test_value_*.py'
+      - 'tests/test_deep_value_shadow.py'
+      - '.github/workflows/roadmap-fast-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roadmap-fast-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  factor-and-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests/test_deep_value_shadow.py tests/test_value_factor_audit.py tests/test_value_factor_provenance.py tests/test_value_missed_candidate_audit.py
+  historical-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests/test_value_historical_validation.py tests/test_value_historical_comparison.py tests/test_value_historical_duplicates.py tests/test_value_empirical_dataset_audit.py tests/test_run_value_shadow_backtest.py
+  summary:
+    if: always()
+    needs: [factor-and-source, historical-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record parallel gate results
+        env:
+          FACTOR: ${{ needs.factor-and-source.result }}
+          HISTORY: ${{ needs.historical-validation.result }}
+        run: |
+          {
+            echo '## Roadmap fast parallel checks'
+            echo ''
+            echo "| Area | Result |"
+            echo "| --- | --- |"
+            echo "| Factor and source | $FACTOR |"
+            echo "| Historical validation | $HISTORY |"
+            echo ''
+            echo 'Read-only checks. This does not validate real-world returns, authorize trading, merge or deploy.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$FACTOR" != success ] || [ "$HISTORY" != success ]; then exit 1; fi

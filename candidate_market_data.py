@@ -485,6 +485,14 @@ def _technical_fields(hist: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 def _fundamental_fields(info: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     mapping = {
         "trailing_pe": ("trailingPE", "forwardPE"),
+        "forward_pe": ("forwardPE",),
+        "price_to_book": ("priceToBook",),
+        "price_to_sales": ("priceToSalesTrailing12Months",),
+        "ev_to_ebitda": ("enterpriseToEbitda",),
+        "operating_margin": ("operatingMargins",),
+        "net_margin": ("profitMargins",),
+        "dividend_yield": ("dividendYield",),
+        "free_cash_flow": ("freeCashflow",),
         "roe": ("returnOnEquity",),
         "debt_to_equity": ("debtToEquity",),
         "earnings_growth": ("earningsGrowth",),
@@ -506,13 +514,22 @@ def _fundamental_fields(info: Mapping[str, Any]) -> tuple[dict[str, Any], list[d
             if info.get(name) not in (None, ""):
                 value = info.get(name)
                 break
-        if target in {"roe", "earnings_growth", "revenue_growth"}:
+        if target in {"roe", "earnings_growth", "revenue_growth", "operating_margin", "net_margin", "dividend_yield"}:
             value = _safe_pct(_finite(value))
         elif target not in {"sector", "industry", "shortName", "currency"}:
             value = _finite(value)
         if value not in (None, ""):
             fields[target] = value
         trace.append({"step": target, "status": "OK" if value not in (None, "") else "MISSING", "value": value})
+    # Preserve which multiple the historical quality score actually received.
+    # Do not silently present a forward-only multiple as audited trailing P/E.
+    if _finite(info.get("trailingPE")) is not None:
+        fields["pe_source"] = "trailingPE"
+    elif _finite(info.get("forwardPE")) is not None:
+        fields["pe_source"] = "forwardPE_fallback"
+    else:
+        fields["pe_source"] = "MISSING"
+    trace.append({"step": "pe_source", "status": "OK", "value": fields["pe_source"]})
     last_price = None
     target = _finite(fields.get("target_mean_price"))
     if target is not None:
