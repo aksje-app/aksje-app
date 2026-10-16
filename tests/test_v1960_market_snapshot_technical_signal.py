@@ -185,3 +185,18 @@ def test_price_timestamp_evidence_is_conservative(tmp_path):
     assert evidence("2026-10-15T11:00:00+00:00") == "VERIFIED"
     assert evidence("2026-10-01T11:00:00+00:00") == "STALE"
     assert evidence("2026-10-16T11:00:00+00:00") == "UNKNOWN"
+
+
+def test_raw_price_timestamp_used_only_when_price_matches(tmp_path):
+    service = _service(tmp_path)
+    captured = "2026-10-15T12:00:00+00:00"
+    row = service.build_candidate_snapshot(
+        {"ticker": "EQNR.OL", "raw": {"price": 300.0, "price_timestamp": "2026-10-15T11:00:00+00:00"}},
+        captured_at=captured,
+    ).to_dict()
+    assert row["decision_inputs"]["price_timestamp_status"] == "VERIFIED"
+    different = service.build_candidate_snapshot(
+        {"ticker": "EQNR.OL", "price": 305.0, "raw": {"price": 300.0, "price_timestamp": "2026-10-15T11:00:00+00:00"}},
+        captured_at=captured,
+    ).to_dict()
+    assert different["decision_inputs"]["price_timestamp_status"] == "UNKNOWN"
