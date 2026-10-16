@@ -187,7 +187,12 @@ class MarketSnapshotService:
         for key in ("price", "current_price", "last_price", "close", "regularMarketPrice", "last"):
             value = _finite(item.get(key, raw.get(key)))
             if value is not None and value > 0:
-                return value, str(item.get("price_timestamp") or item.get("data_timestamp") or "")
+                source_timestamp = item.get("price_timestamp") or item.get("data_timestamp")
+                # Only reuse source timestamps when the selected price matches its payload.
+                raw_price = _finite(raw.get(key))
+                if not source_timestamp and raw_price is not None and raw_price == value:
+                    source_timestamp = raw.get("price_timestamp") or raw.get("data_timestamp")
+                return value, str(source_timestamp or "")
         hist = item.get("hist")
         try:
             if hist is not None and "Close" in hist:
@@ -234,7 +239,22 @@ class MarketSnapshotService:
         if not technical and hist is not None:
             technical = self.technical_context_from_history(hist)
         price, data_timestamp = self._price_and_timestamp(row)
+        # Evidence only: capture time is not the market data timestamp.
+        timestamp_status = "UNKNOWN"
+        if data_timestamp:
+            try:
+                source_time = datetime.fromisoformat(data_timestamp.replace("Z", "+00:00"))
+                capture_time = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+                if source_time.tzinfo is not None and capture_time.tzinfo is not None:
+                    age_seconds = (capture_time - source_time).total_seconds()
+                    if age_seconds >= 0:
+                        timestamp_status = "STALE" if age_seconds > 7 * 86400 else "VERIFIED"
+            except (ValueError, TypeError, OverflowError):
+                pass
         decision_inputs = _json_input_copy(row)
+        decision_inputs["price_timestamp_status"] = timestamp_status
+        decision_inputs["price_timestamp_source"] = "INPUT_FIELD" if timestamp_status != "UNKNOWN" else "UNVERIFIED"
+        decision_inputs["price_stale_diagnostic_threshold_days"] = 7
         decision_inputs.setdefault("ticker", ticker)
         if row.get("score") is not None:
             decision_inputs["score"] = row.get("score")
@@ -317,6 +337,10 @@ class MarketSnapshotService:
                 ).to_dict())
             if progress_callback is not None and (index == total_candidates or index % 10 == 0):
                 progress_callback(index, total_candidates, str(candidate.get("ticker") or ""))
+        freshness_counts = {"VERIFIED": 0, "UNKNOWN": 0, "STALE": 0}
+        for item in built:
+            status = str((item.get("decision_inputs") or {}).get("price_timestamp_status") or "UNKNOWN")
+            freshness_counts[status if status in freshness_counts else "UNKNOWN"] += 1
         provisional = {
             "snapshot_id": snapshot_id,
             "captured_at": captured_at,
@@ -324,7 +348,11 @@ class MarketSnapshotService:
             "run_id": str(run_id or ""),
             "candidates": built,
             "market_context": dict(market_context or {}),
-            "metadata": {"service_version": SNAPSHOT_SERVICE_VERSION, **dict(metadata or {})},
+            "metadata": {"service_version": SNAPSHOT_SERVICE_VERSION, **dict(metadata or {}),
+                         "price_timestamp_coverage": {"total": len(built), **freshness_counts,
+                             "verified_pct": round(100 * freshness_counts["VERIFIED"] / len(built), 2) if built else None,
+                             "review_required": bool(built and (freshness_counts["UNKNOWN"] or freshness_counts["STALE"])),
+                             "meaning": "Input timestamp coverage only; not provider verification or trading authorization"}},
             "schema_version": MARKET_SNAPSHOT_SCHEMA_VERSION,
         }
         checksum = _streaming_checksum(provisional)
