@@ -34,3 +34,21 @@ def test_shadow_reports_low_pe_candidates_outside_existing_finalists(monkeypatch
     assert summary["qualified_count"] == 1
     assert summary["outside_finalists_tickers"] == ["VALUE.OL"]
     assert summary["can_authorize_buy"] is False
+
+
+def test_low_pe_does_not_hide_missing_quality_or_poor_balance_sheet():
+    missing = deep_value_evidence({"trailing_pe": 5.0, "roe": None, "debt_to_equity": None})
+    assert missing["status"] == "INSUFFICIENT_EVIDENCE"
+    assert set(missing["missing_fields"]) == {"roe", "debt_to_equity"}
+    leveraged = deep_value_evidence({"trailing_pe": 5.0, "roe": 22, "debt_to_equity": 180})
+    assert leveraged["status"] == "NOT_QUALIFIED"
+    assert leveraged["flags"]["manageable_debt"] is False
+    assert leveraged["can_authorize_buy"] is False
+
+
+def test_shadow_preserves_existing_score_but_exposes_value_discount():
+    low = {"trailing_pe": 6, "roe": 18, "debt_to_equity": 30}
+    normal = {**low, "trailing_pe": 16}
+    assert prescreen_score(low) < prescreen_score(normal)
+    assert deep_value_evidence(low)["status"] == "DEEP_VALUE_WATCH"
+    assert deep_value_evidence(normal)["status"] == "NOT_QUALIFIED"
