@@ -353,7 +353,23 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
         if not benchmark_entry:
             observation["source_health"] = {"status": "MISSING_BENCHMARK_BASELINE", "checked_at": _now_iso(now)}
             missing += 1; continue
-        observation["benchmark_entry_price"] = round(benchmark_entry, 6)
+        # Freeze the benchmark denominator used for historical Shadow returns.
+        frozen_entry = _number(observation.get("benchmark_entry_price"))
+        if frozen_entry and frozen_entry > 0:
+            drift_pct = abs((benchmark_entry / frozen_entry - 1.0) * 100.0)
+            if drift_pct > 0.10:
+                observation["source_health"] = {
+                    "status": "BENCHMARK_BASELINE_DRIFT",
+                    "checked_at": _now_iso(now),
+                    "stored_entry": frozen_entry,
+                    "provider_entry": round(benchmark_entry, 6),
+                    "drift_pct": round(drift_pct, 4),
+                }
+                missing += 1
+                continue
+            benchmark_entry = frozen_entry
+        else:
+            observation["benchmark_entry_price"] = round(benchmark_entry, 6)
         entry_price = _number(observation.get("entry_price")) or 0.0
         measurements = dict(observation.get("horizon_measurements") or {})
         for horizon in HORIZONS:
