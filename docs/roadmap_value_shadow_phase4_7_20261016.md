@@ -13,11 +13,15 @@
 - Add real-data samples and deterministic fixtures for both cheap quality businesses and value traps.
 - Distinguish unavailable factors from failing factor thresholds; reject stale or contradictory inputs.
 
-## Fase 6: Shadow outcome validation (pending observations)
-- Track candidates excluded from finalists versus existing finalist/control cohorts.
-- Compare forward 7/30/90-session returns and max drawdown on identical as-of dates.
-- Include transaction costs, tradability/liquidity, sector/country exposure and survivorship bias.
-- Record out-of-sample observations and statistical uncertainty; no outcome-based retroactive selection.
+## Fase 6: Accelerated historical validation (do not wait 90 days)
+- Run point-in-time walk-forward backtests over 2-3 years if as-of-date fundamentals and survivorship-aware universe membership are available.
+- Reconstruct each historical candidate and its contemporaneous fundamental data; **never** apply today's P/E, financial statements or finalist rankings retrospectively.
+- Compare overlapping historical rolling 7- and 30-session forward returns against contemporaneous finalists, including max drawdown.
+- Keep 90-session outcomes optional and retrospective only where data already exist; do not block milestones on 90 future calendar days.
+- Include transaction costs, liquidity, delistings, sector/country exposure and uncertainty; enforce separate training/test windows.
+- If point-in-time historical fundamentals are unavailable, report BACKTEST_NOT_VERIFIABLE rather than inventing or presenting a successful result.
+- Run a short live Shadow verification in parallel, without affecting buying, selling, ranking or deployment.
+- Require documented evidence, not a fixed 90-day waiting period, before proposing production changes.
 
 ## Fase 7: Decision gate (not authorized)
 - Require green CI, documented real-world evidence, independent review of risk and data quality.
