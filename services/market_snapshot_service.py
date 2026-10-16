@@ -187,7 +187,12 @@ class MarketSnapshotService:
         for key in ("price", "current_price", "last_price", "close", "regularMarketPrice", "last"):
             value = _finite(item.get(key, raw.get(key)))
             if value is not None and value > 0:
-                return value, str(item.get("price_timestamp") or item.get("data_timestamp") or "")
+                source_timestamp = item.get("price_timestamp") or item.get("data_timestamp")
+                # Only reuse source timestamps when the selected price matches its payload.
+                raw_price = _finite(raw.get(key))
+                if not source_timestamp and raw_price is not None and raw_price == value:
+                    source_timestamp = raw.get("price_timestamp") or raw.get("data_timestamp")
+                return value, str(source_timestamp or "")
         hist = item.get("hist")
         try:
             if hist is not None and "Close" in hist:
