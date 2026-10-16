@@ -19,3 +19,12 @@ def test_duplicate_and_missing_values_fail_closed():
     bad = _mark()
     bad.pop("benchmark_price")
     assert audit_shadow_daily_marks([{"daily_marks":[bad]}])["invalid_marks"] == 1
+
+
+def test_benchmark_mismatch_is_not_green():
+    mark = _mark()
+    mark["benchmark_return_pct"] = 5.0
+    observation = {"benchmark_entry_price": 200.0, "daily_marks": [mark]}
+    result = audit_shadow_daily_marks([observation])
+    assert result["status"] == "BENCHMARK_RECONCILIATION_REQUIRED"
+    assert result["benchmark_return_mismatches"] == 1
