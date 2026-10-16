@@ -14,7 +14,7 @@ def _source(path: str) -> str:
 
 
 def test_release_identity_rc16_34b():
-    assert APP_VERSION in {"v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d", "v19.22.0-rc16.34e", "v19.22.0-rc16.34f", "v19.22.0-rc16.34g", "v19.22.0-rc16.34h", "v19.22.0-rc16.34i", "v19.22.0-rc16.34j", "v19.22.0-rc16.34k", "v19.22.0-rc16.34l", "v19.22.0-rc16.34m", "v19.22.0-rc16.34n", "v19.22.0-rc16.34o", "v19.22.0-rc16.34p", "v19.22.0-rc16.34q"}
+    assert APP_VERSION in {"v19.22.0-rc16.34b", "v19.22.0-rc16.34c", "v19.22.0-rc16.34d", "v19.22.0-rc16.34e", "v19.22.0-rc16.34f", "v19.22.0-rc16.34g", "v19.22.0-rc16.34h", "v19.22.0-rc16.34i", "v19.22.0-rc16.34j", "v19.22.0-rc16.34k", "v19.22.0-rc16.34l", "v19.22.0-rc16.34m", "v19.22.0-rc16.34n", "v19.22.0-rc16.34o", "v19.22.0-rc16.34p", "v19.22.0-rc16.34q", "v19.22.0-rc16.34r"}
     if APP_VERSION == "v19.22.0-rc16.34b":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34a"
     elif APP_VERSION == "v19.22.0-rc16.34c":
@@ -31,6 +31,8 @@ def test_release_identity_rc16_34b():
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34g"
     elif APP_VERSION == "v19.22.0-rc16.34i":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34h"
+    elif APP_VERSION == "v19.22.0-rc16.34r":
+        assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34q"
     elif APP_VERSION == "v19.22.0-rc16.34q":
         assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.34p"
     else:
