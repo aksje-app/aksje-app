@@ -17,3 +17,20 @@ def test_legacy_prescreen_score_remains_unchanged():
     score_before = prescreen_score(data)
     deep_value_evidence(data)
     assert prescreen_score(data) == score_before
+
+
+def test_shadow_reports_low_pe_candidates_outside_existing_finalists(monkeypatch):
+    import quality_market_prescreen as module
+    candidates = {
+        "VALUE.OL": {"ticker": "VALUE.OL", "last_price": 100, "trailing_pe": 7, "roe": 18, "debt_to_equity": 30},
+        "GROWTH.OL": {"ticker": "GROWTH.OL", "last_price": 100, "trailing_pe": 16, "roe": 35, "debt_to_equity": 10},
+    }
+    monkeypatch.setattr(module, "enrich_candidate_rows", lambda rows, **kwargs: [dict(candidates[r["ticker"]]) for r in rows])
+    import quality_turnaround
+    monkeypatch.setattr(quality_turnaround, "reserve_watch_slots", lambda rows, limit, official: (rows[:limit], []))
+    outcome = module.full_market_prescreen(["VALUE.OL", "GROWTH.OL"], finalist_limit=1)
+    assert outcome["finalists"] == ["GROWTH.OL"]
+    summary = outcome["deep_value_shadow_summary"]
+    assert summary["qualified_count"] == 1
+    assert summary["outside_finalists_tickers"] == ["VALUE.OL"]
+    assert summary["can_authorize_buy"] is False
