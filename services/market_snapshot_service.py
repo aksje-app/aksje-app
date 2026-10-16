@@ -332,6 +332,10 @@ class MarketSnapshotService:
                 ).to_dict())
             if progress_callback is not None and (index == total_candidates or index % 10 == 0):
                 progress_callback(index, total_candidates, str(candidate.get("ticker") or ""))
+        freshness_counts = {"VERIFIED": 0, "UNKNOWN": 0, "STALE": 0}
+        for item in built:
+            status = str((item.get("decision_inputs") or {}).get("price_timestamp_status") or "UNKNOWN")
+            freshness_counts[status if status in freshness_counts else "UNKNOWN"] += 1
         provisional = {
             "snapshot_id": snapshot_id,
             "captured_at": captured_at,
@@ -339,7 +343,9 @@ class MarketSnapshotService:
             "run_id": str(run_id or ""),
             "candidates": built,
             "market_context": dict(market_context or {}),
-            "metadata": {"service_version": SNAPSHOT_SERVICE_VERSION, **dict(metadata or {})},
+            "metadata": {"service_version": SNAPSHOT_SERVICE_VERSION, **dict(metadata or {}),
+                         "price_timestamp_coverage": {"total": len(built), **freshness_counts,
+                             "meaning": "Input timestamp coverage only; not provider verification or trading authorization"}},
             "schema_version": MARKET_SNAPSHOT_SCHEMA_VERSION,
         }
         checksum = _streaming_checksum(provisional)
