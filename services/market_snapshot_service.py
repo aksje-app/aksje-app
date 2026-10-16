@@ -350,6 +350,8 @@ class MarketSnapshotService:
             "market_context": dict(market_context or {}),
             "metadata": {"service_version": SNAPSHOT_SERVICE_VERSION, **dict(metadata or {}),
                          "price_timestamp_coverage": {"total": len(built), **freshness_counts,
+                             "verified_pct": round(100 * freshness_counts["VERIFIED"] / len(built), 2) if built else None,
+                             "review_required": bool(built and (freshness_counts["UNKNOWN"] or freshness_counts["STALE"])),
                              "meaning": "Input timestamp coverage only; not provider verification or trading authorization"}},
             "schema_version": MARKET_SNAPSHOT_SCHEMA_VERSION,
         }
