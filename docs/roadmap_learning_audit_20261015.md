@@ -36,3 +36,16 @@ Kilde: lagrede `decision_snapshot` i `controlled_learning/observation_cohorts.js
 | WWI.OL | HOLD | OVERVÅKES_AUTOMATISK | 23,90 | Ja | Ikke automatisk avvist; undersøk manglende opptrapping fra overvåking til kjøpskandidat. |
 
 Alle tre er i `MATCHED_CONTROL` i den lagrede læringskohorten. Ingen av disse observasjonene dokumenterer hypotetisk ordre, kostnader eller realisert avkastning. Valider historiske kurs-/beslutningstidspunkter før testing av endrede terskler.
+
+## Fase 2 – første tapsdiagnose, Autonomi
+Kilde: `autonomous_portfolio/trades.json` i Render `app_kv_store`, lesekontroll 2026-10-15. Gjelder registrerte SELL-hendelser; ingen syntetiske handler eller nye markedsdata.
+
+| Salgskategori basert på `reason` | Antall | Tapshandler | Sum registrert P&L |
+|---|---:|---:|---:|
+| STOP_LOSS | 11 | 11 | −11 469,05 |
+| KAPITAL_BUNDET | 11 | 6 | −101,61 |
+| FALL_FRA_TOPP | 4 | 3 | +666,59 |
+| GEVINSTSIKRING | 8 | 2 | +2 575,39 |
+| ANNET | 4 | 0 | +4 861,26 |
+
+Kategoriseringen er tekstbasert og må ikke tas som kausalt bevis. Undersøk opprinnelig entry-score, kursutvikling før kjøp, alder, forventet volatilitet, posisjonsstørrelse og feil eller forsinkede kurser for de elleve stop-loss-salgene. **Ikke fjern stop-loss automatisk.** Tallene må avstemmes mot periodisering og nettoresultat før økonomisk konklusjon. 
