@@ -72,6 +72,7 @@ def test_market_snapshot_uses_one_id_for_all_candidates(tmp_path):
     assert validate_market_snapshot(row)["ok"] is True
     assert row["metadata"]["price_timestamp_coverage"] == {
         "total": 2, "VERIFIED": 0, "UNKNOWN": 2, "STALE": 0,
+        "verified_pct": 0.0, "review_required": True,
         "meaning": "Input timestamp coverage only; not provider verification or trading authorization",
     }
 
