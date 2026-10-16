@@ -60,7 +60,7 @@ jobs:
               sys.exit("Streamlit health check returned " + str(code))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as report:
               report.write("## Render post-deploy verification\\n\\n")
-              report.write("- Commit: \`" + actual + "\`\\n")
+              report.write("- Commit: `" + actual + "`\\n")
               report.write("- Deploy status: live\\n")
               report.write("- Streamlit health: HTTP 200\\n")
               report.write("- Does not validate trading outcomes or strategy configuration.\\n")
