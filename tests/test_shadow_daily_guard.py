@@ -35,3 +35,20 @@ def test_successful_delivery_records_receipt():
         row = send_daily_if_due(now=now)
     assert row["sent"] is True
     assert writer.call_args.args[2]["2026-10-18"]["sent"] is True
+
+
+def test_duplicate_suppression_not_counted_as_delivered():
+    now = datetime(2026, 10, 18, 14, tzinfo=timezone.utc)
+    mocked = {"date": "2026-10-18", "status": "GUL", "failures": [],
+              "registrations": 1, "evaluations": 1, "active": 91,
+              "matured": 0, "strategy_readiness": "NOT_VALIDATED",
+              "production_changed": False}
+    with patch("services.shadow_daily_guard.read_json", return_value={}), patch(
+        "services.shadow_daily_guard.evaluate", return_value=mocked
+    ), patch("notifier.send_pushover_alert", return_value=(True, "duplicate suppressed by durable fingerprint")), patch(
+        "notifier.normalize_notification_result", return_value=(True, "duplicate suppressed by durable fingerprint")
+    ), patch("services.shadow_daily_guard.write_json") as writer:
+        row = send_daily_if_due(now=now)
+    assert row["sent"] is False
+    assert row["delivery_status"] == "DUPLICATE_SUPPRESSED"
+    assert writer.call_args.args[2]["2026-10-18"]["sent"] is False
