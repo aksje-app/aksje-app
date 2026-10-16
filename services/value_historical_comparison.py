@@ -33,6 +33,8 @@ def compare_value_shadow_history(samples: Sequence[Mapping[str, Any]]) -> dict[s
     buckets: dict[tuple[str, int], dict[str, list[float]]] = defaultdict(
         lambda: {"value_shadow": [], "legacy_finalist": []})
     invalid = 0
+    seen = set()
+    duplicate_rows = 0
     for row in samples:
         horizon = row.get("horizon_sessions")
         cohort = row.get("cohort")
@@ -40,9 +42,15 @@ def compare_value_shadow_history(samples: Sequence[Mapping[str, Any]]) -> dict[s
         if horizon not in (7, 30) or cohort not in ("value_shadow", "legacy_finalist") or ret is None:
             invalid += 1
             continue
+        identity = (str(row["snapshot_date"]), horizon, str(row["ticker"]).strip().upper())
+        if identity in seen:
+            duplicate_rows += 1
+            continue
+        seen.add(identity)
         buckets[(str(row["snapshot_date"]), horizon)][cohort].append(ret)
-    if invalid:
+    if invalid or duplicate_rows:
         return {"status": "BACKTEST_NOT_VERIFIABLE", "invalid_rows": invalid,
+                "duplicate_rows": duplicate_rows,
                 "eligibility": gate, "comparisons": [],
                 "shadow_only": True, "can_authorize_buy": False}
     comparisons = []
