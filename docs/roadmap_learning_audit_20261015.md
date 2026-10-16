@@ -1,0 +1,27 @@
+# Roadmap fase 1 – læringsrevisjon (foreløpig)
+Dato: 2026-10-15. Kilde: lesetilgang til Render Postgres `app_kv_store` / `controlled_learning/weekly_reports.json` og `controlled_learning/forward/*.json`. Ingen produksjonsparametere endret.
+
+## Reviderte ukesrapporter
+| Uke | Valgt utvalg N | Treffprosent | Valgt minus matchet kontroll (prosentpoeng) | Modne | Produksjonsparametere endret |
+| --- | ---: | ---: | ---: | ---: | --- |
+| W35–W39 | Ikke tilstrekkelig målt | – | – | 0 | Nei |
+| W40 | 19 | 26,32 % | −1,7858 | 0 | Nei |
+| W41 | 29 | 37,93 % | +0,8225 | 0 | Nei |
+
+Sammenligningene kommer fra hver ukes lagrede rapport og må ikke behandles som uavhengige eller som realiserte porteføljehandler. Rapportene kan dele observasjoner. Kausale årsaker er ikke etablert.
+
+## Revisjonsfunn
+1. W41 viser teknisk kontroll PASS mens strategiklarhet er NOT_VALIDATED; kvalitetsporten mangler modning, komplett benchmarkdekning, positiv gjennomsnittlig meravkastning og profit factor >= 1,10.
+2. Forward `AUTONOMY` og `SUPER_PORTFOLIO` registrerte begge `ACTIVE_SHADOW`, fire observerte handelsdager og `production_approval_available=false` ved kontroll.
+3. De syv ukesrapportene viser `production_parameters_changed=false`; dette dokumenterer ikke alle tidligere produksjonsendringer i hele repositoriet.
+4. W41 inneholder foreløpige faktorkorrelasjoner med 20-dagers meravkastning (N=89): `portfolio_fit_score` −0,4453, `validation_score` +0,3453, `fundamental_score` −0,2858. Ingen kausal konklusjon eller justering av vekter er forsvarlig uten kontroll for sektor/marked og utvalgseffekter.
+5. W41 rapporterer oversette kandidater som DELL, CRWD og WWI.OL. Neste tiltak er å sammenligne originale avvisningsårsaker og tidspunkter med samtidige markedsdata, ikke anta at de var kjøpbare gevinster.
+
+## Tiltak med prioritet
+- A: Undersøk avvisningsårsaker og signaltidsstempler for oversette kandidater; ingen etterpåklokskap.
+- B: Lag parvis, identisk og fremoverrettet evaluering av endret `portfolio_fit_score` og `validation_score` mot gjeldende regler. Mål nettoavkastning, treffprosent, tap, drawdown og turnover.
+- C: Revider eventuelle produksjonsendringer mot commit/parameter-diff/godkjenning og resultat etter endring. Mangel på bevis må stå som UKJENT, ikke null.
+- D: Før hvert godkjent forslag via eksplisitt status: funnet → hypotesetest → anbefaling → godkjenning → implementering → kontroll.
+- E: Diagnose-ZIP skal skille teknisk PASS fra strategi NOT_VALIDATED; ikke utlede faktisk lønnsomhet av kjørestatus.
+
+Arbeidsstatus: Fase 1 pågår, fase 2 tapsårsaker gjenstår. Ingen automatiske handler, DB-skriving eller ekstra markedshenting i denne revisjonen.
