@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Any, Callable, Mapping, Sequence
 from candidate_market_data import enrich_candidate_rows
+from services.deep_value_shadow_service import deep_value_evidence
 
 def _num(value: Any) -> float | None:
     try:
@@ -41,7 +42,9 @@ def full_market_prescreen(tickers: Sequence[str], finalist_limit: int=20, *, pro
         by_ticker={str(row.get("ticker") or "").upper():dict(row) for row in enriched}
         for ticker in chunk:
             row=by_ticker.get(ticker,{"ticker":ticker,"data_fetch_status":"ERROR","data_fetch_error":"Mangler resultat"})
-            row["quality_prescreen_score"]=prescreen_score(row); rows.append(row); completed+=1
+            row["quality_prescreen_score"]=prescreen_score(row)
+            row["deep_value_shadow"] = deep_value_evidence(row)
+            rows.append(row); completed+=1
             if progress: progress(completed,total,ticker)
     usable=[r for r in rows if str(r.get("data_fetch_status") or "").upper() not in {"ERROR","QUARANTINED"} and r.get("last_price") not in (None,"")]
     usable.sort(key=lambda r:(float(r.get("quality_prescreen_score") or 0),len(r.get("raw_fields_available") or [])),reverse=True)
