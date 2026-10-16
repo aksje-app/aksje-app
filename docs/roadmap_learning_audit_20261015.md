@@ -25,3 +25,14 @@ Sammenligningene kommer fra hver ukes lagrede rapport og må ikke behandles som 
 - E: Diagnose-ZIP skal skille teknisk PASS fra strategi NOT_VALIDATED; ikke utlede faktisk lønnsomhet av kjørestatus.
 
 Arbeidsstatus: Fase 1 pågår, fase 2 tapsårsaker gjenstår. Ingen automatiske handler, DB-skriving eller ekstra markedshenting i denne revisjonen.
+
+## Opprinnelige beslutninger for oversette kandidater
+Kilde: lagrede `decision_snapshot` i `controlled_learning/observation_cohorts.json` – kontrollert 2026-10-15.
+
+| Aksje | Handling | Utfall | Risiko-score | Datagrunnlag gyldig for beslutning | Tolking |
+|---|---|---|---:|---|---|
+| DELL | SKIP | AUTOMATISK_AVVIST | 73,96 | Ja | Undersøk hvilke risikoregler som utløste avvisning; ikke anta at terskelen er feil. |
+| CRWD | SKIP | AUTOMATISK_AVVIST | 73,62 | Nei | Datakvalitet og avvisningsgrunn må undersøkes uavhengig. |
+| WWI.OL | HOLD | OVERVÅKES_AUTOMATISK | 23,90 | Ja | Ikke automatisk avvist; undersøk manglende opptrapping fra overvåking til kjøpskandidat. |
+
+Alle tre er i `MATCHED_CONTROL` i den lagrede læringskohorten. Ingen av disse observasjonene dokumenterer hypotetisk ordre, kostnader eller realisert avkastning. Valider historiske kurs-/beslutningstidspunkter før testing av endrede terskler.
