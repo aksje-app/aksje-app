@@ -234,7 +234,21 @@ class MarketSnapshotService:
         if not technical and hist is not None:
             technical = self.technical_context_from_history(hist)
         price, data_timestamp = self._price_and_timestamp(row)
+        # Evidence only: capture time is not the market data timestamp.
+        timestamp_status = "UNKNOWN"
+        if data_timestamp:
+            try:
+                source_time = datetime.fromisoformat(data_timestamp.replace("Z", "+00:00"))
+                capture_time = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+                if source_time.tzinfo is not None and capture_time.tzinfo is not None:
+                    age_seconds = (capture_time - source_time).total_seconds()
+                    if age_seconds >= 0:
+                        timestamp_status = "STALE" if age_seconds > 7 * 86400 else "VERIFIED"
+            except (ValueError, TypeError, OverflowError):
+                pass
         decision_inputs = _json_input_copy(row)
+        decision_inputs["price_timestamp_status"] = timestamp_status
+        decision_inputs["price_timestamp_source"] = "PROVIDER" if timestamp_status != "UNKNOWN" else "UNVERIFIED"
         decision_inputs.setdefault("ticker", ticker)
         if row.get("score") is not None:
             decision_inputs["score"] = row.get("score")
