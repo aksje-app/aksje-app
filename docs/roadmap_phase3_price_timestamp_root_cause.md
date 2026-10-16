@@ -9,3 +9,6 @@ Dette forklarer hvordan et snapshot kan ha `captured_at` og dokumentert kjøpsku
 Neste implementeringsoppgave: innfør eksplisitt `price_timestamp_status` (`VERIFIED`, `UNKNOWN`, `STALE`) samt kilde og sammenligning mot snapshot-tid, basert kun på autentiske provider-metadata. Hold `UNKNOWN` når provider-tid mangler; ikke fyll inn `captured_at`. Test før senere justering av kjøpsgater og vurder ytelse/DB-kostnad. Eksisterende historiske poster skal ikke retroaktivt påstå ferskhet.
 
 Ingen endring av kjøpsparametere, produksjonshandel eller database i denne revisjonen.
+
+## Omfangskontroll
+I tre avgrensede, historiske Autonomi-markedsskanninger (15.09, 23.09 og 12.10.2026) ble 180 kandidatposter kontrollert fra lagrede snapshot. Samtlige 180 hadde tom `data_timestamp`. Dette er et dokumentert hull i tidsstempelsporbarhet; det beviser ikke at prisene var foreldet. Neste prioritet er å hente kurstid fra faktisk kilde, der det finnes, uten å anta at `captured_at` er kurstid. Ikke innfør kjøpsblokkering på dette grunnlaget.
