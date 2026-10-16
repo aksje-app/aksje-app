@@ -166,3 +166,18 @@ def test_service_registry_exposes_shared_services(tmp_path):
     source = Path("services/service_registry.py").read_text(encoding="utf-8")
     assert "self.market_snapshots = MarketSnapshotService" in source
     assert "self.technical_signals = TechnicalSignalService(self.market_snapshots)" in source
+
+
+def test_price_timestamp_evidence_is_conservative(tmp_path):
+    service = _service(tmp_path)
+    def evidence(timestamp):
+        row = service.build_candidate_snapshot(
+            {"ticker": "EQNR.OL", "price": 300.0, **({"price_timestamp": timestamp} if timestamp is not None else {})},
+            captured_at="2026-10-15T12:00:00+00:00",
+        ).to_dict()
+        return row["decision_inputs"]["price_timestamp_status"]
+    assert evidence(None) == "UNKNOWN"
+    assert evidence("invalid") == "UNKNOWN"
+    assert evidence("2026-10-15T11:00:00+00:00") == "VERIFIED"
+    assert evidence("2026-10-01T11:00:00+00:00") == "STALE"
+    assert evidence("2026-10-16T11:00:00+00:00") == "UNKNOWN"
