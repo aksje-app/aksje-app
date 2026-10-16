@@ -44,6 +44,7 @@ assert (
     or 'APP_VERSION = "v19.22.0-rc16.34j"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34k"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34l"' in version_lines
+    or 'APP_VERSION = "v19.22.0-rc16.34r"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34q"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34p"' in version_lines
     or 'APP_VERSION = "v19.22.0-rc16.34o"' in version_lines
@@ -68,6 +69,8 @@ elif 'APP_VERSION = "v19.22.0-rc16.34h"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34g"' in version_lines
 elif 'APP_VERSION = "v19.22.0-rc16.34i"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34h"' in version_lines
+elif 'APP_VERSION = "v19.22.0-rc16.34r"' in version_lines:
+    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34q"' in version_lines
 elif 'APP_VERSION = "v19.22.0-rc16.34q"' in version_lines:
     assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.34p"' in version_lines
 else:
