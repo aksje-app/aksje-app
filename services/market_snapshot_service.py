@@ -248,7 +248,8 @@ class MarketSnapshotService:
                 pass
         decision_inputs = _json_input_copy(row)
         decision_inputs["price_timestamp_status"] = timestamp_status
-        decision_inputs["price_timestamp_source"] = "INPUT_FIELD" if timestamp_status != "UNKNOWN" else "UNVERIFIED"\n        decision_inputs["price_stale_diagnostic_threshold_days"] = 7
+        decision_inputs["price_timestamp_source"] = "INPUT_FIELD" if timestamp_status != "UNKNOWN" else "UNVERIFIED"
+        decision_inputs["price_stale_diagnostic_threshold_days"] = 7
         decision_inputs.setdefault("ticker", ticker)
         if row.get("score") is not None:
             decision_inputs["score"] = row.get("score")
