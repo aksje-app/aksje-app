@@ -70,6 +70,10 @@ def test_market_snapshot_uses_one_id_for_all_candidates(tmp_path):
     assert len(row["candidates"]) == 2
     assert {candidate["market_snapshot_id"] for candidate in row["candidates"]} == {row["snapshot_id"]}
     assert validate_market_snapshot(row)["ok"] is True
+    assert row["metadata"]["price_timestamp_coverage"] == {
+        "total": 2, "VERIFIED": 0, "UNKNOWN": 2, "STALE": 0,
+        "meaning": "Input timestamp coverage only; not provider verification or trading authorization",
+    }
 
 
 def test_snapshot_repository_persists_and_rehydrates(tmp_path):
