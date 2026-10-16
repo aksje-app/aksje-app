@@ -39,3 +39,34 @@ def summarize_learning_evidence(baseline: Mapping[str, Any],
         "can_authorize_buy": False,
         "shadow_only": True,
     }
+
+
+def summarize_measured_observation_horizons(observations: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Report measured sub-horizons independently of lifecycle status ACTIVE."""
+    from collections import defaultdict
+    from math import isfinite
+    buckets = defaultdict(list)
+    for observation in observations:
+        measurements = observation.get("horizon_measurements") or {}
+        if not isinstance(measurements, Mapping):
+            continue
+        for horizon, reading in measurements.items():
+            if not isinstance(reading, Mapping):
+                continue
+            try:
+                ret = float(reading["return_pct"])
+                excess = float(reading["excess_return_pct"])
+                days = int(horizon)
+            except (TypeError, ValueError, KeyError):
+                continue
+            if days not in (1, 5, 20, 60) or not isfinite(ret) or not isfinite(excess):
+                continue
+            buckets[days].append((ret, excess))
+    return [{
+        "horizon_days": days,
+        "measured_count": len(values),
+        "positive_count": sum(ret > 0 for ret, _ in values),
+        "mean_return_pct": round(sum(ret for ret, _ in values) / len(values), 4),
+        "mean_excess_return_pct": round(sum(excess for _, excess in values) / len(values), 4),
+        "whole_observation_maturity_independent": True,
+    } for days, values in sorted(buckets.items())]
