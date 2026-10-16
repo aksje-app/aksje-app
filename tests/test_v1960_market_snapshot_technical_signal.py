@@ -70,6 +70,11 @@ def test_market_snapshot_uses_one_id_for_all_candidates(tmp_path):
     assert len(row["candidates"]) == 2
     assert {candidate["market_snapshot_id"] for candidate in row["candidates"]} == {row["snapshot_id"]}
     assert validate_market_snapshot(row)["ok"] is True
+    assert row["metadata"]["price_timestamp_coverage"] == {
+        "total": 2, "VERIFIED": 0, "UNKNOWN": 2, "STALE": 0,
+        "verified_pct": 0.0, "review_required": True,
+        "meaning": "Input timestamp coverage only; not provider verification or trading authorization",
+    }
 
 
 def test_snapshot_repository_persists_and_rehydrates(tmp_path):
@@ -166,3 +171,33 @@ def test_service_registry_exposes_shared_services(tmp_path):
     source = Path("services/service_registry.py").read_text(encoding="utf-8")
     assert "self.market_snapshots = MarketSnapshotService" in source
     assert "self.technical_signals = TechnicalSignalService(self.market_snapshots)" in source
+
+
+def test_price_timestamp_evidence_is_conservative(tmp_path):
+    service = _service(tmp_path)
+    def evidence(timestamp):
+        row = service.build_candidate_snapshot(
+            {"ticker": "EQNR.OL", "price": 300.0, **({"price_timestamp": timestamp} if timestamp is not None else {})},
+            captured_at="2026-10-15T12:00:00+00:00",
+        ).to_dict()
+        return row["decision_inputs"]["price_timestamp_status"]
+    assert evidence(None) == "UNKNOWN"
+    assert evidence("invalid") == "UNKNOWN"
+    assert evidence("2026-10-15T11:00:00+00:00") == "VERIFIED"
+    assert evidence("2026-10-01T11:00:00+00:00") == "STALE"
+    assert evidence("2026-10-16T11:00:00+00:00") == "UNKNOWN"
+
+
+def test_raw_price_timestamp_used_only_when_price_matches(tmp_path):
+    service = _service(tmp_path)
+    captured = "2026-10-15T12:00:00+00:00"
+    row = service.build_candidate_snapshot(
+        {"ticker": "EQNR.OL", "raw": {"price": 300.0, "price_timestamp": "2026-10-15T11:00:00+00:00"}},
+        captured_at=captured,
+    ).to_dict()
+    assert row["decision_inputs"]["price_timestamp_status"] == "VERIFIED"
+    different = service.build_candidate_snapshot(
+        {"ticker": "EQNR.OL", "price": 305.0, "raw": {"price": 300.0, "price_timestamp": "2026-10-15T11:00:00+00:00"}},
+        captured_at=captured,
+    ).to_dict()
+    assert different["decision_inputs"]["price_timestamp_status"] == "UNKNOWN"
