@@ -68,7 +68,12 @@ def send_daily_if_due(*, now=None):
             text, title=f"Shadow/læring daglig {report['status']}"))
     except Exception as exc:
         ok, detail = False, type(exc).__name__
-    report.update({"sent": bool(ok), "delivery": str(detail)[:180]})
+    # A deduplicated notification is NOT proof of a new Pushover delivery.
+    delivery = str(detail or "")
+    actual_delivery = bool(ok) and "duplicate" not in delivery.lower()
+    report.update({"sent": actual_delivery, "delivery": delivery[:180],
+                   "delivery_status": "SENT" if actual_delivery else
+                   ("DUPLICATE_SUPPRESSED" if ok else "FAILED")})
     ledger[today.isoformat()] = report
     write_json(LEDGER, LEDGER_PATH, ledger)
     return report
