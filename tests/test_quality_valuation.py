@@ -151,3 +151,59 @@ def test_roce_does_not_pair_ebit_with_balance_from_another_year():
     ebit = _dated_values(annual, ("EBIT",))
     assets = _dated_values(balance, ("Total Assets",))
     assert ebit.keys() & assets.keys() == {"2023-12-31"}
+
+
+def test_v2_records_unix_quote_time_without_assuming_adjustment():
+    result = run_screen(["NHY.OL"], lambda ticker: company(
+        regularMarketPrice=123.5, regularMarketTime=int(datetime.now(timezone.utc).timestamp())))
+    rows = result["quality_v2_shadow"]["rows"]
+    assert rows
+    assert rows[0]["decision_date"]
+    assert rows[0]["entry_price"] == 123.5
+    assert rows[0]["entry_price_status"] == "PROVIDER_QUOTE_UNADJUSTED"
+    assert rows[0]["entry_quote_at"].endswith("+00:00")
+    assert result["shadow_only"] is True
+
+
+def test_v2_rejects_quote_older_than_fifteen_minutes():
+    old = int(datetime.now(timezone.utc).timestamp()) - 16 * 60
+    result = run_screen(["NHY.OL"], lambda ticker: company(
+        regularMarketPrice=123.5, regularMarketTime=old))
+    rows = result["quality_v2_shadow"]["rows"]
+    assert rows
+    assert rows[0]["entry_price"] is None
+    assert rows[0]["entry_price_status"] == "MISSING_VERIFIABLE_TIMESTAMPED_QUOTE"
+
+
+def test_v2_rejects_future_quote_or_missing_quote_timestamp():
+    now = int(datetime.now(timezone.utc).timestamp())
+    for stamp in (now + 5 * 60, None):
+        row = company(regularMarketPrice=123.5)
+        if stamp is not None:
+            row["regularMarketTime"] = stamp
+        result = run_screen(["NHY.OL"], lambda ticker: row)
+        shadow = result["quality_v2_shadow"]["rows"][0]
+        assert shadow["entry_price"] is None
+        assert shadow["entry_price_status"] == "MISSING_VERIFIABLE_TIMESTAMPED_QUOTE"
+
+
+def test_quality_provider_preserves_quote_fields_for_shadow(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from quality_valuation_data import live_financial_snapshot
+    class EmptyFrame:
+        empty = True
+    class FakeTicker:
+        info = {"currentPrice": 120.0, "regularMarketPrice": 119.5,
+                "regularMarketTime": 1790000000, "currency": "NOK"}
+        income_stmt = EmptyFrame()
+        balance_sheet = EmptyFrame()
+        cashflow = EmptyFrame()
+        quarterly_income_stmt = EmptyFrame()
+        quarterly_balance_sheet = EmptyFrame()
+        quarterly_cashflow = EmptyFrame()
+        fast_info = {}
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _: FakeTicker()))
+    snapshot = live_financial_snapshot("NHY.OL")
+    assert snapshot["regularMarketPrice"] == 119.5
+    assert snapshot["regularMarketTime"] == 1790000000
