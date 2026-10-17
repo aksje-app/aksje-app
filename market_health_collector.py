@@ -22,7 +22,7 @@ def collect(snapshot=None, *, history_provider=None, now=None):
     errors = {}
     if history_provider is None:
         import yfinance as yf
-        history_provider = lambda symbol: yf.Ticker(symbol).history(period="7d", interval="1d", auto_adjust=False)
+        history_provider = lambda symbol: yf.Ticker(symbol).history(period="1y" if symbol == "^GSPC" else "35d", interval="1d", auto_adjust=False)
     for key, symbol in SYMBOLS.items():
         try:
             frame = history_provider(symbol)
@@ -41,11 +41,13 @@ def collect(snapshot=None, *, history_provider=None, now=None):
             if key in ("us10y", "us30y"):
                 value /= 10.0  # Yahoo ^TNX/^TYX quote yield multiplied by ten.
             if key == "trend":
-                if len(series) < 2:
-                    raise ValueError("insufficient price history")
-                # No 200-day price series in a seven-day collector.
-                raise ValueError("200-day baseline unavailable; do not mislabel raw S&P 500")
-            row = {"value": value, "source": f"Yahoo Finance daily close ({symbol})",
+                if len(series) < 200:
+                    raise ValueError("200-day baseline unavailable")
+                avg = float(series.iloc[-200:].mean())
+                if avg <= 0:
+                    raise ValueError("invalid 200-day baseline")
+                value = (value / avg - 1.0) * 100.0
+            row = {"value": value, "source": f"Yahoo Finance daily observation ({symbol})",
                    "observed_at": observed.isoformat()}
             checked = normalize(key, row, now=now)
             if not checked:
