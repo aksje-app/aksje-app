@@ -19202,6 +19202,10 @@ try:
     render_daily_attention_dashboard_v19022()
     # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
     # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
+    # Market health precedes both market banners on the legacy front page.
+    if str(st.session_state.get("active_nav_target_v18674c") or "dashboard").strip().lower() in {"", "dashboard", "overview"}:
+        from market_health_ui import render_market_health
+        render_market_health(st)
     render_live_market_banner()
     render_special_watch_banner_surface_v18620()
     render_banner_main_controls()
