@@ -111,8 +111,10 @@ def render_market_health(st, snapshot=None):
         st.progress(int(score) / 100, text=f"Samlet risikometer: {score:.0f}/100")
     else:
         st.info("Samlet temperatur: IKKE BEREGNET – datadekning og kalibrering må være validert.")
-    if hasattr(st, "markdown"):
-        st.markdown(dial("Samlet markedsrisiko", score if isinstance(overall, dict) and overall.get("validated") is True else None), unsafe_allow_html=True)
+    if hasattr(st, "markdown") and isinstance(score, (int, float)) and isfinite(score) and overall.get("validated") is True:
+        st.markdown(dial("Samlet markedsrisiko", score), unsafe_allow_html=True)
+    else:
+        st.caption("Samlet instrumentmåler vises når risikomodellen er validert; inntil da vises de enkelte markedsmålingene.")
     with st.expander("ℹ️ Hvordan beregnes samlet børshelse og fargene?"):
         st.write("Samlet børshelse skal kombinere verdsettelse, markedsstress, renter, trend og markedsbredde. Gruppene må normaliseres mot egen historikk og kontrolleres for overlapp. Rødt betyr forhøyet risiko – ikke et automatisk salgssignal.")
         st.write("Ingen samlet score gis ved manglende kritiske data, udokumenterte terskler eller utilstrekkelig historikk. Grønn drift er ikke dokumentasjon på god investeringsavkastning.")
@@ -120,6 +122,8 @@ def render_market_health(st, snapshot=None):
         st.write("DXY er primært dollarmål. EUR/USD er forklarende krysskurs, ikke et dobbelt vektet uavhengig signal.")
     st.markdown("""<style>\n@keyframes mh-critical-pulse {0%,100% {opacity:1;box-shadow:0 0 0 0 rgba(220,50,50,.28)}50% {opacity:.7;box-shadow:0 0 0 7px rgba(220,50,50,0)}}\n.mh-critical {border:2px solid #cf3434;border-radius:12px;padding:8px;background:rgba(210,45,45,.12);animation:mh-critical-pulse 2.4s ease-in-out infinite}\n@media (prefers-reduced-motion: reduce) {.mh-critical {animation:none}}\n</style>""", unsafe_allow_html=True)
     animate = st.checkbox("Pulsér kritiske målere", value=True, key="market_health_critical_animation") if hasattr(st, "checkbox") else False
+    available_keys = [key for _, (_, group_keys) in GROUPS.items() for key in group_keys if normalize(key, rows.get(key))]
+    st.caption(f"{len(available_keys)} av {len(INDICATORS)} indikatorer har målte verdier. Fargeskala vises bare når skalaen er dokumentert.")
     for group_id, (group_label, keys) in GROUPS.items():
         st.markdown(f"**{group_label}**")
         columns = st.columns(2)
