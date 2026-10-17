@@ -19,3 +19,4 @@ def test_css_segments_follow_vix_display_breakpoints():
     assert "#22a06b 16.67%,#eab308 16.67%" in source
     assert "#eab308 33.33%,#f28c35 33.33%" in source
     assert "#f28c35 66.67%,#dc4545 66.67%" in source
+    assert "if gauge.get(\"reverse_risk\")" in source
