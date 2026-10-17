@@ -512,6 +512,19 @@ def _run_once_locked() -> dict[str, Any]:
         # A provider failure must be visible, but must not suppress scheduled reports.
         state["currency_alerts"] = {"state": "FAILED", "error": str(exc)[:500]}
 
+    # Informational market dashboard refresh; never changes order execution.
+    try:
+        from market_health_collector import collect as collect_market_health
+        from durable_runtime import read_json as read_market_json, write_json as write_market_json
+        from storage_architecture import runtime_data_path
+        mh_key = "market_health/latest.json"
+        mh_path = runtime_data_path("market_health", "latest.json")
+        mh_result = collect_market_health(read_market_json(mh_key, mh_path, {}) or {})
+        write_market_json(mh_key, mh_path, mh_result)
+        state["market_health"] = mh_result.get("collection_status", {})
+    except Exception as exc:
+        state["market_health"] = {"state": "FAILED", "error": str(exc)[:250]}
+
     # One-time, narrowly scoped removal of the retired temporary vehicle module.
     # This runs before the scanner and never touches investment namespaces.
     try:
