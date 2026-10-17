@@ -68,6 +68,7 @@ def render_market_health(st, snapshot=None):
     rows = rows if isinstance(rows, dict) else {}
     from market_health_history import normalize, summarize
     from market_health_alerts import critical_alert
+    from market_health_gauges import display_gauge
     policies = snapshot.get("alert_policies") if isinstance(snapshot.get("alert_policies"), dict) else {}
     st.subheader("🌡️ Markedstemperatur – global børshelse")
     # Distinguish source observation time from scheduler polling time.
@@ -121,20 +122,37 @@ def render_market_health(st, snapshot=None):
     animate = st.checkbox("Pulsér kritiske målere", value=True, key="market_health_critical_animation") if hasattr(st, "checkbox") else False
     for group_id, (group_label, keys) in GROUPS.items():
         st.markdown(f"**{group_label}**")
-        columns = st.columns(3)
+        columns = st.columns(2)
         for n, key in enumerate(keys):
             name, meaning, caution, default_source, unit = INDICATORS[key]
             datum = rows.get(key)
             checked = normalize(key, datum)
             good = checked is not None and checked["status"] == "CURRENT"
             alert = critical_alert(key, datum, checked, policies.get(key))
-            with columns[n % 3]:
+            with columns[n % 2]:
                 if alert:
                     style = "mh-critical" if animate else ""
                     st.markdown(f'<div class="{style}" role="status">🔴 KRITISK: {escape(name)} · {alert["value"]:g} (grense {alert["threshold"]:g})</div>', unsafe_allow_html=True)
                 if good:
-                    st.metric(name, f"{float(datum['value']):,.2f} {unit}")
-                    st.caption(f"{datum['observed_at']} · {datum['source']}")
+                    gauge = display_gauge(key, checked["value"])
+                    label = f"{float(datum['value']):,.2f} {unit}"
+                    st.markdown(f"**{escape(name)}**")
+                    st.markdown(f"**{escape(label)}**")
+                    if gauge["percent"] is not None:
+                        pos = gauge["percent"]
+                        st.markdown(
+                            '<div role="img" aria-label="'+escape(name+': '+gauge["label"])+
+                            '" style="position:relative;height:13px;border-radius:12px;'
+                            'background:linear-gradient(90deg,#22a06b 0%,#22a06b 25%,#eab308 25%,'
+                            '#eab308 45%,#f28c35 45%,#f28c35 70%,#dc4545 70%);margin:14px 2px 5px">'
+                            f'<span style="position:absolute;left:{pos}%;top:-6px;height:25px;width:5px;'
+                            'background:white;border:1px solid #13212a;border-radius:3px;'
+                            'transform:translateX(-50%)"></span></div>',
+                            unsafe_allow_html=True)
+                        st.caption(gauge["label"] + " · Veiledende skala")
+                    else:
+                        st.caption("◻ Skala ikke kalibrert · ingen risikofarge")
+                    st.caption(f"Kurs: {datum['observed_at']}")
                 else:
                     st.metric(name, "Utdatert" if checked and checked["status"] == "STALE" else "Mangler data")
                 with st.expander(f"ℹ️ Forklaring: {name}"):
@@ -142,6 +160,8 @@ def render_market_health(st, snapshot=None):
                     if alert:
                         st.write("🔴 KRITISK NIVÅ: ", alert["value"], "Alarmgrense:", alert["threshold"], "Retning:", alert["direction"])
                         st.write("Varselregel:", alert["policy_id"], "Observert:", alert["observed_at"])
+                    if good:
+                        st.write("Skalaforklaring:", display_gauge(key, checked["value"]).get("method", "Ingen godkjent skala"))
                     st.write("Tolkning:", caution)
                     st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
                     st.write("Dette er et mål for kontrollfrekvens, ikke garanti for ny verdi fra datakilden.")
