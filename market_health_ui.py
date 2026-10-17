@@ -70,6 +70,21 @@ def render_market_health(st, snapshot=None):
     from market_health_alerts import critical_alert
     policies = snapshot.get("alert_policies") if isinstance(snapshot.get("alert_policies"), dict) else {}
     st.subheader("🌡️ Markedstemperatur – global børshelse")
+    # Distinguish source observation time from scheduler polling time.
+    from zoneinfo import ZoneInfo
+    def _clock_label(raw):
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if parsed.tzinfo is None or parsed > datetime.now(timezone.utc):
+                return "Ukjent"
+            return parsed.astimezone(ZoneInfo("America/Fortaleza")).strftime("%d.%m kl. %H:%M")
+        except (TypeError, ValueError, OverflowError):
+            return "Ukjent"
+    checked_at = (snapshot.get("collection_status") or {}).get("at") if isinstance(snapshot.get("collection_status"), dict) else None
+    observed = [str(row.get("observed_at")) for row in rows.values() if isinstance(row, dict) and row.get("observed_at")]
+    last_quote = max(observed) if observed else None
+    st.caption(f"🕒 Siste datakontroll: {_clock_label(checked_at)} · Nyeste kursobservasjon: {_clock_label(last_quote)} (Brasil, UTC−3)")
+    st.caption("Hver enkelt måler viser dessuten sitt eget kurstidspunkt og datakilde.")
     # Render static accessible dial artwork, not a green health indicator without evidence.
     def dial(label, value=None):
         verified = isinstance(value, (int, float)) and isfinite(value) and 0 <= value <= 100
