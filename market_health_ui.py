@@ -145,7 +145,7 @@ def render_market_health(st, snapshot=None):
                     if gauge["percent"] is not None:
                         pos = gauge["percent"]
                         # Reverse colors for measures where smaller values mean greater stress.
-                        gradient = ("#dc4545 0%,#dc4545 50%,#f28c35 50%,#f28c35 67.5%,#eab308 67.5%,#eab308 75%,#22a06b 75%" if gauge.get("reverse_risk") else "#22a06b 0%,#22a06b 16.67%,#eab308 16.67%,#eab308 33.33%,#f28c35 33.33%,#f28c35 66.67%,#dc4545 66.67%")
+                        gradient = ("#dc4545 0%,#dc4545 25%,#f28c35 25%,#f28c35 42.5%,#eab308 42.5%,#eab308 50%,#22a06b 50%" if gauge.get("reverse_risk") else "#22a06b 0%,#22a06b 16.67%,#eab308 16.67%,#eab308 33.33%,#f28c35 33.33%,#f28c35 66.67%,#dc4545 66.67%")
                         st.markdown(
                             '<div role="img" aria-label="'+escape(name+': '+gauge["label"])+
                             '" style="position:relative;height:13px;border-radius:12px;'
