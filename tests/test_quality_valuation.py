@@ -155,7 +155,7 @@ def test_roce_does_not_pair_ebit_with_balance_from_another_year():
 
 def test_v2_records_unix_quote_time_without_assuming_adjustment():
     result = run_screen(["NHY.OL"], lambda ticker: company(
-        regularMarketPrice=123.5, regularMarketTime=1790000000))
+        regularMarketPrice=123.5, regularMarketTime=int(datetime.now(timezone.utc).timestamp())))
     rows = result["quality_v2_shadow"]["rows"]
     assert rows
     assert rows[0]["decision_date"]
