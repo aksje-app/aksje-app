@@ -20,12 +20,28 @@ INDICATORS = {
     "brent": ("Brent olje", "Referansepris for olje som påvirker inflasjon, energiselskaper og norsk økonomi.", "Stigning kan være både vekstsignal og inflasjonspress.", "Dokumentert Brent-spot/terminserie", "USD/fat"),
     "ttf": ("Europeisk naturgass", "Europeisk TTF-gasspris.", "Store utslag påvirker europeiske energikostnader.", "Dokumentert TTF-serie", "EUR/MWh"),
     "gold": ("Gull", "Gullpris i amerikanske dollar.", "Avhenger også av realrente, dollar og likviditet; ikke entydig fryktmål.", "Dokumentert XAU/USD-serie", "USD/oz"),
+    "dxy": ("Dollarindeks DXY", "Vektet mål på dollarens verdi mot en kurv av seks valutaer, der euro veier mest.", "Stigende DXY kan stramme globale finansieringsvilkår, men effekten varierer mellom sektorer og land.", "ICE US Dollar Index", "indeks"),
+    "eurusd": ("EUR/USD", "Antall amerikanske dollar per euro. Fallende EUR/USD betyr sterkere dollar mot euro.", "Kursen kompletterer DXY, men skal ikke telles som et helt uavhengig risikosignal.", "Dokumentert valutakilde", "USD/EUR"),
     "trend": ("S&P 500 mot 200-dagers snitt", "Avstand i prosent mellom S&P 500 og 200-dagers glidende gjennomsnitt.", "Negativ avstand kan indikere svak trend, ikke nødvendigvis krise.", "S&P 500 kursserie", "%"),
 }
 GROUPS = {"verdsettelse": ("Verdsettelsesrisiko", ("cape", "equity_yield")),
           "stress": ("Markedsstress", ("vix", "credit", "curve", "breadth")),
-          "macro": ("Makro og trender", ("us10y", "us30y", "brent", "ttf", "gold", "trend"))}
+          "macro": ("Makro og trender", ("us10y", "us30y", "brent", "ttf", "gold", "dxy", "eurusd", "trend"))}
 
+
+UPDATE_INTERVALS = {
+    "cape": "Månedlig", "equity_yield": "Månedlig", "vix": "15 minutter",
+    "us10y": "15 minutter (hvis intradagkilde; ellers daglig)",
+    "us30y": "15 minutter (hvis intradagkilde; ellers daglig)",
+    "curve": "15 minutter (hvis begge rentekurser er ferske; ellers daglig)",
+    "credit": "Daglig", "breadth": "30 minutter", "brent": "15 minutter",
+    "ttf": "15 minutter (ved tilgang til intradagkilde)", "gold": "15 minutter",
+    "trend": "15 minutter i børstid", "dxy": "15 minutter",
+    "eurusd": "15 minutter",
+}
+# Targets only. Snapshot freshness must be checked against the actual publication
+# cadence and exchange holidays; a scheduler run does not prove fresh quotes.
+COMPOSITE_INTERVAL = "Hvert 15. minutt når gyldige inngangsdata foreligger"
 
 def _valid(row):
     if not isinstance(row, dict) or not row.get("observed_at") or not row.get("source"):
@@ -81,6 +97,8 @@ def render_market_health(st, snapshot=None):
     with st.expander("ℹ️ Hvordan beregnes samlet børshelse og fargene?"):
         st.write("Samlet børshelse skal kombinere verdsettelse, markedsstress, renter, trend og markedsbredde. Gruppene må normaliseres mot egen historikk og kontrolleres for overlapp. Rødt betyr forhøyet risiko – ikke et automatisk salgssignal.")
         st.write("Ingen samlet score gis ved manglende kritiske data, udokumenterte terskler eller utilstrekkelig historikk. Grønn drift er ikke dokumentasjon på god investeringsavkastning.")
+        st.write("Planlagt oppdateringsintervall:", COMPOSITE_INTERVAL)
+        st.write("DXY er primært dollarmål. EUR/USD er forklarende krysskurs, ikke et dobbelt vektet uavhengig signal.")
     for group_id, (group_label, keys) in GROUPS.items():
         st.markdown(f"**{group_label}**")
         columns = st.columns(3)
@@ -97,6 +115,8 @@ def render_market_health(st, snapshot=None):
                 with st.expander(f"ℹ️ Forklaring: {name}"):
                     st.write(meaning)
                     st.write("Tolkning:", caution)
+                    st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
+                    st.write("Dette er et mål for kontrollfrekvens, ikke garanti for ny verdi fra datakilden.")
                     st.write("Datakilde:", str(datum.get("source") if good else default_source))
                     st.write("Sist observert:", str(datum.get("observed_at") if good else "Ukjent"))
                     st.write("Historikk 1/7/30 dager: Ikke tilgjengelig" if not good or not datum.get("history") else datum["history"])
