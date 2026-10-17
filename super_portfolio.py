@@ -1703,6 +1703,24 @@ def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str 
         zf.writestr("vacancy_diagnostics.json", json.dumps(data.get("vacancy_diagnostics") or {}, ensure_ascii=False, indent=2, default=str))
         zf.writestr("last_exit_refill.json", json.dumps(data.get("last_exit_refill") or {}, ensure_ascii=False, indent=2, default=str))
         zf.writestr("recent_history.json", json.dumps(list(data.get("history") or [])[-20:], ensure_ascii=False, indent=2, default=str))
+        # Operational errors and Shadow decisions belong in per-ticker diagnostics too.
+        # Failure to read either source must be explicit, never silently interpreted as healthy.
+        from trade_forensics import error_evidence, diagnostic_manifest
+        try:
+            from durable_runtime import read_events as _read_diag_events
+            from storage_architecture import runtime_log_path as _diag_path
+            errors = _read_diag_events("operations/errors.jsonl", _diag_path("operations", "errors.jsonl"), limit=250)
+            zf.writestr("recent_errors.json", json.dumps(error_evidence(errors), ensure_ascii=False, default=str))
+        except Exception as exc:
+            zf.writestr("recent_errors_unavailable.json", json.dumps({"error": type(exc).__name__, "message": str(exc)[:200]}))
+        try:
+            decisions = _read_diag_events("super_portfolio/audit.jsonl", _diag_path("super_portfolio", "audit.jsonl"), limit=120)
+            zf.writestr("recent_shadow_decisions.json", json.dumps(decisions, ensure_ascii=False, default=str))
+        except Exception as exc:
+            zf.writestr("recent_shadow_unavailable.json", json.dumps({"error": type(exc).__name__, "message": str(exc)[:200]}))
+    with zipfile.ZipFile(buf, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest_bytes = {name: zf.read(name) for name in zf.namelist()}
+        zf.writestr("manifest.json", json.dumps(diagnostic_manifest(manifest_bytes), ensure_ascii=False))
     return buf.getvalue()
 
 
