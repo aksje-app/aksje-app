@@ -164,7 +164,10 @@ def live_financial_snapshot(ticker: str) -> dict[str, Any]:
             warnings.append("Fast kurs utilgjengelig")
     currency = info.get("currency") or (fast.get("currency") if fast else None)
     return {
-        "ticker": ticker, "price": price, "trailing_eps": info.get("trailingEps"),
+        "ticker": ticker, "price": price,
+        "regularMarketPrice": info.get("regularMarketPrice"),
+        "regularMarketTime": info.get("regularMarketTime"),
+        "trailing_eps": info.get("trailingEps"),
         "forward_eps": info.get("forwardEps"), "annual_eps": eps,
         "financial_date": period, "free_cash_flow": info.get("freeCashflow"),
         "free_cash_flow_history": fcf_history,
