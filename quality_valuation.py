@@ -736,7 +736,22 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
             results.append(active)
             try:
                 from quality_model_v2 import evaluate_shadow
-                shadow_rows.append(evaluate_shadow(row, active))
+                shadow_result = evaluate_shadow(row, active)
+                # Capture the actual decision timestamp; never invent an entry quote.
+                decision_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+                shadow_result["decision_at"] = decision_at
+                shadow_result["decision_date"] = decision_at[:10]
+                quote = _positive(row.get("regularMarketPrice"))
+                quote_at = _date(row.get("regularMarketTime"))
+                if quote is not None and quote_at is not None:
+                    shadow_result["entry_price"] = quote
+                    shadow_result["entry_quote_at"] = quote_at.isoformat()
+                    shadow_result["entry_price_source"] = "provider.regularMarketPrice"
+                    shadow_result["entry_price_status"] = "PROVIDER_QUOTE_UNADJUSTED"
+                else:
+                    shadow_result["entry_price"] = None
+                    shadow_result["entry_price_status"] = "MISSING_VERIFIABLE_TIMESTAMPED_QUOTE"
+                shadow_rows.append(shadow_result)
             except Exception:
                 # Shadow must never make the active screen fail.
                 pass
