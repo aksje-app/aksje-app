@@ -173,3 +173,15 @@ def test_v2_rejects_quote_older_than_fifteen_minutes():
     assert rows
     assert rows[0]["entry_price"] is None
     assert rows[0]["entry_price_status"] == "MISSING_VERIFIABLE_TIMESTAMPED_QUOTE"
+
+
+def test_v2_rejects_future_quote_or_missing_quote_timestamp():
+    now = int(datetime.now(timezone.utc).timestamp())
+    for stamp in (now + 5 * 60, None):
+        row = company(regularMarketPrice=123.5)
+        if stamp is not None:
+            row["regularMarketTime"] = stamp
+        result = run_screen(["NHY.OL"], lambda ticker: row)
+        shadow = result["quality_v2_shadow"]["rows"][0]
+        assert shadow["entry_price"] is None
+        assert shadow["entry_price_status"] == "MISSING_VERIFIABLE_TIMESTAMPED_QUOTE"
