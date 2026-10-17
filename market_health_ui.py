@@ -67,6 +67,8 @@ def render_market_health(st, snapshot=None):
     rows = snapshot.get("indicators") or {}
     rows = rows if isinstance(rows, dict) else {}
     from market_health_history import normalize, summarize
+    from market_health_alerts import critical_alert
+    policies = snapshot.get("alert_policies") if isinstance(snapshot.get("alert_policies"), dict) else {}
     st.subheader("🌡️ Markedstemperatur – global børshelse")
     # Render static accessible dial artwork, not a green health indicator without evidence.
     def dial(label, value=None):
@@ -100,6 +102,8 @@ def render_market_health(st, snapshot=None):
         st.write("Ingen samlet score gis ved manglende kritiske data, udokumenterte terskler eller utilstrekkelig historikk. Grønn drift er ikke dokumentasjon på god investeringsavkastning.")
         st.write("Planlagt oppdateringsintervall:", COMPOSITE_INTERVAL)
         st.write("DXY er primært dollarmål. EUR/USD er forklarende krysskurs, ikke et dobbelt vektet uavhengig signal.")
+    st.markdown("""<style>\n@keyframes mh-critical-pulse {0%,100% {opacity:1;box-shadow:0 0 0 0 rgba(220,50,50,.28)}50% {opacity:.7;box-shadow:0 0 0 7px rgba(220,50,50,0)}}\n.mh-critical {border:2px solid #cf3434;border-radius:12px;padding:8px;background:rgba(210,45,45,.12);animation:mh-critical-pulse 2.4s ease-in-out infinite}\n@media (prefers-reduced-motion: reduce) {.mh-critical {animation:none}}\n</style>""", unsafe_allow_html=True)
+    animate = st.checkbox("Pulsér kritiske målere", value=True, key="market_health_critical_animation") if hasattr(st, "checkbox") else False
     for group_id, (group_label, keys) in GROUPS.items():
         st.markdown(f"**{group_label}**")
         columns = st.columns(3)
@@ -108,7 +112,11 @@ def render_market_health(st, snapshot=None):
             datum = rows.get(key)
             checked = normalize(key, datum)
             good = checked is not None and checked["status"] == "CURRENT"
+            alert = critical_alert(key, datum, checked, policies.get(key))
             with columns[n % 3]:
+                if alert:
+                    style = "mh-critical" if animate else ""
+                    st.markdown(f'<div class="{style}" role="status">🔴 KRITISK: {escape(name)} · {alert["value"]:g} (grense {alert["threshold"]:g})</div>', unsafe_allow_html=True)
                 if good:
                     st.metric(name, f"{float(datum['value']):,.2f} {unit}")
                     st.caption(f"{datum['observed_at']} · {datum['source']}")
@@ -116,6 +124,9 @@ def render_market_health(st, snapshot=None):
                     st.metric(name, "Utdatert" if checked and checked["status"] == "STALE" else "Mangler data")
                 with st.expander(f"ℹ️ Forklaring: {name}"):
                     st.write(meaning)
+                    if alert:
+                        st.write("🔴 KRITISK NIVÅ: ", alert["value"], "Alarmgrense:", alert["threshold"], "Retning:", alert["direction"])
+                        st.write("Varselregel:", alert["policy_id"], "Observert:", alert["observed_at"])
                     st.write("Tolkning:", caution)
                     st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
                     st.write("Dette er et mål for kontrollfrekvens, ikke garanti for ny verdi fra datakilden.")
