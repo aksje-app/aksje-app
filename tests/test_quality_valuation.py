@@ -151,3 +151,15 @@ def test_roce_does_not_pair_ebit_with_balance_from_another_year():
     ebit = _dated_values(annual, ("EBIT",))
     assets = _dated_values(balance, ("Total Assets",))
     assert ebit.keys() & assets.keys() == {"2023-12-31"}
+
+
+def test_v2_records_unix_quote_time_without_assuming_adjustment():
+    result = run_screen(["NHY.OL"], lambda ticker: company(
+        regularMarketPrice=123.5, regularMarketTime=1790000000))
+    rows = result["quality_v2_shadow"]["rows"]
+    assert rows
+    assert rows[0]["decision_date"]
+    assert rows[0]["entry_price"] == 123.5
+    assert rows[0]["entry_price_status"] == "PROVIDER_QUOTE_UNADJUSTED"
+    assert rows[0]["entry_quote_at"].endswith("+00:00")
+    assert result["shadow_only"] is True
