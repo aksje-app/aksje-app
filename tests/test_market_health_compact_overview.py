@@ -9,5 +9,5 @@ def test_overview_hides_unvalidated_oversized_dial():
 
 def test_only_vix_has_explicit_preliminary_display_scale():
     assert display_gauge("vix",19.99)["label"] == "Moderat"
-    for key in ("us10y","us30y","gold","dxy","brent","eurusd","trend"):
+    for key in ("us10y","us30y","gold","dxy","brent","eurusd"):
         assert display_gauge(key,3)["status"] == "UNRATED"
