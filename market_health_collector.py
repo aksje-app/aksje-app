@@ -62,5 +62,5 @@ def collect(snapshot=None, *, history_provider=None, now=None):
             errors[key] = str(exc)[:180]
     return {"indicators": result, "composite": {"validated": False},
             "collection_status": {"at": now.isoformat(), "updated": [k for k in SYMBOLS if k in result and k not in errors],
-                                  "errors": errors, "cadence": "15m check / daily bar publication",
+                                  "errors": errors, "cadence": "4h poll / daily bar publication",
                                   "mode": "READ_ONLY"}}
