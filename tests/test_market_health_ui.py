@@ -48,8 +48,8 @@ def test_unvalidated_composite_never_displays_green_score():
 def test_valid_measurement_preserves_source_and_time():
     st = FakeSt()
     render_market_health(st, {"indicators": {"vix": {"value": 21.5, "source": "Cboe", "observed_at": datetime.now(timezone.utc).isoformat()}}})
-    assert ("VIX fryktindeks", "21.50 indeks") in st.metrics
-    assert any("Cboe" in x for x in st.messages)
+    assert any("21.50 indeks" in str(x) for x in st.messages)
+    assert any("Cboe" in str(x) for x in st.messages)
 
 
 def test_intervals_and_dollar_explanations():

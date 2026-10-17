@@ -68,6 +68,7 @@ def render_market_health(st, snapshot=None):
     rows = rows if isinstance(rows, dict) else {}
     from market_health_history import normalize, summarize
     from market_health_alerts import critical_alert
+    from market_health_gauges import display_gauge
     policies = snapshot.get("alert_policies") if isinstance(snapshot.get("alert_policies"), dict) else {}
     st.subheader("🌡️ Markedstemperatur – global børshelse")
     # Distinguish source observation time from scheduler polling time.
@@ -110,8 +111,10 @@ def render_market_health(st, snapshot=None):
         st.progress(int(score) / 100, text=f"Samlet risikometer: {score:.0f}/100")
     else:
         st.info("Samlet temperatur: IKKE BEREGNET – datadekning og kalibrering må være validert.")
-    if hasattr(st, "markdown"):
-        st.markdown(dial("Samlet markedsrisiko", score if isinstance(overall, dict) and overall.get("validated") is True else None), unsafe_allow_html=True)
+    if hasattr(st, "markdown") and isinstance(score, (int, float)) and isfinite(score) and overall.get("validated") is True:
+        st.markdown(dial("Samlet markedsrisiko", score), unsafe_allow_html=True)
+    else:
+        st.caption("Samlet instrumentmåler vises når risikomodellen er validert; inntil da vises de enkelte markedsmålingene.")
     with st.expander("ℹ️ Hvordan beregnes samlet børshelse og fargene?"):
         st.write("Samlet børshelse skal kombinere verdsettelse, markedsstress, renter, trend og markedsbredde. Gruppene må normaliseres mot egen historikk og kontrolleres for overlapp. Rødt betyr forhøyet risiko – ikke et automatisk salgssignal.")
         st.write("Ingen samlet score gis ved manglende kritiske data, udokumenterte terskler eller utilstrekkelig historikk. Grønn drift er ikke dokumentasjon på god investeringsavkastning.")
@@ -119,22 +122,42 @@ def render_market_health(st, snapshot=None):
         st.write("DXY er primært dollarmål. EUR/USD er forklarende krysskurs, ikke et dobbelt vektet uavhengig signal.")
     st.markdown("""<style>\n@keyframes mh-critical-pulse {0%,100% {opacity:1;box-shadow:0 0 0 0 rgba(220,50,50,.28)}50% {opacity:.7;box-shadow:0 0 0 7px rgba(220,50,50,0)}}\n.mh-critical {border:2px solid #cf3434;border-radius:12px;padding:8px;background:rgba(210,45,45,.12);animation:mh-critical-pulse 2.4s ease-in-out infinite}\n@media (prefers-reduced-motion: reduce) {.mh-critical {animation:none}}\n</style>""", unsafe_allow_html=True)
     animate = st.checkbox("Pulsér kritiske målere", value=True, key="market_health_critical_animation") if hasattr(st, "checkbox") else False
+    available_keys = [key for _, (_, group_keys) in GROUPS.items() for key in group_keys if normalize(key, rows.get(key))]
+    st.caption(f"{len(available_keys)} av {len(INDICATORS)} indikatorer har målte verdier. Fargeskala vises bare når skalaen er dokumentert.")
     for group_id, (group_label, keys) in GROUPS.items():
         st.markdown(f"**{group_label}**")
-        columns = st.columns(3)
+        columns = st.columns(2)
         for n, key in enumerate(keys):
             name, meaning, caution, default_source, unit = INDICATORS[key]
             datum = rows.get(key)
             checked = normalize(key, datum)
             good = checked is not None and checked["status"] == "CURRENT"
             alert = critical_alert(key, datum, checked, policies.get(key))
-            with columns[n % 3]:
+            with columns[n % 2]:
                 if alert:
                     style = "mh-critical" if animate else ""
                     st.markdown(f'<div class="{style}" role="status">🔴 KRITISK: {escape(name)} · {alert["value"]:g} (grense {alert["threshold"]:g})</div>', unsafe_allow_html=True)
                 if good:
-                    st.metric(name, f"{float(datum['value']):,.2f} {unit}")
-                    st.caption(f"{datum['observed_at']} · {datum['source']}")
+                    gauge = display_gauge(key, checked["value"])
+                    label = f"{float(datum['value']):,.2f} {unit}"
+                    st.markdown(f"**{escape(name)}**")
+                    st.markdown(f"**{escape(label)}**")
+                    if gauge["percent"] is not None:
+                        pos = gauge["percent"]
+                        # Reverse colors for measures where smaller values mean greater stress.
+                        gradient = ("#dc4545 0%,#dc4545 25%,#f28c35 25%,#f28c35 42.5%,#eab308 42.5%,#eab308 50%,#22a06b 50%" if gauge.get("reverse_risk") else "#22a06b 0%,#22a06b 16.67%,#eab308 16.67%,#eab308 33.33%,#f28c35 33.33%,#f28c35 66.67%,#dc4545 66.67%")
+                        st.markdown(
+                            '<div role="img" aria-label="'+escape(name+': '+gauge["label"])+
+                            '" style="position:relative;height:13px;border-radius:12px;'
+                            f'background:linear-gradient(90deg,{gradient});margin:14px 2px 5px">'
+                            f'<span style="position:absolute;left:{pos}%;top:-6px;height:25px;width:5px;'
+                            'background:white;border:1px solid #13212a;border-radius:3px;'
+                            'transform:translateX(-50%)"></span></div>',
+                            unsafe_allow_html=True)
+                        st.caption(gauge["label"] + " · Veiledende skala")
+                    else:
+                        st.caption("◻ Skala ikke kalibrert · ingen risikofarge")
+                    st.caption(f"Kurs: {datum['observed_at']}")
                 else:
                     st.metric(name, "Utdatert" if checked and checked["status"] == "STALE" else "Mangler data")
                 with st.expander(f"ℹ️ Forklaring: {name}"):
@@ -142,6 +165,8 @@ def render_market_health(st, snapshot=None):
                     if alert:
                         st.write("🔴 KRITISK NIVÅ: ", alert["value"], "Alarmgrense:", alert["threshold"], "Retning:", alert["direction"])
                         st.write("Varselregel:", alert["policy_id"], "Observert:", alert["observed_at"])
+                    if good:
+                        st.write("Skalaforklaring:", display_gauge(key, checked["value"]).get("method", "Ingen godkjent skala"))
                     st.write("Tolkning:", caution)
                     st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
                     st.write("Dette er et mål for kontrollfrekvens, ikke garanti for ny verdi fra datakilden.")
