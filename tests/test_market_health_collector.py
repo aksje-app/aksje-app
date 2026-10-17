@@ -10,7 +10,7 @@ def test_collector_uses_real_dated_close_and_does_not_fake_composite():
     assert snap["composite"]["validated"] is False
     assert snap["indicators"]["trend"]["value"] > 0
     assert "Yahoo Finance daily" in snap["indicators"]["vix"]["source"]
-    assert snap["indicators"]["us10y"]["value"] == frame["Close"].iloc[-1]/10
+    assert snap["indicators"]["us10y"]["value"] == frame["Close"].iloc[-1]
     assert "cape" not in snap["indicators"]
 
 

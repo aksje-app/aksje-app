@@ -36,8 +36,16 @@ def normalize(key, row, *, now=None):
     source = str(row.get("source") or "").strip()
     if not at or not source or not isfinite(value) or at > now + timedelta(seconds=MAX_FUTURE_SECONDS):
         return None
+    # Daily bars remain the latest valid session close during weekends.
+    age = now - at
+    if (key not in ("cape", "equity_yield", "credit", "breadth")
+            and now.weekday() in (5, 6)
+            and at.weekday() == 4
+            and 0 <= (now.date() - at.date()).days <= 2):
+        # Only the immediately preceding Friday gets a weekend allowance.
+        age = min(age, timedelta(hours=24))
     return {"value": value, "observed_at": at.isoformat(), "source": source,
-            "status": "STALE" if now-at > MAX_AGE[key] else "CURRENT"}
+            "status": "STALE" if age > MAX_AGE[key] else "CURRENT"}
 
 
 def summarize(key, history, *, now=None):

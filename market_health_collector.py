@@ -38,8 +38,8 @@ def collect(snapshot=None, *, history_provider=None, now=None):
                 raise ValueError("unqualified timestamp")
             observed = last_time.to_pydatetime().astimezone(timezone.utc)
             value = float(series.iloc[-1])
-            if key in ("us10y", "us30y"):
-                value /= 10.0  # Yahoo ^TNX/^TYX quote yield multiplied by ten.
+            # Yahoo ^TNX/^TYX responses observed in production are already percent yields.
+            # Do not divide a percent yield by ten without an independently verified unit contract.
             if key == "trend":
                 if len(series) < 200:
                     raise ValueError("200-day baseline unavailable")
