@@ -66,6 +66,7 @@ def render_market_health(st, snapshot=None):
     snapshot = snapshot if isinstance(snapshot, dict) else {}
     rows = snapshot.get("indicators") or {}
     rows = rows if isinstance(rows, dict) else {}
+    from market_health_history import normalize, summarize
     st.subheader("🌡️ Markedstemperatur – global børshelse")
     # Render static accessible dial artwork, not a green health indicator without evidence.
     def dial(label, value=None):
@@ -105,13 +106,14 @@ def render_market_health(st, snapshot=None):
         for n, key in enumerate(keys):
             name, meaning, caution, default_source, unit = INDICATORS[key]
             datum = rows.get(key)
-            good = _valid(datum)
+            checked = normalize(key, datum)
+            good = checked is not None and checked["status"] == "CURRENT"
             with columns[n % 3]:
                 if good:
                     st.metric(name, f"{float(datum['value']):,.2f} {unit}")
                     st.caption(f"{datum['observed_at']} · {datum['source']}")
                 else:
-                    st.metric(name, "Mangler data")
+                    st.metric(name, "Utdatert" if checked and checked["status"] == "STALE" else "Mangler data")
                 with st.expander(f"ℹ️ Forklaring: {name}"):
                     st.write(meaning)
                     st.write("Tolkning:", caution)
@@ -119,5 +121,7 @@ def render_market_health(st, snapshot=None):
                     st.write("Dette er et mål for kontrollfrekvens, ikke garanti for ny verdi fra datakilden.")
                     st.write("Datakilde:", str(datum.get("source") if good else default_source))
                     st.write("Sist observert:", str(datum.get("observed_at") if good else "Ukjent"))
-                    st.write("Historikk 1/7/30 dager: Ikke tilgjengelig" if not good or not datum.get("history") else datum["history"])
+                    history = datum.get("observations") if isinstance(datum, dict) else None
+                    details = summarize(key, history) if isinstance(history, list) else None
+                    st.write("Historikk 24 timer / 7 / 30 dager:", details["history"] if details else "Ikke tilgjengelig")
                     st.write("Inngår i sammensatt måler først når datadekning, metode og terskler er validert.")
