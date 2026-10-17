@@ -751,7 +751,7 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
                         quote_at = None
                 else:
                     quote_at = _date(quote_time_raw)
-                if quote is not None and quote_at is not None and 0 <= (datetime.fromisoformat(decision_at) - quote_at).total_seconds() <= 72 * 3600:
+                if quote is not None and quote_at is not None and 0 <= (datetime.fromisoformat(decision_at) - quote_at).total_seconds() <= 15 * 60:
                     shadow_result["entry_price"] = quote
                     shadow_result["entry_quote_at"] = quote_at.isoformat()
                     shadow_result["entry_price_source"] = "provider.regularMarketPrice"
