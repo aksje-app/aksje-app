@@ -143,8 +143,8 @@ def render_market_health(st, snapshot=None):
                         st.markdown(
                             '<div role="img" aria-label="'+escape(name+': '+gauge["label"])+
                             '" style="position:relative;height:13px;border-radius:12px;'
-                            'background:linear-gradient(90deg,#22a06b 0%,#22a06b 25%,#eab308 25%,'
-                            '#eab308 45%,#f28c35 45%,#f28c35 70%,#dc4545 70%);margin:14px 2px 5px">'
+                            'background:linear-gradient(90deg,#22a06b 0%,#22a06b 16.67%,#eab308 16.67%,'
+                            '#eab308 33.33%,#f28c35 33.33%,#f28c35 66.67%,#dc4545 66.67%);margin:14px 2px 5px">'
                             f'<span style="position:absolute;left:{pos}%;top:-6px;height:25px;width:5px;'
                             'background:white;border:1px solid #13212a;border-radius:3px;'
                             'transform:translateX(-50%)"></span></div>',
