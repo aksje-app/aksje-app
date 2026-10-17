@@ -51,6 +51,24 @@ def render_market_health(st, snapshot=None):
     rows = snapshot.get("indicators") or {}
     rows = rows if isinstance(rows, dict) else {}
     st.subheader("🌡️ Markedstemperatur – global børshelse")
+    # Render static accessible dial artwork, not a green health indicator without evidence.
+    def dial(label, value=None):
+        verified = isinstance(value, (int, float)) and isfinite(value) and 0 <= value <= 100
+        pct = float(value) if verified else 0
+        angle = -90 + pct * 1.8
+        color = "#2aaa75" if pct < 30 else "#e7b53b" if pct < 55 else "#e78636" if pct < 75 else "#d75050"
+        needle = (f'<line x1="90" y1="105" x2="90" y2="46" stroke="{color}" stroke-width="4" '
+                  f'transform="rotate({angle:.1f} 90 105)" stroke-linecap="round"/>') if verified else ""
+        title = f"{pct:.0f}/100" if verified else "Ukjent"
+        return (f'<div role="img" aria-label="{escape(label)}: {title}" style="text-align:center">'
+                '<svg viewBox="0 0 180 118" style="width:100%;max-width:215px">'
+                '<path d="M 20 105 A 70 70 0 0 1 160 105" fill="none" stroke="#2aaa75" stroke-width="14"/>'
+                '<path d="M 41 56 A 70 70 0 0 1 100 36" fill="none" stroke="#e7b53b" stroke-width="14"/>'
+                '<path d="M 100 36 A 70 70 0 0 1 147 64" fill="none" stroke="#e78636" stroke-width="14"/>'
+                '<path d="M 147 64 A 70 70 0 0 1 160 105" fill="none" stroke="#d75050" stroke-width="14"/>'
+                + needle + '<circle cx="90" cy="105" r="5" fill="currentColor"/></svg>'
+                f'<div><strong>{escape(label)}</strong></div><div>{title}</div></div>')
+
     st.caption("Kun observerte, tidsstemplete markedsdata. Foreløpig informativ/Shadow; ingen påvirkning på kjøp eller salg.")
     overall = snapshot.get("composite") or {}
     score = overall.get("risk_score") if isinstance(overall, dict) else None
@@ -58,6 +76,8 @@ def render_market_health(st, snapshot=None):
         st.progress(int(score) / 100, text=f"Samlet risikometer: {score:.0f}/100")
     else:
         st.info("Samlet temperatur: IKKE BEREGNET – datadekning og kalibrering må være validert.")
+    if hasattr(st, "markdown"):
+        st.markdown(dial("Samlet markedsrisiko", score if isinstance(overall, dict) and overall.get("validated") is True else None), unsafe_allow_html=True)
     with st.expander("ℹ️ Hvordan beregnes samlet børshelse og fargene?"):
         st.write("Samlet børshelse skal kombinere verdsettelse, markedsstress, renter, trend og markedsbredde. Gruppene må normaliseres mot egen historikk og kontrolleres for overlapp. Rødt betyr forhøyet risiko – ikke et automatisk salgssignal.")
         st.write("Ingen samlet score gis ved manglende kritiske data, udokumenterte terskler eller utilstrekkelig historikk. Grønn drift er ikke dokumentasjon på god investeringsavkastning.")
