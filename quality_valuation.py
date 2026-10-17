@@ -742,7 +742,15 @@ def run_screen(symbols: Sequence[str], provider: Callable[[str], Mapping[str, An
                 shadow_result["decision_at"] = decision_at
                 shadow_result["decision_date"] = decision_at[:10]
                 quote = _positive(row.get("regularMarketPrice"))
-                quote_at = _date(row.get("regularMarketTime"))
+                quote_time_raw = row.get("regularMarketTime")
+                # Yahoo-style quote timestamps may be Unix seconds, not ISO strings.
+                if isinstance(quote_time_raw, (int, float)) and not isinstance(quote_time_raw, bool):
+                    try:
+                        quote_at = datetime.fromtimestamp(quote_time_raw, tz=timezone.utc)
+                    except (ValueError, OverflowError, OSError):
+                        quote_at = None
+                else:
+                    quote_at = _date(quote_time_raw)
                 if quote is not None and quote_at is not None:
                     shadow_result["entry_price"] = quote
                     shadow_result["entry_quote_at"] = quote_at.isoformat()
