@@ -185,3 +185,25 @@ def test_v2_rejects_future_quote_or_missing_quote_timestamp():
         shadow = result["quality_v2_shadow"]["rows"][0]
         assert shadow["entry_price"] is None
         assert shadow["entry_price_status"] == "MISSING_VERIFIABLE_TIMESTAMPED_QUOTE"
+
+
+def test_quality_provider_preserves_quote_fields_for_shadow(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from quality_valuation_data import live_financial_snapshot
+    class EmptyFrame:
+        empty = True
+    class FakeTicker:
+        info = {"currentPrice": 120.0, "regularMarketPrice": 119.5,
+                "regularMarketTime": 1790000000, "currency": "NOK"}
+        income_stmt = EmptyFrame()
+        balance_sheet = EmptyFrame()
+        cashflow = EmptyFrame()
+        quarterly_income_stmt = EmptyFrame()
+        quarterly_balance_sheet = EmptyFrame()
+        quarterly_cashflow = EmptyFrame()
+        fast_info = {}
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _: FakeTicker()))
+    snapshot = live_financial_snapshot("NHY.OL")
+    assert snapshot["regularMarketPrice"] == 119.5
+    assert snapshot["regularMarketTime"] == 1790000000
