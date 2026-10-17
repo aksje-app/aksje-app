@@ -16,14 +16,14 @@ def compare_quality_v2_forward(rows, marks_by_ticker, *, sessions=(7, 30)):
         ticker = str(row.get("ticker") or "")
         direction = str(row.get("comparison_direction") or "")
         decision = str(row.get("decision_date") or "")[:10]
-        entry = row.get("entry_price")
+        entry = row.get("adjusted_entry_price")
         try:
             date.fromisoformat(decision)
             entry = float(entry)
             if not isfinite(entry) or entry <= 0:
                 raise ValueError("invalid entry")
         except (ValueError, TypeError):
-            rejected["MISSING_DECISION_DATE_OR_ENTRY_PRICE"] += 1
+            rejected["MISSING_DECISION_DATE_OR_ADJUSTED_ENTRY_PRICE"] += 1
             continue
         observations = sorted(marks_by_ticker.get(ticker, []), key=lambda m: str(m.get("market_date") or ""))
         future = []
