@@ -163,3 +163,13 @@ def test_v2_records_unix_quote_time_without_assuming_adjustment():
     assert rows[0]["entry_price_status"] == "PROVIDER_QUOTE_UNADJUSTED"
     assert rows[0]["entry_quote_at"].endswith("+00:00")
     assert result["shadow_only"] is True
+
+
+def test_v2_rejects_quote_older_than_fifteen_minutes():
+    old = int(datetime.now(timezone.utc).timestamp()) - 16 * 60
+    result = run_screen(["NHY.OL"], lambda ticker: company(
+        regularMarketPrice=123.5, regularMarketTime=old))
+    rows = result["quality_v2_shadow"]["rows"]
+    assert rows
+    assert rows[0]["entry_price"] is None
+    assert rows[0]["entry_price_status"] == "MISSING_VERIFIABLE_TIMESTAMPED_QUOTE"
