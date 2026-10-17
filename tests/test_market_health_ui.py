@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from market_health_ui import INDICATORS, GROUPS, _valid, render_market_health
+from market_health_ui import INDICATORS, GROUPS, UPDATE_INTERVALS, _valid, render_market_health
 
 
 class FakeSt:
@@ -20,12 +20,12 @@ class FakeSt:
 
 
 def test_twelve_measures_and_explanation_links_exist():
-    assert len(INDICATORS) == 12
-    assert len({key for _, keys in GROUPS.values() for key in keys}) == 12
+    assert len(INDICATORS) == 14
+    assert len({key for _, keys in GROUPS.values() for key in keys}) == 14
     st = FakeSt()
     render_market_health(st, {})
-    assert len(st.metrics) == 12
-    assert sum(str(x).startswith("ℹ️ Forklaring:") for x in st.messages) == 12
+    assert len(st.metrics) == 14
+    assert sum(str(x).startswith("ℹ️ Forklaring:") for x in st.messages) == 14
     assert any("IKKE BEREGNET" in x for x in st.messages)
 
 
@@ -50,3 +50,12 @@ def test_valid_measurement_preserves_source_and_time():
     render_market_health(st, {"indicators": {"vix": {"value": 21.5, "source": "Cboe", "observed_at": datetime.now(timezone.utc).isoformat()}}})
     assert ("VIX fryktindeks", "21.50 indeks") in st.metrics
     assert any("Cboe" in x for x in st.messages)
+
+
+def test_intervals_and_dollar_explanations():
+    assert set(UPDATE_INTERVALS) == set(INDICATORS)
+    assert "euro" in INDICATORS["dxy"][1].lower()
+    assert "sterkere dollar" in INDICATORS["eurusd"][1].lower()
+    st = FakeSt()
+    render_market_health(st, {})
+    assert sum("Planlagt oppdateringsintervall:" in x for x in st.messages) == 15
