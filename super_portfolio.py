@@ -1718,7 +1718,8 @@ def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str 
             zf.writestr("recent_shadow_decisions.json", json.dumps(decisions, ensure_ascii=False, default=str))
         except Exception as exc:
             zf.writestr("recent_shadow_unavailable.json", json.dumps({"error": type(exc).__name__, "message": str(exc)[:200]}))
-        manifest_bytes = {info.filename: zf.read(info.filename) for info in zf.infolist()}
+    with zipfile.ZipFile(buf, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest_bytes = {name: zf.read(name) for name in zf.namelist()}
         zf.writestr("manifest.json", json.dumps(diagnostic_manifest(manifest_bytes), ensure_ascii=False))
     return buf.getvalue()
 
