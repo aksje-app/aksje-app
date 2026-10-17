@@ -405,6 +405,20 @@ def diagnostic_zip(job_id: str = "") -> bytes:
         "resource_health.json": json.dumps(_redact(resources), ensure_ascii=False, indent=2, default=str),
         "version_identity.json": json.dumps({"version": VERSION, "commit": str(os.getenv("RENDER_GIT_COMMIT") or "")[:40]}, indent=2),
     }
+    # Diagnose-only: bounded durable evidence. Never initiate a scan or trade.
+    from trade_forensics import error_evidence, diagnostic_manifest
+    try:
+        raw_errors = read_events("operations/errors.jsonl", runtime_log_path("operations", "errors.jsonl"), limit=250)
+        files["recent_errors.json"] = json.dumps(_redact(error_evidence(raw_errors)), ensure_ascii=False, indent=2, default=str)
+    except Exception as exc:
+        files["recent_errors_unavailable.json"] = json.dumps({"error": type(exc).__name__, "message": str(exc)[:250]})
+    try:
+        audit = read_events("super_portfolio/audit.jsonl", runtime_log_path("super_portfolio", "audit.jsonl"), limit=150)
+        files["recent_shadow_decisions.json"] = json.dumps(_redact(audit), ensure_ascii=False, indent=2, default=str)
+    except Exception as exc:
+        files["recent_shadow_unavailable.json"] = json.dumps({"error": type(exc).__name__, "message": str(exc)[:250]})
+    encoded = {name: content.encode("utf-8") for name, content in files.items()}
+    files["manifest.json"] = json.dumps(diagnostic_manifest(encoded), ensure_ascii=False, indent=2)
     output = BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, content in files.items():
