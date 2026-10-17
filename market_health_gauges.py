@@ -5,7 +5,11 @@ from math import isfinite
 # VIX display bands are a provisional convention, not a validated trade signal.
 DISPLAY_SCALES = {"vix": {"low": 10.0, "high": 40.0,
                           "boundaries": (15.0, 20.0, 30.0),
-                          "method": "Veiledende VIX-soner: under 15, 15–20, 20–30, over 30; ikke handelssignal."}}
+                          "method": "Veiledende VIX-soner: under 15, 15–20, 20–30, over 30; ikke handelssignal."},
+                  "trend": {"low": -20.0, "high": 20.0,
+                            "boundaries": (-10.0, -3.0, 0.0),
+                            "method": "Veiledende trendsoner: under -10 %, -10 til -3 %, -3 til 0 %, over 0 %. Negativ avstand til 200-dagers snitt angir svakere trend, ikke automatisk salgsgrunnlag.",
+                            "reverse_risk": True}}
 
 
 def display_gauge(key, value, *, scale=None):
@@ -22,6 +26,9 @@ def display_gauge(key, value, *, scale=None):
     except (ValueError, TypeError, KeyError):
         return {"status": "UNRATED", "label": "Skala ikke kalibrert", "percent": None}
     zone = sum(x >= bound for bound in boundaries)
+    if spec.get("reverse_risk"):
+        zone = 3 - zone
     return {"status": "DISPLAY_ONLY", "label": ("Lav", "Moderat", "Høy", "Svært høy")[zone],
             "percent": round(max(0.0, min(100.0, 100*(x-lo)/(hi-lo))), 2),
-            "method": str(spec.get("method") or "Veiledende visningsskala")}
+            "method": str(spec.get("method") or "Veiledende visningsskala"),
+            "reverse_risk": bool(spec.get("reverse_risk"))}
