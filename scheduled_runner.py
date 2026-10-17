@@ -519,9 +519,19 @@ def _run_once_locked() -> dict[str, Any]:
         from storage_architecture import runtime_data_path
         mh_key = "market_health/latest.json"
         mh_path = runtime_data_path("market_health", "latest.json")
-        mh_result = collect_market_health(read_market_json(mh_key, mh_path, {}) or {})
-        write_market_json(mh_key, mh_path, mh_result)
-        state["market_health"] = mh_result.get("collection_status", {})
+        mh_previous = read_market_json(mh_key, mh_path, {}) or {}
+        from datetime import datetime as mh_datetime, timezone as mh_timezone, timedelta as mh_timedelta
+        mh_last = str((mh_previous.get("collection_status") or {}).get("at") or "")
+        try:
+            mh_since = mh_datetime.fromisoformat(mh_last.replace("Z", "+00:00"))
+        except ValueError:
+            mh_since = None
+        if mh_since and mh_since.tzinfo and mh_datetime.now(mh_timezone.utc) - mh_since < mh_timedelta(hours=4):
+            state["market_health"] = {"state": "NOT_DUE", "last_checked": mh_last, "cadence": "4h daily bars"}
+        else:
+            mh_result = collect_market_health(mh_previous)
+            write_market_json(mh_key, mh_path, mh_result)
+            state["market_health"] = mh_result.get("collection_status", {})
     except Exception as exc:
         state["market_health"] = {"state": "FAILED", "error": str(exc)[:250]}
 
