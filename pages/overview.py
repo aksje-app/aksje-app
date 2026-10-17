@@ -213,6 +213,9 @@ def render_overview(st_module, model: Mapping[str, Any]) -> None:
 
 def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None:
     """Render the real A+B home workspace using persisted data only."""
+    from market_health_ui import render_market_health
+    render_market_health(st_module)
+
     hero = model.get("hero") or {}
     attention = list(model.get("attention_items") or [])
     portfolio = dict(model.get("portfolio") or {})
