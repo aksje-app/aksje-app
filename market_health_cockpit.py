@@ -79,7 +79,10 @@ def market_cards(cards):
         gauge=display_gauge(key, card.get("value")) if valid else {"label":"Mangler data","percent":None}
         hist = historical_position(card.get("value"), card.get("observations")) if valid and gauge["percent"] is None else None
         svg=dial_svg(key, card.get("value"), card.get("observations")) if valid else dial_svg(key, None)
-        status=escape("Historisk nivå – ikke risikoskår" if hist is not None else gauge["label"] if valid else card.get("status","Mangler data"))
+        raw_status = ("Historisk posisjon – ikke risikoskår" if hist is not None else gauge["label"] if valid else card.get("status","Mangler data"))
+        if valid and gauge["percent"] is not None:
+            raw_status = ("Kun pris-/kursnivå: " if key in ("brent", "gold", "dxy", "eurusd") else "Foreløpig nivå: ") + raw_status
+        status=escape(raw_status)
         observed=escape(str(card.get("observed") or "Ingen kursobservasjon"))
         guide=explain(key)
         question=escape(guide["question"])
