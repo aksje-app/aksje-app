@@ -16,7 +16,8 @@ def test_display_only_indicators_do_not_affect_trading():
 
 def test_css_segments_follow_vix_display_breakpoints():
     source = Path("market_health_cockpit.py").read_text(encoding="utf-8")
-    assert "(0, 1/6), (1/6, 1/3)" in source
+    assert "spec = DISPLAY_SCALES.get(key" in source
+    assert "segments = list(zip([0.0] + cut, cut + [1.0]))" in source
     assert "COLORS" in source
     assert "opacity=" in source
-    assert "if gauge.get(\"reverse_risk\")" in source
+    assert "if gauge.get(\"reverse_risk\") else COLORS" in source

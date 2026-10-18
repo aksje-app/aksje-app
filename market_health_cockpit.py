@@ -1,7 +1,7 @@
 """Accessible, responsive, read-only SVG dashboard cards."""
 from html import escape
 from math import cos, sin, pi
-from market_health_gauges import display_gauge
+from market_health_gauges import display_gauge, DISPLAY_SCALES
 
 COLORS = ("#29bb85", "#e8bc36", "#f29a3f", "#ed5561")
 
@@ -33,12 +33,15 @@ def dial_svg(key, value, observations=None):
     rated = gauge["percent"] is not None
     # The neutral gauge is deliberately not a risk rating.
     if rated:
-        segments = [(0, 1/6), (1/6, 1/3), (1/3, 2/3), (2/3, 1)]
-        if gauge.get("reverse_risk"):
-            segments = [(0, .25), (.25, .425), (.425, .5), (.5, 1)]
-            palette = COLORS[::-1]
+        spec = DISPLAY_SCALES.get(key, {})
+        lo, hi = spec.get("low"), spec.get("high")
+        boundaries = spec.get("boundaries")
+        if boundaries and lo is not None and hi is not None and hi > lo:
+            cut = [(float(v) - lo) / (hi - lo) for v in boundaries]
+            segments = list(zip([0.0] + cut, cut + [1.0]))
         else:
-            palette = COLORS
+            segments = [(0, 1/6), (1/6, 1/3), (1/3, 2/3), (2/3, 1)]
+        palette = COLORS[::-1] if gauge.get("reverse_risk") else COLORS
         pos = gauge["percent"] / 100
         active = next((i for i, (a,b) in enumerate(segments) if a <= pos < b), 3)
         arcs = "".join(
