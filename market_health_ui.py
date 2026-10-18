@@ -109,8 +109,10 @@ def render_market_health(st, snapshot=None):
     overall = snapshot.get("composite") or {}
     score = overall.get("risk_score") if isinstance(overall, dict) else None
     from market_health_composite_gauge import composite_gauge
-    st.markdown(composite_gauge(overall), unsafe_allow_html=True)
-    with st.expander("📚 Historikk og hvorfor samlet temperatur ennå ikke er beregnet"):
+    from market_health_preliminary_composite import preliminary_composite
+    provisional = preliminary_composite(snapshot)
+    st.markdown(composite_gauge(overall if isinstance(overall, dict) and overall.get("validated") is True else provisional), unsafe_allow_html=True)
+    with st.expander("📚 Historikk og datakvalitet for samlet temperatur"):
         from market_health_historical_audit import coverage_report
         audit = coverage_report(snapshot)
         for indicator_key, details in audit["indicators"].items():
