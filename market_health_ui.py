@@ -126,38 +126,46 @@ def render_market_health(st, snapshot=None):
     st.caption(f"{len(available_keys)} av {len(INDICATORS)} indikatorer har målte verdier. Fargeskala vises bare når skalaen er dokumentert.")
     for group_id, (group_label, keys) in GROUPS.items():
         st.markdown(f"**{group_label}**")
-        columns = st.columns(2)
+        columns = st.columns(1)
         for n, key in enumerate(keys):
             name, meaning, caution, default_source, unit = INDICATORS[key]
             datum = rows.get(key)
             checked = normalize(key, datum)
             good = checked is not None and checked["status"] == "CURRENT"
             alert = critical_alert(key, datum, checked, policies.get(key))
-            with columns[n % 2]:
+            with columns[0]:
                 if alert:
                     style = "mh-critical" if animate else ""
                     st.markdown(f'<div class="{style}" role="status">🔴 KRITISK: {escape(name)} · {alert["value"]:g} (grense {alert["threshold"]:g})</div>', unsafe_allow_html=True)
                 if good:
                     gauge = display_gauge(key, checked["value"])
-                    label = f"{float(datum['value']):,.2f} {unit}"
-                    st.markdown(f"**{escape(name)}**")
-                    st.markdown(f"**{escape(label)}**")
+                    value_label = escape(f"{float(datum['value']):,.2f} {unit}")
+                    gauge_html = ""
                     if gauge["percent"] is not None:
                         pos = gauge["percent"]
-                        # Reverse colors for measures where smaller values mean greater stress.
                         gradient = ("#dc4545 0%,#dc4545 25%,#f28c35 25%,#f28c35 42.5%,#eab308 42.5%,#eab308 50%,#22a06b 50%" if gauge.get("reverse_risk") else "#22a06b 0%,#22a06b 16.67%,#eab308 16.67%,#eab308 33.33%,#f28c35 33.33%,#f28c35 66.67%,#dc4545 66.67%")
-                        st.markdown(
-                            '<div role="img" aria-label="'+escape(name+': '+gauge["label"])+
-                            '" style="position:relative;height:13px;border-radius:12px;'
-                            f'background:linear-gradient(90deg,{gradient});margin:14px 2px 5px">'
-                            f'<span style="position:absolute;left:{pos}%;top:-6px;height:25px;width:5px;'
-                            'background:white;border:1px solid #13212a;border-radius:3px;'
-                            'transform:translateX(-50%)"></span></div>',
-                            unsafe_allow_html=True)
-                        st.caption(gauge["label"] + " · Veiledende skala")
+                        gauge_html = (
+                            f'<div role="img" aria-label="{escape(name)}: {escape(gauge["label"])}" '
+                            'style="position:relative;height:12px;margin:12px 3px 9px;'
+                            f'border-radius:12px;background:linear-gradient(90deg,{gradient})">'
+                            f'<span style="position:absolute;left:{pos}%;top:-5px;width:5px;height:22px;'
+                            'border-radius:3px;background:#fff;border:1px solid #152633;'
+                            'transform:translateX(-50%)"></span></div>'
+                            f'<div style="font-size:12px;color:#bed2dc">{escape(gauge["label"])} · Veiledende skala</div>'
+                        )
                     else:
-                        st.caption("◻ Skala ikke kalibrert · ingen risikofarge")
-                    st.caption(f"Kurs: {datum['observed_at']}")
+                        gauge_html = '<div style="font-size:12px;color:#b4c4ce">Skala ikke kalibrert · ingen risikofarge</div>'
+                    st.markdown(
+                        '<div style="box-sizing:border-box;width:100%;min-width:0;overflow:hidden;'
+                        'border:1px solid #39516b;background:#0e2537;border-radius:12px;'
+                        'padding:12px 14px;margin:4px 0 8px;line-height:1.4">'
+                        f'<div style="font-size:14px;color:#dce8ee;margin-bottom:5px">{escape(name)}</div>'
+                        f'<div style="font-size:20px;font-weight:700;color:#fff;overflow-wrap:anywhere">{value_label}</div>'
+                        f'{gauge_html}'
+                        f'<div style="font-size:11px;color:#a9bdc9;margin-top:6px;overflow-wrap:anywhere">'
+                        f'Observert: {escape(str(datum["observed_at"]))}</div>'
+                        '</div>', unsafe_allow_html=True,
+                    )
                 else:
                     st.metric(name, "Utdatert" if checked and checked["status"] == "STALE" else "Mangler data")
                 with st.expander(f"ℹ️ Forklaring: {name}"):

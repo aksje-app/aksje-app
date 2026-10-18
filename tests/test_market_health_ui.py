@@ -59,3 +59,10 @@ def test_intervals_and_dollar_explanations():
     st = FakeSt()
     render_market_health(st, {})
     assert sum("Planlagt oppdateringsintervall:" in x for x in st.messages) == 15
+
+
+def test_live_gauge_uses_one_self_contained_card():
+    st = FakeSt()
+    render_market_health(st, {"indicators": {"vix": {"value": 21.5, "source": "Cboe", "observed_at": datetime.now(timezone.utc).isoformat()}}})
+    assert any('box-sizing:border-box;width:100%' in x and '21.50 indeks' in x and 'linear-gradient' in x for x in st.messages)
+    assert not any(x == '**VIX fryktindeks**' for x in st.messages)
