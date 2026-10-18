@@ -11,7 +11,7 @@ def composite_gauge(composite):
     score = model.get("risk_score")
     approved = model.get("validated") is True and isinstance(score, (int, float)) and not isinstance(score, bool) and isfinite(score) and 0 <= score <= 100
     value = float(score) if approved else None
-    label = f"{value:.0f} / 100" if approved else "Ikke beregnet"
+    label = f"{value:.0f} / 100" if approved else "IKKE BEREGNET"
     detail = ("Validert samlet risikovurdering, ikke et handelssignal." if approved else
               "14 markedsindikatorer er tilgjengelige, men samlet vektning og historisk kalibrering er ikke godkjent.")
     # Grey instrument without a pointer until the validation flag is true.
