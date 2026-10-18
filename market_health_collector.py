@@ -227,7 +227,16 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         result["breadth"] = {**breadth_row, "observations": sorted(unique.values(), key=lambda v: v["observed_at"])[-96:]}
     except Exception as exc:
         errors["breadth"] = str(exc)[:180]
+    try:
+        from market_health_shareholder_yield import annual_shareholder_yield
+        annual = annual_shareholder_yield()
+        last = annual[-1]
+        if not normalize("equity_yield", last, now=now):
+            raise ValueError("annual series not valid")
+        result["equity_yield"] = {**last, "observations": annual}
+    except Exception as exc:
+        errors["equity_yield"] = str(exc)[:180]
     return {"indicators": result, "composite": {"validated": False},
-            "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape", "breadth") if k in result and k not in errors],
+            "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape", "breadth", "equity_yield") if k in result and k not in errors],
                                   "errors": errors, "cadence": "4h poll / daily bar publication",
                                   "mode": "READ_ONLY", "history_schema": 2}}
