@@ -48,6 +48,11 @@ def dial_svg(key, value, observations=None):
         )
         a,b = _polar(pos, 55)
         needle = f'<path d="M90 91 L{a:.2f} {b:.2f}" stroke="#f4fafc" stroke-width="3.5" stroke-linecap="round"/><circle cx="90" cy="91" r="4" fill="#f4fafc"/>'
+    elif (position := historical_position(value, observations)) is not None:
+        arcs = (f'<path d="{_arc(0,1)}" stroke="#527589" stroke-width="11" opacity=".46" fill="none"/>'
+                f'<path d="{_arc(0,position)}" stroke="#5ac6da" stroke-width="13" fill="none"/>')
+        a,b = _polar(position, 55)
+        needle = f'<path d="M90 91 L{a:.2f} {b:.2f}" stroke="#f4fafc" stroke-width="3.5" stroke-linecap="round"/><circle cx="90" cy="91" r="4" fill="#f4fafc"/>'
     else:
         arcs = f'<path d="{_arc(0,1)}" stroke="#718899" opacity=".58" stroke-width="12" fill="none"/>'
         needle = ""
@@ -65,9 +70,7 @@ def market_cards(cards):
         gauge=display_gauge(key, card.get("value")) if valid else {"label":"Mangler data","percent":None}
         hist = historical_position(card.get("value"), card.get("observations")) if valid and gauge["percent"] is None else None
         svg=dial_svg(key, card.get("value"), card.get("observations")) if valid else dial_svg(key, None)
-        if hist is not None:
-            status = "Historisk nivå – ikke risikoskår"
-        status=escape(gauge["label"] if valid else card.get("status","Mangler data"))
+        status=escape("Historisk nivå – ikke risikoskår" if hist is not None else gauge["label"] if valid else card.get("status","Mangler data"))
         observed=escape(str(card.get("observed") or "Ingen kursobservasjon"))
         blocks.append(
             '<div class="mh-instrument" role="group" aria-label="'+name+'">'
