@@ -115,11 +115,20 @@ def render_market_health(st, snapshot=None):
     with st.expander("📚 Historikk og datakvalitet for samlet temperatur"):
         from market_health_historical_audit import coverage_report
         audit = coverage_report(snapshot)
+        from html import escape as mh_escape
+        history_parts = ['<div class="mh-history-list" style="display:grid;gap:10px;width:100%;font-size:14px;line-height:1.5;overflow-wrap:anywhere">']
         for indicator_key, details in audit["indicators"].items():
-            label = INDICATORS[indicator_key][0]
-            first = details["first"] or "ukjent"
-            last = details["last"] or "ukjent"
-            st.write(f"{label}: {details['dated_observations']} daterte observasjoner · {first} til {last} · historisk kvalitet ikke godkjent")
+            label = mh_escape(str(INDICATORS[indicator_key][0]))
+            first = mh_escape(str(details["first"] or "ukjent"))
+            last = mh_escape(str(details["last"] or "ukjent"))
+            count = int(details["dated_observations"])
+            history_parts.append(
+                f'<div style="padding:10px 12px;border:1px solid rgba(148,163,184,.28);border-radius:10px">'
+                f'<strong>{label}</strong><div>{count} daterte observasjoner</div>'
+                f'<div>{first} – {last}</div><div>Historisk kvalitet ikke godkjent</div></div>'
+            )
+        history_parts.append("</div>")
+        st.markdown("".join(history_parts), unsafe_allow_html=True)
         st.caption("Dette er kontroll av lagrede observasjoner, ikke validering av risikomodellen. Ingen samlet risikoscore eller handelssignaler beregnes.")
     with st.expander("ℹ️ Hvordan beregnes samlet børshelse og fargene?"):
         st.write("Samlet børshelse skal kombinere verdsettelse, markedsstress, renter, trend og markedsbredde. Gruppene må normaliseres mot egen historikk og kontrolleres for overlapp. Rødt betyr forhøyet risiko – ikke et automatisk salgssignal.")
