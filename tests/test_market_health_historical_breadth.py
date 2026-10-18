@@ -1,0 +1,17 @@
+from datetime import date,timedelta
+from market_health_historical_breadth import parse_membership_csv,historical_breadth
+
+def test_wrong_member_count_is_not_accepted():
+    assert parse_membership_csv("date,tickers\n2024-01-02,AAPL,MSFT\n")==[]
+
+def test_no_survivorship_substitutions_or_fabricated_breadth():
+    day=date(2026,10,16)
+    members={"T%03d"%i for i in range(500)}
+    assert historical_breadth([(day,members)],{})==[]
+    dates=[day-timedelta(days=j) for j in range(199,-1,-1)]
+    prices={t:{d:float(i+1) for i,d in enumerate(dates)} for t in sorted(members)[:399]}
+    assert historical_breadth([(day,members)],prices)==[]
+    prices["T399"]={d:float(i+1) for i,d in enumerate(dates)}
+    result=historical_breadth([(day,members)],prices)
+    assert len(result)==1 and result[0]["value"]==100
+    assert "400" in result[0]["source"]
