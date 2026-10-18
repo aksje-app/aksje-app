@@ -10,7 +10,7 @@ from market_health_ui import INDICATORS
 
 WINDOWS = {"24t": timedelta(days=1), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 MAX_FUTURE_SECONDS = 60
-MAX_AGE = {"cape": timedelta(days=45), "equity_yield": timedelta(days=45),
+MAX_AGE = {"cape": timedelta(days=45), "equity_yield": timedelta(days=400),
            "credit": timedelta(days=5), "breadth": timedelta(days=2),
            **{key: timedelta(hours=36) for key in INDICATORS if key not in
               ("cape", "equity_yield", "credit", "breadth")}}
