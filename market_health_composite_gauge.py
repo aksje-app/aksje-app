@@ -10,12 +10,14 @@ def composite_gauge(composite):
     model = composite if isinstance(composite, dict) else {}
     score = model.get("risk_score")
     approved = model.get("validated") is True and isinstance(score, (int, float)) and not isinstance(score, bool) and isfinite(score) and 0 <= score <= 100
-    value = float(score) if approved else None
-    label = f"{value:.0f} / 100" if approved else "IKKE BEREGNET"
-    detail = ("Validert samlet risikovurdering, ikke et handelssignal." if approved else
+    provisional = model.get("provisional") is True and isinstance(score, (int, float)) and not isinstance(score, bool) and isfinite(score) and 0 <= score <= 100 and model.get("validated") is False
+    visible = approved or provisional
+    value = float(score) if visible else None
+    label = (f"{value:.1f} / 100 – FORELØPIG" if provisional else f"{value:.0f} / 100") if visible else "IKKE BEREGNET"
+    detail = ("Likevektet oversikt over foreløpige risikosoner – IKKE historisk validert, ikke et handelssignal." if provisional else "Validert samlet risikovurdering, ikke et handelssignal." if approved else
               "14 markedsindikatorer er tilgjengelige, men samlet vektning og historisk kalibrering er ikke godkjent.")
     # Grey instrument without a pointer until the validation flag is true.
-    if approved:
+    if visible:
         from math import sin, cos, pi
         angle = pi * (1 - value / 100)
         x, y = 150 + 88 * cos(angle), 126 - 88 * sin(angle)
@@ -39,4 +41,4 @@ def composite_gauge(composite):
             '<div class="mh-composite-value">'+escape(label)+'</div>'
             '<div class="mh-composite-desc">'+escape(detail)+'</div>'
             '<div class="mh-composite-desc">Grønn: lavere kalibrert risiko · Gul: moderat · Oransje: forhøyet · Rød: høy. '
-            'Disse sonene aktiveres først etter validering.</div></section>')
+            'Foreløpige soner ved foreløpig beregning; ikke dokumentert prediksjon.</div></section>')
