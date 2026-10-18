@@ -61,7 +61,7 @@ def dial_svg(key, value, observations=None):
     else:
         arcs = f'<path d="{_arc(0,1)}" stroke="#718899" opacity=".58" stroke-width="12" fill="none"/>'
         needle = ""
-    label = escape(gauge["label"])
+    label = escape("Historisk nivå – ikke risikoskår" if not rated and historical_position(value, observations) is not None else gauge["label"])
     return (f'<svg viewBox="0 0 180 100" role="img" aria-label="{label}" style="display:block;width:100%;max-width:154px;height:auto;margin:0 auto">'
             + arcs + needle + "</svg>")
 
