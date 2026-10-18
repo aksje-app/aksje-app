@@ -9,6 +9,11 @@ DISPLAY_SCALES = {"vix": {"low": 10.0, "high": 40.0,
                   "trend": {"low": -20.0, "high": 20.0,
                             "boundaries": (-10.0, -3.0, 0.0),
                             "method": "Veiledende trendsoner: under -10 %, -10 til -3 %, -3 til 0 %, over 0 %. Negativ avstand til 200-dagers snitt angir svakere trend, ikke automatisk salgsgrunnlag.",
+                            "reverse_risk": True},
+                  "credit": {"low": 2.0, "high": 10.0, "boundaries": (3.5, 5.0, 7.0),
+                             "method": "Foreløpige HY-spreadsoner i prosentpoeng: under 3,5; 3,5–5; 5–7; over 7. Kun informativ visning, ikke validert varselsignal."},
+                  "curve": {"low": -2.0, "high": 2.0, "boundaries": (-1.0, -0.25, 0.0),
+                            "method": "Foreløpige kurvesoner i prosentpoeng. Inversjon alene sier ikke når en resesjon starter.",
                             "reverse_risk": True}}
 
 

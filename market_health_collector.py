@@ -4,16 +4,44 @@ Free daily bar feeds are explicitly labelled as daily, not intraday quotes.
 Provider failures preserve prior evidence and are reported in status.
 """
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from urllib.request import urlopen
+from csv import DictReader
+from io import StringIO
+from math import isfinite
 from market_health_history import normalize
 from market_health_ui import INDICATORS
+
+FRED_SERIES = {"curve": "T10Y2Y", "credit": "BAMLH0A0HYM2"}
+
+
+def fred_daily(series_id):
+    """Public FRED CSV daily history; use date at UTC midnight, no invented quote time."""
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series_id + "&cosd=" + (datetime.now(timezone.utc) - timedelta(days=110)).date().isoformat()
+    with urlopen(url, timeout=12) as response:
+        payload = response.read(600000).decode("utf-8-sig")
+    observations = []
+    for row in DictReader(StringIO(payload)):
+        raw = str(row.get(series_id) or "").strip()
+        date = row.get("DATE") or row.get("observation_date")
+        try:
+            value = float(raw)
+            at = datetime.fromisoformat(str(date)).replace(tzinfo=timezone.utc)
+            if isfinite(value):
+                observations.append({"value": value, "source": f"FRED daily series {series_id}", "observed_at": at.isoformat()})
+        except (ValueError, TypeError):
+            continue
+    if not observations:
+        raise ValueError("FRED series has no valid observations")
+    return observations[-96:]
+
 
 SYMBOLS = {"vix": "^VIX", "us10y": "^TNX", "us30y": "^TYX",
            "brent": "BZ=F", "gold": "GC=F", "dxy": "DX-Y.NYB",
            "eurusd": "EURUSD=X", "trend": "^GSPC"}
 
 
-def collect(snapshot=None, *, history_provider=None, now=None):
+def collect(snapshot=None, *, history_provider=None, fred_provider=None, now=None):
     now = now or datetime.now(timezone.utc)
     saved = dict(snapshot or {})
     previous = saved.get("indicators") or {}
@@ -60,7 +88,20 @@ def collect(snapshot=None, *, history_provider=None, now=None):
             result[key] = {**row,"observations":observations}
         except Exception as exc:
             errors[key] = str(exc)[:180]
+    fred_provider = fred_provider or fred_daily
+    for key, series_id in FRED_SERIES.items():
+        try:
+            records = fred_provider(series_id)
+            row = records[-1]
+            if not normalize(key, row, now=now):
+                raise ValueError("invalid FRED date/source")
+            old = result.get(key) or {}
+            combined = list(old.get("observations") or []) if isinstance(old, dict) else []
+            unique = {r["observed_at"]: r for r in combined + records if isinstance(r, dict) and r.get("observed_at")}
+            result[key] = {**row, "observations": sorted(unique.values(), key=lambda r: r["observed_at"])[-96:]}
+        except Exception as exc:
+            errors[key] = str(exc)[:180]
     return {"indicators": result, "composite": {"validated": False},
-            "collection_status": {"at": now.isoformat(), "updated": [k for k in SYMBOLS if k in result and k not in errors],
+            "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES) if k in result and k not in errors],
                                   "errors": errors, "cadence": "4h poll / daily bar publication",
                                   "mode": "READ_ONLY"}}
