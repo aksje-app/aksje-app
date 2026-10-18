@@ -4,7 +4,7 @@ from market_health_history import normalize
 
 def test_composite_unvalidated_has_no_pointer_or_score():
     html = composite_gauge({"risk_score": 82, "validated": False})
-    assert "Ikke beregnet" in html
+    assert "IKKE BEREGNET" in html
     assert "<line" not in html
     assert "82 / 100" not in html
 
