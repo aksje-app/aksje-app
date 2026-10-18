@@ -145,6 +145,7 @@ def render_market_health(st, snapshot=None):
                       "value": checked["value"] if good else None,
                       "label": f"{float(datum['value']):,.2f} {unit}" if good else ("Utdatert" if checked else "Mangler data"),
                       "observed": timestamp,
+                      "observations": datum.get("observations", []) if isinstance(datum, dict) else [],
                       "status": "Utdatert" if checked else "Mangler data"})
         alert = critical_alert(key, datum, checked, policies.get(key))
         if alert:

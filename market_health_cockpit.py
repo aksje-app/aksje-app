@@ -14,7 +14,21 @@ def _arc(start, end):
     b = _polar(end)
     return f"M {a[0]:.2f} {a[1]:.2f} A 70 70 0 0 1 {b[0]:.2f} {b[1]:.2f}"
 
-def dial_svg(key, value):
+def historical_position(value, observations):
+    """Relative historical position, not a risk judgement."""
+    from math import isfinite
+    try:
+        x = float(value)
+        values = [float(row["value"]) for row in (observations or []) if isinstance(row, dict)]
+        values = [v for v in values if isfinite(v)]
+        if not isfinite(x) or len(values) < 12 or max(values) <= min(values):
+            return None
+        return sum(v <= x for v in values) / len(values)
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+def dial_svg(key, value, observations=None):
     gauge = display_gauge(key, value)
     rated = gauge["percent"] is not None
     # The neutral gauge is deliberately not a risk rating.
@@ -34,10 +48,20 @@ def dial_svg(key, value):
         )
         a,b = _polar(pos, 55)
         needle = f'<path d="M90 91 L{a:.2f} {b:.2f}" stroke="#f4fafc" stroke-width="3.5" stroke-linecap="round"/><circle cx="90" cy="91" r="4" fill="#f4fafc"/>'
+    elif (position := historical_position(value, observations)) is not None:
+        arcs = (f'<path d="{_arc(0,1)}" stroke="#527589" stroke-width="11" opacity=".46" fill="none"/>'
+                f'<path d="{_arc(0,position)}" stroke="#5ac6da" stroke-width="13" fill="none"/>')
+        a,b = _polar(position, 55)
+        needle = f'<path d="M90 91 L{a:.2f} {b:.2f}" stroke="#f4fafc" stroke-width="3.5" stroke-linecap="round"/><circle cx="90" cy="91" r="4" fill="#f4fafc"/>'
+    elif (position := historical_position(value, observations)) is not None:
+        arcs = (f'<path d="{_arc(0,1)}" stroke="#527589" stroke-width="11" opacity=".46" fill="none"/>'
+                f'<path d="{_arc(0,position)}" stroke="#5ac6da" stroke-width="13" fill="none"/>')
+        a,b = _polar(position, 55)
+        needle = f'<path d="M90 91 L{a:.2f} {b:.2f}" stroke="#f4fafc" stroke-width="3.5" stroke-linecap="round"/><circle cx="90" cy="91" r="4" fill="#f4fafc"/>'
     else:
         arcs = f'<path d="{_arc(0,1)}" stroke="#718899" opacity=".58" stroke-width="12" fill="none"/>'
         needle = ""
-    label = escape(gauge["label"])
+    label = escape("Historisk nivå – ikke risikoskår" if not rated and historical_position(value, observations) is not None else gauge["label"])
     return (f'<svg viewBox="0 0 180 100" role="img" aria-label="{label}" style="display:block;width:100%;max-width:154px;height:auto;margin:0 auto">'
             + arcs + needle + "</svg>")
 
@@ -49,8 +73,9 @@ def market_cards(cards):
         valid=bool(card.get("valid"))
         value=escape(str(card.get("label", "Mangler data")))
         gauge=display_gauge(key, card.get("value")) if valid else {"label":"Mangler data","percent":None}
-        svg=dial_svg(key, card.get("value")) if valid else dial_svg(key, None)
-        status=escape(gauge["label"] if valid else card.get("status","Mangler data"))
+        hist = historical_position(card.get("value"), card.get("observations")) if valid and gauge["percent"] is None else None
+        svg=dial_svg(key, card.get("value"), card.get("observations")) if valid else dial_svg(key, None)
+        status=escape("Historisk nivå – ikke risikoskår" if hist is not None else gauge["label"] if valid else card.get("status","Mangler data"))
         observed=escape(str(card.get("observed") or "Ingen kursobservasjon"))
         blocks.append(
             '<div class="mh-instrument" role="group" aria-label="'+name+'">'
