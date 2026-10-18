@@ -20,4 +20,4 @@ def test_css_segments_follow_vix_display_breakpoints():
     assert "segments = list(zip([0.0] + cut, cut + [1.0]))" in source
     assert "COLORS" in source
     assert "opacity=" in source
-    assert "if gauge.get(\"reverse_risk\")" in source
+    assert "if gauge.get(\"reverse_risk\") else COLORS" in source
