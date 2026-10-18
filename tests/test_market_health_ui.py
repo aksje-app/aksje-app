@@ -58,7 +58,7 @@ def test_intervals_and_dollar_explanations():
     assert "sterkere dollar" in INDICATORS["eurusd"][1].lower()
     st = FakeSt()
     render_market_health(st, {})
-    assert sum("**Oppdatering:**" in x for x in st.messages) == 14
+    assert sum("Oppdatering</strong>" in x for x in st.messages) == 14
 
 
 def test_live_gauge_uses_one_self_contained_card():
@@ -70,8 +70,8 @@ def test_live_gauge_uses_one_self_contained_card():
 def test_all_explanations_use_mobile_readable_history_not_json():
     st = FakeSt()
     render_market_health(st, {})
-    assert sum("**Historisk utvikling**" in x for x in st.messages) == 14
-    assert sum("**24 timer:**" in x for x in st.messages) == 14
-    assert sum("**7 dager:**" in x for x in st.messages) == 14
-    assert sum("**30 dager:**" in x for x in st.messages) == 14
+    assert sum("mh-readable-explanation" in x for x in st.messages) == 14
+    assert sum("24 timer</strong>" in x for x in st.messages) == 14
+    assert sum("7 dager</strong>" in x for x in st.messages) == 14
+    assert sum("30 dager</strong>" in x for x in st.messages) == 14
     assert not any("history': {" in x for x in st.messages)
