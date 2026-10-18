@@ -219,7 +219,14 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
     except Exception as exc:
         errors["cape"] = str(exc)[:180]
     try:
-        breadth_row = (breadth_provider or sp500_breadth_daily)()
+        if breadth_provider is not None:
+            breadth_row = breadth_provider()
+        else:
+            try:
+                breadth_row = sp500_breadth_daily()
+            except Exception:
+                from market_health_breadth_fallback import compute_sp500_breadth
+                breadth_row = compute_sp500_breadth()
         if not normalize("breadth", breadth_row, now=now):
             raise ValueError("Invalid dated S&P 500 breadth")
         old = result.get("breadth") or {}
@@ -245,4 +252,4 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
     return {"indicators": result, "composite": {"validated": False},
             "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape", "breadth", "equity_yield") if k in result and k not in errors],
                                   "errors": errors, "cadence": "4h poll / daily bar publication",
-                                  "mode": "READ_ONLY", "history_schema": 2, "source_schema": 4}}
+                                  "mode": "READ_ONLY", "history_schema": 2, "source_schema": 5}}
