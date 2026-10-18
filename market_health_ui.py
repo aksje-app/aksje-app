@@ -159,14 +159,22 @@ def render_market_health(st, snapshot=None):
             datum = rows.get(key)
             checked = normalize(key, datum)
             with st.expander(f"ℹ️ Forklaring: {name}"):
-                st.write(meaning)
-                st.write("Tolkning:", caution)
-                st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
-                st.write("Datakilde:", str(datum.get("source") if isinstance(datum, dict) else default_source))
-                st.write("Sist observert:", str(datum.get("observed_at") if isinstance(datum, dict) else "Ukjent"))
+                st.markdown(f"**Hva måles?** {meaning}")
+                st.markdown(f"**Tolkning:** {caution}")
+                st.markdown(f"**Oppdatering:** {UPDATE_INTERVALS[key]}")
+                source = str(datum.get("source") if isinstance(datum, dict) else default_source)
+                st.markdown(f"**Datakilde:** {source}")
+                st.markdown(f"**Sist observert:** {card['observed'] or 'Ingen data'} (Brasil)")
                 if checked and checked["status"] == "CURRENT":
-                    st.write("Skalaforklaring:", display_gauge(key, checked["value"]).get("method", "Ingen godkjent skala"))
+                    method = display_gauge(key, checked["value"]).get("method", "Historisk sammenligning, ikke kalibrert risikoskår.")
+                    st.markdown(f"**Målerskala:** {method}")
                 history = datum.get("observations") if isinstance(datum, dict) else None
                 details = summarize(key, history) if isinstance(history, list) else None
-                st.write("Historikk 24 timer / 7 / 30 dager:", details["history"] if details else "Ikke tilgjengelig")
-                st.write("Inngår først i samlet risikoskår etter validert metode.")
+                st.markdown("**Historisk utvikling**")
+                for period, heading in (("24t", "24 timer"), ("7d", "7 dager"), ("30d", "30 dager")):
+                    info = (details or {}).get("history", {}).get(period, {})
+                    if info.get("status") == "MEASURED":
+                        st.markdown(f"**{heading}:** {info['difference']:+.3f} {unit} fra faktisk historisk observasjon")
+                    else:
+                        st.markdown(f"**{heading}:** Ikke tilstrekkelig historikk")
+                st.caption("Denne indikatoren påvirker ikke kjøp eller salg før risikomodellen er validert.")
