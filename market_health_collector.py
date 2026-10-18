@@ -13,7 +13,8 @@ import re
 from market_health_history import normalize
 from market_health_ui import INDICATORS
 
-HISTORY_LIMIT = 4000  # Preserve multi-year daily records; no synthetic backfill.\nFRED_SERIES = {"curve": "T10Y2Y", "credit": "BAMLH0A0HYM2"}
+HISTORY_LIMIT = 4000  # Preserve multi-year daily records; no synthetic backfill.
+FRED_SERIES = {"curve": "T10Y2Y", "credit": "BAMLH0A0HYM2"}
 
 
 def fred_daily(series_id):
