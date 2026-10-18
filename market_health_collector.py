@@ -9,6 +9,7 @@ from urllib.request import urlopen
 from csv import DictReader
 from io import StringIO, BytesIO
 from math import isfinite
+import re
 from market_health_history import normalize
 from market_health_ui import INDICATORS
 
@@ -99,12 +100,37 @@ def shiller_cape_mirror(*, html=None):
             for date, value in sorted(monthly.values())[-96:]]
 
 
+
+def sp500_breadth_daily(*, html=None):
+    """Read published S&P 500 percent above 200-day MA; preserve source timestamp."""
+    from bs4 import BeautifulSoup
+    from urllib.request import Request
+    if html is None:
+        request = Request("https://tradingtwohundred.com/breadth/sp500/",
+                          headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(request, timeout=12) as response:
+            html = response.read(1800000).decode("utf-8", "replace")
+    plain = BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
+    match = re.search(r"(\d{1,3}(?:\.\d+)?)%\s+of S&P 500 stocks\s+\((\d+)\s+of\s+(\d+)\)", plain, re.I)
+    stamp = re.search(r"Last updated:\s+([A-Za-z]{3}\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}\s+[AP]M\s+UTC)", plain)
+    if not match or not stamp:
+        raise ValueError("Breadth source lacks verified sample/count or UTC timestamp")
+    measured, above, covered = float(match[1]), int(match[2]), int(match[3])
+    at = datetime.strptime(stamp[1], "%b %d, %Y, %I:%M %p UTC").replace(tzinfo=timezone.utc)
+    if not (300 <= covered <= 510 and 0 <= above <= covered and
+            0 <= measured <= 100 and abs(measured - 100 * above / covered) <= .15 and
+            at <= datetime.now(timezone.utc) + timedelta(minutes=5)):
+        raise ValueError("Breadth count/percentage/date validation failed")
+    return {"value": measured, "observed_at": at.isoformat(),
+            "source": f"TradingTwoHundred S&P500 above 200d ({above}/{covered} stocks)"}
+
+
 SYMBOLS = {"vix": "^VIX", "us10y": "^TNX", "us30y": "^TYX",
            "brent": "BZ=F", "gold": "GC=F", "dxy": "DX-Y.NYB",
-           "eurusd": "EURUSD=X", "trend": "^GSPC"}
+           "eurusd": "EURUSD=X", "trend": "^GSPC", "ttf": "TTF=F"}
 
 
-def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_provider=None, now=None):
+def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_provider=None, breadth_provider=None, now=None):
     now = now or datetime.now(timezone.utc)
     saved = dict(snapshot or {})
     previous = saved.get("indicators") or {}
@@ -189,7 +215,17 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         result["cape"] = {**cape_row, "observations": cape_records[-96:]}
     except Exception as exc:
         errors["cape"] = str(exc)[:180]
+    try:
+        breadth_row = (breadth_provider or sp500_breadth_daily)()
+        if not normalize("breadth", breadth_row, now=now):
+            raise ValueError("Invalid dated S&P 500 breadth")
+        old = result.get("breadth") or {}
+        history = list(old.get("observations") or []) + [breadth_row]
+        unique = {item["observed_at"]: item for item in history if isinstance(item, dict) and item.get("observed_at")}
+        result["breadth"] = {**breadth_row, "observations": sorted(unique.values(), key=lambda v: v["observed_at"])[-96:]}
+    except Exception as exc:
+        errors["breadth"] = str(exc)[:180]
     return {"indicators": result, "composite": {"validated": False},
-            "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape") if k in result and k not in errors],
+            "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape", "breadth") if k in result and k not in errors],
                                   "errors": errors, "cadence": "4h poll / daily bar publication",
                                   "mode": "READ_ONLY", "history_schema": 2}}
