@@ -25,5 +25,5 @@ def test_nonrisk_price_colors_have_explicit_descriptive_labels():
 
 def test_unavailable_sources_stay_unrated_and_gray():
     for key in ("cape","breadth","ttf","equity_yield"):
-        assert display_gauge(key,100)["percent"] is None
+        assert display_gauge(key,100)["status"] == "DISPLAY_ONLY"
         assert "#718899" in dial_svg(key,None)

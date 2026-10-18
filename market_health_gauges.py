@@ -4,6 +4,16 @@ from math import isfinite
 
 # VIX display bands are a provisional convention, not a validated trade signal.
 DISPLAY_SCALES = {
+                  "cape": {"low": 10.0, "high": 60.0, "boundaries": (20.0, 30.0, 40.0),
+                           "method": "Foreløpige CAPE-verdsettelsessoner under 20, 20–29,99, 30–39,99 og fra 40. Langsiktig nivå, ikke tidsbestemt børsfall."},
+                  "equity_yield": {"low": 0.5, "high": 7.0, "boundaries": (1.5, 2.5, 4.0),
+                                   "reverse_risk": True,
+                                   "method": "Årlig S&P500 aksjonærutbetalingsyield fra utbytter og tilbakekjøp relativt til indeksnivå; veiledende soner. Lav yield kan indikere høy verdsettelse, ikke handelssignal."},
+                  "breadth": {"low": 0.0, "high": 100.0, "boundaries": (30.0, 45.0, 60.0),
+                              "reverse_risk": True,
+                              "method": "S&P500-andel over 200-dagers snitt; foreløpige soner under 30 %, 30–44,99 %, 45–59,99 %, fra 60 %. Ikke validert risikomodell."},
+                  "ttf": {"low": 0.0, "high": 160.0, "boundaries": (40.0, 70.0, 100.0),
+                          "method": "Foreløpige TTF-prisnivåsoner EUR/MWh: under 40, 40–69,99, 70–99,99, fra 100. Kontrakt/terminmåned påvirker prisen. Ikke handelsregel."},
                   "us10y": {"low": 3.0, "high": 6.0, "boundaries": (4.0, 4.75, 5.30),
                             "method": "Foreløpige rente-NIVÅsoner: under 4,00 %, 4,00–4,74 %, 4,75–5,29 %, fra 5,30 %. Ikke dokumentert aksjerisiko eller handelssignal."},
                   "us30y": {"low": 3.5, "high": 6.5, "boundaries": (4.5, 5.0, 5.5),
