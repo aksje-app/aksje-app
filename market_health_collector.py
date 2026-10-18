@@ -131,6 +131,7 @@ SYMBOLS = {"vix": "^VIX", "us10y": "^TNX", "us30y": "^TYX",
 
 
 def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_provider=None, breadth_provider=None, equity_provider=None, now=None):
+    offline_history_injected = history_provider is not None
     now = now or datetime.now(timezone.utc)
     saved = dict(snapshot or {})
     previous = saved.get("indicators") or {}
@@ -231,7 +232,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         from market_health_shareholder_yield import annual_shareholder_yield
         if equity_provider is not None:
             annual = equity_provider()
-        elif history_provider is not None:
+        elif offline_history_injected:
             raise ValueError("offline test missing annual equity source")
         else:
             annual = annual_shareholder_yield()
