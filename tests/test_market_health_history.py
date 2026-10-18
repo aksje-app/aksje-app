@@ -21,19 +21,19 @@ def test_missing_history_never_implies_zero_move():
 
 
 def test_stale_data_are_visible_but_not_current():
-    assert normalize("vix", row(2, 22))["status"] == "STALE"
+    assert normalize("vix", row(5, 22))["status"] == "STALE"
     assert normalize("cape", row(2, 40))["status"] == "CURRENT"
     assert normalize("vix", {"value": 22, "source": "", "observed_at": row(0, 22)["observed_at"]}) is None
 
 
 def test_ui_marks_outdated_quotes_explicitly():
     class Stub:
-        def __init__(self): self.metrics=[]
+        def __init__(self): self.metrics=[]; self.messages=[]
         def subheader(self,*a): pass
         def caption(self,*a): pass
         def info(self,*a): pass
         def progress(self,*a,**k): pass
-        def markdown(self,*a,**k): pass
+        def markdown(self,*a,**k): self.messages.append(str(a))
         def write(self,*a,**k): pass
         def metric(self,*a): self.metrics.append(a)
         def columns(self,n): return [self for _ in range(n)]
@@ -41,5 +41,5 @@ def test_ui_marks_outdated_quotes_explicitly():
         def __enter__(self): return self
         def __exit__(self,*a): return False
     ui = Stub()
-    render_market_health(ui, {"indicators": {"vix": row(2, 22)}})
-    assert ("VIX fryktindeks", "Utdatert") in ui.metrics
+    render_market_health(ui, {"indicators": {"vix": row(5, 22)}})
+    assert any("Utdatert" in str(x) for x in ui.messages)

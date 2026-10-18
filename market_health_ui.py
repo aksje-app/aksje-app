@@ -69,6 +69,7 @@ def render_market_health(st, snapshot=None):
     from market_health_history import normalize, summarize
     from market_health_alerts import critical_alert
     from market_health_gauges import display_gauge
+    from market_health_cockpit import market_cards
     policies = snapshot.get("alert_policies") if isinstance(snapshot.get("alert_policies"), dict) else {}
     st.subheader("🌡️ Markedstemperatur – global børshelse")
     # Distinguish source observation time from scheduler polling time.
@@ -124,63 +125,47 @@ def render_market_health(st, snapshot=None):
     animate = st.checkbox("Pulsér kritiske målere", value=True, key="market_health_critical_animation") if hasattr(st, "checkbox") else False
     available_keys = [key for _, (_, group_keys) in GROUPS.items() for key in group_keys if normalize(key, rows.get(key))]
     st.caption(f"{len(available_keys)} av {len(INDICATORS)} indikatorer har målte verdier. Fargeskala vises bare når skalaen er dokumentert.")
-    for group_id, (group_label, keys) in GROUPS.items():
-        st.markdown(f"**{group_label}**")
-        columns = st.columns(1)
-        for n, key in enumerate(keys):
+    # Render one HTML grid rather than Streamlit columns: columns were collapsing
+    # and overlapping on iOS, even when the Python regression suite was green.
+    cards = []
+    for key in ("vix", "trend", "us10y", "us30y", "dxy", "brent", "gold", "eurusd",
+                "cape", "equity_yield", "credit", "curve", "breadth", "ttf"):
+        name, meaning, caution, default_source, unit = INDICATORS[key]
+        datum = rows.get(key)
+        checked = normalize(key, datum)
+        good = checked is not None and checked["status"] == "CURRENT"
+        from zoneinfo import ZoneInfo
+        timestamp = ""
+        if checked and datum:
+            try:
+                timestamp = datetime.fromisoformat(str(datum["observed_at"]).replace("Z", "+00:00")).astimezone(ZoneInfo("America/Fortaleza")).strftime("%d.%m kl. %H:%M")
+            except (ValueError, TypeError):
+                timestamp = ""
+        cards.append({"key": key, "name": name, "valid": good,
+                      "value": checked["value"] if good else None,
+                      "label": f"{float(datum['value']):,.2f} {unit}" if good else ("Utdatert" if checked else "Mangler data"),
+                      "observed": timestamp,
+                      "status": "Utdatert" if checked else "Mangler data"})
+        alert = critical_alert(key, datum, checked, policies.get(key))
+        if alert:
+            style = "mh-critical" if animate else ""
+            st.markdown(f'<div class="{style}" role="status">🔴 KRITISK: {escape(name)} · {alert["value"]:g}</div>', unsafe_allow_html=True)
+    st.markdown(market_cards(cards), unsafe_allow_html=True)
+    with st.expander("ℹ️ Forklaringer, datakilder og historikk for alle målere"):
+        for card in cards:
+            key = card["key"]
             name, meaning, caution, default_source, unit = INDICATORS[key]
             datum = rows.get(key)
             checked = normalize(key, datum)
-            good = checked is not None and checked["status"] == "CURRENT"
-            alert = critical_alert(key, datum, checked, policies.get(key))
-            with columns[0]:
-                if alert:
-                    style = "mh-critical" if animate else ""
-                    st.markdown(f'<div class="{style}" role="status">🔴 KRITISK: {escape(name)} · {alert["value"]:g} (grense {alert["threshold"]:g})</div>', unsafe_allow_html=True)
-                if good:
-                    gauge = display_gauge(key, checked["value"])
-                    value_label = escape(f"{float(datum['value']):,.2f} {unit}")
-                    gauge_html = ""
-                    if gauge["percent"] is not None:
-                        pos = gauge["percent"]
-                        gradient = ("#dc4545 0%,#dc4545 25%,#f28c35 25%,#f28c35 42.5%,#eab308 42.5%,#eab308 50%,#22a06b 50%" if gauge.get("reverse_risk") else "#22a06b 0%,#22a06b 16.67%,#eab308 16.67%,#eab308 33.33%,#f28c35 33.33%,#f28c35 66.67%,#dc4545 66.67%")
-                        gauge_html = (
-                            f'<div role="img" aria-label="{escape(name)}: {escape(gauge["label"])}" '
-                            'style="position:relative;height:12px;margin:12px 3px 9px;'
-                            f'border-radius:12px;background:linear-gradient(90deg,{gradient})">'
-                            f'<span style="position:absolute;left:{pos}%;top:-5px;width:5px;height:22px;'
-                            'border-radius:3px;background:#fff;border:1px solid #152633;'
-                            'transform:translateX(-50%)"></span></div>'
-                            f'<div style="font-size:12px;color:#bed2dc">{escape(gauge["label"])} · Veiledende skala</div>'
-                        )
-                    else:
-                        gauge_html = '<div style="font-size:12px;color:#b4c4ce">Skala ikke kalibrert · ingen risikofarge</div>'
-                    st.markdown(
-                        '<div style="box-sizing:border-box;width:100%;min-width:0;overflow:hidden;'
-                        'border:1px solid #39516b;background:#0e2537;border-radius:12px;'
-                        'padding:12px 14px;margin:4px 0 8px;line-height:1.4">'
-                        f'<div style="font-size:14px;color:#dce8ee;margin-bottom:5px">{escape(name)}</div>'
-                        f'<div style="font-size:20px;font-weight:700;color:#fff;overflow-wrap:anywhere">{value_label}</div>'
-                        f'{gauge_html}'
-                        f'<div style="font-size:11px;color:#a9bdc9;margin-top:6px;overflow-wrap:anywhere">'
-                        f'Observert: {escape(str(datum["observed_at"]))}</div>'
-                        '</div>', unsafe_allow_html=True,
-                    )
-                else:
-                    st.metric(name, "Utdatert" if checked and checked["status"] == "STALE" else "Mangler data")
-                with st.expander(f"ℹ️ Forklaring: {name}"):
-                    st.write(meaning)
-                    if alert:
-                        st.write("🔴 KRITISK NIVÅ: ", alert["value"], "Alarmgrense:", alert["threshold"], "Retning:", alert["direction"])
-                        st.write("Varselregel:", alert["policy_id"], "Observert:", alert["observed_at"])
-                    if good:
-                        st.write("Skalaforklaring:", display_gauge(key, checked["value"]).get("method", "Ingen godkjent skala"))
-                    st.write("Tolkning:", caution)
-                    st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
-                    st.write("Dette er et mål for kontrollfrekvens, ikke garanti for ny verdi fra datakilden.")
-                    st.write("Datakilde:", str(datum.get("source") if good else default_source))
-                    st.write("Sist observert:", str(datum.get("observed_at") if good else "Ukjent"))
-                    history = datum.get("observations") if isinstance(datum, dict) else None
-                    details = summarize(key, history) if isinstance(history, list) else None
-                    st.write("Historikk 24 timer / 7 / 30 dager:", details["history"] if details else "Ikke tilgjengelig")
-                    st.write("Inngår i sammensatt måler først når datadekning, metode og terskler er validert.")
+            with st.expander(f"ℹ️ Forklaring: {name}"):
+                st.write(meaning)
+                st.write("Tolkning:", caution)
+                st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
+                st.write("Datakilde:", str(datum.get("source") if isinstance(datum, dict) else default_source))
+                st.write("Sist observert:", str(datum.get("observed_at") if isinstance(datum, dict) else "Ukjent"))
+                if checked and checked["status"] == "CURRENT":
+                    st.write("Skalaforklaring:", display_gauge(key, checked["value"]).get("method", "Ingen godkjent skala"))
+                history = datum.get("observations") if isinstance(datum, dict) else None
+                details = summarize(key, history) if isinstance(history, list) else None
+                st.write("Historikk 24 timer / 7 / 30 dager:", details["history"] if details else "Ikke tilgjengelig")
+                st.write("Inngår først i samlet risikoskår etter validert metode.")
