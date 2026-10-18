@@ -33,4 +33,4 @@ def test_new_scales_are_explicitly_provisional():
     assert display_gauge("credit",6)["status"]=="DISPLAY_ONLY"
     assert display_gauge("curve",-1.5)["reverse_risk"] is True
     for key in ("gold","brent","us10y","us30y","dxy","eurusd"):
-        assert display_gauge(key,5)["status"]=="UNRATED"
+        assert display_gauge(key,5)["status"]=="DISPLAY_ONLY"
