@@ -2,6 +2,7 @@
 from html import escape
 from math import cos, sin, pi
 from market_health_gauges import display_gauge, DISPLAY_SCALES
+from market_health_explanations import explain
 
 COLORS = ("#29bb85", "#e8bc36", "#f29a3f", "#ed5561")
 
@@ -80,6 +81,11 @@ def market_cards(cards):
         svg=dial_svg(key, card.get("value"), card.get("observations")) if valid else dial_svg(key, None)
         status=escape("Historisk nivå – ikke risikoskår" if hist is not None else gauge["label"] if valid else card.get("status","Mangler data"))
         observed=escape(str(card.get("observed") or "Ingen kursobservasjon"))
+        guide=explain(key)
+        question=escape(guide["question"])
+        meaning=escape(guide["meaning"])
+        caution=escape(guide["caution"])
+        note=escape(guide["note"])
         blocks.append(
             '<div class="mh-instrument" role="group" aria-label="'+name+'">'
             '<div class="mh-instrument-name">'+name+'</div>'
@@ -87,6 +93,7 @@ def market_cards(cards):
             '<div class="mh-instrument-value">'+value+'</div>'
             '<div class="mh-instrument-status">'+status+'</div>'
             '<div class="mh-instrument-time">'+observed+'</div>'
+            '<details class="mh-guide"><summary>Hva betyr måleren?</summary><p><strong>'+question+'</strong></p><p>'+meaning+'</p><p>'+caution+'</p><p>'+note+'</p></details>'
             '</div>'
         )
     css = """<style>
@@ -98,6 +105,9 @@ def market_cards(cards):
     .mh-instrument-status{font-size:clamp(10px,1.3vw,12px);line-height:1.3;color:#c4d5df;margin-top:5px;min-height:1.3em}
     .mh-instrument-time{font-size:10px;color:#a1b6c4;line-height:1.3;margin-top:6px;overflow-wrap:anywhere}
     .mh-instrument svg{max-height:86px}
+    .mh-guide{text-align:left;margin-top:8px;font-size:11px;line-height:1.45;color:#dce8f0}
+    .mh-guide summary{cursor:pointer;min-height:28px;padding:6px;border:1px solid #5a7b91;border-radius:7px;font-weight:650;text-align:center}
+    .mh-guide p{margin:7px 2px}
     @media(max-width:440px){.mh-instrument{padding:9px 5px}.mh-instrument svg{max-height:74px}}
     </style>"""
     return css+'<div class="mh-cockpit-grid">'+"".join(blocks)+'</div>'
