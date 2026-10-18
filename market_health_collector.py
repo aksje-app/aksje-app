@@ -244,4 +244,4 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
     return {"indicators": result, "composite": {"validated": False},
             "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape", "breadth", "equity_yield") if k in result and k not in errors],
                                   "errors": errors, "cadence": "4h poll / daily bar publication",
-                                  "mode": "READ_ONLY", "history_schema": 2}}
+                                  "mode": "READ_ONLY", "history_schema": 2, "source_schema": 3}}
