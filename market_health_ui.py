@@ -110,6 +110,15 @@ def render_market_health(st, snapshot=None):
     score = overall.get("risk_score") if isinstance(overall, dict) else None
     from market_health_composite_gauge import composite_gauge
     st.markdown(composite_gauge(overall), unsafe_allow_html=True)
+    with st.expander("📚 Historikk og hvorfor samlet temperatur ennå ikke er beregnet"):
+        from market_health_historical_audit import coverage_report
+        audit = coverage_report(snapshot)
+        for indicator_key, details in audit["indicators"].items():
+            label = INDICATORS[indicator_key][0]
+            first = details["first"] or "ukjent"
+            last = details["last"] or "ukjent"
+            st.write(f"{label}: {details['dated_observations']} daterte observasjoner · {first} til {last} · historisk kvalitet ikke godkjent")
+        st.caption("Dette er kontroll av lagrede observasjoner, ikke validering av risikomodellen. Ingen samlet risikoscore eller handelssignaler beregnes.")
     with st.expander("ℹ️ Hvordan beregnes samlet børshelse og fargene?"):
         st.write("Samlet børshelse skal kombinere verdsettelse, markedsstress, renter, trend og markedsbredde. Gruppene må normaliseres mot egen historikk og kontrolleres for overlapp. Rødt betyr forhøyet risiko – ikke et automatisk salgssignal.")
         st.write("Ingen samlet score gis ved manglende kritiske data, udokumenterte terskler eller utilstrekkelig historikk. Grønn drift er ikke dokumentasjon på god investeringsavkastning.")
