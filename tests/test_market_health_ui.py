@@ -58,7 +58,7 @@ def test_intervals_and_dollar_explanations():
     assert "sterkere dollar" in INDICATORS["eurusd"][1].lower()
     st = FakeSt()
     render_market_health(st, {})
-    assert sum("Planlagt oppdateringsintervall:" in x for x in st.messages) == 15
+    assert sum("Oppdatering:</strong>" in x for x in st.messages) == 14
 
 
 def test_live_gauge_uses_one_self_contained_card():
@@ -66,3 +66,12 @@ def test_live_gauge_uses_one_self_contained_card():
     render_market_health(st, {"indicators": {"vix": {"value": 21.5, "source": "Cboe", "observed_at": datetime.now(timezone.utc).isoformat()}}})
     assert any('mh-cockpit-grid' in x and '21.50 indeks' in x and '<svg' in x for x in st.messages)
     assert not any(x == '**VIX fryktindeks**' for x in st.messages)
+
+def test_all_explanations_use_mobile_readable_history_not_json():
+    st = FakeSt()
+    render_market_health(st, {})
+    assert sum("mh-readable-explanation" in x for x in st.messages) == 14
+    assert sum("24 timer:</strong>" in x for x in st.messages) == 14
+    assert sum("7 dager:</strong>" in x for x in st.messages) == 14
+    assert sum("30 dager:</strong>" in x for x in st.messages) == 14
+    assert not any("history': {" in x for x in st.messages)

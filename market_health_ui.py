@@ -159,14 +159,38 @@ def render_market_health(st, snapshot=None):
             datum = rows.get(key)
             checked = normalize(key, datum)
             with st.expander(f"ℹ️ Forklaring: {name}"):
-                st.write(meaning)
-                st.write("Tolkning:", caution)
-                st.write("Planlagt oppdateringsintervall:", UPDATE_INTERVALS[key])
-                st.write("Datakilde:", str(datum.get("source") if isinstance(datum, dict) else default_source))
-                st.write("Sist observert:", str(datum.get("observed_at") if isinstance(datum, dict) else "Ukjent"))
-                if checked and checked["status"] == "CURRENT":
-                    st.write("Skalaforklaring:", display_gauge(key, checked["value"]).get("method", "Ingen godkjent skala"))
+                source = str(datum.get("source") if isinstance(datum, dict) else default_source)
+                method = (display_gauge(key, checked["value"]).get("method", "Historisk sammenligning, ikke kalibrert risikoskår.")
+                          if checked and checked["status"] == "CURRENT" else "Ikke tilgjengelig")
                 history = datum.get("observations") if isinstance(datum, dict) else None
                 details = summarize(key, history) if isinstance(history, list) else None
-                st.write("Historikk 24 timer / 7 / 30 dager:", details["history"] if details else "Ikke tilgjengelig")
-                st.write("Inngår først i samlet risikoskår etter validert metode.")
+                lines = [
+                    ("Hva måles?", meaning),
+                    ("Tolkning", caution),
+                    ("Oppdatering", UPDATE_INTERVALS[key]),
+                    ("Datakilde", source),
+                    ("Sist observert", f"{card['observed'] or 'Ingen data'} (Brasil)"),
+                    ("Målerskala", method),
+                ]
+                for period, heading in (("24t", "24 timer"), ("7d", "7 dager"), ("30d", "30 dager")):
+                    info = (details or {}).get("history", {}).get(period, {})
+                    if info.get("status") == "MEASURED":
+                        label = f"{info['difference']:+.3f} {unit} fra observert tidligere kurs"
+                    else:
+                        label = "Ikke tilstrekkelig historikk"
+                    lines.append((heading, label))
+                pieces = "".join(
+                    f'<div style="display:block;line-height:1.55;margin:0 0 12px;overflow-wrap:anywhere;'
+                    f'white-space:normal;color:#e1edf5"><strong style="color:#fff">{escape(str(heading))}:</strong> '
+                    f'{escape(str(value))}</div>'
+                    for heading, value in lines
+                )
+                st.markdown(
+                    '<div class="mh-readable-explanation" style="display:block;box-sizing:border-box;'
+                    'width:100%;padding:10px 5px 6px;overflow-wrap:anywhere">'
+                    + pieces +
+                    '<div style="line-height:1.5;color:#adc0d0;padding-top:5px">'
+                    'Denne indikatoren påvirker ikke kjøp eller salg før risikomodellen er validert.'
+                    '</div></div>',
+                    unsafe_allow_html=True,
+                )
