@@ -9,9 +9,9 @@ def test_vix_needle_and_risk_zones_agree_at_boundaries():
     assert display_gauge("vix", 19.99)["label"] == "Moderat"
 
 
-def test_unrated_indicators_do_not_get_risk_color():
+def test_display_only_indicators_do_not_affect_trading():
     for key in ("dxy", "us10y", "brent", "eurusd"):
-        assert display_gauge(key, 100)["percent"] is None
+        assert display_gauge(key, 100)["status"] == "DISPLAY_ONLY"
 
 
 def test_css_segments_follow_vix_display_breakpoints():
