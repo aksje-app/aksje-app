@@ -67,6 +67,38 @@ def shiller_cape_monthly():
     return sorted(records, key=lambda r: r["observed_at"])[-96:]
 
 
+def shiller_cape_mirror(*, html=None):
+    """Secondary monthly CAPE data when Yale host refuses connections."""
+    from bs4 import BeautifulSoup
+    from urllib.request import Request
+    if html is None:
+        req = Request("https://www.multpl.com/shiller-pe/table/by-month",
+                      headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=12) as response:
+            html = response.read(1200000).decode("utf-8", "replace")
+    monthly = {}
+    for tr in BeautifulSoup(html, "html.parser").select("tr"):
+        cells = tr.find_all("td")
+        if len(cells) < 2:
+            continue
+        try:
+            date = datetime.strptime(cells[0].get_text(" ", strip=True), "%b %d, %Y").replace(tzinfo=timezone.utc)
+            value = float(cells[1].get_text(" ", strip=True).replace(",", ""))
+            if not (1871 <= date.year <= datetime.now(timezone.utc).year and
+                    isfinite(value) and 0 < value < 200):
+                continue
+            k = (date.year, date.month)
+            if k not in monthly or date > monthly[k][0]:
+                monthly[k] = (date, value)
+        except (ValueError, TypeError):
+            continue
+    if len(monthly) < 12:
+        raise ValueError("Secondary CAPE source has fewer than 12 valid monthly observations")
+    return [{"observed_at": date.isoformat(), "value": value,
+             "source": "Multpl Shiller CAPE monthly table (secondary source)"}
+            for date, value in sorted(monthly.values())[-96:]]
+
+
 SYMBOLS = {"vix": "^VIX", "us10y": "^TNX", "us30y": "^TYX",
            "brent": "BZ=F", "gold": "GC=F", "dxy": "DX-Y.NYB",
            "eurusd": "EURUSD=X", "trend": "^GSPC"}
@@ -144,7 +176,13 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         except Exception as exc:
             errors[key] = str(exc)[:180]
     try:
-        cape_records = (cape_provider or shiller_cape_monthly)()
+        if cape_provider is not None:
+            cape_records = cape_provider()
+        else:
+            try:
+                cape_records = shiller_cape_monthly()
+            except Exception:
+                cape_records = shiller_cape_mirror()
         cape_row = cape_records[-1]
         if not normalize("cape", cape_row, now=now):
             raise ValueError("invalid Shiller CAPE source or timestamp")
