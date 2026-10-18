@@ -112,11 +112,22 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
             if not checked:
                 raise ValueError("invalid dated observation")
             old = result.get(key) or {}
-            observations = list(old.get("observations") or []) if isinstance(old, dict) else []
-            if not any(o.get("observed_at") == row["observed_at"] for o in observations if isinstance(o, dict)):
-                observations.append(row)
-            observations = sorted((x for x in observations if isinstance(x,dict) and x.get("observed_at")),key=lambda x:x["observed_at"])[-96:]
-            result[key] = {**row,"observations":observations}
+            historical = list(old.get("observations") or []) if isinstance(old, dict) else []
+            closes = series if key != "trend" else (series / series.rolling(200).mean() - 1.0) * 100.0
+            for time_index, close in closes.iloc[-96:].items():
+                if getattr(time_index, "tzinfo", None) is None:
+                    continue
+                stamp = time_index.to_pydatetime().astimezone(timezone.utc)
+                numeric = float(close)
+                if not (isfinite(numeric) and stamp <= now + timedelta(seconds=60)):
+                    continue
+                historical.append({"value": numeric, "source": row["source"],
+                                   "observed_at": stamp.isoformat()})
+            by_date = {o["observed_at"]: o for o in historical
+                       if isinstance(o, dict) and o.get("observed_at") and
+                       isfinite(float(o.get("value", float("nan"))))}
+            observations = sorted(by_date.values(), key=lambda o: o["observed_at"])[-96:]
+            result[key] = {**row, "observations": observations}
         except Exception as exc:
             errors[key] = str(exc)[:180]
     fred_provider = fred_provider or fred_daily
@@ -143,4 +154,4 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
     return {"indicators": result, "composite": {"validated": False},
             "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape") if k in result and k not in errors],
                                   "errors": errors, "cadence": "4h poll / daily bar publication",
-                                  "mode": "READ_ONLY"}}
+                                  "mode": "READ_ONLY", "history_schema": 2}}
