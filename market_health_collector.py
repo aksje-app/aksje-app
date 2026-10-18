@@ -137,6 +137,8 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
     previous = previous if isinstance(previous, dict) else {}
     result = dict(previous)
     errors = {}
+    if breadth_provider is None and (history_provider is not None or fred_provider is not None or cape_provider is not None):
+        breadth_provider = lambda: (_ for _ in ()).throw(ValueError("no breadth test provider"))
     if history_provider is None:
         import yfinance as yf
         history_provider = lambda symbol: yf.Ticker(symbol).history(period="1y" if symbol == "^GSPC" else "35d", interval="1d", auto_adjust=False)
