@@ -17,7 +17,7 @@ FRED_SERIES = {"curve": "T10Y2Y", "credit": "BAMLH0A0HYM2"}
 
 def fred_daily(series_id):
     """Public FRED CSV daily history; use date at UTC midnight, no invented quote time."""
-    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series_id
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series_id + "&cosd=" + (datetime.now(timezone.utc) - timedelta(days=110)).date().isoformat()
     with urlopen(url, timeout=12) as response:
         payload = response.read(600000).decode("utf-8-sig")
     observations = []
@@ -41,7 +41,7 @@ SYMBOLS = {"vix": "^VIX", "us10y": "^TNX", "us30y": "^TYX",
            "eurusd": "EURUSD=X", "trend": "^GSPC"}
 
 
-def collect(snapshot=None, *, history_provider=None, now=None):
+def collect(snapshot=None, *, history_provider=None, fred_provider=None, now=None):
     now = now or datetime.now(timezone.utc)
     saved = dict(snapshot or {})
     previous = saved.get("indicators") or {}
@@ -88,9 +88,10 @@ def collect(snapshot=None, *, history_provider=None, now=None):
             result[key] = {**row,"observations":observations}
         except Exception as exc:
             errors[key] = str(exc)[:180]
+    fred_provider = fred_provider or fred_daily
     for key, series_id in FRED_SERIES.items():
         try:
-            records = fred_daily(series_id)
+            records = fred_provider(series_id)
             row = records[-1]
             if not normalize(key, row, now=now):
                 raise ValueError("invalid FRED date/source")
