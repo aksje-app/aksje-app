@@ -108,14 +108,17 @@ def render_market_health(st, snapshot=None):
     st.caption("Kun observerte, tidsstemplete markedsdata. Foreløpig informativ/Shadow; ingen påvirkning på kjøp eller salg.")
     overall = snapshot.get("composite") or {}
     score = overall.get("risk_score") if isinstance(overall, dict) else None
-    if isinstance(score, (int, float)) and isfinite(score) and 0 <= score <= 100 and overall.get("validated") is True:
-        st.progress(int(score) / 100, text=f"Samlet risikometer: {score:.0f}/100")
-    else:
-        st.info("Samlet temperatur: IKKE BEREGNET – datadekning og kalibrering må være validert.")
-    if hasattr(st, "markdown") and isinstance(score, (int, float)) and isfinite(score) and overall.get("validated") is True:
-        st.markdown(dial("Samlet markedsrisiko", score), unsafe_allow_html=True)
-    else:
-        st.caption("Samlet instrumentmåler vises når risikomodellen er validert; inntil da vises de enkelte markedsmålingene.")
+    from market_health_composite_gauge import composite_gauge
+    st.markdown(composite_gauge(overall), unsafe_allow_html=True)
+    with st.expander("📚 Historikk og hvorfor samlet temperatur ennå ikke er beregnet"):
+        from market_health_historical_audit import coverage_report
+        audit = coverage_report(snapshot)
+        for indicator_key, details in audit["indicators"].items():
+            label = INDICATORS[indicator_key][0]
+            first = details["first"] or "ukjent"
+            last = details["last"] or "ukjent"
+            st.write(f"{label}: {details['dated_observations']} daterte observasjoner · {first} til {last} · historisk kvalitet ikke godkjent")
+        st.caption("Dette er kontroll av lagrede observasjoner, ikke validering av risikomodellen. Ingen samlet risikoscore eller handelssignaler beregnes.")
     with st.expander("ℹ️ Hvordan beregnes samlet børshelse og fargene?"):
         st.write("Samlet børshelse skal kombinere verdsettelse, markedsstress, renter, trend og markedsbredde. Gruppene må normaliseres mot egen historikk og kontrolleres for overlapp. Rødt betyr forhøyet risiko – ikke et automatisk salgssignal.")
         st.write("Ingen samlet score gis ved manglende kritiske data, udokumenterte terskler eller utilstrekkelig historikk. Grønn drift er ikke dokumentasjon på god investeringsavkastning.")
