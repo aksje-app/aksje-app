@@ -526,7 +526,7 @@ def _run_once_locked() -> dict[str, Any]:
             mh_since = mh_datetime.fromisoformat(mh_last.replace("Z", "+00:00"))
         except ValueError:
             mh_since = None
-        if (mh_since and mh_since.tzinfo and mh_datetime.now(mh_timezone.utc) - mh_since < mh_timedelta(hours=4) and (mh_previous.get("collection_status") or {}).get("history_schema") == 2 and (mh_previous.get("collection_status") or {}).get("source_schema") == 3):
+        if (mh_since and mh_since.tzinfo and mh_datetime.now(mh_timezone.utc) - mh_since < mh_timedelta(hours=4) and (mh_previous.get("collection_status") or {}).get("history_schema") == 2 and (mh_previous.get("collection_status") or {}).get("source_schema") == 4):
             state["market_health"] = {"state": "NOT_DUE", "last_checked": mh_last, "cadence": "4h daily bars"}
         else:
             mh_result = collect_market_health(mh_previous)
