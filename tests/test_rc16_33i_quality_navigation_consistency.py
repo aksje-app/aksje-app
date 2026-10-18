@@ -95,7 +95,8 @@ def test_mobile_bottom_nav_forces_one_horizontal_row():
     src = Path("ui_library/theme.py").read_text(encoding="utf-8")
     assert "flex-direction:row!important" in src
     assert "flex-wrap:nowrap!important" in src
-    assert "flex:1 1 0!important" in src
+    assert "flex:0 0 105px!important" in src
+    assert "overflow-x:auto!important" in src
 
 
 def test_old_report_rows_recompute_scenario_distance_in_ui_and_pdfs():
