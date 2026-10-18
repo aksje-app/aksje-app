@@ -231,7 +231,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         from market_health_shareholder_yield import annual_shareholder_yield
         if equity_provider is not None:
             annual = equity_provider()
-        elif history_provider is not None or fred_provider is not None or cape_provider is not None:
+        elif history_provider is not None:
             raise ValueError("offline test missing annual equity source")
         else:
             annual = annual_shareholder_yield()
