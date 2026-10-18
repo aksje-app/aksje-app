@@ -14,7 +14,21 @@ def _arc(start, end):
     b = _polar(end)
     return f"M {a[0]:.2f} {a[1]:.2f} A 70 70 0 0 1 {b[0]:.2f} {b[1]:.2f}"
 
-def dial_svg(key, value):
+def historical_position(value, observations):
+    """Relative historical position, not a risk judgement."""
+    from math import isfinite
+    try:
+        x = float(value)
+        values = [float(row["value"]) for row in (observations or []) if isinstance(row, dict)]
+        values = [v for v in values if isfinite(v)]
+        if not isfinite(x) or len(values) < 12 or max(values) <= min(values):
+            return None
+        return sum(v <= x for v in values) / len(values)
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+def dial_svg(key, value, observations=None):
     gauge = display_gauge(key, value)
     rated = gauge["percent"] is not None
     # The neutral gauge is deliberately not a risk rating.
@@ -49,7 +63,10 @@ def market_cards(cards):
         valid=bool(card.get("valid"))
         value=escape(str(card.get("label", "Mangler data")))
         gauge=display_gauge(key, card.get("value")) if valid else {"label":"Mangler data","percent":None}
-        svg=dial_svg(key, card.get("value")) if valid else dial_svg(key, None)
+        hist = historical_position(card.get("value"), card.get("observations")) if valid and gauge["percent"] is None else None
+        svg=dial_svg(key, card.get("value"), card.get("observations")) if valid else dial_svg(key, None)
+        if hist is not None:
+            status = "Historisk nivå – ikke risikoskår"
         status=escape(gauge["label"] if valid else card.get("status","Mangler data"))
         observed=escape(str(card.get("observed") or "Ingen kursobservasjon"))
         blocks.append(
