@@ -13,12 +13,12 @@ import re
 from market_health_history import normalize
 from market_health_ui import INDICATORS
 
-FRED_SERIES = {"curve": "T10Y2Y", "credit": "BAMLH0A0HYM2"}
+HISTORY_LIMIT = 4000  # Preserve multi-year daily records; no synthetic backfill.\nFRED_SERIES = {"curve": "T10Y2Y", "credit": "BAMLH0A0HYM2"}
 
 
 def fred_daily(series_id):
     """Public FRED CSV daily history; use date at UTC midnight, no invented quote time."""
-    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series_id + "&cosd=" + (datetime.now(timezone.utc) - timedelta(days=110)).date().isoformat()
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series_id + "&cosd=" + (datetime.now(timezone.utc) - timedelta(days=365*15)).date().isoformat()
     with urlopen(url, timeout=12) as response:
         payload = response.read(600000).decode("utf-8-sig")
     observations = []
@@ -34,7 +34,7 @@ def fred_daily(series_id):
             continue
     if not observations:
         raise ValueError("FRED series has no valid observations")
-    return observations[-96:]
+    return observations[-HISTORY_LIMIT:]
 
 
 
@@ -65,7 +65,7 @@ def shiller_cape_monthly():
             continue
     if not records:
         raise ValueError("Shiller workbook contains no valid CAPE observations")
-    return sorted(records, key=lambda r: r["observed_at"])[-96:]
+    return sorted(records, key=lambda r: r["observed_at"])[-HISTORY_LIMIT:]
 
 
 def shiller_cape_mirror(*, html=None):
@@ -97,7 +97,7 @@ def shiller_cape_mirror(*, html=None):
         raise ValueError("Secondary CAPE source has fewer than 12 valid monthly observations")
     return [{"observed_at": date.isoformat(), "value": value,
              "source": "Multpl Shiller CAPE monthly table (secondary source)"}
-            for date, value in sorted(monthly.values())[-96:]]
+            for date, value in sorted(monthly.values())[-HISTORY_LIMIT:]]
 
 
 
@@ -142,7 +142,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         breadth_provider = lambda: (_ for _ in ()).throw(ValueError("no breadth test provider"))
     if history_provider is None:
         import yfinance as yf
-        history_provider = lambda symbol: yf.Ticker(symbol).history(period="1y" if symbol == "^GSPC" else "35d", interval="1d", auto_adjust=False)
+        history_provider = lambda symbol: yf.Ticker(symbol).history(period="15y" if (symbol == "^GSPC" or not any(isinstance(previous.get(k), dict) and len(previous[k].get("observations") or []) >= 2000 for k, sym in SYMBOLS.items() if sym == symbol)) else "35d", interval="1d", auto_adjust=False)
     for key, symbol in SYMBOLS.items():
         try:
             frame = history_provider(symbol)
@@ -175,7 +175,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
             old = result.get(key) or {}
             historical = list(old.get("observations") or []) if isinstance(old, dict) else []
             closes = series if key != "trend" else (series / series.rolling(200).mean() - 1.0) * 100.0
-            for time_index, close in closes.iloc[-96:].items():
+            for time_index, close in closes.iloc[-HISTORY_LIMIT:].items():
                 if getattr(time_index, "tzinfo", None) is None:
                     continue
                 stamp = time_index.to_pydatetime().astimezone(timezone.utc)
@@ -187,7 +187,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
             by_date = {o["observed_at"]: o for o in historical
                        if isinstance(o, dict) and o.get("observed_at") and
                        isfinite(float(o.get("value", float("nan"))))}
-            observations = sorted(by_date.values(), key=lambda o: o["observed_at"])[-96:]
+            observations = sorted(by_date.values(), key=lambda o: o["observed_at"])[-HISTORY_LIMIT:]
             result[key] = {**row, "observations": observations}
         except Exception as exc:
             errors[key] = str(exc)[:180]
@@ -201,7 +201,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
             old = result.get(key) or {}
             combined = list(old.get("observations") or []) if isinstance(old, dict) else []
             unique = {r["observed_at"]: r for r in combined + records if isinstance(r, dict) and r.get("observed_at")}
-            result[key] = {**row, "observations": sorted(unique.values(), key=lambda r: r["observed_at"])[-96:]}
+            result[key] = {**row, "observations": sorted(unique.values(), key=lambda r: r["observed_at"])[-HISTORY_LIMIT:]}
         except Exception as exc:
             errors[key] = str(exc)[:180]
     try:
@@ -215,7 +215,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         cape_row = cape_records[-1]
         if not normalize("cape", cape_row, now=now):
             raise ValueError("invalid Shiller CAPE source or timestamp")
-        result["cape"] = {**cape_row, "observations": cape_records[-96:]}
+        result["cape"] = {**cape_row, "observations": cape_records[-HISTORY_LIMIT:]}
     except Exception as exc:
         errors["cape"] = str(exc)[:180]
     try:
@@ -232,7 +232,7 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
         old = result.get("breadth") or {}
         history = list(old.get("observations") or []) + [breadth_row]
         unique = {item["observed_at"]: item for item in history if isinstance(item, dict) and item.get("observed_at")}
-        result["breadth"] = {**breadth_row, "observations": sorted(unique.values(), key=lambda v: v["observed_at"])[-96:]}
+        result["breadth"] = {**breadth_row, "observations": sorted(unique.values(), key=lambda v: v["observed_at"])[-HISTORY_LIMIT:]}
     except Exception as exc:
         errors["breadth"] = str(exc)[:180]
     try:
