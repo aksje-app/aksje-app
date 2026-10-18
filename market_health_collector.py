@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from urllib.request import urlopen
 from csv import DictReader
-from io import StringIO
+from io import StringIO, BytesIO
 from math import isfinite
 from market_health_history import normalize
 from market_health_ui import INDICATORS
@@ -36,12 +36,43 @@ def fred_daily(series_id):
     return observations[-96:]
 
 
+
+def shiller_cape_monthly():
+    """Download Shiller's monthly CAPE series. The original workbook is the authority."""
+    import pandas as pd
+    source_url = "https://www.econ.yale.edu/~shiller/data/ie_data.xls"
+    with urlopen(source_url, timeout=15) as response:
+        workbook = response.read(4000000)
+    frame = pd.read_excel(BytesIO(workbook), sheet_name=0, header=7)
+    frame.columns = [str(c).strip().upper() for c in frame.columns]
+    if "DATE" not in frame or "CAPE" not in frame:
+        raise ValueError("Shiller workbook DATE/CAPE columns not found")
+    records = []
+    for _, row in frame.iterrows():
+        try:
+            date_code = f"{float(row['DATE']):.2f}"
+            year_text, month_text = date_code.split(".")
+            year, month = int(year_text), int(month_text)
+            value = float(row["CAPE"])
+            if not (1871 <= year <= datetime.now(timezone.utc).year and
+                    1 <= month <= 12 and isfinite(value) and value > 0):
+                continue
+            observed = datetime(year, month, 1, tzinfo=timezone.utc)
+            records.append({"value": value, "source": "Robert Shiller Yale monthly CAPE (ie_data.xls)",
+                            "observed_at": observed.isoformat()})
+        except (ValueError, TypeError, OverflowError):
+            continue
+    if not records:
+        raise ValueError("Shiller workbook contains no valid CAPE observations")
+    return sorted(records, key=lambda r: r["observed_at"])[-96:]
+
+
 SYMBOLS = {"vix": "^VIX", "us10y": "^TNX", "us30y": "^TYX",
            "brent": "BZ=F", "gold": "GC=F", "dxy": "DX-Y.NYB",
            "eurusd": "EURUSD=X", "trend": "^GSPC"}
 
 
-def collect(snapshot=None, *, history_provider=None, fred_provider=None, now=None):
+def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_provider=None, now=None):
     now = now or datetime.now(timezone.utc)
     saved = dict(snapshot or {})
     previous = saved.get("indicators") or {}
@@ -101,7 +132,15 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, now=Non
             result[key] = {**row, "observations": sorted(unique.values(), key=lambda r: r["observed_at"])[-96:]}
         except Exception as exc:
             errors[key] = str(exc)[:180]
+    try:
+        cape_records = (cape_provider or shiller_cape_monthly)()
+        cape_row = cape_records[-1]
+        if not normalize("cape", cape_row, now=now):
+            raise ValueError("invalid Shiller CAPE source or timestamp")
+        result["cape"] = {**cape_row, "observations": cape_records[-96:]}
+    except Exception as exc:
+        errors["cape"] = str(exc)[:180]
     return {"indicators": result, "composite": {"validated": False},
-            "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES) if k in result and k not in errors],
+            "collection_status": {"at": now.isoformat(), "updated": [k for k in (*SYMBOLS, *FRED_SERIES, "cape") if k in result and k not in errors],
                                   "errors": errors, "cadence": "4h poll / daily bar publication",
                                   "mode": "READ_ONLY"}}
