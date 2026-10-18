@@ -24,7 +24,7 @@ def test_twelve_measures_and_explanation_links_exist():
     assert len({key for _, keys in GROUPS.values() for key in keys}) == 14
     st = FakeSt()
     render_market_health(st, {})
-    assert len(st.metrics) == 14
+    assert any("mh-cockpit-grid" in x and "Mangler data" in x for x in st.messages)
     assert sum(str(x).startswith("ℹ️ Forklaring:") for x in st.messages) == 14
     assert any("IKKE BEREGNET" in x for x in st.messages)
 
@@ -64,5 +64,5 @@ def test_intervals_and_dollar_explanations():
 def test_live_gauge_uses_one_self_contained_card():
     st = FakeSt()
     render_market_health(st, {"indicators": {"vix": {"value": 21.5, "source": "Cboe", "observed_at": datetime.now(timezone.utc).isoformat()}}})
-    assert any('box-sizing:border-box;width:100%' in x and '21.50 indeks' in x and 'linear-gradient' in x for x in st.messages)
+    assert any('mh-cockpit-grid' in x and '21.50 indeks' in x and '<svg' in x for x in st.messages)
     assert not any(x == '**VIX fryktindeks**' for x in st.messages)
