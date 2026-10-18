@@ -7,13 +7,13 @@ def test_historical_needle_requires_actual_dispersion_and_sample_count():
     obs=[{"value":i} for i in range(20)]
     assert historical_position(10,obs)==.55
     svg=dial_svg("gold",10,obs)
-    assert "#5ac6da" in svg
+    assert "#29bb85" in svg
     assert "L" in svg
 
 def test_no_risk_claim_for_descriptive_needle():
     obs=[{"value":i} for i in range(20)]
     html=market_cards([{"key":"gold","name":"Gull","valid":True,"value":10,"label":"10 USD","observed":"18.10","observations":obs}])
-    assert "Historisk nivå" in html
+    assert "Lavt nivå" in html
     assert "Skala ikke kalibrert" not in html
     assert "mh-cockpit-grid" in html
 
