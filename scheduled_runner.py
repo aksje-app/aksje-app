@@ -530,6 +530,7 @@ def _run_once_locked() -> dict[str, Any]:
             state["market_health"] = {"state": "NOT_DUE", "last_checked": mh_last, "cadence": "4h daily bars"}
         else:
             mh_result = collect_market_health(mh_previous)
+            mh_result["breadth_backfill_status"] = mh_previous.get("breadth_backfill_status", {})
             from market_health_breadth_persist import apply_verified_backfill
             mh_result = apply_verified_backfill(mh_result, now=mh_datetime.now(mh_timezone.utc))
             write_market_json(mh_key, mh_path, mh_result)
