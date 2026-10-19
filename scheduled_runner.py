@@ -618,6 +618,13 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["superfund"] = {"state": "FAILED", "error": str(exc)[:300]}
 
+    # Independent M/W/F ranking digest, delivery errors do not block trading.
+    try:
+        from superfund_runtime import send_scheduled_ranking_digest
+        state["superfund_ranking_digest"] = send_scheduled_ranking_digest()
+    except Exception as exc:
+        state["superfund_ranking_digest"] = {"state":"FAILED","error":str(exc)[:250]}
+
     # Daily 7-day Shadow / learning audit, sent via existing Pushover; never blocks trades.
     try:
         from services.shadow_daily_guard import send_daily_if_due
