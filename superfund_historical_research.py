@@ -43,9 +43,11 @@ def run_once(max_items=150):
         write(KEY,state);return state
     scanned=0
     next_cursor=cursor
+    offset=int(old.get("offset",0))
     while scanned<max_items and next_cursor<len(pages):
         page=read("catalog/"+pages[next_cursor]+".json",{}) or {}
-        for item in page.get("items",[]):
+        items=page.get("items",[])
+        for item in items[offset:]:
             if scanned>=max_items:break
             scanned+=1
             observations=item.get("observations",[])
@@ -57,12 +59,14 @@ def run_once(max_items=150):
                 write("historical_trials/"+str(item.get("id","unknown")).replace("/","_")+".json",
                       {"isin":item.get("isin"),"kind":item.get("kind"),"observations":len(observations),
                        "trials":trials,"validated":False,"basis":"observed_NAV_or_quote_not_backfill"})
-        if scanned<max_items:next_cursor+=1
-        else:
-            # Avoid splitting pages: reread same page next time, dedup by page offset.
+        remaining = len(items)-offset
+        if scanned>=max_items and scanned < remaining:
+            offset += scanned
             break
+        next_cursor+=1
+        offset=0
     state={"status":"RUNNING" if next_cursor<len(pages) else "COMPLETE_OBSERVATION_PASS",
-           "cursor":next_cursor,"pages":len(pages),"tested":tested,"observed":observed,"total":total,
+           "cursor":next_cursor,"offset":offset,"pages":len(pages),"tested":tested,"observed":observed,"total":total,
            "updated_at":datetime.now(timezone.utc).isoformat(),
            "history_status":"OBSERVED_ONLY","multi_year_verified":False}
     write(KEY,state)
