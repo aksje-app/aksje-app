@@ -11,7 +11,6 @@ NY=ZoneInfo("America/New_York")
 LONDON=ZoneInfo("Europe/London")
 # Only quote-bearing Yahoo instruments. Daily macro and breadth series stay daily.
 MARKETS={
-    "trend":("^GSPC","NY"),
     "us10y":("^TNX","NY"),
     "us30y":("^TYX","NY"),
     "gold":("GC=F","GLOBAL"),
@@ -77,11 +76,6 @@ def update_intraday(snapshot, *, now=None, provider=None):
             value=float(series.iloc[-1])
             if not isfinite(value) or value<=0 or at>now+timedelta(minutes=1) or now-at>timedelta(minutes=35):
                 raise ValueError("Intraday quote stale or invalid")
-            # Daily trend measures deviation from its 200-session MA, not index points.
-            if key=="trend":
-                daily=[r for r in previous.get("observations") or [] if r.get("value") is not None]
-                # Do not mislabel an index level as the derived trend score.
-                raise ValueError("Trend intraday requires verified 200-session index baseline")
             indicators[key]={**previous,"value":value,"observed_at":at.isoformat(),
                              "source":f"Yahoo 5m potentially delayed ({symbol})",
                              "source_kind":"INTRADAY"}
