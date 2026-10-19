@@ -445,7 +445,7 @@ def send_scheduled_ranking_digest(*, now=None):
     from notifier import send_pushover_alert,normalize_notification_result
     # One concise push, with the complete ranked report behind its app link.
     # The full digest/PDF remains accessible via Superfond -> Reports.
-    target="https://aksje-app.onrender.com/?mobile_nav=superfund&aa_nav=superfund&aa_tab=Rapporter"
+    target="https://aksje-app.onrender.com/?mobile_nav=superfund&aa_nav=superfund&aa_tab=Rapporter%20og%20nedlastinger"
     count=int(digest.get("qualified_count") or 0)
     leader=(digest.get("overall") or [{}])[0]
     body=(f"Superfond: {count} kvalifiserte fond/ETF-er. "
