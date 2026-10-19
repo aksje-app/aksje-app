@@ -284,6 +284,8 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
         from app_version import APP_VERSION
         from superfund_presentation import candidate_views, decision_context
         views=candidate_views(result['rows'])
+        from superfund_ranking_digest import create_digest
+        ranking_digest=create_digest(result['rows'],at=now)
         needed={o['id'] for o in model.get('orders',[])} | set(model.get('positions',{}))
         fund_identity={r['id']:decision_context(r) for r in result['rows'] if r['id'] in needed}
         payload={'risk_policy_version':1,'prior_learning':previous.get('learning',{}) if policy_changed else previous.get('prior_learning',{}),'at':now,'version':APP_VERSION,'model':model,'shadows':shadows,'shadow_rules':shadow_rules,'learning':learning,'archive_status':archive_status,
@@ -345,6 +347,7 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
         if len(payload['notification_pending'])>1000:
             raise ValueError('Varslingskø full; publisering utsatt, ingen handelsvarsler slettes')
         write('job.json',{'state':'RUNNING','phase':'LAGRER VURDERING OG RAPPORTGRUNNLAG','started_at':now,'checked_at':now_iso(),'capacity':capacity})
+        write('ranking_digest.json',ranking_digest)
         write('snapshot.json',payload)
         write('request.json',{'state':'COMPLETED','completed_at':now})
         job={'state':'COMPLETED','completed_at':now,'coverage':coverage,'pages_processed':processed,
@@ -419,3 +422,38 @@ def decide_risk_proposal(proposal_id, approve, actor='UI'):
     decisions=storage().mutate_json(PREFIX+'risk_decisions.json',commit,{})
     request_scan()
     return decisions[proposal_id]
+
+def send_scheduled_ranking_digest(*, now=None):
+    """Mon/Wed/Fri evening UTC; sent at most once per date, retry on failure."""
+    from datetime import datetime, timezone
+    now=now or datetime.now(timezone.utc)
+    if now.weekday() not in (0,2,4) or now.hour < 19:
+        return {"state":"NOT_DUE"}
+    date=now.date().isoformat()
+    previous=read("ranking_digest_delivery.json",{}) or {}
+    if previous.get("date")==date and previous.get("state")=="SENT":
+        return {"state":"ALREADY_SENT"}
+    digest=read("ranking_digest.json",{}) or {}
+    if not digest.get("overall"):
+        return {"state":"NO_RANKING"}
+    try:
+        updated=at(digest["at"])
+    except (KeyError,ValueError,TypeError):
+        return {"state":"INVALID_RANKING"}
+    if (now-updated).total_seconds()>60*60*36:
+        return {"state":"STALE_RANKING","snapshot_at":digest["at"]}
+    from notifier import send_pushover_alert,normalize_notification_result
+    from superfund_ranking_digest import pages
+    messages=pages(digest)
+    target="https://aksje-app.onrender.com/?mobile_nav=superfund&aa_nav=superfund&aa_tab=Kandidater"
+    start=int(previous.get("next_page",0)) if previous.get("date")==date else 0
+    for i in range(start,len(messages)):
+        ok,detail=normalize_notification_result(send_pushover_alert(
+            messages[i],title=f"Superfond rangering {i+1}/{len(messages)}",
+            url=target,url_title="Åpne Superfond",priority=0))
+        if not ok:
+            write("ranking_digest_delivery.json",{"date":date,"state":"FAILED","next_page":i,"reason":str(detail)[:200]})
+            return {"state":"FAILED","next_page":i,"reason":str(detail)[:200]}
+        write("ranking_digest_delivery.json",{"date":date,"state":"PARTIAL","next_page":i+1})
+    write("ranking_digest_delivery.json",{"date":date,"state":"SENT","pages":len(messages),"snapshot_at":digest["at"]})
+    return {"state":"SENT","pages":len(messages)}

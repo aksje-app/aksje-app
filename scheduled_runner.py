@@ -528,11 +528,20 @@ def _run_once_locked() -> dict[str, Any]:
             mh_since = None
         if (mh_since and mh_since.tzinfo and mh_datetime.now(mh_timezone.utc) - mh_since < mh_timedelta(hours=4) and (mh_previous.get("collection_status") or {}).get("history_schema") == 2 and (mh_previous.get("collection_status") or {}).get("source_schema") == 5):
             state["market_health"] = {"state": "NOT_DUE", "last_checked": mh_last, "cadence": "4h daily bars"}
+            from market_health_vix_intraday import update_vix_intraday
+            from market_health_intraday import update_intraday
+            mh_live = update_intraday(update_vix_intraday(mh_previous))
+            if mh_live != mh_previous:
+                write_market_json(mh_key, mh_path, mh_live)
         else:
             mh_result = collect_market_health(mh_previous)
             mh_result["breadth_backfill_status"] = mh_previous.get("breadth_backfill_status", {})
             from market_health_breadth_persist import apply_verified_backfill
             mh_result = apply_verified_backfill(mh_result, now=mh_datetime.now(mh_timezone.utc))
+            from market_health_vix_intraday import update_vix_intraday
+            mh_result = update_vix_intraday(mh_result)
+            from market_health_intraday import update_intraday
+            mh_result = update_intraday(mh_result)
             write_market_json(mh_key, mh_path, mh_result)
             state["market_health"] = mh_result.get("collection_status", {})
     except Exception as exc:
@@ -617,6 +626,13 @@ def _run_once_locked() -> dict[str, Any]:
         state["superfund"] = run_batch()
     except Exception as exc:
         state["superfund"] = {"state": "FAILED", "error": str(exc)[:300]}
+
+    # Independent M/W/F ranking digest, delivery errors do not block trading.
+    try:
+        from superfund_runtime import send_scheduled_ranking_digest
+        state["superfund_ranking_digest"] = send_scheduled_ranking_digest()
+    except Exception as exc:
+        state["superfund_ranking_digest"] = {"state":"FAILED","error":str(exc)[:250]}
 
     # Daily 7-day Shadow / learning audit, sent via existing Pushover; never blocks trades.
     try:
