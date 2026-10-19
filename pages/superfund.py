@@ -171,7 +171,8 @@ def _render_superfund(st):
                         st.subheader(selected_position['name']+' · fondsanalyse')
                         current=ranking_by_id[selected]
                         st.write(f"Poeng nå: {current['score_now']:.3f}" if current['score_now'] is not None else current['reason'])
-                        st.caption(f"Kjøpspoeng: {current['score_at_buy']} · kategori-rang nå: {current['category_rank'] or 'ukjent'} · siste kursdato: {current['price_at'] or 'ukjent'}")
+                        st.caption(f"Kjøpspoeng: {current['score_at_buy']} · kategori-rang nå: {current['category_rank'] or 'ukjent'} av {current['category_total'] or 'ukjent'} · siste kursdato: {current['price_at'] or 'ukjent'}")
+                        st.caption("Rangering innen samme fondskategori og avkastningsvaluta. Poeng = 60 % avkastning siste uke + 25 % siste måned + 15 % siste tre måneder (prosentpoeng); ingen fast maksimalscore.")
                         st.download_button('PDF · lagre, skriv ut eller del', fund_pdf_bytes(s,selected), file_name='Superfond_'+str(selected_position.get('isin','fond'))+'.pdf', mime='application/pdf', key='sf_fund_pdf_'+selected, width='stretch')
                         st.caption('Åpne den nedlastede PDF-filen for utskrift eller deling via iPhone/PC. Navigasjonsknapper er ikke med i PDF.')
                         selected_info=resolve_identity(s,selected_position)
