@@ -4,7 +4,7 @@ A numeric alarm must have an explicitly validated source-specific policy and
 confirmed timestamp; no thresholds are invented in the presentation layer.
 """
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 def critical_alert(key, datum, checked, policy):
@@ -13,6 +13,14 @@ def critical_alert(key, datum, checked, policy):
     if not isinstance(datum, dict) or not isinstance(policy, dict):
         return None
     if policy.get("validated") is not True or policy.get("enabled") is not True:
+        return None
+    # Display may carry Friday closes into Monday pre-open. Alerts must not
+    # classify a multi-day-old reading as a fresh critical event.
+    try:
+        observed = datetime.fromisoformat(str(checked["observed_at"]).replace("Z", "+00:00"))
+        if observed.tzinfo is None or datetime.now(timezone.utc) - observed.astimezone(timezone.utc) > timedelta(hours=36):
+            return None
+    except (KeyError, TypeError, ValueError, OverflowError):
         return None
     if str(policy.get("indicator") or "") != str(key):
         return None
