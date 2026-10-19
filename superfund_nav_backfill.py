@@ -37,6 +37,7 @@ def run_once(limit=3):
     cursor=int(old.get("cursor",0));offset=int(old.get("offset",0))
     checked=int(old.get("checked",0));matched=int(old.get("matched",0))
     downloaded=int(old.get("downloaded",0));unresolved=int(old.get("unresolved",0))
+    reasons=dict(old.get("failure_reasons") or {})
     count=0
     while cursor<len(pages) and count<limit:
         items=(read("catalog/"+pages[cursor]+".json",{}) or {}).get("items",[])
@@ -47,10 +48,12 @@ def run_once(limit=3):
             if item.get("kind")!="fond":continue
             count+=1;checked+=1
             isin=str(item.get("isin") or "").upper()
+            failure="UNKNOWN"
             try:
                 identity=resolve_symbol(isin)
                 if identity["status"]!="MAPPED":
-                    unresolved+=1;continue
+                    failure=identity.get("status","UNRESOLVED") if identity.get("status")!="MAPPED" else "INSUFFICIENT_HISTORY"
+                    unresolved+=1;reasons[failure]=reasons.get(failure,0)+1;continue
                 matched+=1
                 rows,health=load_price_series_bounded(
                     [identity["symbol"]],"2020-01-01",progress_callback=None,
@@ -67,14 +70,16 @@ def run_once(limit=3):
                        "source":"YAHOO_FUND_DAILY_CLOSE","verified":False,
                        "updated_at":datetime.now(timezone.utc).isoformat()})
                 downloaded+=1
-            except Exception:
+            except Exception as exc:
+                reason="SOURCE_"+type(exc).__name__.upper()
+                reasons[reason]=reasons.get(reason,0)+1
                 unresolved+=1
         if handled < len(items)-offset:
             offset+=handled;break
         cursor+=1;offset=0
     state={"status":"RUNNING" if cursor<len(pages) else "COMPLETE_PASS",
            "cursor":cursor,"offset":offset,"checked":checked,"matched":matched,
-           "downloaded":downloaded,"unresolved":unresolved,
+           "downloaded":downloaded,"unresolved":unresolved,"failure_reasons":reasons,
            "updated_at":datetime.now(timezone.utc).isoformat(),
            "note":"Only exact-ISIN identified fund NAV; uncovered funds remain unresolved"}
     write(KEY,state)
