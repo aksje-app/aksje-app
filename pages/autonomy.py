@@ -20,6 +20,8 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     inject_design_system(st, module="autonomy")
     hero_status(st, title="Autonomi", body="Siste syklus, neste hendelse og beslutningsgrunnlag.", module="autonomy")
     st.markdown("## 🧠 Autonomi")
+    from learning_progress_view import render as _render_learning_progress
+    _render_learning_progress(st, "AUTONOMY")
     # Visible independently of simple/expert mode and workspace selection.
     # This only reads the existing theoretical autonomy portfolio.
     try:
