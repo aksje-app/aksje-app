@@ -15,6 +15,10 @@ def snapshot(storage):
         "reason": str(record.get("reason") or ""),
         "batch_completed": record.get("batch_completed"),
         "batch_total": record.get("batch_total"),
+        "coarse_tested": max(0,int(record.get("coarse_tested") or record.get("completed") or 0)),
+        "coarse_grid": max(0,int(record.get("coarse_grid") or 16)),
+        "optimized": max(0,int(record.get("optimized") or 0)),
+        "finalists": max(0,int(record.get("validated_finalists") or 0)),
     }
 
 def render(st):
@@ -36,8 +40,15 @@ def render(st):
     if progress["pct"] is not None:
         st.progress(min(1.0, progress["pct"] / 100))
         st.caption(f"Ferdig behandlet inkl. avviste: {progress['processed_pct']:.1f} %. Avviste regnes ikke som analyserte.")
-    st.caption("Datakontroll, grovtesting, finjustering og historisk sluttvalidering: "
-               "Ikke målt separat. Strategiforsøk og validerte finalister: Ikke målt. "
-               "Gjenstående tid: Ikke beregnet uten pålitelig hastighetsmåling.")
+    st.markdown("**Strategitester og bearbeiding**")
+    phases = st.columns(3)
+    phases[0].metric("Aksjer med grovtester", progress["coarse_tested"])
+    phases[1].metric("Stop-loss × eiertid per aksje", progress["coarse_grid"])
+    phases[2].metric("Registrerte grovtester", progress["coarse_tested"] * progress["coarse_grid"])
+    st.caption("Grovtestene er ubetingede kurssimuleringer, ikke porteføljespesifikke kjøpssignaler.")
+    st.caption("Parameteroptimalisering: " + (str(progress["optimized"]) if progress["optimized"] else "Ikke startet / ikke registrert")
+               + " · Validerte finalister: " + (str(progress["finalists"]) if progress["finalists"] else "Ingen registrert")
+               + " · Historisk sluttvalidering: Ikke målt"
+               + " · Gjenstående tid: Ikke beregnet.")
     st.caption("Historiske OHLC og resultater lagres under strategy_history/prices/ og strategy_history/results/. "
                "Dette er utforskende simulering, ikke godkjente strategiresultater.")
