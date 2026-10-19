@@ -17,6 +17,7 @@ def run_once(limit=2):
     mapped=int(old.get("mapped",0))
     downloaded=int(old.get("downloaded",0))
     unresolved=int(old.get("unresolved",0))
+    reasons=dict(old.get("failure_reasons") or {})
     count=0
     offset=int(old.get("offset",0))
     while cursor<len(pages) and count<limit:
@@ -29,10 +30,13 @@ def run_once(limit=2):
             count+=1
             checked+=1
             isin=item.get("isin")
+            failure="UNKNOWN"
             try:
                 identity=lookup_isin(isin)
                 if identity["status"]!="MAPPED":
+                    failure=identity.get("status","UNRESOLVED")
                     unresolved+=1
+                    reasons[failure]=reasons.get(failure,0)+1
                     continue
                 mapped+=1
                 symbol=identity["symbol"]
@@ -42,6 +46,7 @@ def run_once(limit=2):
                 bars=series.get(symbol) or []
                 if len(bars)<250:
                     unresolved+=1
+                    reasons["INSUFFICIENT_HISTORY"]=reasons.get("INSUFFICIENT_HISTORY",0)+1
                     continue
                 # One listing per ISIN; do not overwrite market-specific NAV history.
                 write("etf_historical_prices/"+isin+".json",
@@ -60,7 +65,9 @@ def run_once(limit=2):
                       {"isin":isin,"symbol":symbol,"trials":grid,"validated":False,
                        "basis":"ETF_DAILY_ADJUSTED_NEXT_OPEN_GROSS_BASELINE"})
                 downloaded+=1
-            except Exception:
+            except Exception as exc:
+                reason="SOURCE_"+type(exc).__name__.upper()
+                reasons[reason]=reasons.get(reason,0)+1
                 unresolved+=1
         if done_here<len(items)-offset:
             offset+=done_here
@@ -69,7 +76,7 @@ def run_once(limit=2):
         offset=0
     state={"status":"RUNNING" if cursor<len(pages) else "COMPLETE_PASS",
            "checked":checked,"mapped":mapped,"downloaded":downloaded,
-           "unresolved":unresolved,"cursor":cursor,"offset":offset,
+           "unresolved":unresolved,"failure_reasons":reasons,"cursor":cursor,"offset":offset,
            "updated_at":datetime.now(timezone.utc).isoformat(),
            "mutual_fund_history":"NOT_AVAILABLE_FROM_THIS_SOURCE"}
     write(KEY,state)
