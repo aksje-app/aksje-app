@@ -21,7 +21,7 @@ def test_weekend_member_snapshot_uses_next_real_trading_session():
     saturday=date(2026,10,17)
     monday=date(2026,10,19)
     members={f"T{i:03d}" for i in range(500)}
-    sessions=[monday-timedelta(days=j) for j in range(199,-1,-1)]
+    sessions=sorted([monday-timedelta(days=j) for j in range(285) if (monday-timedelta(days=j)).weekday()<5])[-200:]
     prices={ticker:{day:float(i+1) for i,day in enumerate(sessions)}
             for ticker in sorted(members)[:400]}
     result=historical_breadth([(saturday,members)],prices)
