@@ -35,7 +35,7 @@ def resolve_mapping(isin, candidates):
         yahoo=ticker.replace(" ","-")+suffix
         unique[(ticker,exchange)]=yahoo
     # Same ISIN may be exchange-listed in multiple currencies/venues.
-    if len(unique)!=1:return {"status":"AMBIGUOUS" if unique else "UNRESOLVED","options":len(unique)}
+    # Multiple FIGI listings of the same ticker/venue do not create ambiguity.\n    if len(unique)!=1:return {"status":"AMBIGUOUS" if unique else "UNRESOLVED","options":len(unique)}
     (ticker,exchange),symbol=next(iter(unique.items()))
     return {"status":"MAPPED","isin":isin,"ticker":ticker,"exchange":exchange,
             "symbol":symbol,"identity_source":"OPENFIGI_ID_ISIN"}
@@ -50,4 +50,7 @@ def lookup_isin(isin):
         if response.status!=200:raise ValueError("OpenFIGI response error")
         result=json.load(response)
     if not isinstance(result,list) or len(result)!=1:raise ValueError("OpenFIGI schema mismatch")
-    return resolve_mapping(isin,result[0].get("data",[]))
+    entry=result[0]
+    if entry.get("error"):
+        return {"status":"PROVIDER_REJECTED","reason":str(entry["error"])[:120]}
+    return resolve_mapping(isin,entry.get("data",[]))
