@@ -45,6 +45,14 @@ def run_once():
     symbols = sorted({str(x).strip().upper() for x in (universe.get("symbols") or []) if str(x).strip()})
     state = storage.read_json(PREFIX + "progress.json", {}) or {}
     if not symbols:
+        # Bootstrap from existing production candidate universes; never invent symbols.
+        latest = storage.read_json("market_intelligence/latest_run.json", {}) or {}
+        candidates = latest.get("candidates") or []
+        symbols = sorted({str(row.get("ticker") or "").strip().upper() for row in candidates
+                          if isinstance(row, dict) and str(row.get("ticker") or "").strip()})
+        if symbols:
+            storage.write_json(PREFIX + "universe.json", {"symbols":symbols,"source":"market_intelligence/latest_run.json"})
+    if not symbols:
         state.update({"status": "WAITING_FOR_UNIVERSE", "total": 0, "completed": 0, "updated_at": datetime.now(timezone.utc).isoformat(), "reason": "No verified symbol list supplied"})
         storage.write_json(PREFIX + "progress.json", state)
         return state
