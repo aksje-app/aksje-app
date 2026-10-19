@@ -238,7 +238,14 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
     public_state = "DRY_RUN" if not effective_apply else ("DEFERRED" if pending_after_batch else "PENDING")
     public_reports: dict[str, Any] = {"state": public_state}
     public_files: dict[str, Any] = {"state": public_state}
-    # Public report payloads are independent of historical learning archives.\n    # Prune expired report PDFs even while bounded KV deletion has a backlog.\n    if effective_apply:\n        from public_report_store import prune_expired_public_files, prune_expired_public_reports\n        public_reports = prune_expired_public_reports()\n        public_files = prune_expired_public_files()\n    if not pending_after_batch:\n        logs = set(storage.list_jsonl_names())
+    # Public report payloads are independent of historical learning archives.
+    # Prune expired report PDFs even while bounded KV deletion has a backlog.
+    if effective_apply:
+        from public_report_store import prune_expired_public_files, prune_expired_public_reports
+        public_reports = prune_expired_public_reports()
+        public_files = prune_expired_public_files()
+    if not pending_after_batch:
+        logs = set(storage.list_jsonl_names())
         for name, keep in JSONL_LIMITS.items():
             if name in logs:
                 rows = storage.read_jsonl(name, limit=keep)
