@@ -443,17 +443,22 @@ def send_scheduled_ranking_digest(*, now=None):
     if (now-updated).total_seconds()>60*60*36:
         return {"state":"STALE_RANKING","snapshot_at":digest["at"]}
     from notifier import send_pushover_alert,normalize_notification_result
-    from superfund_ranking_digest import pages
-    messages=pages(digest)
-    target="https://aksje-app.onrender.com/?mobile_nav=superfund&aa_nav=superfund&aa_tab=Kandidater"
-    start=int(previous.get("next_page",0)) if previous.get("date")==date else 0
-    for i in range(start,len(messages)):
-        ok,detail=normalize_notification_result(send_pushover_alert(
-            messages[i],title=f"Superfond rangering {i+1}/{len(messages)}",
-            url=target,url_title="Åpne Superfond",priority=0))
-        if not ok:
-            write("ranking_digest_delivery.json",{"date":date,"state":"FAILED","next_page":i,"reason":str(detail)[:200]})
-            return {"state":"FAILED","next_page":i,"reason":str(detail)[:200]}
-        write("ranking_digest_delivery.json",{"date":date,"state":"PARTIAL","next_page":i+1})
-    write("ranking_digest_delivery.json",{"date":date,"state":"SENT","pages":len(messages),"snapshot_at":digest["at"]})
-    return {"state":"SENT","pages":len(messages)}
+    # One concise push, with the complete ranked report behind its app link.
+    # The full digest/PDF remains accessible via Superfond -> Reports.
+    target="https://aksje-app.onrender.com/?mobile_nav=superfund&aa_nav=superfund&aa_tab=Rapporter"
+    count=int(digest.get("qualified_count") or 0)
+    leader=(digest.get("overall") or [{}])[0]
+    body=(f"Superfond: {count} kvalifiserte fond/ETF-er. "
+          f"{len(digest.get('groups') or {})} kategori-/valutagrupper.\n\n"
+          f"Nr. 1: {leader.get('name','Ukjent')} "
+          f"(score {float(leader.get('score') or 0):.2f}, {leader.get('currency','')}).\n\n"
+          "Se samlet rapport med rangering, sektorer, avkastning og forklaringer i appen. "
+          "Nyheter som ikke er verifisert mot et enkeltfond, merkes tydelig.")
+    ok,detail=normalize_notification_result(send_pushover_alert(
+        body,title="Superfond · samlet rangeringsrapport",url=target,
+        url_title="Åpne samlet Superfond-rapport",priority=0))
+    if not ok:
+        write("ranking_digest_delivery.json",{"date":date,"state":"FAILED","reason":str(detail)[:200]})
+        return {"state":"FAILED","reason":str(detail)[:200]}
+    write("ranking_digest_delivery.json",{"date":date,"state":"SENT","pages":1,"snapshot_at":digest["at"]})
+    return {"state":"SENT","pages":1}
