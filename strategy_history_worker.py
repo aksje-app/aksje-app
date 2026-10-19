@@ -6,6 +6,8 @@ This is a background experiment, not an order or production-rule authority.
 from __future__ import annotations
 from datetime import datetime, timezone
 import os
+import time
+import hashlib
 from services.storage_service import get_storage_service
 from super_portfolio_market_data import load_price_series_bounded
 
@@ -57,20 +59,25 @@ def run_once():
         storage.write_json(PREFIX + "progress.json", state)
         return state
     completed = set(state.get("completed_tickers") or []) & set(symbols)
-    batch = [x for x in symbols if x not in completed][:20]
+    rejected = set(state.get("rejected_tickers") or []) & set(symbols)
+    batch = [x for x in symbols if x not in completed and x not in rejected][:max(1, min(200, int(os.getenv("STRATEGY_HISTORY_PER_RUN", "80"))))]
     if not batch:
-        state.update({"status":"COMPLETED", "total":len(symbols),"completed":len(completed)})
+        state.update({"status":"COMPLETED", "total":len(symbols),"completed":len(completed), "rejected":len(rejected)})
         storage.write_json(PREFIX + "progress.json", state)
         return state
+    started = time.monotonic()
     def on_progress(event):
         state.update({"status": "RUNNING", "batch_completed":event.get("completed"), "batch_total":event.get("total"),"updated_at":datetime.now(timezone.utc).isoformat()})
         storage.write_json(PREFIX + "progress.json", state)
     try:
-        series, health = load_price_series_bounded(batch, os.getenv("STRATEGY_HISTORY_START","2020-01-01"),progress_callback=on_progress,control_callback=None,batch_size=10,max_workers=1)
+        series, health = load_price_series_bounded(batch, os.getenv("STRATEGY_HISTORY_START","2020-01-01"),progress_callback=on_progress,control_callback=None,batch_size=20,max_workers=2)
         for ticker in batch:
             bars=series.get(ticker) or []
             if len(bars) < 65:
+                rejected.add(ticker)
                 continue
+            key = hashlib.sha256(ticker.encode()).hexdigest()
+            storage.write_json(PREFIX+"prices/"+key+".json", {"ticker":ticker,"bars":bars,"source":"yfinance-auto-adjusted-daily"})
             summary={}
             for stop in STOPS:
                 for hold in HOLDS:
@@ -79,7 +86,8 @@ def run_once():
                         summary[f"{stop:g}:{hold}"]={"n":len(outcomes),"avg_return_pct":round(sum(outcomes)/len(outcomes),4),"win_rate_pct":round(100*sum(x>0 for x in outcomes)/len(outcomes),2)}
             storage.write_json(PREFIX+"results/"+ticker.replace("/","_")+".json", {"ticker":ticker,"bars":len(bars),"start":bars[0].get("date"),"end":bars[-1].get("date"),"trials":summary,"model":"unconditional-next-open-coarse-baseline","not_validated":True})
             completed.add(ticker)
-        state.update({"status":"RUNNING" if len(completed)<len(symbols) else "COMPLETED","total":len(symbols),"completed":len(completed),"completed_tickers":sorted(completed),"failed_or_insufficient":sorted(set(batch)-set(series)),"updated_at":datetime.now(timezone.utc).isoformat(),"health":health,"note":"Exploratory gross returns only; no selection, fees or holdout validation"})
+        rejected.update(set(batch)-set(series))
+        state.update({"status":"RUNNING" if len(completed)+len(rejected)<len(symbols) else "COMPLETED","total":len(symbols),"completed":len(completed),"rejected":len(rejected),"completed_tickers":sorted(completed),"rejected_tickers":sorted(rejected),"elapsed_seconds":round(time.monotonic()-started,1),"updated_at":datetime.now(timezone.utc).isoformat(),"health":health,"note":"Exploratory gross returns only; no selection, fees or holdout validation"})
     except Exception as exc:
         state.update({"status":"FAILED","reason":f"{type(exc).__name__}: {exc}"[:250],"updated_at":datetime.now(timezone.utc).isoformat()})
     storage.write_json(PREFIX + "progress.json", state)
