@@ -29,19 +29,20 @@ def create_digest(rows, *, at, news=None):
 
 def pages(digest, max_chars=900):
     at=digest["at"]
-    lines=[f"SUPERFOND – rangering {at[:10]}","Topp 10 samlet (valutablandet oversikt):"]
+    lines=[f"SUPERFOND – samlet rangeringsrapport {at[:10]}",f"Kvalifiserte instrumenter: {digest.get('qualified_count',0)} · Kategori-/valutagrupper: {len(digest.get('groups',{}))}","","SAMLET TOPP 10 (ulike avkastningsvalutaer)"]
     for i,r in enumerate(digest["overall"],1):
-        lines.append(f'{i}. {r["name"][:32]} {r["score"]:.2f} ({r["currency"]})')
-    lines += ["","Topp 5 per kategori og valuta:"]
+        lines.append(f'{i}. {r["name"]} · score {r["score"]:.2f} ({r["currency"]})')
+    lines += ["","TOPP 5 PER BRANSJE/KATEGORI OG VALUTA"]
     for group,rows in digest["groups"].items():
-        lines.append(group)
+        lines.extend(["", group])
         for i,r in enumerate(rows,1):
             ret=r["returns"]
             def val(key):
                 x=ret.get(key)
                 return f"{float(x):+.1f}%" if x is not None else "ukjent"
-            lines.append(f'{i}. {r["name"][:30]} {r["score"]:.2f} | 1u {val("yield_1w")} 1m {val("yield_1m")} 3m {val("yield_3m")}')
-    lines.extend(["","Hvorfor topp 5: rangert etter dokumentert 1u/1m/3m-utvikling, ikke nyhetsantakelser.",
+            lines.append(f'{i}. {r["name"]} · score {r["score"]:.2f} ({r["currency"]})')
+            lines.append(f'   Uke {val("yield_1w")} · Måned {val("yield_1m")} · 3 mnd {val("yield_3m")}')
+    lines.extend(["","FORKLARING","Rangeringen er basert på publisert 1u/1m/3m-avkastning, ikke nyhetsantakelser.",
                   digest["news_status"],digest["score_note"]])
     chunks=[];current=""
     for line in lines:
