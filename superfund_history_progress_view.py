@@ -19,6 +19,10 @@ def snapshot(data):
 
 def render(st, data):
     x=snapshot(data)
+    from superfund_runtime import read
+    research=read("historical_research.json",{}) or {}
+    backfill=read("etf_backfill.json",{}) or {}
+    nav=read("fund_nav_backfill.json",{}) or {}
     st.subheader("📊 Superfond – datainnsamling og læring")
     cols=st.columns(3)
     cols[0].metric("Fond / ETF-noteringer", x["listings"])
@@ -33,5 +37,8 @@ def render(st, data):
     cols[1].metric("Bekreftede referansedatoer",f"{x['paired']} / {x['required']}")
     cols[2].metric("Massestrategitester", "Ikke startet")
     st.caption(f"Læringsstatus: {x['status']}. Historikk: {x['history_status']}.")
+    st.caption(f"Observerte produkter gjennomgått: {research.get('observed', 0)} · Produkter med kjørbare tester: {research.get('tested', 0)} · Status: {research.get('status', 'Ikke startet')}")
+    st.caption(f"ETF-historikk: {backfill.get('downloaded',0)} nedlastet / {backfill.get('checked',0)} kontrollert. ISIN-koblinger: {backfill.get('mapped',0)}. Uavklart: {backfill.get('unresolved',0)}. Status: {backfill.get('status','Ikke startet')}.")
+    st.caption(f"Fond NAV: {nav.get('downloaded',0)} historikker / {nav.get('checked',0)} kontrollert, {nav.get('matched',0)} ISIN-koblinger, {nav.get('unresolved',0)} uavklart. Status: {nav.get('status','Ikke startet')}.")
     st.caption("Katalogdekning er ikke flerårig historisk kursdekning. Fonds- og ETF-massetesting "
                "og validerte finalister er ikke registrert som gjennomført.")

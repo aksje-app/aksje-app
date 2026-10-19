@@ -716,6 +716,25 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["strategy_history"] = {"status":"FAILED","reason":str(exc)[:250]}
 
+    try:
+        from superfund_historical_research import run_once as research_fund_history
+        state["superfund_historical_research"] = research_fund_history()
+    except Exception as exc:
+        state["superfund_historical_research"] = {"status":"FAILED","reason":str(exc)[:250]}
+
+    # ETF backfill is isolated and bounded; mutual fund NAV is not inferred.
+    try:
+        from superfund_etf_backfill import run_once as run_etf_backfill
+        state["superfund_etf_backfill"] = run_etf_backfill()
+    except Exception as exc:
+        state["superfund_etf_backfill"] = {"status":"FAILED","reason":str(exc)[:250]}
+
+    try:
+        from superfund_nav_backfill import run_once as run_fund_nav_backfill
+        state["superfund_nav_backfill"] = run_fund_nav_backfill()
+    except Exception as exc:
+        state["superfund_nav_backfill"] = {"status":"FAILED","reason":str(exc)[:250]}
+
     _mem("scheduler:complete", stop=False)
     state["completed_at"] = _now()
     state["state"] = _derive_overall_state(state)
