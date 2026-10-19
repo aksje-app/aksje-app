@@ -13,6 +13,11 @@ def owned_rankings(snapshot):
     positions = snapshot.get("model", {}).get("positions", {})
     candidates = {str(row.get("id")): row for row in snapshot.get("candidates", [])}
     out = []
+    group_sizes = {}
+    for candidate in snapshot.get("candidates", []):
+        group = (candidate.get("category"), candidate.get("returns_currency"))
+        if candidate.get("rank") is not None:
+            group_sizes[group] = group_sizes.get(group, 0) + 1
     for key, pos in positions.items():
         row = candidates.get(str(key), {})
         returns = row.get("returns") or {}
@@ -23,6 +28,8 @@ def owned_rankings(snapshot):
         out.append({"id": key, "name": pos["name"], "isin": pos.get("isin"),
                     "score_now": score, "score_at_buy": _number(pos.get("score_at_buy")),
                     "category_rank": row.get("rank") if score is not None else None,
+                    "category_total": group_sizes.get((row.get("category"), row.get("returns_currency"))),
+                    "category": row.get("category"), "returns_currency": row.get("returns_currency"),
                     "return_pct": (value / cost - 1) * 100 if cost and cost > 0 else None,
                     "value_nok": value, "price_at": row.get("price_at"),
                     "score_available": score is not None,
