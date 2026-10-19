@@ -15,3 +15,14 @@ def test_no_survivorship_substitutions_or_fabricated_breadth():
     result=historical_breadth([(day,members)],prices)
     assert len(result)==1 and result[0]["value"]==100
     assert "400" in result[0]["source"]
+
+def test_weekend_member_snapshot_uses_next_real_trading_session():
+    from datetime import date, timedelta
+    saturday=date(2026,10,17)
+    monday=date(2026,10,19)
+    members={f"T{i:03d}" for i in range(500)}
+    sessions=sorted([monday-timedelta(days=j) for j in range(285) if (monday-timedelta(days=j)).weekday()<5])[-200:]
+    prices={ticker:{day:float(i+1) for i,day in enumerate(sessions)}
+            for ticker in sorted(members)[:400]}
+    result=historical_breadth([(saturday,members)],prices)
+    assert result and result[0]["observed_at"].startswith("2026-10-19")

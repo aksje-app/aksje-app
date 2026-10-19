@@ -34,7 +34,7 @@ def download_adjusted_prices(tickers, *, years=3, batch_size=40):
     for offset in range(0, len(tickers), batch_size):
         batch = tickers[offset:offset + batch_size]
         frame = yf.download(
-            batch, period=f"{years}y", interval="1d",
+            batch, period="5y", interval="1d",
             auto_adjust=True, progress=False, threads=4, group_by="column",
         )
         if frame is None or frame.empty:
@@ -93,7 +93,7 @@ def main():
         members_csv = response.read(12_000_000).decode("utf-8-sig")
     snapshots = monthly_snapshots(parse_membership_csv(members_csv), start=start, end=today)
     tickers = sorted(set().union(*(members for _, members in snapshots))) if snapshots else []
-    prices = download_adjusted_prices(tickers, years=3) if tickers else {}
+    prices = download_adjusted_prices(tickers, years=5) if tickers else {}
     proposal = prepare_backfill(membership_csv=members_csv, prices=prices, start=start, end=today)
     with open(args.output, "w", encoding="utf-8") as output:
         json.dump(proposal, output, ensure_ascii=False, indent=2)
