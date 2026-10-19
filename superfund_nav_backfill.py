@@ -24,10 +24,28 @@ def resolve_fund(isin, quotes):
     if len(distinct)!=1:return {"status":"AMBIGUOUS" if distinct else "UNVERIFIED"}
     return {"status":"MAPPED","isin":isin,"symbol":distinct[0],"source":"YAHOO_FUND_SEARCH_EXACT_ISIN"}
 
-def resolve_symbol(isin):
+def resolve_symbol(isin, name=""):
     import yfinance as yf
-    search=yf.Search(isin,max_results=20,news_count=0)
-    return resolve_fund(isin,getattr(search,"quotes",[]))
+    searches=[isin]
+    if name and name.strip(): searches.append(name[:80])
+    for term in searches:
+        search=yf.Search(term,max_results=20,news_count=0)
+        direct=resolve_fund(isin,getattr(search,"quotes",[]))
+        if direct["status"]=="MAPPED":return direct
+        # Yahoo search often omits ISIN even for genuine mutual funds.
+        # Confirm using the instrument's own ISIN field; names never suffice.
+        for quote in (getattr(search,"quotes",[]) or [])[:8]:
+            if str(quote.get("quoteType") or "").upper()!="MUTUALFUND":continue
+            ticker=str(quote.get("symbol") or "")
+            if not ticker:continue
+            try:
+                actual=str(yf.Ticker(ticker).isin or "").upper()
+            except Exception:
+                continue
+            if actual==isin:
+                return {"status":"MAPPED","isin":isin,"symbol":ticker,
+                        "source":"YAHOO_TICKER_VERIFIED_ISIN"}
+    return {"status":"UNVERIFIED"}
 
 def run_once(limit=3):
     from super_portfolio_market_data import load_price_series_bounded
@@ -50,7 +68,7 @@ def run_once(limit=3):
             isin=str(item.get("isin") or "").upper()
             failure="UNKNOWN"
             try:
-                identity=resolve_symbol(isin)
+                identity=resolve_symbol(isin,item.get("name",""))
                 if identity["status"]!="MAPPED":
                     failure=identity.get("status","UNRESOLVED") if identity.get("status")!="MAPPED" else "INSUFFICIENT_HISTORY"
                     unresolved+=1;reasons[failure]=reasons.get(failure,0)+1;continue
