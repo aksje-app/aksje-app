@@ -39,6 +39,8 @@ def render_super_portfolio(_legacy_context) -> None:
     )
 
     st.markdown("## 🌍 AI Super Portfolio")
+    from learning_progress_view import render as _render_learning_progress
+    _render_learning_progress(st, "SUPER_PORTFOLIO")
     st.caption(
         "Isolert Shadow-portefølje. Daglig analyse og stop-overvåking, ordinær ukentlig rebalansering, "
         "myke sektor-/korrelasjonsstraffer, Ranking Velocity og Stop Pressure. Ingen ekte ordre sendes."
