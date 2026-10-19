@@ -155,6 +155,14 @@ def render_market_health(st, snapshot=None):
                 timestamp = datetime.fromisoformat(str(datum["observed_at"]).replace("Z", "+00:00")).astimezone(ZoneInfo("America/Fortaleza")).strftime("%d.%m kl. %H:%M")
             except (ValueError, TypeError):
                 timestamp = ""
+        if key == "equity_yield" and checked:
+            data_year = datetime.fromisoformat(checked["observed_at"].replace("Z", "+00:00")).year
+            collected_at = str((snapshot.get("collection_status") or {}).get("at") or "")
+            try:
+                checked_label = datetime.fromisoformat(collected_at.replace("Z", "+00:00")).astimezone(ZoneInfo("America/Fortaleza")).strftime("%d.%m.%Y kl. %H:%M")
+            except (ValueError, TypeError):
+                checked_label = "ukjent"
+            timestamp = f"Årsdata {data_year} · kontrollert {checked_label}"
         cards.append({"key": key, "name": name, "valid": good,
                       "value": checked["value"] if good else None,
                       "label": f"{float(datum['value']):,.2f} {unit}" if good else ("Utdatert" if checked else "Mangler data"),
