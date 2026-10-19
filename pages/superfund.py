@@ -319,6 +319,23 @@ def _render_superfund(st):
                         st.write(row['name']+' · '+row['isin']);st.caption(row['category']+' · '+str(row['price'])+' '+row['currency']+' · kursdato '+str(row['price_at']))
                         st.link_button('Produkt hos Nordnet',row['url'])
             elif title=='Rapporter og nedlastinger':
+                digest=read('ranking_digest.json',{})
+                if digest.get('overall'):
+                    from superfund_ranking_report import report_text,report_pdf
+                    st.markdown('#### Superfond · fonds-rangering mandag/onsdag/fredag')
+                    st.caption('Siste rangering: '+str(digest.get('at','')))
+                    st.text_area('Rapporttekst · kopier / videresend',report_text(digest),
+                                 height=240,key='sf_rank_copy_text')
+                    st.download_button('Lagre / skriv ut / del / videresend PDF',report_pdf(digest),
+                        file_name='Superfond_rangering_'+str(digest.get('at',''))[:10]+'.pdf',
+                        mime='application/pdf',key='sf_rank_pdf_download',width='stretch')
+                    st.download_button('Lagre / del tekst',report_text(digest).encode('utf-8'),
+                        file_name='Superfond_rangering_'+str(digest.get('at',''))[:10]+'.txt',
+                        mime='text/plain',key='sf_rank_txt_download',width='stretch')
+                    st.caption('Åpne PDF for utskrift og deling. Bruk nettleserens tilbakeknapp for å gå tilbake.')
+                else:
+                    st.caption('Rangeringsrapport tilgjengelig etter neste komplette Superfond-vurdering.')
+
                 if s:
                     if st.button('Lag rapporter for nedlasting',key='sf_prepare_reports',width='stretch'):
                         with work_status(st,'Lager Superfond-rapporter'):
