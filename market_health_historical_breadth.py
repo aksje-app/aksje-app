@@ -6,7 +6,7 @@ The caller supplies daily adjusted closes and archived membership CSV.
 """
 from __future__ import annotations
 from csv import DictReader
-from datetime import date
+from datetime import date, timedelta
 from io import StringIO
 from math import isfinite
 
@@ -32,6 +32,13 @@ def historical_breadth(memberships, adjusted_close_by_ticker, *, minimum_coverag
         raise ValueError("coverage threshold must be at least 80%")
     results=[]
     for day, members in memberships:
+        # An archived membership date may be a weekend or market holiday.
+        # Use the first actual session on or after that date (max three days).
+        available_days = sorted({d for ticker in members for d in adjusted_close_by_ticker.get(ticker, {})
+                                 if day <= d <= day + timedelta(days=3)})
+        if not available_days:
+            continue
+        day = available_days[0]
         above=covered=0
         for ticker in members:
             prices=adjusted_close_by_ticker.get(ticker,{})
