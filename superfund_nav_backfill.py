@@ -24,10 +24,28 @@ def resolve_fund(isin, quotes):
     if len(distinct)!=1:return {"status":"AMBIGUOUS" if distinct else "UNVERIFIED"}
     return {"status":"MAPPED","isin":isin,"symbol":distinct[0],"source":"YAHOO_FUND_SEARCH_EXACT_ISIN"}
 
-def resolve_symbol(isin):
+def resolve_symbol(isin, name=""):
     import yfinance as yf
-    search=yf.Search(isin,max_results=20,news_count=0)
-    return resolve_fund(isin,getattr(search,"quotes",[]))
+    searches=[isin]
+    if name and name.strip(): searches.append(name[:80])
+    for term in searches:
+        search=yf.Search(term,max_results=20,news_count=0)
+        direct=resolve_fund(isin,getattr(search,"quotes",[]))
+        if direct["status"]=="MAPPED":return direct
+        # Yahoo search often omits ISIN even for genuine mutual funds.
+        # Confirm using the instrument's own ISIN field; names never suffice.
+        for quote in (getattr(search,"quotes",[]) or [])[:8]:
+            if str(quote.get("quoteType") or "").upper()!="MUTUALFUND":continue
+            ticker=str(quote.get("symbol") or "")
+            if not ticker:continue
+            try:
+                actual=str(yf.Ticker(ticker).isin or "").upper()
+            except Exception:
+                continue
+            if actual==isin:
+                return {"status":"MAPPED","isin":isin,"symbol":ticker,
+                        "source":"YAHOO_TICKER_VERIFIED_ISIN"}
+    return {"status":"UNVERIFIED"}
 
 def run_once(limit=3):
     from super_portfolio_market_data import load_price_series_bounded
@@ -37,6 +55,7 @@ def run_once(limit=3):
     cursor=int(old.get("cursor",0));offset=int(old.get("offset",0))
     checked=int(old.get("checked",0));matched=int(old.get("matched",0))
     downloaded=int(old.get("downloaded",0));unresolved=int(old.get("unresolved",0))
+    reasons=dict(old.get("failure_reasons") or {})
     count=0
     while cursor<len(pages) and count<limit:
         items=(read("catalog/"+pages[cursor]+".json",{}) or {}).get("items",[])
@@ -47,10 +66,12 @@ def run_once(limit=3):
             if item.get("kind")!="fond":continue
             count+=1;checked+=1
             isin=str(item.get("isin") or "").upper()
+            failure="UNKNOWN"
             try:
-                identity=resolve_symbol(isin)
+                identity=resolve_symbol(isin,item.get("name",""))
                 if identity["status"]!="MAPPED":
-                    unresolved+=1;continue
+                    failure=identity.get("status","UNRESOLVED") if identity.get("status")!="MAPPED" else "INSUFFICIENT_HISTORY"
+                    unresolved+=1;reasons[failure]=reasons.get(failure,0)+1;continue
                 matched+=1
                 rows,health=load_price_series_bounded(
                     [identity["symbol"]],"2020-01-01",progress_callback=None,
@@ -67,14 +88,16 @@ def run_once(limit=3):
                        "source":"YAHOO_FUND_DAILY_CLOSE","verified":False,
                        "updated_at":datetime.now(timezone.utc).isoformat()})
                 downloaded+=1
-            except Exception:
+            except Exception as exc:
+                reason="SOURCE_"+type(exc).__name__.upper()
+                reasons[reason]=reasons.get(reason,0)+1
                 unresolved+=1
         if handled < len(items)-offset:
             offset+=handled;break
         cursor+=1;offset=0
     state={"status":"RUNNING" if cursor<len(pages) else "COMPLETE_PASS",
            "cursor":cursor,"offset":offset,"checked":checked,"matched":matched,
-           "downloaded":downloaded,"unresolved":unresolved,
+           "downloaded":downloaded,"unresolved":unresolved,"failure_reasons":reasons,
            "updated_at":datetime.now(timezone.utc).isoformat(),
            "note":"Only exact-ISIN identified fund NAV; uncovered funds remain unresolved"}
     write(KEY,state)

@@ -40,5 +40,10 @@ def render(st, data):
     st.caption(f"Observerte produkter gjennomgått: {research.get('observed', 0)} · Produkter med kjørbare tester: {research.get('tested', 0)} · Status: {research.get('status', 'Ikke startet')}")
     st.caption(f"ETF-historikk: {backfill.get('downloaded',0)} nedlastet / {backfill.get('checked',0)} kontrollert. ISIN-koblinger: {backfill.get('mapped',0)}. Uavklart: {backfill.get('unresolved',0)}. Status: {backfill.get('status','Ikke startet')}.")
     st.caption(f"Fond NAV: {nav.get('downloaded',0)} historikker / {nav.get('checked',0)} kontrollert, {nav.get('matched',0)} ISIN-koblinger, {nav.get('unresolved',0)} uavklart. Status: {nav.get('status','Ikke startet')}.")
+    for label,job in (("ETF",backfill),("Fond NAV",nav)):
+        reasons=job.get("failure_reasons") or {}
+        if reasons:
+            st.caption(label+" – årsaker til manglende historikk: "+
+                       ", ".join(f"{name}: {count}" for name,count in sorted(reasons.items())))
     st.caption("Katalogdekning er ikke flerårig historisk kursdekning. Fonds- og ETF-massetesting "
                "og validerte finalister er ikke registrert som gjennomført.")
