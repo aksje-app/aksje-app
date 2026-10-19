@@ -192,6 +192,19 @@ def collect(snapshot=None, *, history_provider=None, fred_provider=None, cape_pr
             result[key] = {**row, "observations": observations}
         except Exception as exc:
             errors[key] = str(exc)[:180]
+            if key == "vix" and not offline_history_injected:
+                try:
+                    fallback = fred_daily("VIXCLS")
+                    latest = fallback[-1]
+                    if normalize("vix", latest, now=now) is None:
+                        raise ValueError("FRED VIXCLS invalid timestamp")
+                    old = result.get("vix") or {}
+                    prior = list(old.get("observations") or [])
+                    unique = {row["observed_at"]: row for row in prior + fallback if isinstance(row, dict) and row.get("observed_at")}
+                    result["vix"] = {**latest, "observations": sorted(unique.values(), key=lambda row: row["observed_at"])[-HISTORY_LIMIT:]}
+                    errors.pop("vix", None)
+                except Exception as fallback_exc:
+                    errors["vix"] = f"Yahoo: {str(exc)[:80]}; FRED: {str(fallback_exc)[:80]}"
     fred_provider = fred_provider or fred_daily
     for key, series_id in FRED_SERIES.items():
         try:
