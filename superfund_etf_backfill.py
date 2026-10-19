@@ -8,7 +8,7 @@ from super_portfolio_market_data import load_price_series_bounded
 
 KEY="etf_backfill.json"
 
-def run_once(limit=8):
+def run_once(limit=2):
     index=read("catalog_index.json",{}) or {}
     pages=sorted((index.get("pages") or {}).keys())
     old=read(KEY,{}) or {}
