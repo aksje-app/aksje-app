@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime,timezone
 from superfund_runtime import read,write
 from superfund_identifier_mapping import lookup_isin
+from strategy_history_worker import simulate, STOPS, HOLDS
 from super_portfolio_market_data import load_price_series_bounded
 
 KEY="etf_backfill.json"
@@ -48,6 +49,16 @@ def run_once(limit=8):
                        "source":"YAHOO_DAILY_ADJUSTED","verified":False,
                        "qualification":"Exchange quote series; not fund NAV",
                        "downloaded_at":datetime.now(timezone.utc).isoformat()})
+                # Separate ETF historical gross-return research from simulated mutual-fund NAV.
+                grid = {}
+                for stop in STOPS:
+                    for hold in HOLDS:
+                        returns = simulate(bars, stop, hold)
+                        if returns:
+                            grid[f"{stop:g}:{hold}"] = {"n":len(returns),"avg_pct":round(sum(returns)/len(returns),3)}
+                write("etf_historical_trials/"+isin+".json",
+                      {"isin":isin,"symbol":symbol,"trials":grid,"validated":False,
+                       "basis":"ETF_DAILY_ADJUSTED_NEXT_OPEN_GROSS_BASELINE"})
                 downloaded+=1
             except Exception:
                 unresolved+=1
