@@ -709,6 +709,13 @@ def _run_once_locked() -> dict[str, Any]:
     else:
         state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "state": "NOT_DUE"}
 
+    # Bounded historical acquisition; always advisory and isolated from trades.
+    try:
+        from strategy_history_worker import run_once as run_strategy_history
+        state["strategy_history"] = run_strategy_history()
+    except Exception as exc:
+        state["strategy_history"] = {"status":"FAILED","reason":str(exc)[:250]}
+
     _mem("scheduler:complete", stop=False)
     state["completed_at"] = _now()
     state["state"] = _derive_overall_state(state)
