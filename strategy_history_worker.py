@@ -78,6 +78,16 @@ def run_once():
         state.update({"status": "WAITING_FOR_UNIVERSE", "total": 0, "completed": 0, "updated_at": datetime.now(timezone.utc).isoformat(), "reason": "No verified symbol list supplied"})
         storage.write_json(PREFIX + "progress.json", state)
         return state
+    # Fail closed before downloading if database usage is approaching capacity.
+    usage = storage.storage_usage_report()
+    capacity = int(usage.get("capacity_bytes") or 0)
+    used = int(usage.get("database_bytes") or 0)
+    if not capacity or used / capacity >= 0.70:
+        state.update({"status":"STORAGE_PAUSED","reason":"Database >=70% capacity or capacity unknown",
+                      "database_bytes":used,"capacity_bytes":capacity,
+                      "updated_at":datetime.now(timezone.utc).isoformat()})
+        storage.write_json(PREFIX+"progress.json",state)
+        return state
     completed = set(state.get("completed_tickers") or []) & set(symbols)
     rejected = set(state.get("rejected_tickers") or []) & set(symbols)
     batch = [x for x in symbols if x not in completed and x not in rejected][:max(1, min(200, int(os.getenv("STRATEGY_HISTORY_PER_RUN", "80"))))]
