@@ -27,6 +27,8 @@ def _render_superfund(st):
     if job.get('state')=='DEFERRED_CAPACITY':st.info(job.get('message'))
     if job.get('error'):st.warning(job['error'])
     s=snapshot();model=s.get('model',{})
+    from superfund_history_progress_view import render as render_fund_history
+    render_fund_history(st,s)
     index=read('catalog_index.json',{})
     total=sum(max(1,(int(v)+99)//100) for v in index.get('totals',{}).values()) if len(index.get('totals',{}))==2 else None
     done=len(index.get('pages',{}))
