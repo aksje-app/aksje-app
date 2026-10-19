@@ -14,13 +14,13 @@ STATE_KEY = "maintenance/storage_retention.json"
 STATE_PATH = runtime_data_path("maintenance", "storage_retention.json")
 KV_LIMITS = {
     "operations/run_traces/": 180,
-    "investment_pipeline/runs/": 30,
+    "investment_pipeline/runs/": 15,
     "investment_pipeline/proposals/": 45,
-    "market_intelligence/runs/": 30,
+    "market_intelligence/runs/": 15,
     "market_intelligence/summaries/": 30,
     "autonomous_orchestrator/runs/": 45,
     "autonomi_core/parallel_validation/": 45,
-    "autonomi_core/learning_reporting/": 30,
+    "autonomi_core/learning_reporting/": 10,
     "full_replay/": 60,
     "manual_background_jobs/history/": 30,
     "operations/diagnostics/": 30,
@@ -238,7 +238,12 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
     public_state = "DRY_RUN" if not effective_apply else ("DEFERRED" if pending_after_batch else "PENDING")
     public_reports: dict[str, Any] = {"state": public_state}
     public_files: dict[str, Any] = {"state": public_state}
-    # Never combine a KV backlog with JSONL rewrites and public-file pruning.
+    # Public report payloads are independent of historical learning archives.
+    # Prune expired report PDFs even while bounded KV deletion has a backlog.
+    if effective_apply:
+        from public_report_store import prune_expired_public_files, prune_expired_public_reports
+        public_reports = prune_expired_public_reports()
+        public_files = prune_expired_public_files()
     if not pending_after_batch:
         logs = set(storage.list_jsonl_names())
         for name, keep in JSONL_LIMITS.items():
@@ -247,10 +252,6 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
                 if effective_apply:
                     storage.replace_jsonl(name, rows)
                 trimmed[name] = len(rows)
-        if effective_apply:
-            from public_report_store import prune_expired_public_files, prune_expired_public_reports
-            public_reports = prune_expired_public_reports()
-            public_files = prune_expired_public_files()
 
     after = storage.storage_usage_report()
     completed = datetime.now(timezone.utc)
