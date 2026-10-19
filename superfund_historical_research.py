@@ -47,9 +47,11 @@ def run_once(max_items=150):
     while scanned<max_items and next_cursor<len(pages):
         page=read("catalog/"+pages[next_cursor]+".json",{}) or {}
         items=page.get("items",[])
+        processed_here=0
         for item in items[offset:]:
             if scanned>=max_items:break
             scanned+=1
+            processed_here+=1
             observations=item.get("observations",[])
             if observations: observed+=1
             trials=test_item(item)
@@ -60,8 +62,8 @@ def run_once(max_items=150):
                       {"isin":item.get("isin"),"kind":item.get("kind"),"observations":len(observations),
                        "trials":trials,"validated":False,"basis":"observed_NAV_or_quote_not_backfill"})
         remaining = len(items)-offset
-        if scanned>=max_items and scanned < remaining:
-            offset += scanned
+        if processed_here < remaining:
+            offset += processed_here
             break
         next_cursor+=1
         offset=0
