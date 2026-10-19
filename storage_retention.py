@@ -14,14 +14,16 @@ STATE_KEY = "maintenance/storage_retention.json"
 STATE_PATH = runtime_data_path("maintenance", "storage_retention.json")
 KV_LIMITS = {
     "operations/run_traces/": 180,
-    "investment_pipeline/runs/": 60,
-    "investment_pipeline/proposals/": 90,
-    "market_intelligence/runs/": 60,
-    "market_intelligence/summaries/": 60,
-    "autonomous_orchestrator/runs/": 90,
-    "autonomi_core/parallel_validation/": 90,
-    "autonomi_core/learning_reporting/": 90,
+    "investment_pipeline/runs/": 30,
+    "investment_pipeline/proposals/": 45,
+    "market_intelligence/runs/": 30,
+    "market_intelligence/summaries/": 30,
+    "autonomous_orchestrator/runs/": 45,
+    "autonomi_core/parallel_validation/": 45,
+    "autonomi_core/learning_reporting/": 30,
     "full_replay/": 60,
+    "manual_background_jobs/history/": 30,
+    "operations/diagnostics/": 30,
 }
 JSONL_LIMITS = {
     "operations/run_traces.jsonl": 400,
