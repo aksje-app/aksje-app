@@ -42,7 +42,7 @@ def normalize(key, row, *, now=None):
             and at.weekday() == 4
             and 0 <= (now.date() - at.date()).days <= 3
             and (now.weekday() in (5, 6) or
-                 (now.weekday() == 0 and now.hour < 13))):
+                 (now.weekday() == 0 and now.hour < 23))):
         # Only the immediately preceding Friday gets a weekend allowance.
         age = min(age, timedelta(hours=24))
     return {"value": value, "observed_at": at.isoformat(), "source": source,
