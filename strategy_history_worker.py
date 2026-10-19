@@ -48,12 +48,32 @@ def run_once():
     state = storage.read_json(PREFIX + "progress.json", {}) or {}
     if not symbols:
         # Bootstrap from existing production candidate universes; never invent symbols.
+        # Use the existing broad market universe instead of just last run's 63 picks.
+        from stocks import (get_us_broad_tickers, get_norwegian_tickers,
+                            get_swedish_tickers, get_danish_tickers,
+                            get_finnish_tickers)
+        sources = (lambda: get_us_broad_tickers(1600),
+                   lambda: get_norwegian_tickers(400),
+                   lambda: get_swedish_tickers(300),
+                   lambda: get_danish_tickers(300),
+                   lambda: get_finnish_tickers(300))
+        found = set()
+        source_errors = []
+        for source in sources:
+            try:
+                found.update(str(x).strip().upper() for x in source() if str(x).strip())
+            except Exception as exc:
+                source_errors.append(type(exc).__name__)
         latest = storage.read_json("market_intelligence/latest_run.json", {}) or {}
-        candidates = latest.get("candidates") or []
-        symbols = sorted({str(row.get("ticker") or "").strip().upper() for row in candidates
-                          if isinstance(row, dict) and str(row.get("ticker") or "").strip()})
+        found.update(str(row.get("ticker") or "").strip().upper()
+                     for row in (latest.get("candidates") or [])
+                     if isinstance(row, dict) and str(row.get("ticker") or "").strip())
+        symbols = sorted(found)[:2500]
         if symbols:
-            storage.write_json(PREFIX + "universe.json", {"symbols":symbols,"source":"market_intelligence/latest_run.json"})
+            storage.write_json(PREFIX + "universe.json", {
+                "symbols":symbols, "source":"stocks-broad-universe-plus-market-candidates",
+                "source_errors":source_errors,
+            })
     if not symbols:
         state.update({"status": "WAITING_FOR_UNIVERSE", "total": 0, "completed": 0, "updated_at": datetime.now(timezone.utc).isoformat(), "reason": "No verified symbol list supplied"})
         storage.write_json(PREFIX + "progress.json", state)
