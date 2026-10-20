@@ -20,8 +20,14 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     inject_design_system(st, module="autonomy")
     hero_status(st, title="Autonomi", body="Siste syklus, neste hendelse og beslutningsgrunnlag.", module="autonomy")
     st.markdown("## 🧠 Autonomi")
-    from strategy_history_progress_view import render as render_history_progress
-    render_history_progress(st)
+    if st.button("📊 Forskningsfunn – se foreløpige resultater", key="open_interim_research_findings", width="stretch"):
+        st.session_state["show_interim_research_findings"] = not st.session_state.get("show_interim_research_findings", False)
+    if st.session_state.get("show_interim_research_findings", False):
+        from research_findings_dashboard import render as render_research_findings
+        render_research_findings(st)
+    with st.expander("Historisk testfremdrift", expanded=False):
+        from strategy_history_progress_view import render as render_history_progress
+        render_history_progress(st)
     # Visible independently of simple/expert mode and workspace selection.
     # This only reads the existing theoretical autonomy portfolio.
     try:
