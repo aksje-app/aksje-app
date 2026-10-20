@@ -6,7 +6,9 @@ def snapshot(storage):
     total = max(0, int(record.get("total") or 0))
     done = max(0, int(record.get("completed") or 0))
     rejected = max(0, int(record.get("rejected") or 0))
+    opt = storage.read_json("strategy_history/optimization_progress.json", {}) or {}
     return {
+        "optimization": opt,
         "status": str(record.get("status") or "IKKE_STARTET"),
         "total": total, "done": done, "rejected": rejected,
         "pct": 100.0 * done / total if total else None,
@@ -50,5 +52,13 @@ def render(st):
                + " · Validerte finalister: " + (str(progress["finalists"]) if progress["finalists"] else "Ingen registrert")
                + " · Historisk sluttvalidering: Ikke målt"
                + " · Gjenstående tid: Ikke beregnet.")
+    opt=progress["optimization"]
+    st.markdown("**Ny historisk parameterforskning – Autonomi og Superporteføljen**")
+    st.caption(f"Behandlet {opt.get('processed',0)} av {opt.get('total',0)} aksjer. "
+               f"200 stop-loss/eiertid-kombinasjoner per aksje og portefølje; "
+               f"status {opt.get('status','IKKE_STARTET')}.")
+    st.caption("Resultatene er ubetingede inn-/utgangstester med kostnadsfradrag, "
+               "kronologisk trening/validering/holdout og sperreperioder. "
+               "Dette er ikke full porteføljereplay eller godkjent regelendring.")
     st.caption("Historiske OHLC og resultater lagres under strategy_history/prices/ og strategy_history/results/. "
                "Dette er utforskende simulering, ikke godkjente strategiresultater.")
