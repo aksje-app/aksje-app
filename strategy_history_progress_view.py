@@ -49,9 +49,8 @@ def render(st):
     st.metric("Aksjer med grovtester", progress["coarse_tested"])
     st.metric("Stop-loss × eiertid per aksje", progress["coarse_grid"])
     st.metric("Registrerte grovtester", progress["coarse_tested"] * progress["coarse_grid"])
-    st.caption("Grovtestene er ubetingede kurssimuleringer, ikke porteføljespesifikke kjøpssignaler.")
-    st.caption("Grovtesting er fullført; separat historisk parameteroptimalisering vises nedenfor. "
-               "Finalister er forskningskandidater, ikke godkjente handelsregler.")
+
+
     staged=progress["staged"]
     st.divider()
     st.subheader("Trinnvise kjøp og sektorgrenser")
@@ -89,8 +88,5 @@ def render(st):
     if hours is not None and hours>8 and opt.get("status")=="RUNNING":
         st.warning(f"Historisk optimalisering har ingen registrert fremdrift på {hours:.1f} timer.")
     st.caption(f"Siste optimaliseringskontroll: {local_display(st,opt.get('updated_at'))}.")
-    st.caption("Resultatene er ubetingede inn-/utgangstester med kostnadsfradrag, "
-               "kronologisk trening/validering/holdout og sperreperioder. "
-               "Dette er ikke full porteføljereplay eller godkjent regelendring.")
-    st.caption("Historiske OHLC og resultater lagres under strategy_history/prices/ og strategy_history/results/. "
-               "Dette er utforskende simulering, ikke godkjente strategiresultater.")
+
+
