@@ -72,6 +72,11 @@ def run_once(limit=1):
         per_engine.setdefault(engine,{"valid_trials":0,"finalists":0,"complete_symbols":0,"insufficient_symbols":0})
     done=set(state.get("completed_tickers") or [])
     reconciled=set(state.get("aggregated_tickers") or [])
+    # Legacy snapshots have no per-ticker aggregation ledger. Rebuild their
+    # totals from stored evidence rather than adding to untraceable counters.
+    if done and "aggregated_tickers" not in state:
+        per_engine={p:{"valid_trials":0,"finalists":0,"complete_symbols":0,"insufficient_symbols":0}
+                    for p in ("AUTONOMY","SUPER_PORTFOLIO")}
     for old_ticker in sorted(done-reconciled)[:20]:
         digest=sha256(old_ticker.encode()).hexdigest()
         records={p:storage.read_json(PREFIX+"optimized/"+p+"/"+digest+".json",{}) or {} for p in ("AUTONOMY","SUPER_PORTFOLIO")}
