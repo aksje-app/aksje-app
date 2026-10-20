@@ -23,6 +23,7 @@ def render(st, data):
     research=read("historical_research.json",{}) or {}
     backfill=read("etf_backfill.json",{}) or {}
     nav=read("fund_nav_backfill.json",{}) or {}
+    approved=read("approved_history_backfill.json",{}) or {}
     st.subheader("📊 Superfond – datainnsamling og læring")
     cols=st.columns(3)
     cols[0].metric("Fond / ETF-noteringer", x["listings"])
@@ -45,5 +46,11 @@ def render(st, data):
         if reasons:
             st.caption(label+" – årsaker til manglende historikk: "+
                        ", ".join(f"{name}: {count}" for name,count in sorted(reasons.items())))
+    for label,job in (("ETF",backfill),("Fond NAV",nav)):
+        if job.get("status")=="BLOCKED_IDENTITY_SOURCE":
+            st.warning(label+": Automatisk historikkinnhenting stoppet etter 30 forsøk uten verifiserte ISIN-koblinger. Datakilden må erstattes eller dokumenteres før videre innhenting.")
+    st.caption(f"Verifisert alternativkilde: {approved.get('downloaded',0)} nedlastet, "
+               f"{approved.get('approved',0)} godkjente ISIN-koblinger. "
+               f"Status: {approved.get('status','Ikke konfigurert')}.")
     st.caption("Katalogdekning er ikke flerårig historisk kursdekning. Fonds- og ETF-massetesting "
                "og validerte finalister er ikke registrert som gjennomført.")
