@@ -57,7 +57,7 @@ def run_once(limit=3):
     downloaded=int(old.get("downloaded",0));unresolved=int(old.get("unresolved",0))
     reasons=dict(old.get("failure_reasons") or {})
     # Avoid repeated failed provider requests once evidence shows zero usable mappings.
-    if checked >= 30 and downloaded == 0 and (mapped if "mapped" in locals() else matched) == 0:
+    if checked >= 30 and downloaded == 0 and matched == 0:
         state={**old,"status":"BLOCKED_IDENTITY_SOURCE",
                "reason":"No verified ISIN to historical-symbol mappings in first 30 requests; automated calls paused",
                "updated_at":datetime.now(timezone.utc).isoformat()}
