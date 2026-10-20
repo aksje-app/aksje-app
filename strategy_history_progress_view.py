@@ -50,10 +50,8 @@ def render(st):
     phases[1].metric("Stop-loss × eiertid per aksje", progress["coarse_grid"])
     phases[2].metric("Registrerte grovtester", progress["coarse_tested"] * progress["coarse_grid"])
     st.caption("Grovtestene er ubetingede kurssimuleringer, ikke porteføljespesifikke kjøpssignaler.")
-    st.caption("Parameteroptimalisering: " + (str(progress["optimized"]) if progress["optimized"] else "Ikke startet / ikke registrert")
-               + " · Validerte finalister: " + (str(progress["finalists"]) if progress["finalists"] else "Ingen registrert")
-               + " · Historisk sluttvalidering: Ikke målt"
-               + " · Gjenstående tid: Ikke beregnet.")
+    st.caption("Grovtesting er fullført; separat historisk parameteroptimalisering vises nedenfor. "
+               "Finalister er forskningskandidater, ikke godkjente handelsregler.")
     staged=progress["staged"]
     st.markdown("**Trinnvise kjøp og sektorgrenser – historisk datakontroll**")
     st.caption(f"Status: {staged.get('status','IKKE_STARTET')} · "
@@ -61,9 +59,16 @@ def render(st):
                "Ingen komplette porteføljebacktester er kjørt i denne modulen.")
     opt=progress["optimization"]
     st.markdown("**Ny historisk parameterforskning – Autonomi og Superporteføljen**")
-    st.caption(f"Behandlet {opt.get('processed',0)} av {opt.get('total',0)} aksjer. "
-               f"200 stop-loss/eiertid-kombinasjoner per aksje og portefølje; "
-               f"status {opt.get('status','IKKE_STARTET')}.")
+    completed=int(opt.get("processed") or 0)
+    total=int(opt.get("total") or 0)
+    st.caption(f"Status: {opt.get('status','IKKE_STARTET')} · Behandlet {completed} / {total} aksjer")
+    if total:
+        st.progress(min(1.,completed/total))
+    for engine,label in (("AUTONOMY","Autonomi"),("SUPER_PORTFOLIO","Superporteføljen")):
+        st.caption(f"{label}: inntil 200 kombinasjoner per aksje · "
+                   f"{completed} aksjer behandlet i felles jobb · "
+                   "Antall gyldige tester og finalister per portefølje er ikke aggregert ennå.")
+    st.caption("Estimert gjenstående tid: Kan ikke beregnes sikkert uten tidsserie av fullførte jobber.")
     st.caption("Resultatene er ubetingede inn-/utgangstester med kostnadsfradrag, "
                "kronologisk trening/validering/holdout og sperreperioder. "
                "Dette er ikke full porteføljereplay eller godkjent regelendring.")
