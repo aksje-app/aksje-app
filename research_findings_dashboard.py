@@ -44,17 +44,18 @@ def render(st):
         for engine, label in ENGINES:
             data = collect(storage, engine)
             st.markdown("### " + label)
-            st.write("Behandlet: {} / {} aksjer".format(data["processed"], data["total"]))
-            st.write("Med lagrede forskningsresultater: {}".format(data["complete"]))
+            st.metric("Aksjer behandlet", "{} / {}".format(data["processed"], data["total"]))
+            st.metric("Lagrede forskningsresultater", data["complete"])
             if data["missing_records"]:
                 st.warning("{} ferdigmeldte aksjer mangler komplette resultatfiler.".format(data["missing_records"]))
             if not data["counts"]:
                 st.write("Ingen verifiserbare finalister i lagrede resultater ennå.")
                 continue
             st.markdown("**Hyppigste finalistkombinasjoner**")
-            st.write("Antall er forekomster blant finalister, ikke antall lønnsomme aksjer.")
-            for (stop, hold), n in data["counts"].most_common(8):
-                st.write("Stop-loss {} % · eiertid {} handelsdager: {} finalister".format(stop, hold, n))
+
+            rows = [{"Stop-loss": f"{stop} %", "Eiertid": f"{hold} dager", "Finalister": n}
+                    for (stop, hold), n in data["counts"].most_common(8)]
+            st.dataframe(rows, hide_index=True, width="stretch")
             if data["validation"]:
                 st.metric("Median valideringsresultat per finalist", "{:.2f} %".format(median(data["validation"])))
             if data["holdout"]:
