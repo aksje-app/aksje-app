@@ -34,8 +34,8 @@ def render(st):
         st.error(f"Fremdriftsdata utilgjengelige: {type(exc).__name__}")
         return
     status = progress["status"]
-    from app_time_display import format_in_zone, age_hours
-    st.caption(f"Jobbstatus: {status} · Sist oppdatert (UTC): {format_in_zone(progress['updated_at'])}")
+    from app_time_display import local_display, age_hours, browser_timezone
+    st.caption(f"Jobbstatus: {status} · Sist oppdatert ({browser_timezone(st)}): {local_display(st,progress['updated_at'])}")
     if progress["reason"]:
         st.warning(f"Årsak: {progress['reason']}")
     cols = st.columns(3)
@@ -65,14 +65,20 @@ def render(st):
     st.caption(f"Status: {opt.get('status','IKKE_STARTET')} · Behandlet {completed} / {total} aksjer")
     if total:
         st.progress(min(1.,completed/total))
+    summaries=opt.get("engine_totals") or {}
     for engine,label in (("AUTONOMY","Autonomi"),("SUPER_PORTFOLIO","Superporteføljen")):
-        st.caption(f"{label}: inntil 200 kombinasjoner per aksje · "
-                   f"{completed} aksjer behandlet i felles jobb · "
-                   "Antall gyldige tester og finalister per portefølje er ikke aggregert ennå.")
+        stats=summaries.get(engine) or {}
+        st.caption(f"{label}: {stats.get('complete_symbols',0)} aksjer fullført · "
+                   f"{stats.get('valid_trials',0)} gyldige kombinasjoner · "
+                   f"{stats.get('finalists',0)} forskningsfinalister · "
+                   f"{stats.get('insufficient_symbols',0)} aksjer med for lite historikk.")
+    if completed and not summaries:
+        st.info("Eldre optimaliseringsresultater er ikke aggregert i statusen ennå. "
+                "Nye kjøringer vil fylle opp separate porteføljetall.")
     hours=age_hours(opt.get("updated_at"))
     if hours is not None and hours>8 and opt.get("status")=="RUNNING":
         st.warning(f"Historisk optimalisering har ingen registrert fremdrift på {hours:.1f} timer.")
-    st.caption(f"Siste optimaliseringskontroll (UTC): {format_in_zone(opt.get('updated_at'))}. "
+    st.caption(f"Siste optimaliseringskontroll: {local_display(st,opt.get('updated_at'))}. "
                "Estimert gjenstående tid: Kan ikke beregnes sikkert uten tidsserie av fullførte jobber.")
     st.caption("Resultatene er ubetingede inn-/utgangstester med kostnadsfradrag, "
                "kronologisk trening/validering/holdout og sperreperioder. "
