@@ -735,6 +735,12 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["superfund_nav_backfill"] = {"status":"FAILED","reason":str(exc)[:250]}
 
+    try:
+        from superfund_approved_history_worker import run_once as approved_history
+        state["superfund_approved_history"] = approved_history()
+    except Exception as exc:
+        state["superfund_approved_history"] = {"status":"FAILED","reason":type(exc).__name__}
+
     _mem("scheduler:complete", stop=False)
     state["completed_at"] = _now()
     state["state"] = _derive_overall_state(state)
