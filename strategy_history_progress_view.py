@@ -38,15 +38,16 @@ def render(st):
     st.caption(f"Jobbstatus: {status} · Sist oppdatert ({browser_timezone(st)}): {local_display(st,progress['updated_at'])}")
     if progress["reason"]:
         st.warning(f"Årsak: {progress['reason']}")
-    cols = st.columns(3)
+    cols = st.columns(1)
     cols[0].metric("Aksjer analysert", f"{progress['done']:,} / {progress['total']:,}".replace(",", " "))
     cols[1].metric("Avvist / utilstrekkelige data", progress["rejected"])
     cols[2].metric("Datainnsamling", f"{progress['pct']:.1f} %" if progress["pct"] is not None else "Ikke målt")
     if progress["pct"] is not None:
         st.progress(min(1.0, progress["pct"] / 100))
         st.caption(f"Ferdig behandlet inkl. avviste: {progress['processed_pct']:.1f} %. Avviste regnes ikke som analyserte.")
-    st.markdown("**Strategitester og bearbeiding**")
-    phases = st.columns(3)
+    st.divider()
+    st.subheader("Strategitester og bearbeiding")
+    phases = st.columns(1)
     phases[0].metric("Aksjer med grovtester", progress["coarse_tested"])
     phases[1].metric("Stop-loss × eiertid per aksje", progress["coarse_grid"])
     phases[2].metric("Registrerte grovtester", progress["coarse_tested"] * progress["coarse_grid"])
@@ -54,12 +55,14 @@ def render(st):
     st.caption("Grovtesting er fullført; separat historisk parameteroptimalisering vises nedenfor. "
                "Finalister er forskningskandidater, ikke godkjente handelsregler.")
     staged=progress["staged"]
-    st.markdown("**Trinnvise kjøp og sektorgrenser – historisk datakontroll**")
+    st.divider()
+    st.subheader("Trinnvise kjøp og sektorgrenser")
     st.caption(f"Status: {staged.get('status','IKKE_STARTET')} · "
                f"Historiske signalbilder kvalifisert: {staged.get('eligible',0)} / {staged.get('total',0)}. "
                "Ingen komplette porteføljebacktester er kjørt i denne modulen.")
     opt=progress["optimization"]
-    st.markdown("**Ny historisk parameterforskning – Autonomi og Superporteføljen**")
+    st.divider()
+    st.subheader("Historisk parameterforskning")
     completed=int(opt.get("processed") or 0)
     total=int(opt.get("total") or 0)
     st.caption(f"Status: {opt.get('status','IKKE_STARTET')} · Behandlet {completed} / {total} aksjer")
@@ -68,13 +71,16 @@ def render(st):
     summaries=opt.get("engine_totals") or {}
     for engine,label in (("AUTONOMY","Autonomi"),("SUPER_PORTFOLIO","Superporteføljen")):
         stats=summaries.get(engine) or {}
-        st.caption(f"{label}: {stats.get('complete_symbols',0)} aksjer fullført · "
-                   f"{stats.get('valid_trials',0)} gyldige kombinasjoner · "
-                   f"{stats.get('finalists',0)} forskningsfinalister · "
-                   f"{stats.get('insufficient_symbols',0)} aksjer med for lite historikk.")
+        with st.container(border=True):
+            st.markdown(f"**{label}**")
+            st.write(f"Aksjer fullført: {stats.get('complete_symbols',0)}")
+            st.write(f"Gyldige kombinasjoner: {stats.get('valid_trials',0)}")
+            st.write(f"Forskningsfinalister: {stats.get('finalists',0)}")
+            st.write(f"Utilstrekkelig historikk: {stats.get('insufficient_symbols',0)}")
     if completed and not summaries:
         st.info("Eldre optimaliseringsresultater er ikke aggregert i statusen ennå. "
                 "Nye kjøringer vil fylle opp separate porteføljetall.")
+    st.divider()
     eta=opt.get("eta_hours")
     if isinstance(eta,(int,float)) and eta>=0 and opt.get("status")=="RUNNING":
         st.metric("Estimert resttid",f"{eta:.1f} timer")
