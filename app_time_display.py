@@ -19,3 +19,16 @@ def age_hours(timestamp, now=None):
         if observed.tzinfo is None:return None
         return max(0.,((now or datetime.now(timezone.utc))-observed).total_seconds()/3600)
     except (ValueError,TypeError):return None
+
+
+def browser_timezone(st):
+    """Use browser IANA zone, fall back to explicit UTC in headless contexts."""
+    try:
+        name=str(st.context.timezone or "UTC")
+        ZoneInfo(name)
+        return name
+    except (AttributeError, KeyError, ValueError):
+        return "UTC"
+
+def local_display(st,timestamp):
+    return format_in_zone(timestamp,browser_timezone(st))
