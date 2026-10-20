@@ -12,3 +12,12 @@ def test_norway_dst_and_fortaleza():
 def test_naive_never_assumed_utc():
     assert "ukjent" in format_in_zone("2026-10-20T12:00:00","Europe/Oslo")
     assert age_hours("2026-10-20T12:00:00") is None
+
+class _Browser:
+    class context:
+        timezone="America/Fortaleza"
+
+def test_browser_timezone():
+    from app_time_display import local_display,browser_timezone
+    assert browser_timezone(_Browser)=="America/Fortaleza"
+    assert "16:00" in local_display(_Browser,"2026-10-20T19:00:00+00:00")
