@@ -92,7 +92,16 @@ def run_once(limit=1):
             done.add(ticker)
         except Exception:
             failed.add(ticker)
-    new={"status":"COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING",
+    now=datetime.now(timezone.utc)
+    started_at=state.get("started_at") or now.isoformat()
+    try:
+        started=datetime.fromisoformat(started_at.replace("Z","+00:00"))
+        elapsed=max(0.,(now-started).total_seconds())
+    except (ValueError,TypeError):
+        elapsed=0.
+    rate=len(done)/elapsed if elapsed>=1800 and len(done)>=5 else 0.
+    eta_hours=round((len(tickers)-len(done)-len(failed))/rate/3600,1) if rate>0 else None
+    new={"started_at":started_at,"eta_hours":eta_hours,"status":"COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING",
          "total":len(tickers),"processed":len(done),"failed":len(failed),
          "candidate_budget_per_symbol_per_portfolio":200,
          "engine_totals":per_engine,
