@@ -71,6 +71,19 @@ def run_once(limit=1):
     for engine in ("AUTONOMY","SUPER_PORTFOLIO"):
         per_engine.setdefault(engine,{"valid_trials":0,"finalists":0,"complete_symbols":0,"insufficient_symbols":0})
     done=set(state.get("completed_tickers") or [])
+    reconciled=set(state.get("aggregated_tickers") or [])
+    for old_ticker in sorted(done-reconciled)[:20]:
+        digest=sha256(old_ticker.encode()).hexdigest()
+        records={p:storage.read_json(PREFIX+"optimized/"+p+"/"+digest+".json",{}) or {} for p in ("AUTONOMY","SUPER_PORTFOLIO")}
+        if not all(records.values()):continue
+        for p,result in records.items():
+            stats=per_engine[p]
+            if result.get("status")=="COMPLETE_RESEARCH":
+                stats["complete_symbols"]+=1
+                stats["valid_trials"]+=int(result.get("evaluated") or 0)
+                stats["finalists"]+=len(result.get("finalists") or [])
+            else:stats["insufficient_symbols"]+=1
+        reconciled.add(old_ticker)
     failed=set(state.get("rejected_tickers") or [])
     queue=[x for x in tickers if x not in done and x not in failed]
     for ticker in queue[:max(1,min(3,int(limit)))]:
@@ -90,6 +103,7 @@ def run_once(limit=1):
                 else:
                     per_engine[portfolio]["insufficient_symbols"]+=1
             done.add(ticker)
+            reconciled.add(ticker)
         except Exception:
             failed.add(ticker)
     now=datetime.now(timezone.utc)
@@ -104,7 +118,7 @@ def run_once(limit=1):
     new={"started_at":started_at,"eta_hours":eta_hours,"status":"COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING",
          "total":len(tickers),"processed":len(done),"failed":len(failed),
          "candidate_budget_per_symbol_per_portfolio":200,
-         "engine_totals":per_engine,
+         "engine_totals":per_engine,"aggregated_tickers":sorted(reconciled),
          "completed_tickers":sorted(done),"rejected_tickers":sorted(failed),
          "updated_at":datetime.now(timezone.utc).isoformat(),
          "scope":"HISTORICAL_EXIT_RESEARCH_ONLY","production_changed":False}
