@@ -75,11 +75,16 @@ def render(st):
     if completed and not summaries:
         st.info("Eldre optimaliseringsresultater er ikke aggregert i statusen ennå. "
                 "Nye kjøringer vil fylle opp separate porteføljetall.")
+    eta=opt.get("eta_hours")
+    if isinstance(eta,(int,float)) and eta>=0 and opt.get("status")=="RUNNING":
+        st.metric("Estimert resttid",f"{eta:.1f} timer")
+        st.caption("Anslag basert på registrert gjennomstrømning; kan endre seg ved datamangler og pauser.")
+    else:
+        st.caption("Estimert resttid: Ikke tilstrekkelig grunnlag for pålitelig anslag.")
     hours=age_hours(opt.get("updated_at"))
     if hours is not None and hours>8 and opt.get("status")=="RUNNING":
         st.warning(f"Historisk optimalisering har ingen registrert fremdrift på {hours:.1f} timer.")
-    st.caption(f"Siste optimaliseringskontroll: {local_display(st,opt.get('updated_at'))}. "
-               "Estimert gjenstående tid: Kan ikke beregnes sikkert uten tidsserie av fullførte jobber.")
+    st.caption(f"Siste optimaliseringskontroll: {local_display(st,opt.get('updated_at'))}.")
     st.caption("Resultatene er ubetingede inn-/utgangstester med kostnadsfradrag, "
                "kronologisk trening/validering/holdout og sperreperioder. "
                "Dette er ikke full porteføljereplay eller godkjent regelendring.")
