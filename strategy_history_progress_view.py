@@ -70,10 +70,10 @@ def render(st):
         stats=summaries.get(engine) or {}
         st.divider()
         st.markdown(f"### {label}")
-            st.write(f"Aksjer fullført: {stats.get('complete_symbols',0)}")
-            st.write(f"Gyldige kombinasjoner: {stats.get('valid_trials',0)}")
-            st.write(f"Forskningsfinalister: {stats.get('finalists',0)}")
-            st.write(f"Utilstrekkelig historikk: {stats.get('insufficient_symbols',0)}")
+        st.write(f"Aksjer fullført: {stats.get('complete_symbols',0)}")
+        st.write(f"Gyldige kombinasjoner: {stats.get('valid_trials',0)}")
+        st.write(f"Forskningsfinalister: {stats.get('finalists',0)}")
+        st.write(f"Utilstrekkelig historikk: {stats.get('insufficient_symbols',0)}")
     if completed and not summaries:
         st.info("Eldre optimaliseringsresultater er ikke aggregert i statusen ennå. "
                 "Nye kjøringer vil fylle opp separate porteføljetall.")
