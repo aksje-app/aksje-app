@@ -319,11 +319,10 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
         if state in TERMINAL_STATES:
             st.session_state.pop(monotonic_key, None)
     st.progress(pct, text=f"{pct} % · {status.get('message') or state_display}")
-    p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Status", state_display)
-    p2.metric("Aktivt steg", status.get("active_stage") or "-")
-    p3.metric("Oppdatert", local_display(status.get("updated_at"), str(status.get("timezone_name") or "Europe/Oslo")))
-    p4.metric("Kjørings-ID", status.get("execution_id") or "-")
+    st.metric("Status", state_display)
+    st.metric("Aktivt steg", status.get("active_stage") or "-")
+    st.metric("Oppdatert", local_display(status.get("updated_at"), str(status.get("timezone_name") or "Europe/Oslo")))
+    st.metric("Kjørings-ID", status.get("execution_id") or "-")
     now = datetime.now(timezone.utc)
     progress_at = status.get("last_progress_at") or status.get("updated_at")
     heartbeat_at = status.get("worker_heartbeat_at") or status.get("heartbeat_at")
@@ -337,17 +336,16 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
             return None
     progress_age = _age_seconds(progress_at)
     heartbeat_age = _age_seconds(heartbeat_at)
-    t1, t2, t3, t4 = st.columns(4)
-    t1.metric("Siste reelle fremdrift", f"{progress_age} sek siden" if progress_age is not None else "-")
-    t2.metric("Worker-heartbeat", f"{heartbeat_age} sek siden" if heartbeat_age is not None else "-")
+    st.metric("Siste reelle fremdrift", f"{progress_age} sek siden" if progress_age is not None else "-")
+    st.metric("Worker-heartbeat", f"{heartbeat_age} sek siden" if heartbeat_age is not None else "-")
     work_completed, work_total = status.get("work_completed"), status.get("work_total")
-    t3.metric("Fasefremdrift", f"{work_completed}/{work_total}" if work_total not in (None, "", 0) else "-")
+    st.metric("Fasefremdrift", f"{work_completed}/{work_total}" if work_total not in (None, "", 0) else "-")
     context = status.get("active_ticker") or status.get("active_market")
     if not context and state == "RUNNING":
         stage = str(status.get("active_stage") or "").upper()
         context = "Samlet Autonomi-steg" if stage == "AUTONOMOUS" else (stage or "Kjeden samlet")
     context = context or "-"
-    t4.metric("Arbeider med", context)
+    st.metric("Arbeider med", context)
     limit = int(status.get("stage_progress_limit_seconds") or 0)
     if state == "RUNNING" and progress_age is not None and progress_age >= 60:
         remaining = max(0, limit - progress_age) if limit else 0
@@ -380,14 +378,13 @@ def _render_progress(snapshot: Mapping[str, Any], *, allow_quick_start: bool = T
     if market_total:
         finished_markets = max(0, market_index - (0 if str(status.get("phase")) == "SCORING" and int(event.get("completed") or 0) >= int(event.get("total") or 1) else 1))
         st.caption(f"Markedsgjennomføring: {min(finished_markets, market_total)}/{market_total} ferdig · arbeider med marked {min(max(1, market_index), market_total)}/{market_total}.")
-    stage_columns = st.columns(4)
-    for index, (stage, label) in enumerate(labels.items()):
+    for stage, label in labels.items():
         if stage in completed:
-            stage_columns[index % 4].success(f"✅ {label}")
+            st.success(f"✅ {label}")
         elif stage == active:
-            stage_columns[index % 4].warning(f"⏳ {label}")
+            st.warning(f"⏳ {label}")
         else:
-            stage_columns[index % 4].caption(f"⬜ {label}")
+            st.caption(f"⬜ {label}")
     if state in {"FAILED", "STALLED"}:
         st.error(
             f"{status.get('error_type') or 'Feil'} i {status.get('error_stage') or active or 'ukjent steg'}: "
