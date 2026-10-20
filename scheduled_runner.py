@@ -717,6 +717,12 @@ def _run_once_locked() -> dict[str, Any]:
         state["strategy_history"] = {"status":"FAILED","reason":str(exc)[:250]}
 
     try:
+        from staged_entry_history_audit import run_once as audit_staging
+        state["staged_entry_audit"] = audit_staging()
+    except Exception as exc:
+        state["staged_entry_audit"] = {"status":"FAILED","reason":type(exc).__name__}
+
+    try:
         from portfolio_history_optimizer import run_once as optimize_history
         state["portfolio_historical_optimization"] = optimize_history()
     except Exception as exc:

@@ -7,8 +7,10 @@ def snapshot(storage):
     done = max(0, int(record.get("completed") or 0))
     rejected = max(0, int(record.get("rejected") or 0))
     opt = storage.read_json("strategy_history/optimization_progress.json", {}) or {}
+    staged = storage.read_json("strategy_history/staged_sector_progress.json", {}) or {}
     return {
         "optimization": opt,
+        "staged": staged,
         "status": str(record.get("status") or "IKKE_STARTET"),
         "total": total, "done": done, "rejected": rejected,
         "pct": 100.0 * done / total if total else None,
@@ -52,6 +54,11 @@ def render(st):
                + " · Validerte finalister: " + (str(progress["finalists"]) if progress["finalists"] else "Ingen registrert")
                + " · Historisk sluttvalidering: Ikke målt"
                + " · Gjenstående tid: Ikke beregnet.")
+    staged=progress["staged"]
+    st.markdown("**Trinnvise kjøp og sektorgrenser – historisk datakontroll**")
+    st.caption(f"Status: {staged.get('status','IKKE_STARTET')} · "
+               f"Historiske signalbilder kvalifisert: {staged.get('eligible',0)} / {staged.get('total',0)}. "
+               "Ingen komplette porteføljebacktester er kjørt i denne modulen.")
     opt=progress["optimization"]
     st.markdown("**Ny historisk parameterforskning – Autonomi og Superporteføljen**")
     st.caption(f"Behandlet {opt.get('processed',0)} av {opt.get('total',0)} aksjer. "
