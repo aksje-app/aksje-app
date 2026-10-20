@@ -67,6 +67,9 @@ def run_once(limit=1):
     tickers=sorted(progress.get("completed_tickers") or [])
     key=PREFIX+"optimization_progress.json"
     state=storage.read_json(key,{}) or {}
+    per_engine=dict(state.get("engine_totals") or {})
+    for engine in ("AUTONOMY","SUPER_PORTFOLIO"):
+        per_engine.setdefault(engine,{"valid_trials":0,"finalists":0,"complete_symbols":0,"insufficient_symbols":0})
     done=set(state.get("completed_tickers") or [])
     failed=set(state.get("rejected_tickers") or [])
     queue=[x for x in tickers if x not in done and x not in failed]
@@ -80,12 +83,19 @@ def run_once(limit=1):
                 storage.write_json(PREFIX+"optimized/"+portfolio+"/"+digest+".json",
                                    {"ticker":ticker,**result})
                 results[portfolio]=result["status"]
+                if result["status"]=="COMPLETE_RESEARCH":
+                    per_engine[portfolio]["complete_symbols"]+=1
+                    per_engine[portfolio]["valid_trials"]+=int(result.get("evaluated") or 0)
+                    per_engine[portfolio]["finalists"]+=len(result.get("finalists") or [])
+                else:
+                    per_engine[portfolio]["insufficient_symbols"]+=1
             done.add(ticker)
         except Exception:
             failed.add(ticker)
     new={"status":"COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING",
          "total":len(tickers),"processed":len(done),"failed":len(failed),
          "candidate_budget_per_symbol_per_portfolio":200,
+         "engine_totals":per_engine,
          "completed_tickers":sorted(done),"rejected_tickers":sorted(failed),
          "updated_at":datetime.now(timezone.utc).isoformat(),
          "scope":"HISTORICAL_EXIT_RESEARCH_ONLY","production_changed":False}
