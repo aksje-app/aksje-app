@@ -34,7 +34,8 @@ def render(st):
         st.error(f"Fremdriftsdata utilgjengelige: {type(exc).__name__}")
         return
     status = progress["status"]
-    st.caption(f"Jobbstatus: {status} · Sist oppdatert: {progress['updated_at'] or 'Ikke registrert'}")
+    from app_time_display import format_in_zone, age_hours
+    st.caption(f"Jobbstatus: {status} · Sist oppdatert (UTC): {format_in_zone(progress['updated_at'])}")
     if progress["reason"]:
         st.warning(f"Årsak: {progress['reason']}")
     cols = st.columns(3)
@@ -68,7 +69,11 @@ def render(st):
         st.caption(f"{label}: inntil 200 kombinasjoner per aksje · "
                    f"{completed} aksjer behandlet i felles jobb · "
                    "Antall gyldige tester og finalister per portefølje er ikke aggregert ennå.")
-    st.caption("Estimert gjenstående tid: Kan ikke beregnes sikkert uten tidsserie av fullførte jobber.")
+    hours=age_hours(opt.get("updated_at"))
+    if hours is not None and hours>8 and opt.get("status")=="RUNNING":
+        st.warning(f"Historisk optimalisering har ingen registrert fremdrift på {hours:.1f} timer.")
+    st.caption(f"Siste optimaliseringskontroll (UTC): {format_in_zone(opt.get('updated_at'))}. "
+               "Estimert gjenstående tid: Kan ikke beregnes sikkert uten tidsserie av fullførte jobber.")
     st.caption("Resultatene er ubetingede inn-/utgangstester med kostnadsfradrag, "
                "kronologisk trening/validering/holdout og sperreperioder. "
                "Dette er ikke full porteføljereplay eller godkjent regelendring.")
