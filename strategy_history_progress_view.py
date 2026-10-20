@@ -34,7 +34,8 @@ def render(st):
         st.error(f"Fremdriftsdata utilgjengelige: {type(exc).__name__}")
         return
     status = progress["status"]
-    st.caption(f"Jobbstatus: {status} · Sist oppdatert: {progress['updated_at'] or 'Ikke registrert'}")
+    from app_time_display import local_display, age_hours, browser_timezone
+    st.caption(f"Jobbstatus: {status} · Sist oppdatert ({browser_timezone(st)}): {local_display(st,progress['updated_at'])}")
     if progress["reason"]:
         st.warning(f"Årsak: {progress['reason']}")
     cols = st.columns(3)
@@ -50,10 +51,8 @@ def render(st):
     phases[1].metric("Stop-loss × eiertid per aksje", progress["coarse_grid"])
     phases[2].metric("Registrerte grovtester", progress["coarse_tested"] * progress["coarse_grid"])
     st.caption("Grovtestene er ubetingede kurssimuleringer, ikke porteføljespesifikke kjøpssignaler.")
-    st.caption("Parameteroptimalisering: " + (str(progress["optimized"]) if progress["optimized"] else "Ikke startet / ikke registrert")
-               + " · Validerte finalister: " + (str(progress["finalists"]) if progress["finalists"] else "Ingen registrert")
-               + " · Historisk sluttvalidering: Ikke målt"
-               + " · Gjenstående tid: Ikke beregnet.")
+    st.caption("Grovtesting er fullført; separat historisk parameteroptimalisering vises nedenfor. "
+               "Finalister er forskningskandidater, ikke godkjente handelsregler.")
     staged=progress["staged"]
     st.markdown("**Trinnvise kjøp og sektorgrenser – historisk datakontroll**")
     st.caption(f"Status: {staged.get('status','IKKE_STARTET')} · "
@@ -61,9 +60,31 @@ def render(st):
                "Ingen komplette porteføljebacktester er kjørt i denne modulen.")
     opt=progress["optimization"]
     st.markdown("**Ny historisk parameterforskning – Autonomi og Superporteføljen**")
-    st.caption(f"Behandlet {opt.get('processed',0)} av {opt.get('total',0)} aksjer. "
-               f"200 stop-loss/eiertid-kombinasjoner per aksje og portefølje; "
-               f"status {opt.get('status','IKKE_STARTET')}.")
+    completed=int(opt.get("processed") or 0)
+    total=int(opt.get("total") or 0)
+    st.caption(f"Status: {opt.get('status','IKKE_STARTET')} · Behandlet {completed} / {total} aksjer")
+    if total:
+        st.progress(min(1.,completed/total))
+    summaries=opt.get("engine_totals") or {}
+    for engine,label in (("AUTONOMY","Autonomi"),("SUPER_PORTFOLIO","Superporteføljen")):
+        stats=summaries.get(engine) or {}
+        st.caption(f"{label}: {stats.get('complete_symbols',0)} aksjer fullført · "
+                   f"{stats.get('valid_trials',0)} gyldige kombinasjoner · "
+                   f"{stats.get('finalists',0)} forskningsfinalister · "
+                   f"{stats.get('insufficient_symbols',0)} aksjer med for lite historikk.")
+    if completed and not summaries:
+        st.info("Eldre optimaliseringsresultater er ikke aggregert i statusen ennå. "
+                "Nye kjøringer vil fylle opp separate porteføljetall.")
+    eta=opt.get("eta_hours")
+    if isinstance(eta,(int,float)) and eta>=0 and opt.get("status")=="RUNNING":
+        st.metric("Estimert resttid",f"{eta:.1f} timer")
+        st.caption("Anslag basert på registrert gjennomstrømning; kan endre seg ved datamangler og pauser.")
+    else:
+        st.caption("Estimert resttid: Ikke tilstrekkelig grunnlag for pålitelig anslag.")
+    hours=age_hours(opt.get("updated_at"))
+    if hours is not None and hours>8 and opt.get("status")=="RUNNING":
+        st.warning(f"Historisk optimalisering har ingen registrert fremdrift på {hours:.1f} timer.")
+    st.caption(f"Siste optimaliseringskontroll: {local_display(st,opt.get('updated_at'))}.")
     st.caption("Resultatene er ubetingede inn-/utgangstester med kostnadsfradrag, "
                "kronologisk trening/validering/holdout og sperreperioder. "
                "Dette er ikke full porteføljereplay eller godkjent regelendring.")
