@@ -27,8 +27,7 @@ def fetch_history(symbol,kind,*,api_key, opener=urlopen):
     if kind not in ("fond","etf"):raise ValueError("KIND_UNSUPPORTED")
     if not re.fullmatch(r"[A-Z0-9.\\-^]{1,24}",symbol):raise ValueError("SYMBOL_INVALID")
     # FMP documents daily mutual-fund history. Its legacy path may require a plan.
-    endpoint=("mutual_fund/" if kind=="fond" else "etf/")+symbol
-    url="https://financialmodelingprep.com/api/v3/historical-price-full/"+endpoint+"?"+urlencode({"apikey":api_key})
+    url="https://financialmodelingprep.com/api/v3/historical-price-full/"+symbol+"?"+urlencode({"apikey":api_key})
     with opener(Request(url,headers={"Accept":"application/json"}),timeout=18) as response:
         payload=json.load(response)
     if not isinstance(payload,dict) or str(payload.get("symbol","")).upper()!=symbol:
