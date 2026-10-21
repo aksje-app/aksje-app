@@ -37,36 +37,38 @@ def collect(storage, engine):
             "holdout": holdout, "validation": validation, "updated_at": state.get("updated_at")}
 
 def render(st):
-    st.subheader("📊 Foreløpige forskningsfunn")
-    st.info("Foreløpige observasjoner, ikke godkjente handelsregler eller prognose for porteføljeavkastning.")
+    st.subheader("📊 Hva viser aksjetestene så langt?")
+    st.info("Dette er tidlige testresultater. De viser hva som har skjedd i gamle kursdata – ikke hva du kan forvente å tjene.")
     try:
         storage = get_storage_service()
         for engine, label in ENGINES:
             data = collect(storage, engine)
             st.markdown("### " + label)
-            st.metric("Aksjer behandlet", "{} / {}".format(data["processed"], data["total"]))
-            st.metric("Lagrede forskningsresultater", data["complete"])
+            st.metric("Aksjer undersøkt", "{} / {}".format(data["processed"], data["total"]))
+            st.metric("Aksjer med fullstendig test", data["complete"])
             if data["missing_records"]:
-                st.warning("{} ferdigmeldte aksjer mangler komplette resultatfiler.".format(data["missing_records"]))
+                st.warning("{} aksjer har ikke fullstendig testresultat. Det kan skyldes for kort kurshistorikk eller manglende data.".format(data["missing_records"]))
             if not data["counts"]:
                 st.write("Ingen verifiserbare finalister i lagrede resultater ennå.")
                 continue
-            st.markdown("**Hyppigste finalistkombinasjoner**")
+            st.markdown("**Hvilke innstillinger går oftest igjen?**")
 
-            rows = [{"Stop-loss": f"{stop} %", "Eiertid": f"{hold} dager", "Finalister": n}
+            rows = [{"Grense for tap": f"{stop} %", "Maks. eiertid": f"{hold} børsdager", "Ganger valgt": n}
                     for (stop, hold), n in data["counts"].most_common(8)]
             st.dataframe(rows, hide_index=True, width="stretch")
+            st.write("Dette er innstillinger som ofte ble valgt i testene. Det betyr ikke at de er lønnsomme.")
             if data["validation"]:
-                st.metric("Median valideringsresultat per finalist", "{:.2f} %".format(median(data["validation"])))
+                st.metric("Typisk resultat i kontrollperioden", "{:.2f} %".format(median(data["validation"])))
             if data["holdout"]:
-                st.metric("Median holdout-resultat per finalist", "{:.2f} %".format(median(data["holdout"])))
-                st.caption("Holdout er kun en beskrivende måling av forhåndsvalgte finalister, ikke et estimat for fremtidig porteføljeavkastning.")
+                st.metric("Typisk resultat i siste testperiode", "{:.2f} %".format(median(data["holdout"])))
+                st.write("Siste testperiode var holdt utenfor da innstillingene ble valgt. Tallene gjelder enkeltstående simuleringer, ikke din portefølje.")
             else:
                 st.write("Ingen tilgjengelige holdout-resultater med handler.")
             st.divider()
-        with st.expander("Slik skal tallene tolkes"):
-            st.write("Utvalget er fortsatt lite og kan være skjevt. De mest hyppige kombinasjonene er ikke nødvendigvis best.")
-            st.write("Validering og holdout gjelder simulert inn-/utgang per aksje, ikke komplett porteføljebacktest.")
-            st.write("Ingen resultatbasert automatisk endring av aktive handelsregler foretas.")
+        with st.expander("Hva betyr dette – forklart enkelt?"):
+            st.write("Vi har undersøkt få aksjer. Resultatene kan endre seg mye når flere kommer med.")
+            st.write("Kontrollperioden brukes til å vurdere valgte innstillinger. Siste testperiode brukes som en ekstra kontroll mot nye, historiske data.")
+            st.write("En høy prosent er ikke forventet fortjeneste: perioder, antall handler og risiko kan være forskjellige.")
+            st.write("Ingen av disse funnene endrer programmets kjøp eller salg automatisk.")
     except Exception as exc:
         st.error("Kunne ikke lese forskningsresultatene: " + type(exc).__name__)
