@@ -47,16 +47,13 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     except Exception:
         st.warning("Autonomi-portefølje: beholdningsstatus kunne ikke leses. Dette betyr ikke nødvendigvis at porteføljen er tom.")
 
-    st.caption(
-        "Autonomi er programmets styringslag. Markedsdata, analyse, rangering, "
-        "porteføljebeslutninger, kontrollert læring og rapportering kobles sammen "
-        "gjennom ett stabilt oppdragsgrensesnitt. Ingen ekte handler utføres."
-    )
-    a1, a2, a3, a4 = st.columns(4)
-    a1.metric("Autonomy Core", manifest.get("version") or "-")
-    a2.metric("Status", "Aktiv grunnmur")
-    a3.metric("Kjøremodus", "Kun teoretisk")
-    a4.metric("Domener", len(manifest.get("domains") or []))
+    with st.expander("Om Autonomi", expanded=False):
+        st.write("Autonomi samler analyser og beslutninger. Her utføres ingen ekte handler.")
+    with st.expander("Teknisk systemstatus", expanded=False):
+        st.write(f"Versjon: {manifest.get('version') or '-'}")
+        st.write("Status: Aktiv grunnmur")
+        st.write("Kjøremodus: Kun teoretisk")
+        st.write(f"Områder: {len(manifest.get('domains') or [])}")
 
     # RC16.34b hotfix: Super Portfolio no longer belongs to Autonomi.
     # Legacy/start-page requests are migrated once to the first-class panel under
