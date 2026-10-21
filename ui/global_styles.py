@@ -983,6 +983,7 @@ def inject_foundation_styles_v1950() -> None:
 
 def inject_final_density_styles_v1950() -> None:
     _inject_professional_ui_refactor_v18666()
+    _inject_research_mobile_readability_v1()
 
 
 def _inject_research_mobile_readability_v1():
