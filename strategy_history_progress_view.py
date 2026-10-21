@@ -26,6 +26,7 @@ def snapshot(storage):
     }
 
 def render(st):
+    from research_readable_layout import lines
     from services.storage_service import get_storage_service
     st.subheader("📈 Strategitesting – historisk fremdrift")
     try:
@@ -35,7 +36,7 @@ def render(st):
         return
     status = progress["status"]
     from app_time_display import local_display, age_hours, browser_timezone
-    st.write(f"Jobbstatus: {status} · Sist oppdatert ({browser_timezone(st)}): {local_display(st,progress['updated_at'])}")
+    lines(st, f"Datainnsamling: {status}", f"Sist oppdatert: {local_display(st,progress['updated_at'])} ({browser_timezone(st)})")
     if progress["reason"]:
         st.warning(f"Årsak: {progress['reason']}")
     st.metric("Aksjer analysert", f"{progress['done']:,} / {progress['total']:,}".replace(",", " "))
@@ -43,7 +44,7 @@ def render(st):
     st.metric("Datainnsamling", f"{progress['pct']:.1f} %" if progress["pct"] is not None else "Ikke målt")
     if progress["pct"] is not None:
         st.progress(min(1.0, progress["pct"] / 100))
-        st.write(f"Ferdig behandlet inkl. avviste: {progress['processed_pct']:.1f} %. Avviste regnes ikke som analyserte.")
+        lines(st, f"Ferdig behandlet inkl. avviste: {progress['processed_pct']:.1f} %. Avviste regnes ikke som analyserte.")
     st.divider()
     st.subheader("Strategitester og bearbeiding")
     st.metric("Aksjer med grovtester", progress["coarse_tested"])
@@ -54,15 +55,13 @@ def render(st):
     staged=progress["staged"]
     st.divider()
     st.subheader("Trinnvise kjøp og sektorgrenser")
-    st.write(f"Status: {staged.get('status','IKKE_STARTET')} · "
-               f"Historiske signalbilder kvalifisert: {staged.get('eligible',0)} / {staged.get('total',0)}. "
-               "Ingen komplette porteføljebacktester er kjørt i denne modulen.")
+    lines(st, f"Status: {staged.get('status','IKKE_STARTET')}", f"Historiske signaler klare: {staged.get('eligible',0)} av {staged.get('total',0)}", "Ingen komplette porteføljetester er kjørt ennå.")
     opt=progress["optimization"]
     st.divider()
     st.subheader("Historisk parameterforskning")
     completed=int(opt.get("processed") or 0)
     total=int(opt.get("total") or 0)
-    st.write(f"Status: {opt.get('status','IKKE_STARTET')} · Behandlet {completed} / {total} aksjer")
+    lines(st, f"Status: {opt.get('status','IKKE_STARTET')}", f"Behandlet {completed} av {total} aksjer")
     if total:
         st.progress(min(1.,completed/total))
     summaries=opt.get("engine_totals") or {}
@@ -70,10 +69,7 @@ def render(st):
         stats=summaries.get(engine) or {}
         st.divider()
         st.markdown(f"### {label}")
-        st.write(f"Aksjer fullført: {stats.get('complete_symbols',0)}")
-        st.write(f"Gyldige kombinasjoner: {stats.get('valid_trials',0)}")
-        st.write(f"Forskningsfinalister: {stats.get('finalists',0)}")
-        st.write(f"Utilstrekkelig historikk: {stats.get('insufficient_symbols',0)}")
+        lines(st, f"Aksjer fullført: {stats.get('complete_symbols',0)}", f"Kombinasjoner testet: {stats.get('valid_trials',0)}", f"Mulige kandidater: {stats.get('finalists',0)}", f"For kort historikk: {stats.get('insufficient_symbols',0)}")
     if completed and not summaries:
         st.info("Eldre optimaliseringsresultater er ikke aggregert i statusen ennå. "
                 "Nye kjøringer vil fylle opp separate porteføljetall.")
@@ -81,12 +77,12 @@ def render(st):
     eta=opt.get("eta_hours")
     if isinstance(eta,(int,float)) and eta>=0 and opt.get("status")=="RUNNING":
         st.metric("Estimert resttid",f"{eta:.1f} timer")
-        st.write("Anslag basert på registrert gjennomstrømning; kan endre seg ved datamangler og pauser.")
+        lines(st, "Anslag basert på registrert gjennomstrømning; kan endre seg ved datamangler og pauser.")
     else:
-        st.write("Estimert resttid: Ikke tilstrekkelig grunnlag for pålitelig anslag.")
+        lines(st, "Estimert resttid: Ikke tilstrekkelig grunnlag for pålitelig anslag.")
     hours=age_hours(opt.get("updated_at"))
     if hours is not None and hours>8 and opt.get("status")=="RUNNING":
         st.warning(f"Historisk optimalisering har ingen registrert fremdrift på {hours:.1f} timer.")
-    st.write(f"Siste optimaliseringskontroll: {local_display(st,opt.get('updated_at'))}.")
+    lines(st, f"Siste optimaliseringskontroll: {local_display(st,opt.get('updated_at'))}.")
 
 
