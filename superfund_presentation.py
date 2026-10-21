@@ -109,7 +109,19 @@ def notification_batch(events, limit=1000):
             challenger=event.get('challenger') or {}
             if challenger:
                 block+=f"\nPrioritet: #{challenger['rank']} av {challenger['total']} kvalifiserte"
-                block+=f" · bedre enn {challenger['outperforms_held']} av {challenger['same_group_held']} sammenlignbare eide"
+                prior_gain=challenger.get('rank_gain')
+                if isinstance(prior_gain,int):
+                    previous_rank=challenger['rank']+prior_gain
+                    movement=(f"opp {prior_gain} plasser" if prior_gain>0 else
+                              f"ned {abs(prior_gain)} plasser" if prior_gain<0 else "uendret")
+                    block+=f"\nSiden forrige rangering: {previous_rank} → {challenger['rank']} ({movement})"
+                else:
+                    block+="\nForrige rangering: ikke registrert"
+                comparable=challenger.get('same_group_held',0)
+                if comparable:
+                    block+=f"\nHøyere poeng enn {challenger.get('outperforms_held',0)} av {comparable} eide fond i samme kategori og avkastningsvaluta"
+                else:
+                    block+="\nIngen direkte sammenlignbare eide fond (samme kategori og avkastningsvaluta)"
             block+='\nSiste uke: '+number(event['returns'].get('yield_1w'),'%')
             block+=' · '+dict(identity_lines(event))['Avkastningsvaluta']
             sector=norwegian_fund_sector(event)
