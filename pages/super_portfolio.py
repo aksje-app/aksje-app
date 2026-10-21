@@ -103,6 +103,7 @@ def render_super_portfolio(_legacy_context) -> None:
     c3.metric("Posisjoner", len(positions))
     c4.metric("🧬 Health", f"{health.get('icon','⚪')} {float(health.get('score') or 0):.1f}/100")
     c5.metric("Modus", "SHADOW")
+    st.caption("Teoretisk NAV i basisvaluta: utenlandske posisjoner følger lokal kursavkastning uten løpende valutaregulering. Historiske handelshull er ikke rekonstruert; eldre avkastning er ikke fullstendig kontrollert.")
     st.caption(
         f"Startkapital NOK {initial_cash:,.0f} · NAV-sporing fra {state.get('portfolio_tracking_started_at') or '-'} · "
         f"Åpne posisjoner vektet fra inngang {weighted_return:+.2f}% · Kilde {state.get('source_run_id') or '-'}"
@@ -711,7 +712,15 @@ def render_super_portfolio(_legacy_context) -> None:
                     "Dato":snap.get("at"),"Handling":change.get("action"),"Aksje":change.get("ticker"),
                     "Fra %":change.get("from_pct"),"Til %":change.get("to_pct"),"Årsak":change.get("reason"),"Kode":change.get("reason_code")
                 })
-        if events:
+        from services.super_portfolio_store import transactions
+        ledger = transactions(limit=250)
+        if ledger:
+            st.caption("Siste 250 journalførte handler. Diagnose-ZIP inneholder hele den bevarte transaksjonsloggen; eldre hull rekonstrueres ikke.")
+            st.dataframe(pd.DataFrame([{ "Tid": r.get("simulated_execution_at"), "Kurs observert": r.get("price_observed_at"),
+                "Handling": r.get("action"), "Aksje": r.get("ticker"), "Kurs": r.get("execution_price"),
+                "Kostnad": r.get("transaction_cost"), "Kontanter etter": r.get("cash_after"),
+                "Årsak": r.get("reason"), "Handels-ID": r.get("trade_id")} for r in reversed(ledger)]), width="stretch", hide_index=True)
+        elif events:
             st.dataframe(pd.DataFrame(events[:250]), width="stretch", hide_index=True)
         else:
             st.caption("Ingen faktiske Shadow-endringer registrert ennå.")

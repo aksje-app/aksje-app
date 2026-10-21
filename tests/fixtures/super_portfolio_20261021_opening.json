@@ -1,0 +1,59 @@
+{
+  "provenance": {
+    "archive": "SuperPortfolio_Diagnose_AKRBP_OL.zip",
+    "sha256": "7c1cd6a21c83cbabd4766dcf0bb62909bf915bdce7a41ed325499d02fb2993c9",
+    "members": [
+      "current_positions.json",
+      "recent_history.json"
+    ],
+    "limitation": "Selected exported fields only; ZIP has no complete state.json or cash/config document. Initial cash inferred from NAV and recorded return."
+  },
+  "state": {
+    "portfolio_value": 973526.92,
+    "portfolio_return_pct": -2.647308,
+    "initial_cash": 1000000.0,
+    "source_run_id": "SPM-20261021-131600",
+    "positions": {
+      "HEXA-B.ST": {
+        "ticker": "HEXA-B.ST",
+        "market": "Sverige",
+        "currency": "SEK",
+        "entry_date": "2026-10-12T13:11:36+00:00",
+        "entry_price": 104.75,
+        "last_price": 104.69999694824219,
+        "peak_price": 105.75,
+        "target_weight_pct": 15.0
+      },
+      "AKVA.OL": {
+        "ticker": "AKVA.OL",
+        "market": "Norge",
+        "currency": "NOK",
+        "entry_date": "2026-10-09T00:13:10+00:00",
+        "entry_price": 157.5,
+        "last_price": 158.0,
+        "peak_price": 158.5,
+        "target_weight_pct": 15.0
+      },
+      "MEDI.OL": {
+        "ticker": "MEDI.OL",
+        "market": "Norge",
+        "currency": "NOK",
+        "entry_date": "2026-10-21T13:25:28+00:00",
+        "entry_price": 286.0,
+        "last_price": 287.0,
+        "peak_price": 288.0,
+        "target_weight_pct": 15.0
+      },
+      "AKRBP.OL": {
+        "ticker": "AKRBP.OL",
+        "market": "Norge",
+        "currency": "NOK",
+        "entry_date": "2026-10-21T13:25:28+00:00",
+        "entry_price": 380.20001220703125,
+        "last_price": 383.20001220703125,
+        "peak_price": 383.20001220703125,
+        "target_weight_pct": 15.0
+      }
+    }
+  }
+}

@@ -417,6 +417,8 @@ def diagnostic_zip(job_id: str = "") -> bytes:
         files["recent_shadow_decisions.json"] = json.dumps(_redact(audit), ensure_ascii=False, indent=2, default=str)
     except Exception as exc:
         files["recent_shadow_unavailable.json"] = json.dumps({"error": type(exc).__name__, "message": str(exc)[:250]})
+    from services.super_portfolio_store import export_files
+    files.update(export_files())
     encoded = {name: content.encode("utf-8") for name, content in files.items()}
     files["manifest.json"] = json.dumps(diagnostic_manifest(encoded), ensure_ascii=False, indent=2)
     output = BytesIO()

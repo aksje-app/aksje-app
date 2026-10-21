@@ -73,7 +73,7 @@ def policy_from(source: Mapping[str, Any] | Any | None = None) -> ExitPolicy:
 
 def evaluate_exit(*, entry_price: float, current_price: float, highest_price: float,
                   entry_score: float = 0.0, current_score: float | None = None,
-                  holding_days: int = 0, previous_stop_distance_pct: float | None = None,
+                  holding_days: int = 0, holding_hours: float | None = None, previous_stop_distance_pct: float | None = None,
                   rsi: float | None = None,
                   previous_rsi: float | None = None, take_profit_taken: bool = False,
                   best_replacement_score: float | None = None,
@@ -132,10 +132,13 @@ def evaluate_exit(*, entry_price: float, current_price: float, highest_price: fl
                 "reason": f"Bekreftet fall mot gevinstgulv {levels['effective_stop_price']:.2f}; toppgevinst {levels['peak_gain_pct']:.2f}%"}
     if high > entry and drawdown_from_high <= -p.trailing_stop_pct:
         return {**result, "action": "SELL", "reason_code": "TRAILING_STOP", "reason": f"Fall {drawdown_from_high:.2f}% fra topp", "sell_pct": 100.0}
-    if score and score < p.score_exit_threshold:
+    age_hours = float(holding_hours) if holding_hours is not None else max(0, int(holding_days)) * 24.0
+    if age_hours >= p.minimum_hold_hours and score and score < p.score_exit_threshold:
         return {**result, "action": "SELL", "reason_code": "SCORE_EXIT", "reason": f"Score falt til {score:.1f}", "sell_pct": 100.0}
     if pnl_pct + 1e-9 >= p.take_profit_pct and not take_profit_taken and p.partial_take_profit_pct > 0:
         return {**result, "action": "SELL_PARTIAL", "reason_code": "TAKE_PROFIT_PARTIAL", "reason": f"Delvis gevinst ved {pnl_pct:.2f}%", "sell_pct": p.partial_take_profit_pct}
+    if age_hours < p.minimum_hold_hours:
+        return {**result, "reason_code": "MINIMUM_HOLD", "reason": "Ordinær utgang venter på minimum holdetid", "holding_hours": age_hours}
     if rsi is not None and _f(rsi) >= p.rsi_exit_level and (not p.rsi_must_fall or (previous_rsi is not None and _f(rsi) < _f(previous_rsi))):
         return {**result, "action": "SELL", "reason_code": "RSI_EXIT", "reason": f"RSI {_f(rsi):.1f} over grensen og faller", "sell_pct": 100.0}
     if hypothesis_breaks:

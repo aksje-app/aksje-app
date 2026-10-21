@@ -161,7 +161,7 @@ jobs:
         env:
           PYTHONPATH: .
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
-        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py
+        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py tests/test_revision_trade_postgres.py
       - name: Set traceable build identifier
         shell: bash
         run: |

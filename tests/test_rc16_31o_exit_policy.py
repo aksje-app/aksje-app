@@ -28,8 +28,8 @@ def test_take_profit_is_partial_once_then_winner_can_run():
 
 
 def test_score_exit_and_falling_rsi_are_distinct_exits():
-    score = evaluate_exit(entry_price=100, current_price=102, highest_price=103, entry_score=78, current_score=54.9)
-    rsi = evaluate_exit(entry_price=100, current_price=105, highest_price=105, entry_score=78, current_score=70, rsi=76, previous_rsi=80)
+    score = evaluate_exit(entry_price=100, current_price=102, highest_price=103, entry_score=78, current_score=54.9, holding_hours=25)
+    rsi = evaluate_exit(entry_price=100, current_price=105, highest_price=105, entry_score=78, current_score=70, rsi=76, previous_rsi=80, holding_hours=25)
     assert score["reason_code"] == "SCORE_EXIT"
     assert rsi["reason_code"] == "RSI_EXIT"
 

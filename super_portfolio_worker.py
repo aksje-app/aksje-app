@@ -77,6 +77,20 @@ def run_claimed_job(job_id: str, execution_token: str) -> dict[str, Any]:
     try:
         with jobs.worker_execution_lease(job_id, execution_token):
             initial = jobs.get_job(job_id)
+            from services.super_portfolio_store import committed_job
+            committed = committed_job(job_id)
+            if committed:
+                # A crash after settlement must only finish publication, never
+                # rescan or execute the same accepted job a second time.
+                pipeline = {"run_id": committed["run_id"], "outcome": committed.get("outcome", "COMPLETED"),
+                            "verification": committed.get("verification") or {}}
+                terminal = publish_verified_result(job_id, execution_token, pipeline,
+                                                   applied_changes=len(committed["changes"]))
+                return {**terminal, "changes": len(committed["changes"]), "already_committed": True}
+            if "object of type 'int' has no len()" in str(initial.get("error") or ""):
+                return jobs.update_job(job_id, execution_token, state="INTERRUPTED", outcome="INTERRUPTED",
+                    failure_type="COMMIT_STATUS_UNKNOWN", failure_phase="LEGACY_RECOVERY",
+                    message="Tidligere oppgjør kan ikke verifiseres; jobben krever kontroll før nytt forsøk")
             trigger = str(initial.get("trigger") or "MANUAL").upper()
             jobs.update_job(
                 job_id, execution_token, state="STARTING", phase="STARTING", percent=1,
@@ -127,12 +141,19 @@ def run_claimed_job(job_id: str, execution_token: str) -> dict[str, Any]:
             except Exception:
                 return jobs.get_job(job_id)
         try:
+            from services.super_portfolio_store import receipt
+            committed = receipt("job:" + job_id)
             return jobs.update_job(
-                job_id, execution_token, state="FAILED", outcome="FAILED",
+                job_id, execution_token, state="DEGRADED" if committed else "FAILED",
+                outcome="DEGRADED" if committed else "FAILED",
                 failure_type=type(exc).__name__,
-                failure_phase=str((jobs.get_job(job_id) or {}).get("phase") or "RUNNING"),
+                failure_phase="POST_COMMIT_FINALIZATION" if committed else str((jobs.get_job(job_id) or {}).get("phase") or "RUNNING"),
                 error=f"{type(exc).__name__}: {str(exc)[:1000]}",
-                message="SP-jobben feilet; forrige verifiserte resultat er beholdt",
+                message=("Handler er lagret; sluttføring av jobbstatus må forsøkes på nytt" if committed
+                         else "SP-jobben feilet før porteføljeoppgjør"),
+                portfolio_committed=bool(committed),
+                final_pipeline_run_id=committed.get("run_id", "") if committed else "",
+                applied_changes=len(committed["changes"]) if committed else 0,
             )
         except Exception:
             return jobs.get_job(job_id)

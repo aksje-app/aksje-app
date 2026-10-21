@@ -93,7 +93,9 @@ def test_existing_oversized_positions_are_reduced_even_off_rebalance(monkeypatch
     assert reductions["AAA"]["to_pct"] == 15.0
     assert reductions["BBB"]["from_pct"] == 33.33
     assert reductions["BBB"]["to_pct"] == 15.0
-    assert result["state"]["vacancy_diagnostics"]["cash_pct"] == 70.0
+    settled = result["state"]
+    assert settled["vacancy_diagnostics"]["cash_pct"] == round(settled["cash"] / settled["portfolio_value"] * 100, 4)
+    assert round(settled["cash"] + sum(p["market_value"] for p in settled["positions"].values()), 2) == settled["portfolio_value"]
 
 
 def test_notifications_are_plain_language_first() -> None:
