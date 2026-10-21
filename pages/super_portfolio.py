@@ -103,6 +103,7 @@ def render_super_portfolio(_legacy_context) -> None:
     c3.metric("Posisjoner", len(positions))
     c4.metric("🧬 Health", f"{health.get('icon','⚪')} {float(health.get('score') or 0):.1f}/100")
     c5.metric("Modus", "SHADOW")
+    st.caption("Teoretisk NAV i basisvaluta: utenlandske posisjoner følger lokal kursavkastning uten løpende valutaregulering. Historiske handelshull er ikke rekonstruert; eldre avkastning er ikke fullstendig kontrollert.")
     st.caption(
         f"Startkapital NOK {initial_cash:,.0f} · NAV-sporing fra {state.get('portfolio_tracking_started_at') or '-'} · "
         f"Åpne posisjoner vektet fra inngang {weighted_return:+.2f}% · Kilde {state.get('source_run_id') or '-'}"

@@ -94,3 +94,22 @@ def test_pg_concurrent_different_decisions_do_not_overwrite_each_other(pg):
         results = list(pool.map(attempt, range(2)))
     assert sorted(results) == ["committed", "conflict"]
     assert len(journal.transactions(pg)) == 1
+
+
+def test_pg_existing_production_fields_need_no_new_schema_or_backfill(pg):
+    import json
+    from pathlib import Path
+    from services.super_portfolio_accounting import settle
+    fixture=json.loads((Path(__file__).parent / "fixtures/super_portfolio_20261021_opening.json").read_text())
+    before=fixture["state"]
+    pg.write_json(journal.STATE_KEY,before)  # legacy document, no accounting schema/revision
+    result=settle(before,before["positions"],[],operation_id="opening",decision_at="2026-10-22T12:00:00+00:00",cost_bps=10)
+    trades=result.pop("transactions")
+    journal.commit({**before,**result},operation_id="opening",trades=trades,storage=pg)
+    restarted=StorageService(pg.base_dir,database_url=pg.database_url,mode="postgres",allow_local_fallback=False)
+    saved,rows=journal.audit_snapshot(restarted)
+    assert saved["portfolio_value"]==before["portfolio_value"]==973526.92
+    assert saved["cash"]==389410.768
+    assert saved["_revision"]==1
+    assert rows==[]
+    assert {t:p["target_weight_pct"] for t,p in saved["positions"].items()}=={t:p["target_weight_pct"] for t,p in before["positions"].items()}

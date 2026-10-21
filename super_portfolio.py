@@ -2099,6 +2099,7 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "currency": row.get("currency"), "data_freshness": dict(row.get("data_freshness") or {}), "event_risk": dict(row.get("event_risk") or {}),
         "why_here": list(row.get("why_here") or []),
         "position_id": old.get("position_id") or f"{row.get('ticker')}:{now_iso}",
+        "last_added_at": old.get("last_added_at"),
         "execution_evidence": dict(row.get("_execution_evidence") or row.get("_entry_execution_evidence") or old.get("execution_evidence") or {}),
         "price_observed_at": (row.get("_execution_evidence") or row.get("_entry_execution_evidence") or old.get("execution_evidence") or {}).get("market_data_at"),
         "decision_at": now_iso,
@@ -2308,7 +2309,9 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     if any(not minimum_hold_met(previous[t], cfg.minimum_hold_hours, now_dt) for t in outgoing):
         ordinary_rebalance_allowed = False
         rebalance_gate.setdefault("reason_codes", []).append("MINIMUM_HOLD")
-    if persist and any(t not in live_quotes for t in outgoing):
+    increasing_existing = [t for t, p in previous.items()
+                           if _f(weights.get(t)) - _f(p.get("target_weight_pct")) >= cfg.min_rebalance_pp]
+    if persist and any(t not in live_quotes for t in outgoing + increasing_existing):
         ordinary_rebalance_allowed = False
         rebalance_gate.setdefault("reason_codes", []).append("EXECUTION_QUOTE_UNAVAILABLE")
     for action in advisory:
@@ -2920,6 +2923,7 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     ))
     story.append(Paragraph(f"NAV-sporing fra: {data.get('portfolio_tracking_started_at') or '-'}", styles["Normal"]))
     story.append(Paragraph("Tolkning: Historisk kursutvikling før et signal er ikke avkastning etter signalstart. NAV-sporing gjelder shadow-/paper-porteføljen, ikke dokumentert realisert avkastning.", styles["Normal"]))
+    story.append(Paragraph("Historiske handelshull er ikke rekonstruert; eldre avkastning er ikke fullstendig kontrollert. Utenlandske posisjoner følger lokal kursavkastning uten løpende valutaregulering i basisvaluta.", styles["Normal"]))
     story.append(Paragraph(f"Sist fullstendig vurdert: {data.get('last_full_assessment_at') or 'ukjent'} · Sist stopkontrollert: {data.get('last_stop_surveillance_at') or 'ukjent'}", styles["Normal"]))
     story.append(Paragraph(f"Markedsgrunnlag fra: {data.get('last_assessment_snapshot_at') or 'ukjent'}", styles["Normal"]))
     evidence_times = (

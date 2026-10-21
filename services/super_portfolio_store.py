@@ -172,6 +172,9 @@ def export_files(storage=None):
                 "first_decision_at": rows[0].get("decision_at") if rows else None,
                 "last_decision_at": rows[-1].get("decision_at") if rows else None,
                 "historical_coverage": "UNKNOWN_BEFORE_ACCOUNTING_OPENING_BALANCE",
+                "historical_return_fully_verified": False,
+                "valuation_basis": "LOCAL_PRICE_RETURN_IN_PORTFOLIO_MODEL_UNITS",
+                "fx_revaluation": False,
                 "opening_balance": state.get("accounting_opening_balance"),
                 "cash": state.get("cash"), "portfolio_value": state.get("portfolio_value"),
                 "positions": state.get("positions") or {}, "actual_broker_trades": False}

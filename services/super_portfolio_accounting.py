@@ -39,7 +39,10 @@ def settle(before, positions, changes, *, operation_id, decision_at, cost_bps):
     fee_rate = max(0.0, float(cost_bps)) / 10000
     trades = []
     total_cost = 0.0
-    for index, change in enumerate(changes):
+    # The decision builder lists targets (including buys) before outgoing names.
+    # Settle releases first so a fully invested rotation can fund its purchases.
+    ordered = sorted(changes, key=lambda c: 0 if c["action"] in {"SELL", "REDUCE"} else 1)
+    for index, change in enumerate(ordered):
         ticker, action = change["ticker"], change["action"]
         pos = output.get(ticker) or old.get(ticker) or {}
         price = _price(change.get("exit_price") if action == "SELL" else change.get("execution_price"))
@@ -63,6 +66,7 @@ def settle(before, positions, changes, *, operation_id, decision_at, cost_bps):
             fee = gross * fee_rate
             cash -= gross + fee
             quantities[ticker] = quantities.get(ticker, 0) + quantity
+            output[ticker]["last_added_at"] = decision_at
             # A known next-session open and a later mark are different prices.
             mark = _price(pos.get("last_price")) or price
             values[ticker] = quantities[ticker] * mark

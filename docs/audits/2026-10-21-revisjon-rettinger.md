@@ -3,6 +3,8 @@
 Utgangspunkt: `main` på `e1e62efdedb0c6efe218d0c0a76c124115276abe`.
 Arbeidsgren: `fix/revisjon-transaksjoner-og-jobber`.
 
+Etterfølgende uavhengig sluttkontroll og ytterligere rettinger i samme PR er dokumentert i [2026-10-21-pr162-sluttkontroll.md](2026-10-21-pr162-sluttkontroll.md).
+
 ## Programmeringsfeil som rettes
 
 - Planlagte SP-jobber returnerer samme listekontrakt som manuelle jobber. `change_count` er et eget felt. Worker tar ikke lenger `len()` av et heltall.
