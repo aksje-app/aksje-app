@@ -49,6 +49,8 @@ def test_manual_exit_creates_cooldown_and_evaluation_does_not_reenter(monkeypatc
     monkeypatch.setattr(sp, "load_state", lambda: state)
     monkeypatch.setattr(sp, "save_state", lambda value: state.update(value) or value)
     monkeypatch.setattr(sp, "append_event", lambda *a, **k: None)
+    monkeypatch.setattr(sp, "_execution_quotes", lambda *a: {"AAA": {"price": 105,
+        "market_data_at": datetime.now(timezone.utc).isoformat(), "source": "yfinance 5m Close", "adjustment": "raw"}})
     exit_result = sp.manual_exit("AAA", "Jeg går ut tidlig")
     assert exit_result["ok"] is True
     assert "AAA" in state["manual_exit_cooldown"]

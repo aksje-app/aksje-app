@@ -12,12 +12,10 @@ def _f(value: Any, default: float = 0.0) -> float:
 
 
 def holding_days(position: Mapping[str, Any] | None) -> float:
+    from trade_time import elapsed_hours
     raw = (position or {}).get("opened_at") or (position or {}).get("entry_time")
-    try:
-        dt = datetime.fromisoformat(str(raw))
-        return max(0.0, (datetime.now() - dt).total_seconds() / 86400.0)
-    except Exception:
-        return 0.0
+    hours = elapsed_hours(raw)
+    return hours / 24.0 if hours is not None else 0.0
 
 
 def position_professional_metrics(position: Mapping[str, Any] | None, total_value: float = 0.0) -> dict:

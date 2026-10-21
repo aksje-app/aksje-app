@@ -1946,10 +1946,12 @@ def run_autonomous_cycle(
         if holding_days >= params.cash_review_days:
             capital_cleanup["eligible_after_five_days"] += 1
         event_protected, event_protection_reason = _candidate_event_protection(candidate)
+        from trade_time import elapsed_hours
         exit_result = evaluate_exit(
             entry_price=avg, current_price=price, highest_price=_f(pos.get("highest_price"), price),
             entry_score=_f(pos.get("entry_score"), score), current_score=score if candidate else None,
-            holding_days=holding_days, previous_stop_distance_pct=pos.get("distance_to_effective_stop_pct"),
+            holding_days=holding_days, holding_hours=elapsed_hours(pos.get("last_added_at") or pos.get("opened_at"), _clock(timezone.utc)) or 0.0,
+            previous_stop_distance_pct=pos.get("distance_to_effective_stop_pct"),
             rsi=candidate.get("rsi") if candidate else None,
             previous_rsi=pos.get("last_rsi"), take_profit_taken=bool(pos.get("partial_take_profit_taken")),
             best_replacement_score=_candidate_entry_score(best_replacement) if best_replacement else None,

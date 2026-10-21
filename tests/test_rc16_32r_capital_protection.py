@@ -156,44 +156,15 @@ def test_lightweight_surveillance_closes_twelve_hour_stop_gap() -> None:
     assert 'surveillance["mode"] = "STOP_SURVEILLANCE"' in jobs_source
 
 
-def test_lightweight_surveillance_executes_and_notifies_confirmed_exit() -> None:
-    source = _source("super_portfolio.py")
-    tree = ast.parse(source)
-    wanted = {
-        "_f", "_volatility", "_profit_retention_pct", "dynamic_stop_levels", "_stop_status", "stop_pressure",
-        "_automatic_stop_exit", "_stop_alerts", "run_lightweight_stop_surveillance",
-    }
-    selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
-
-    class Config:
-        __dataclass_fields__ = {
-            "hard_stop_drawdown_pct": None, "stop_surveillance_minutes": None,
-            "risk_exit_cooldown_days": None,
-        }
-
-        def __init__(self, **values: object) -> None:
-            self.hard_stop_drawdown_pct = float(values.get("hard_stop_drawdown_pct", 3.0))
-            self.stop_surveillance_minutes = int(values.get("stop_surveillance_minutes", 15))
-            self.risk_exit_cooldown_days = int(values.get("risk_exit_cooldown_days", 1))
-
-    saved: list[dict] = []
-    notified: list[list[dict]] = []
-    namespace = {
-        "Any": Any, "Mapping": Mapping, "Sequence": Sequence,
-        "datetime": datetime, "timedelta": timedelta, "timezone": timezone,
-        "isfinite": isfinite, "SuperPortfolioConfig": Config,
-        "MAX_TRAILING_STOP_PCT": 3.0, "STOP_WARNING_PCT": 1.5, "STOP_NEAR_PCT": 2.25,
-        "PROFIT_PROTECT_TRIGGER_PCT": 2.0, "PROFIT_RETENTION_2_3_PCT": 40.0,
-        "PROFIT_RETENTION_3_5_PCT": 55.0, "PROFIT_RETENTION_5_8_PCT": 65.0,
-        "PROFIT_RETENTION_8_PLUS_PCT": 70.0, "PROFIT_EXIT_WATCH_BUFFER_PCT": 0.50,
-        "_coarse_market_snapshot": lambda tickers, market: {"VLO": {"last_price": 107.0, "session_date": "2026-09-23"}},
-        "load_state": lambda: {}, "save_state": lambda value: saved.append(dict(value)),
-        "append_event": lambda *args, **kwargs: None, "AUDIT_KEY": "audit", "AUDIT_PATH": "audit.jsonl",
-        "_now": lambda: "2026-09-23T12:00:00+00:00",
-        "portfolio_health": lambda rows: {"score": 0 if not rows else 100},
-        "notify_stop_alerts": lambda alerts, state: (notified.append(list(alerts)) is None, "ok"),
-    }
-    exec(compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])), "super_portfolio.py", "exec"), namespace)
+def test_lightweight_surveillance_executes_and_notifies_confirmed_exit(monkeypatch) -> None:
+    import super_portfolio as sp
+    saved, notified = [], []
+    now = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(sp, "_execution_quotes", lambda *a: {"VLO": {"price": 107.0,
+        "market_data_at": now.isoformat(), "source": "yfinance 5m Close", "adjustment": "raw"}})
+    monkeypatch.setattr(sp, "save_state", lambda value: saved.append(dict(value)) or value)
+    monkeypatch.setattr(sp, "append_event", lambda *a, **kw: None)
+    monkeypatch.setattr(sp, "notify_stop_alerts", lambda alerts, state: (notified.append(list(alerts)) is None, "ok"))
     state = {
         "config": {"auto_pushover": True},
         "positions": {"VLO": {
@@ -202,9 +173,7 @@ def test_lightweight_surveillance_executes_and_notifies_confirmed_exit() -> None
         }},
         "stop_surveillance_history": [{"positions": [{"ticker": "VLO", "distance_to_hard_stop_pct": 2.0}]}],
     }
-    result = namespace["run_lightweight_stop_surveillance"](
-        state=state, now=datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
-    )
+    result = sp.run_lightweight_stop_surveillance(state=state, now=now)
     assert result["state"] == "COMPLETED"
     assert result["changes"][0]["reason_code"] == "PROFIT_PROTECTION_EXIT"
     assert saved[-1]["positions"] == {}

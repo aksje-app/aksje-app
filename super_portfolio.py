@@ -16,6 +16,8 @@ import json
 import time
 import zipfile
 from math import isfinite, sqrt
+from trade_time import minimum_hold_met
+from exit_policy import DEFAULT_EXIT_POLICY
 from typing import Any, Mapping, Sequence
 
 from durable_runtime import append_event, read_events, read_json, write_json
@@ -43,6 +45,24 @@ LATEST_PIPELINE_KEY = "investment_pipeline/latest_run.json"
 LATEST_PIPELINE_PATH = runtime_data_path("investment_pipeline", "latest_run.json")
 MARKET_PIPELINE_KEY = "super_portfolio/market_pipeline.json"
 MARKET_PIPELINE_PATH = runtime_data_path("super_portfolio", "market_pipeline.json")
+
+
+def _operation_id(pipeline):
+    return "job:" + str(pipeline["job_id"]) if pipeline.get("job_id") else "run:" + str(pipeline.get("run_id") or pipeline.get("report_id") or "")
+
+
+def _execution_quotes(tickers, now):
+    """Execution prices have their own provider timestamps, never scan timestamps."""
+    from scanner_fresh_quote import fresh_paper_buy_quote
+    quotes = {}
+    for ticker in tickers:
+        quote, _ = fresh_paper_buy_quote(ticker, now=now)
+        if quote is not None:
+            from scanner_fresh_quote import validate_execution_quote
+            valid, _ = validate_execution_quote(quote["price"], {"execution_quote": quote, "market_data_at": quote.get("market_data_at")}, now=now)
+            if valid:
+                quotes[ticker] = quote
+    return quotes
 
 _RETURN_KEYS = (
     "return_1d", "return_3d", "return_5d", "return_10d", "return_20d",
@@ -345,6 +365,7 @@ class SuperPortfolioConfig:
     profit_exit_watch_buffer_pct: float = PROFIT_EXIT_WATCH_BUFFER_PCT
     auto_pushover: bool = True
     history_limit: int = 180
+    minimum_hold_hours: float = DEFAULT_EXIT_POLICY.minimum_hold_hours
     transaction_cost_bps: float = 10.0
     base_currency: str = "NOK"
     benchmark_ticker: str = "^STOXX"
@@ -459,8 +480,10 @@ def save_state(state: Mapping[str, Any]) -> dict[str, Any]:
     value = dict(state)
     value["version"] = VERSION
     value["updated_at"] = _now()
-    write_json(STATE_KEY, STATE_PATH, value)
-    return value
+    from services.super_portfolio_store import commit
+    pending = value.pop("_pending_commit", {})
+    return commit(value, operation_id=pending.get("operation_id", ""),
+                  trades=pending.get("transactions", []), result=pending.get("result"))
 
 
 def load_latest_pipeline() -> dict[str, Any]:
@@ -1085,6 +1108,10 @@ def _verified_next_session_open(row: Mapping[str, Any], pending: dict[str, Any],
         return ["ENTRY_OPEN_QUOTE_UNVERIFIED"], 0.0
     if (opened / previous_close - 1.0) * 100 >= 2.0:
         return ["ENTRY_OPEN_GAP_UP"], 0.0
+    opening_at = datetime.combine(now.astimezone(ZoneInfo(MARKETS[market]["tz"])).date(),
+                                  MARKETS[market]["open"], tzinfo=ZoneInfo(MARKETS[market]["tz"]))
+    row["_entry_execution_evidence"] = {"price": opened, "market_data_at": opening_at.astimezone(timezone.utc).isoformat(),
+                                        "session_date": date, "source": "VERIFIED_SESSION_OPEN", "adjustment": "provider_daily", "price_basis": "NEXT_SESSION_OPEN_SHADOW"}
     return [], opened
 
 
@@ -1719,6 +1746,10 @@ def build_diagnostic_zip(state: Mapping[str, Any] | None = None, *, ticker: str 
         except Exception as exc:
             zf.writestr("recent_shadow_unavailable.json", json.dumps({"error": type(exc).__name__, "message": str(exc)[:200]}))
     with zipfile.ZipFile(buf, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+        from services.super_portfolio_store import export_files
+        for name, content in export_files().items():
+            zf.writestr(name, content)
+        zf.writestr("stop_surveillance_history.json", json.dumps(data.get("stop_surveillance_history") or [], ensure_ascii=False, default=str))
         manifest_bytes = {name: zf.read(name) for name in zf.namelist()}
         zf.writestr("manifest.json", json.dumps(diagnostic_manifest(manifest_bytes), ensure_ascii=False))
     return buf.getvalue()
@@ -2045,7 +2076,10 @@ def _cooldown_reason(state: Mapping[str, Any], ticker: str, now: datetime) -> st
 def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, Any], now_iso: str, cfg: SuperPortfolioConfig, history: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     entry_price = _f(old.get("entry_price")) or _f(row.get("_shadow_entry_fill_price")) or _f(row.get("price"))
     entry_date = str(old.get("entry_date") or now_iso)
-    peak = max(_f(old.get("peak_price")), _f(row.get("price")))
+    mark = _f(row.get("price"))
+    if not old and row.get("_entry_execution_evidence") and not _timestamp_from_row(row.get("raw_candidate") or row):
+        mark = entry_price  # an untimed analytical price is not a later execution mark
+    peak = max(_f(old.get("peak_price")), entry_price, mark)
     pos = {
         "ticker": row.get("ticker"), "market": row.get("market"), "sector": row.get("sector"),
         **classification(row),
@@ -2053,7 +2087,7 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "entry_portfolio_score": old.get("entry_portfolio_score") if old else row.get("portfolio_score_adjusted", row.get("portfolio_score")),
         "best_rank_since_entry": min([int(v) for v in (old.get("best_rank_since_entry"), old.get("entry_rank"), row.get("rank")) if v is not None], default=None),
         "last_full_assessment_at": now_iso,
-        "entry_date": entry_date, "entry_price": entry_price, "last_price": _f(row.get("price")), "peak_price": peak,
+        "entry_date": entry_date, "entry_price": entry_price, "last_price": mark, "peak_price": peak,
         "entry_price_basis": old.get("entry_price_basis") if old else ("NEXT_SESSION_OPEN_SHADOW" if _f(row.get("_shadow_entry_fill_price")) else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL"),
         "entry_signal_price_timestamp": old.get("entry_signal_price_timestamp") if old else _timestamp_from_row(row),
         "target_weight_pct": round(_f(weight), 2), "investment_score": row.get("investment_score"), "portfolio_score": row.get("portfolio_score"),
@@ -2064,6 +2098,11 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "risk_score": row.get("risk_score"), "quality_score": row.get("quality_score"), "volatility_pct": row.get("volatility_pct"),
         "currency": row.get("currency"), "data_freshness": dict(row.get("data_freshness") or {}), "event_risk": dict(row.get("event_risk") or {}),
         "why_here": list(row.get("why_here") or []),
+        "position_id": old.get("position_id") or f"{row.get('ticker')}:{now_iso}",
+        "execution_evidence": dict(row.get("_execution_evidence") or row.get("_entry_execution_evidence") or old.get("execution_evidence") or {}),
+        "price_observed_at": (row.get("_execution_evidence") or row.get("_entry_execution_evidence") or old.get("execution_evidence") or {}).get("market_data_at"),
+        "decision_at": now_iso,
+        "simulated_execution_at": old.get("simulated_execution_at") or now_iso,
     }
     pos.update(_stop_status(pos, cfg))
     pressure = stop_pressure(pos, history, cfg)
@@ -2152,7 +2191,18 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     if simulation_state is not None and (persist or pipeline is None):
         raise ValueError("Simulation requires frozen pipeline and persist=False")
     pipeline = dict(pipeline if pipeline is not None else get_or_build_super_portfolio_market_pipeline())
-    state = deepcopy(dict(simulation_state)) if simulation_state is not None else load_state()
+    state = deepcopy(dict(simulation_state)) if simulation_state is not None else deepcopy(load_state())
+    operation_id = _operation_id(pipeline)
+    if persist:
+        if not (pipeline.get("job_id") or pipeline.get("run_id") or pipeline.get("report_id")):
+            raise ValueError("Porteføljeoppgjør krever en varig kjøre-ID")
+        from services.super_portfolio_store import receipt
+        saved = receipt(operation_id)
+        if saved:
+            return {"state": state, "changes": saved["changes"], "stop_alerts": [],
+                    "source_run_id": saved.get("run_id"), "already_committed": True,
+                    "rebalance_due": False}
+    accounting_before = deepcopy(state)
     now_dt = now or _now_dt()
     now_iso = now_dt.isoformat(timespec="seconds")
     config_data = state.get("config") if isinstance(state.get("config"), Mapping) else {}
@@ -2186,6 +2236,12 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     manual_shadow = [dict(row) for row in ranked_all if _cooldown_active(state, str(row.get("ticker") or ""), now_dt)]
     ranked = [row for row in ranked_all if not _cooldown_active(state, str(row.get("ticker") or ""), now_dt)]
     previous = {str(k): dict(v) for k, v in (state.get("positions") or {}).items()}
+    live_quotes = _execution_quotes(previous, now_dt) if persist else {}
+    if persist:
+        from scanner_fresh_quote import validate_execution_quote
+        live_quotes = {t: q for t, q in live_quotes.items() if validate_execution_quote(q.get("price"),
+            {"execution_quote": q, "market_data_at": q.get("market_data_at")}, now=now_dt,
+            not_before=previous[t].get("price_observed_at"))[0]}
 
     regime_policy = rebalance_regime_policy(pipeline, cfg)
     ai_selected_rows, selection_meta = select_target_rows_with_hysteresis(
@@ -2196,9 +2252,24 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         state=state, proposed_rows=ai_selected_rows, ranked=ranked, previous=previous,
         pipeline=pipeline, config=cfg, now=now_dt, regime_policy=regime_policy,
     )
+    if persist:
+        executable_rows = []
+        for row in selected_rows:
+            ticker = str(row.get("ticker") or "")
+            if ticker in previous or row.get("_entry_execution_evidence"):
+                executable_rows.append(row)
+            else:
+                entry_gate[ticker] = {"allowed": False, "reason_codes": ["EXECUTION_EVIDENCE_UNAVAILABLE"]}
+        selected_rows = executable_rows
     weights = target_weights(selected_rows, cfg)
     by_ticker = {str(row["ticker"]): row for row in ranked}
     by_ticker.update({str(row["ticker"]): row for row in selected_rows})
+    if persist:
+        for ticker, old in previous.items():
+            quote = live_quotes.get(ticker)
+            if ticker in by_ticker:
+                by_ticker[ticker] = dict(by_ticker[ticker], price=quote["price"] if quote else old.get("last_price"),
+                                         _execution_evidence=quote or old.get("execution_evidence") or {})
     decision_run_id = str(pipeline.get("run_id") or pipeline.get("report_id") or "")
     preliminary_advisory = ai_would_do_today(
         previous,
@@ -2233,6 +2304,13 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     )
     rebalance_due = _rebalance_due(state, now_dt, cfg, rebalance_policy)
     ordinary_rebalance_allowed = bool(rebalance_due and rebalance_gate.get("allowed"))
+    outgoing = [t for t, p in previous.items() if _f(weights.get(t)) < _f(p.get("target_weight_pct"))]
+    if any(not minimum_hold_met(previous[t], cfg.minimum_hold_hours, now_dt) for t in outgoing):
+        ordinary_rebalance_allowed = False
+        rebalance_gate.setdefault("reason_codes", []).append("MINIMUM_HOLD")
+    if persist and any(t not in live_quotes for t in outgoing):
+        ordinary_rebalance_allowed = False
+        rebalance_gate.setdefault("reason_codes", []).append("EXECUTION_QUOTE_UNAVAILABLE")
     for action in advisory:
         ticker = str(action.get("ticker") or "")
         individual_reasons = list((entry_gate.get(ticker) or {}).get("reason_codes") or [])
@@ -2267,7 +2345,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             row = by_ticker[ticker]
             old = previous.get(ticker) or {}
             pos = _position_from_row(row, weight, old, now_iso, cfg, history)
-            stop_exit = _automatic_stop_exit(pos) if old else None
+            stop_exit = _automatic_stop_exit(pos) if old and (not persist or ticker in live_quotes) else None
             if stop_exit:
                 reason_code, reason = stop_exit
                 pos["stop_exit_reason_code"] = reason_code
@@ -2328,6 +2406,10 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                 pos = _position_from_row(row, _f(old.get("target_weight_pct")), old, now_iso, cfg, history)
             else:
                 pos = dict(old)
+                if persist and ticker in live_quotes:
+                    fresh = live_quotes[ticker]
+                    pos.update(last_price=fresh["price"], peak_price=max(_f(old.get("peak_price")), fresh["price"]),
+                               execution_evidence=fresh, price_observed_at=fresh["market_data_at"])
                 pos.update(rank=None, portfolio_score_adjusted=None, last_full_assessment_at=now_iso)
                 pos.update(_stop_status(pos, cfg))
                 pressure = stop_pressure(pos, history, cfg)
@@ -2335,7 +2417,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                     "stop_pressure": pressure["pressure"], "stop_pressure_icon": pressure["pressure_icon"],
                     "stop_direction_arrow": pressure["direction_arrow"], "stop_distance_change_pct": pressure["distance_change_pct"],
                 })
-            stop_exit = _automatic_stop_exit(pos)
+            stop_exit = _automatic_stop_exit(pos) if not persist or ticker in live_quotes else None
             if stop_exit:
                 reason_code, reason = stop_exit
                 pos["stop_exit_reason_code"] = reason_code
@@ -2361,6 +2443,8 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             break
         current_weight = _f(pos.get("target_weight_pct"))
         if current_weight <= cfg.max_position_pct + 1e-9:
+            continue
+        if persist and ticker not in live_quotes:
             continue
         capped_weight = round(float(cfg.max_position_pct), 2)
         pos = dict(pos)
@@ -2449,7 +2533,7 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
                 continue
             refill_candidates.append((int(row.get("rank") or 999999), -_f(row.get("portfolio_score_adjusted", row.get("portfolio_score"))), ticker, row, desired))
         refill_candidates.sort(key=lambda item: (item[0], item[1], item[2]))
-        for _, __, ticker, row, desired in refill_candidates[: max(0, min(free_slots, int(cfg.risk_exit_refill_max_per_cycle)))]:
+        for _, __, ticker, row, desired in refill_candidates[: max(0, min(free_slots, pending_refill_slots + len(risk_exit_positions), int(cfg.risk_exit_refill_max_per_cycle)))]:
             allocation = min(desired, free_weight)
             if allocation < max(1.0, float(cfg.min_rebalance_pp)):
                 continue
@@ -2544,13 +2628,27 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
             current_marks[ticker] = _candidate_price(by_ticker[ticker]) or _f(old_position.get("last_price"))
         else:
             current_marks[ticker] = _f(old_position.get("last_price"))
-    performance = portfolio_value_update(
-        previous,
-        current_marks,
-        previous_value=portfolio_value_before,
-        initial_cash=_f(state.get("initial_cash"), cfg.start_cash),
-        transaction_cost=_f(turnover.get("estimated_cost")),
-    )
+    for change in changes:
+        ticker = change["ticker"]
+        pos = positions.get(ticker) or risk_exit_positions.get(ticker) or previous.get(ticker) or {}
+        if change["action"] in {"SELL", "REDUCE"}:
+            change["exit_price"] = current_marks.get(ticker) or pos.get("last_price")
+            change["execution_price"] = change["exit_price"]
+            change["execution_evidence"] = live_quotes.get(ticker) or pos.get("execution_evidence") or {}
+            change["stop_price"] = pos.get("effective_stop_price")
+        elif change["action"] == "BUY":
+            change["execution_price"] = pos.get("entry_price")
+    from services.super_portfolio_accounting import settle
+    performance = settle(accounting_before, positions, changes, operation_id=operation_id,
+                         decision_at=now_iso, cost_bps=cfg.transaction_cost_bps)
+    positions = performance["positions"]
+    changes = performance["transactions"]
+    position_rows = list(positions.values())
+    turnover = performance["turnover_costs"]
+    vacancy_diagnostics.update(cash=performance["cash"],
+        cash_pct=round(performance["cash"] / performance["portfolio_value"] * 100, 4) if performance["portfolio_value"] else 100,
+        invested_weight_pct=round(sum(p["market_value"] for p in positions.values()) / performance["portfolio_value"] * 100, 4) if performance["portfolio_value"] else 0)
+    state.update({key: performance[key] for key in ("cash", "accounting_schema", "accounting_opening_balance")})
     stress = stress_radar(position_rows)
     ranking_snapshot = [{"ticker": row.get("ticker"), "rank": row.get("rank"), "score": row.get("portfolio_score_adjusted"), "rank_arrow": row.get("rank_arrow")} for row in ranked_all[: max(cfg.target_positions + cfg.challenger_count, 30)]]
     snapshot = {
@@ -2618,7 +2716,11 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     history.append(snapshot)
     state["history"] = history[-max(10, int(cfg.history_limit)):]
     if persist:
-        save_state(state)
+        state["_pending_commit"] = {"operation_id": operation_id, "transactions": changes,
+                                    "result": {"run_id": decision_run_id, "job_id": pipeline.get("job_id"),
+                                               "outcome": pipeline.get("outcome", "COMPLETED"),
+                                               "verification": pipeline.get("verification") or {}}}
+        state = save_state(state)
         append_event(AUDIT_KEY, AUDIT_PATH, {
             "timestamp": now_iso, "event": "EVALUATE", "changes": changes, "stop_alerts": stop_alerts,
             "portfolio_health": health, "source_run_id": snapshot["source_run_id"], "rebalance_due": rebalance_due,
@@ -2649,19 +2751,40 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     }
 
 def manual_exit(ticker: str, note: str = "") -> dict[str, Any]:
-    state = load_state(); positions = dict(state.get("positions") or {})
+    state = deepcopy(load_state())
+    before = deepcopy(state)
     key = str(ticker or "").strip().upper()
-    row = positions.pop(key, None)
+    row = (state.get("positions") or {}).get(key)
     if not row:
         return {"ok": False, "reason": "Position not found"}
+    now = _now_dt()
+    quote = _execution_quotes([key], now).get(key)
+    if quote is None:
+        return {"ok": False, "reason": "Manuelt modellsalg mangler verifisert fersk kurs"}
     cfg_data = state.get("config") if isinstance(state.get("config"), Mapping) else {}
-    cooldown_days = int(cfg_data.get("manual_exit_cooldown_days") or SuperPortfolioConfig().manual_exit_cooldown_days)
-    until = _now_dt() + timedelta(days=max(1, cooldown_days))
-    event = {"timestamp": _now(), "event": "MANUAL_EXIT", "ticker": key, "price": row.get("last_price"), "pnl_pct": row.get("pnl_pct"), "note": str(note or ""), "cooldown_until": until.isoformat(timespec="seconds")}
-    state["positions"] = positions
+    cfg = SuperPortfolioConfig(**{k: v for k, v in cfg_data.items() if k in SuperPortfolioConfig.__dataclass_fields__})
+    until = now + timedelta(days=max(1, int(cfg.manual_exit_cooldown_days)))
+    stamp = now.isoformat(timespec="seconds")
+    operation_id = f"manual:{key}:{row.get('position_id') or row.get('entry_date')}:{quote['market_data_at']}"
+    changes = [{"action": "SELL", "ticker": key, "from_pct": row.get("target_weight_pct", 0), "to_pct": 0,
+                "reason_code": "MANUAL_EXIT", "reason": str(note or "Manuell modellutgang"),
+                "exit_price": quote["price"], "execution_evidence": quote}]
+    positions = {t: p for t, p in state["positions"].items() if t != key}
+    from services.super_portfolio_accounting import settle
+    accounting = settle(before, positions, changes, operation_id=operation_id, decision_at=stamp, cost_bps=cfg.transaction_cost_bps)
+    transactions = accounting.pop("transactions")
+    state.update(accounting)
+    state.setdefault("vacancy_diagnostics", {}).update(cash=accounting["cash"],
+        cash_pct=accounting["cash"] / accounting["portfolio_value"] * 100 if accounting["portfolio_value"] else 100,
+        position_count=len(positions), open_slots=max(0, cfg.target_positions - len(positions)))
+    event = {"timestamp": stamp, "event": "MANUAL_EXIT", "ticker": key, "price": quote["price"],
+             "note": str(note or ""), "cooldown_until": until.isoformat(timespec="seconds"), "changes": transactions}
     state.setdefault("manual_exits", []).append(event)
     state.setdefault("manual_exit_cooldown", {})[key] = event["cooldown_until"]
-    save_state(state); append_event(AUDIT_KEY, AUDIT_PATH, event)
+    state["last_changes"] = transactions
+    state["_pending_commit"] = {"operation_id": operation_id, "transactions": transactions}
+    save_state(state)
+    append_event(AUDIT_KEY, AUDIT_PATH, event)
     return {"ok": True, **event}
 
 
@@ -2961,7 +3084,8 @@ def run_lightweight_stop_surveillance(
     This path cannot add, rank or rebalance positions. Missing/stale provider
     data causes no sale; the next scheduled cycle retries after the interval.
     """
-    data = dict(state or load_state())
+    data = deepcopy(dict(state or load_state()))
+    accounting_before = deepcopy(data)
     reference = now or _now_dt()
     config_data = data.get("config") if isinstance(data.get("config"), Mapping) else {}
     allowed = set(SuperPortfolioConfig.__dataclass_fields__)
@@ -2984,7 +3108,7 @@ def run_lightweight_stop_surveillance(
         save_state(data)
         return {"state": "NOT_DUE", "reason": "NO_POSITIONS", "changes": [], "stop_alerts": [], "notification": "NOT_SENT"}
 
-    prices = _coarse_market_snapshot(list(previous), "STOP_SURVEILLANCE")
+    prices = _execution_quotes(previous, reference)
     if not prices:
         save_state(data)
         append_event(AUDIT_KEY, AUDIT_PATH, {
@@ -2999,17 +3123,19 @@ def run_lightweight_stop_surveillance(
     changes: list[dict[str, Any]] = []
     for ticker, old in previous.items():
         quote = dict(prices.get(ticker) or {})
-        current_price = _f(quote.get("last_price"))
-        # Historical daily closes are not proof of a new price observation.
-        # Fail closed for same-day stop execution when today's market bar is
-        # absent; the old valuation stays visible but is not a fresh fill.
-        quote_session = str(quote.get("session_date") or "")[:10]
-        market_session = reference.date().isoformat()
-        if current_price <= 0 or quote_session != market_session:
+        current_price = _f(quote.get("price"))
+        # Keep the provider timestamp attached to the raw intraday price.
+        # Unknown/stale/out-of-order observations cannot authorize a fill.
+        from scanner_fresh_quote import validate_execution_quote
+        valid, _ = validate_execution_quote(current_price, {"execution_quote": quote, "market_data_at": quote.get("market_data_at")},
+                                             now=reference, not_before=old.get("price_observed_at"))
+        if not valid:
             positions[ticker] = old
             continue
         pos = dict(old)
         pos["last_price"] = current_price
+        pos["price_observed_at"] = quote["market_data_at"]
+        pos["execution_evidence"] = quote
         pos["peak_price"] = max(_f(old.get("peak_price")), _f(old.get("entry_price")), current_price)
         pos["stop_price_checked_at"] = reference.isoformat(timespec="seconds")
         pos.update(_stop_status(pos, cfg))
@@ -3033,6 +3159,7 @@ def run_lightweight_stop_surveillance(
                 "entry_price": pos.get("entry_price"), "peak_price": pos.get("peak_price"),
                 "exit_price": pos.get("last_price"), "exit_at": reference.isoformat(timespec="seconds"), "pnl_pct": pos.get("pnl_pct"),
                 "decision_run_id": f"STOP-{reference.strftime('%Y%m%d-%H%M%S')}",
+                "execution_evidence": quote, "stop_price": pos.get("effective_stop_price"),
             })
         else:
             positions[ticker] = pos
@@ -3081,9 +3208,22 @@ def run_lightweight_stop_surveillance(
         "pending_refill_slots_after": int(data.get("pending_risk_refill_slots") or 0),
         "considered": [],
     }
+    identity = [(t, previous[t].get("position_id") or previous[t].get("entry_date"), q.get("market_data_at")) for t, q in sorted(prices.items())]
+    operation_id = "stop:" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    from services.super_portfolio_accounting import settle
+    accounting = settle(accounting_before, positions, changes, operation_id=operation_id,
+                        decision_at=reference.isoformat(timespec="seconds"), cost_bps=cfg.transaction_cost_bps)
+    changes = accounting.pop("transactions")
+    data.update(accounting)
+    data["vacancy_diagnostics"].update(cash=accounting["cash"],
+        cash_pct=accounting["cash"] / accounting["portfolio_value"] * 100 if accounting["portfolio_value"] else 100,
+        invested_weight_pct=sum(p["market_value"] for p in accounting["positions"].values()) / accounting["portfolio_value"] * 100 if accounting["portfolio_value"] else 0)
+    data["last_portfolio_transaction_cost"] = accounting["transaction_cost"]
     data["last_changes"] = changes
     data["last_stop_alerts"] = alerts
-    save_state(data)
+    if changes:
+        data["_pending_commit"] = {"operation_id": operation_id, "transactions": changes}
+    data = save_state(data)
 
     notification = "NOT_SENT"
     if alerts and bool((data.get("config") or {}).get("auto_pushover", True)):
@@ -3091,7 +3231,8 @@ def run_lightweight_stop_surveillance(
         notification = "SENT" if ok else f"FAILED:{detail}"
     append_event(AUDIT_KEY, AUDIT_PATH, {
         "timestamp": _now(), "event": "LIGHTWEIGHT_STOP_SURVEILLANCE",
-        "prices": len(prices), "changes": len(changes), "stop_alerts": len(alerts),
+        "prices": len(prices), "changes": changes, "change_count": len(changes), "stop_alerts": len(alerts),
+        "portfolio_value": data["portfolio_value"], "cash": data["cash"], "transaction_cost": data["transaction_cost"],
         "notification": notification,
         "positions_before": len(previous), "positions_after": len(positions),
         "vacancy_diagnostics": data.get("vacancy_diagnostics") or {},
@@ -3136,6 +3277,9 @@ def run_scheduled_shadow_cycle(
         surveillance = run_lightweight_stop_surveillance(state=state, now=now_dt)
         return {**surveillance, "source_run_id": source_id, "mode": "STOP_SURVEILLANCE"}
     result = evaluate(pipeline=pipeline, persist=True, rebalance_policy="AUTO")
+    if result.get("already_committed"):
+        return {"state": "COMPLETED", "source_run_id": source_id, "changes": result["changes"],
+                "change_count": len(result["changes"]), "already_committed": True, "stop_alerts": []}
     new_state = dict(result.get("state") or load_state())
     new_state["last_scheduled_source_run_id"] = source_id
     index_row = refresh_index_benchmark(new_state)
@@ -3161,7 +3305,9 @@ def run_scheduled_shadow_cycle(
             notification["stops"] = "SENT" if ok else f"FAILED:{detail}"
     save_state(new_state)
     append_event(AUDIT_KEY, AUDIT_PATH, {"timestamp": _now(), "event": "SCHEDULED_SHADOW_CYCLE", "source_run_id": source_id, "changes": len(result.get("changes") or []), "stop_alerts": len(result.get("stop_alerts") or []), "notification": notification})
-    return {"state": "COMPLETED", "source_run_id": source_id, "changes": len(result.get("changes") or []), "stop_alerts": len(result.get("stop_alerts") or []), "rebalance_due": bool(result.get("rebalance_due")), "notification": notification}
+    return {"state": "COMPLETED", "source_run_id": source_id, "changes": list(result.get("changes") or []),
+            "change_count": len(result.get("changes") or []), "stop_alerts": list(result.get("stop_alerts") or []),
+            "rebalance_due": bool(result.get("rebalance_due")), "notification": notification}
 
 
 def audit_rows(limit: int = 500) -> list[dict[str, Any]]:

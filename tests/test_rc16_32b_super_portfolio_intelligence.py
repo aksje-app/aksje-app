@@ -96,7 +96,7 @@ def test_evaluate_exposes_health_velocity_pressure_and_advisory_actions(monkeypa
 
     state = sp.default_state(sp.SuperPortfolioConfig(target_positions=2, challenger_count=1))
     state["positions"] = {
-        "OLD": {"ticker": "OLD", "target_weight_pct": 50.0, "entry_price": 100, "last_price": 100, "peak_price": 100}
+        "OLD": {"ticker": "OLD", "entry_date": "2020-01-01T00:00:00+00:00", "target_weight_pct": 50.0, "entry_price": 100, "last_price": 100, "peak_price": 100}
     }
     state["history"] = [
         {

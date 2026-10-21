@@ -711,7 +711,15 @@ def render_super_portfolio(_legacy_context) -> None:
                     "Dato":snap.get("at"),"Handling":change.get("action"),"Aksje":change.get("ticker"),
                     "Fra %":change.get("from_pct"),"Til %":change.get("to_pct"),"Årsak":change.get("reason"),"Kode":change.get("reason_code")
                 })
-        if events:
+        from services.super_portfolio_store import transactions
+        ledger = transactions(limit=250)
+        if ledger:
+            st.caption("Siste 250 journalførte handler. Diagnose-ZIP inneholder hele den bevarte transaksjonsloggen; eldre hull rekonstrueres ikke.")
+            st.dataframe(pd.DataFrame([{ "Tid": r.get("simulated_execution_at"), "Kurs observert": r.get("price_observed_at"),
+                "Handling": r.get("action"), "Aksje": r.get("ticker"), "Kurs": r.get("execution_price"),
+                "Kostnad": r.get("transaction_cost"), "Kontanter etter": r.get("cash_after"),
+                "Årsak": r.get("reason"), "Handels-ID": r.get("trade_id")} for r in reversed(ledger)]), width="stretch", hide_index=True)
+        elif events:
             st.dataframe(pd.DataFrame(events[:250]), width="stretch", hide_index=True)
         else:
             st.caption("Ingen faktiske Shadow-endringer registrert ennå.")

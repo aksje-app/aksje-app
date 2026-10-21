@@ -421,9 +421,10 @@ def _automatic_signal_fresh_v1931ay(trade_context, rules, now=None):
 def _reentry_block_v1931ay(portfolio, ticker, confidence, rules, buy_price=None, now=None):
     """Block churn after every SELL; risk exits receive a longer quarantine."""
     ticker = str(ticker or "").upper().strip()
-    now = now or datetime.now()
+    from trade_time import utc_time
+    now = utc_time(now or datetime.now(timezone.utc)).replace(tzinfo=None)
     trades = list((portfolio or {}).get("trades", []) or [])
-    for trade in reversed(trades):
+    for trade in sorted(trades, key=lambda row: _parse_trade_time_v18660(row.get("time")) or datetime.max, reverse=True):
         try:
             if str(trade.get("ticker") or "").upper().strip() != ticker:
                 continue
@@ -471,7 +472,7 @@ def paper_reentry_status(ticker, buy_price=None, *, portfolio=None, rules=None, 
     rules = dict(rules or load_rules() or {})
     ticker = str(ticker or "").upper().strip()
     blocked, message = _reentry_block_v1931ay(portfolio, ticker, 0, rules, buy_price=buy_price, now=now)
-    latest_sell = next((dict(row) for row in reversed(list(portfolio.get("trades") or []))
+    latest_sell = next((dict(row) for row in sorted(list(portfolio.get("trades") or []), key=lambda row: _parse_trade_time_v18660(row.get("time")) or datetime.max, reverse=True)
                         if str(row.get("ticker") or "").upper().strip() == ticker
                         and str(row.get("type") or "").upper() == "SELL"), {})
     return {
@@ -697,7 +698,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "reason": reason,
             "asset_type": "Aksje",
             "units_label": "shares",
-            "last_added_at": datetime.now().isoformat(timespec="seconds"),
+            "last_added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "target_price": float(target_price or existing_pos.get("target_price", 0) or 0),
             "initial_risk_amount": float(initial_risk_amount or existing_pos.get("initial_risk_amount", 0) or 0),
             "country": trade_ctx.get("country", existing_pos.get("country", "")),
@@ -874,11 +875,10 @@ def _auto_sell_hold_guard_v18675(pos, rules, reason_kind="signal"):
     except Exception:
         minimum_hours = 24.0
     raw = (pos or {}).get("last_added_at") or (pos or {}).get("opened_at") or (pos or {}).get("entry_time")
-    try:
-        opened = datetime.fromisoformat(str(raw))
-        age_hours = max(0.0, (datetime.now() - opened).total_seconds() / 3600.0)
-    except Exception:
-        return True, 0.0, minimum_hours
+    from trade_time import elapsed_hours
+    age_hours = elapsed_hours(raw, datetime.now(timezone.utc))
+    if age_hours is None:
+        return minimum_hours <= 0, 0.0, minimum_hours
     return age_hours >= minimum_hours, age_hours, minimum_hours
 
 

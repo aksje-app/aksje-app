@@ -631,6 +631,13 @@ def _collect_full_replay_snapshots() -> dict[str, Any]:
 def _collect_runtime_exports() -> dict[str, Any]:
     out: dict[str, Any] = {}
     try:
+        from services.super_portfolio_store import audit_snapshot
+        sp_state, sp_trades = audit_snapshot()
+        out["super_portfolio/state.json"] = sp_state
+        out["super_portfolio/transactions.json"] = sp_trades
+    except Exception as exc:
+        out["audit/super_portfolio_export_error.json"] = {"error": str(exc)}
+    try:
         import market_intelligence as mi
         out.update({
             "jobs/job_profiles.json": [asdict(job) if is_dataclass(job) else sanitize_for_export(job) for job in mi.load_jobs()],

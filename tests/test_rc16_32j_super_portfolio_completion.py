@@ -13,7 +13,7 @@ def candidate(ticker, score=90, *, quality=90, risk=30, price=100, market='USA',
 
 def position(ticker, *, weight=50, score=80, rank=1, market='USA', sector='Tech'):
     return {
-        'ticker': ticker, 'market': market, 'sector': sector, 'target_weight_pct': weight,
+        'ticker': ticker, 'entry_date': '2026-09-01T00:00:00+00:00', 'market': market, 'sector': sector, 'target_weight_pct': weight,
         'entry_price': 100, 'last_price': 100, 'peak_price': 100, 'risk_score': 30,
         'quality_score': 90, 'portfolio_score': score, 'portfolio_score_adjusted': score,
         'rank': rank, 'max_portfolio_correlation': 0.2, 'correlation_source': 'MULTI_HORIZON_RETURN_PROFILE',
