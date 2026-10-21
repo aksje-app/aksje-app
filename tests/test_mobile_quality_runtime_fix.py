@@ -43,8 +43,9 @@ class Fake:
     def rerun(self): self.reruns += 1
 
 def test_mobile_labels_have_no_literal_escape_and_navigation_mutates_query():
-    st=Fake("aa_mobile_nav_market")
+    st=Fake("aa_mobile_nav_findings")
     render_shell(st,"overview")
     assert all("\\n" not in label for label in st.labels)
-    assert st.query_params["aa_nav"] == "market"
+    assert st.session_state["active_nav_target_v18674c"] == "autonomy"
+    assert st.session_state["show_interim_research_findings"] is True
     assert st.reruns == 1

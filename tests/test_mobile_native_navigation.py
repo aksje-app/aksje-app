@@ -23,12 +23,14 @@ class Fake:
     def rerun(self): self.reruns += 1
 
 def test_every_primary_mobile_target_changes_navigation():
-    expected={"overview":"dashboard","portfolio":"portfolio","market":"market","quality":"quality_valuation","alerts":"alerts"}
+    expected={"overview":"dashboard","portfolio":"portfolio","findings":"autonomy","quality":"quality_valuation","alerts":"alerts"}
     for slug,target in expected.items():
         st=Fake("aa_mobile_nav_"+slug)
         render_shell(st,"overview")
-        assert st.query_params["aa_nav"] == target
+        assert st.session_state["active_nav_target_v18674c"] == target
         assert st.reruns == 1
+        if slug == "findings":
+            assert st.session_state["show_interim_research_findings"] is True
 
 def test_more_opens_and_every_more_target_navigates():
     st=Fake("aa_mobile_nav_more")
@@ -38,7 +40,7 @@ def test_more_opens_and_every_more_target_navigates():
         st=Fake("aa_mobile_more_"+item.slug)
         st.session_state["aa_mobile_more_open"]=True
         render_shell(st,"overview")
-        assert st.query_params["aa_nav"]
+        assert st.session_state["active_nav_target_v18674c"]
 
 def test_mobile_rail_contains_seven_primary_actions_with_direct_superfund():
-    assert [x.slug for x in MOBILE_ROUTES] == ["overview","superfund","portfolio","market","quality","alerts","more"]
+    assert [x.slug for x in MOBILE_ROUTES] == ["overview","superfund","portfolio","findings","quality","alerts","more"]
