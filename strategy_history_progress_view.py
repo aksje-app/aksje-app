@@ -36,7 +36,7 @@ def render(st):
         return
     status = progress["status"]
     from app_time_display import local_display, age_hours, browser_timezone
-    lines(st, f"Jobbstatus: {status} · Sist oppdatert ({browser_timezone(st)}): {local_display(st,progress['updated_at'])}")
+    lines(st, f"Datainnsamling: {status}", f"Sist oppdatert: {local_display(st,progress['updated_at'])} ({browser_timezone(st)})")
     if progress["reason"]:
         st.warning(f"Årsak: {progress['reason']}")
     st.metric("Aksjer analysert", f"{progress['done']:,} / {progress['total']:,}".replace(",", " "))
@@ -55,15 +55,13 @@ def render(st):
     staged=progress["staged"]
     st.divider()
     st.subheader("Trinnvise kjøp og sektorgrenser")
-    lines(st, f"Status: {staged.get('status','IKKE_STARTET')} · "
-               f"Historiske signalbilder kvalifisert: {staged.get('eligible',0)} / {staged.get('total',0)}. "
-               "Ingen komplette porteføljebacktester er kjørt i denne modulen.")
+    lines(st, f"Status: {staged.get('status','IKKE_STARTET')}", f"Historiske signaler klare: {staged.get('eligible',0)} av {staged.get('total',0)}", "Ingen komplette porteføljetester er kjørt ennå.")
     opt=progress["optimization"]
     st.divider()
     st.subheader("Historisk parameterforskning")
     completed=int(opt.get("processed") or 0)
     total=int(opt.get("total") or 0)
-    lines(st, f"Status: {opt.get('status','IKKE_STARTET')} · Behandlet {completed} / {total} aksjer")
+    lines(st, f"Status: {opt.get('status','IKKE_STARTET')}", f"Behandlet {completed} av {total} aksjer")
     if total:
         st.progress(min(1.,completed/total))
     summaries=opt.get("engine_totals") or {}
@@ -71,10 +69,7 @@ def render(st):
         stats=summaries.get(engine) or {}
         st.divider()
         st.markdown(f"### {label}")
-        lines(st, f"Aksjer fullført: {stats.get('complete_symbols',0)}")
-        lines(st, f"Gyldige kombinasjoner: {stats.get('valid_trials',0)}")
-        lines(st, f"Forskningsfinalister: {stats.get('finalists',0)}")
-        lines(st, f"Utilstrekkelig historikk: {stats.get('insufficient_symbols',0)}")
+        lines(st, f"Aksjer fullført: {stats.get('complete_symbols',0)}", f"Kombinasjoner testet: {stats.get('valid_trials',0)}", f"Mulige kandidater: {stats.get('finalists',0)}", f"For kort historikk: {stats.get('insufficient_symbols',0)}")
     if completed and not summaries:
         st.info("Eldre optimaliseringsresultater er ikke aggregert i statusen ennå. "
                 "Nye kjøringer vil fylle opp separate porteføljetall.")
