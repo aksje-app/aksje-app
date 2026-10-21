@@ -983,3 +983,22 @@ def inject_foundation_styles_v1950() -> None:
 
 def inject_final_density_styles_v1950() -> None:
     _inject_professional_ui_refactor_v18666()
+    _inject_research_mobile_readability_v1()
+
+
+def _inject_research_mobile_readability_v1():
+    st.markdown("""<style>
+    @media (max-width: 760px) {
+      html body .stApp div[data-testid="stVerticalBlock"] {gap: .85rem !important;}
+      html body .stApp div[data-testid="stMarkdownContainer"] p,
+      html body .stApp div[data-testid="stCaptionContainer"],
+      html body .stApp div[data-testid="stAlert"] p {line-height:1.5 !important; margin-bottom:.45rem !important; overflow-wrap:anywhere;}
+      html body .stApp div[data-testid="stMarkdownContainer"] h2,
+      html body .stApp div[data-testid="stMarkdownContainer"] h3 {line-height:1.3 !important; margin-top:.9rem !important; margin-bottom:.65rem !important;}
+      html body .stApp div[data-testid="stMetric"] {height:auto !important; min-height:75px !important;}
+      html body .stApp div[data-testid="stMetricLabel"],
+      html body .stApp div[data-testid="stMetricValue"] {line-height:1.3 !important; white-space:normal !important;}
+      html body .stApp div[data-testid="stExpander"] details > div {padding:.8rem !important;}
+      html body .stApp section.main > div {padding-bottom:7rem !important;}
+    }
+    </style>""", unsafe_allow_html=True)
