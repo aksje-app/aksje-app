@@ -61,44 +61,45 @@ def render(st):
             if data["missing_records"]:
                 st.warning("{} aksjer har ikke fullstendig testresultat. Det kan skyldes for kort kurshistorikk eller manglende data.".format(data["missing_records"]))
             if data["incomplete_history"]:
-                lines(st, "{} aksjer kunne ikke testes fullt fordi kurshistorikken var for kort.".format(data["incomplete_history"]))
+                st.info("{} aksjer kunne ikke testes fullt fordi kurshistorikken var for kort.".format(data["incomplete_history"]))
             if not data["counts"]:
                 lines(st, "Ingen verifiserbare finalister i lagrede resultater ennå.")
                 continue
-            st.markdown("**Hvilke innstillinger går oftest igjen?**")
+            st.subheader("Vanligste kombinasjoner")
 
             rows = [{"Grense for tap": f"{stop} %", "Maks. eiertid": f"{hold} børsdager", "Ganger valgt": n}
                     for (stop, hold), n in data["counts"].most_common(8)]
             st.dataframe(rows, hide_index=True, width="stretch")
-            lines(st, "Dette er innstillinger som ofte ble valgt i testene. Det betyr ikke at de er lønnsomme.")
+            st.info("Disse innstillingene ble valgt ofte. Det betyr ikke at de tjente penger.")
             if data["validation"]:
                 st.metric("Typisk resultat i kontrollperioden", "{:.2f} %".format(median(data["validation"])))
             if data["holdout"]:
                 st.metric("Typisk resultat i siste testperiode", "{:.2f} %".format(median(data["holdout"])))
-                lines(st, "Siste testperiode var holdt utenfor da innstillingene ble valgt. Tallene gjelder enkeltstående simuleringer, ikke din portefølje.")
+                st.info("Siste testperiode ble ikke brukt til å velge innstillingene. Resultatet er ikke avkastningen til porteføljen.")
             else:
                 lines(st, "Ingen tilgjengelige holdout-resultater med handler.")
-            st.markdown("**Kontroll av hvor pålitelige prosentene er**")
+            st.subheader("Er resultatene stabile?")
             pairs = data["paired"]
-            lines(st, "Sammenlignbare tester med handler i begge perioder: {}".format(len(pairs)))
             if pairs:
                 before = median(p[0] for p in pairs)
                 after = median(p[1] for p in pairs)
-                lines(st, "Typisk kontrollresultat for de samme testene: {:.2f} %".format(before))
-                lines(st, "Typisk resultat i siste periode for de samme testene: {:.2f} %".format(after))
-                lines(st, "Typisk antall handler: kontroll {} · siste periode {}".format(
-                    median(p[2] for p in pairs), median(p[3] for p in pairs)))
+                lines(st,
+                    f"Tester med kjøp og salg i begge perioder: {len(pairs)}.",
+                    f"Resultat i tidligere periode: {before:.2f} %.",
+                    f"Resultat i siste periode: {after:.2f} %.",
+                    f"Typisk antall handler: {median(p[2] for p in pairs):g} og {median(p[3] for p in pairs):g}.")
                 if abs(after - before) >= 20:
-                    st.warning("Stor forskjell mellom periodene. Vi kan ennå ikke si at innstillingene gir stabile resultater.")
+                    st.warning("Resultatene spriker mye. Vi vet ennå ikke om reglene er pålitelige.")
             else:
-                st.warning("Ingen tester med handler i begge periodene. Resultatene kan ikke sammenlignes pålitelig.")
+                st.warning("For få sammenlignbare handler til å vurdere pålitelighet.")
             if data["zero_holdout_trades"]:
-                lines(st, "{} finalisttester mangler handler eller målbart resultat i siste periode.".format(data["zero_holdout_trades"]))
+                st.info(f"{data['zero_holdout_trades']} tester hadde ikke handler i siste periode.")
             st.divider()
         with st.expander("Hva betyr dette – forklart enkelt?"):
-            lines(st, "Vi har undersøkt få aksjer. Resultatene kan endre seg mye når flere kommer med.")
-            lines(st, "Kontrollperioden brukes til å vurdere valgte innstillinger. Siste testperiode brukes som en ekstra kontroll mot nye, historiske data.")
-            lines(st, "En høy prosent er ikke forventet fortjeneste: perioder, antall handler og risiko kan være forskjellige.")
-            lines(st, "Ingen av disse funnene endrer programmets kjøp eller salg automatisk.")
+            lines(st,
+                "Bare en liten del av aksjene er testet. Resultatene kan endre seg.",
+                "Tallene gjelder simulerte kjøp og salg i gamle kursdata.",
+                "En høy prosent betyr ikke at du kan forvente samme fortjeneste.",
+                "Ingen av disse funnene endrer kjøps- eller salgsreglene.")
     except Exception as exc:
         st.error("Kunne ikke lese forskningsresultatene: " + type(exc).__name__)
