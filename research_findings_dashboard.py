@@ -15,11 +15,17 @@ def collect(storage, engine):
     validation = []
     complete = 0
     missing = 0
+    incomplete_history = 0
+    paired = []
+    zero_holdout_trades = 0
     for ticker in tickers:
         digest = sha256(str(ticker).encode()).hexdigest()
         record = storage.read_json(PREFIX + "optimized/" + engine + "/" + digest + ".json", {}) or {}
         if record.get("status") != "COMPLETE_RESEARCH":
-            missing += 1
+            if record.get("status") in ("INSUFFICIENT_HISTORY", "INSUFFICIENT_PURGED_PERIODS"):
+                incomplete_history += 1
+            else:
+                missing += 1
             continue
         complete += 1
         for finalist in record.get("finalists") or []:
@@ -32,8 +38,13 @@ def collect(storage, engine):
                 validation.append(float(v["total_pct"]))
             if isinstance(h.get("total_pct"), (int, float)) and h.get("trades", 0):
                 holdout.append(float(h["total_pct"]))
+                if isinstance(v.get("total_pct"), (int, float)) and v.get("trades", 0):
+                    paired.append((float(v["total_pct"]), float(h["total_pct"]), int(v["trades"]), int(h["trades"])))
+            else:
+                zero_holdout_trades += 1
     return {"total": int(state.get("total") or 0), "processed": int(state.get("processed") or 0),
-            "complete": complete, "missing_records": missing, "counts": counts,
+            "complete": complete, "missing_records": missing, "incomplete_history": incomplete_history,
+            "paired": paired, "zero_holdout_trades": zero_holdout_trades, "counts": counts,
             "holdout": holdout, "validation": validation, "updated_at": state.get("updated_at")}
 
 def render(st):
@@ -48,6 +59,8 @@ def render(st):
             st.metric("Aksjer med fullstendig test", data["complete"])
             if data["missing_records"]:
                 st.warning("{} aksjer har ikke fullstendig testresultat. Det kan skyldes for kort kurshistorikk eller manglende data.".format(data["missing_records"]))
+            if data["incomplete_history"]:
+                st.write("{} aksjer kunne ikke testes fullt fordi kurshistorikken var for kort.".format(data["incomplete_history"]))
             if not data["counts"]:
                 st.write("Ingen verifiserbare finalister i lagrede resultater ennå.")
                 continue
@@ -64,6 +77,22 @@ def render(st):
                 st.write("Siste testperiode var holdt utenfor da innstillingene ble valgt. Tallene gjelder enkeltstående simuleringer, ikke din portefølje.")
             else:
                 st.write("Ingen tilgjengelige holdout-resultater med handler.")
+            st.markdown("**Kontroll av hvor pålitelige prosentene er**")
+            pairs = data["paired"]
+            st.write("Sammenlignbare tester med handler i begge perioder: {}".format(len(pairs)))
+            if pairs:
+                before = median(p[0] for p in pairs)
+                after = median(p[1] for p in pairs)
+                st.write("Typisk kontrollresultat for de samme testene: {:.2f} %".format(before))
+                st.write("Typisk resultat i siste periode for de samme testene: {:.2f} %".format(after))
+                st.write("Typisk antall handler: kontroll {} · siste periode {}".format(
+                    median(p[2] for p in pairs), median(p[3] for p in pairs)))
+                if abs(after - before) >= 20:
+                    st.warning("Stor forskjell mellom periodene. Vi kan ennå ikke si at innstillingene gir stabile resultater.")
+            else:
+                st.warning("Ingen tester med handler i begge periodene. Resultatene kan ikke sammenlignes pålitelig.")
+            if data["zero_holdout_trades"]:
+                st.write("{} finalisttester mangler handler eller målbart resultat i siste periode.".format(data["zero_holdout_trades"]))
             st.divider()
         with st.expander("Hva betyr dette – forklart enkelt?"):
             st.write("Vi har undersøkt få aksjer. Resultatene kan endre seg mye når flere kommer med.")
