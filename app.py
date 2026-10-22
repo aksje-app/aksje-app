@@ -8508,6 +8508,70 @@ def _render_incoming_paper_hypotheses_v1868(paper_flow_rows, portfolio=None):
         )
 
 
+def _send_pushover_safe_v1863af(message: str, title: str):
+    """Handle both old and new notifier return shapes."""
+    try:
+        result = send_pushover_alert(message, title=title)
+        if isinstance(result, tuple):
+            ok = bool(result[0]) if result else False
+            err = result[1] if len(result) > 1 else ""
+            return ok, err or ""
+        return bool(result), ""
+    except Exception as exc:
+        return False, str(exc)[:180]
+
+
+
+def _paper_control_flags_v1863af(rows, total_value: float):
+    flags = []
+    for row in rows or []:
+        ticker = str(row.get("ticker") or "-")
+        value = _safe_float_v18581(row.get("value"), 0.0)
+        pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
+        weight = (value / total_value * 100.0) if total_value else 0.0
+        updated = str(row.get("updated") or "").strip()
+        if pnl_pct <= -5:
+            flags.append({"ticker": ticker, "nivå": "Krever oppfølging", "signal": f"Tap {pnl_pct:.2f}%", "forslag": "Sjekk stop-loss, nyheter og om posisjonen fortsatt passer reglene."})
+        elif pnl_pct >= 10:
+            flags.append({"ticker": ticker, "nivå": "Gevinst", "signal": f"Gevinst {pnl_pct:.2f}%", "forslag": "Vurder gevinstsikring, trailing stop eller delvis salg."})
+        if weight >= 25:
+            flags.append({"ticker": ticker, "nivå": "Konsentrasjon", "signal": f"{weight:.1f}% av portefoljen", "forslag": "Vurder om enkeltselskap tar for stor plass i paper-testen."})
+        stop_status = str(row.get("stop_status") or "").strip().upper()
+        if stop_status == "STOP UTLØST":
+            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Trailing stop utløst", "forslag": "Kontroller posisjonen og vurder paper-salg."})
+        elif stop_status == "NÆR STOP":
+            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Nær trailing stop", "forslag": "Følg tett; liten kursnedgang kan utløse salgssignal."})
+        if not updated:
+            flags.append({"ticker": ticker, "nivå": "Datakvalitet", "signal": "Lagret kurs", "forslag": "Trykk Oppdater paper-kurser for ferskere kontroll."})
+    return flags
+
+
+
+def _paper_control_learning_points_v1863af(rows, stats, flags):
+    points = []
+    if not rows:
+        return ["Ingen paper-posisjoner ennå. Start med små simulerte kjøp for å bygge testgrunnlag."]
+    avg_pnl = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
+    loss_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) < 0])
+    gain_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) > 0])
+    if avg_pnl > 0:
+        points.append(f"Paper-porteføljen har positiv snitt-P/L ({avg_pnl:.2f}%). Test om samme regler holder i flere markeder.")
+    else:
+        points.append(f"Paper-porteføljen har svak/negativ snitt-P/L ({avg_pnl:.2f}%). Se om inngangene skjer for tidlig eller med for lav confidence.")
+    if loss_count > gain_count:
+        points.append("Flere tapere enn vinnere akkurat nå. AI-forslag: stram inn kjøpsscore/confidence før nye paper-kjøp.")
+    if stats.get("closed_trades", 0) and stats.get("win_rate", 0) < 45:
+        points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab før ekte ordre.")
+    if any((f.get("nivå") or f.get("nivaa")) == "Konsentrasjon" for f in flags):
+        points.append("Konsentrasjonsvarsel funnet. Porteføljeovervåking bør varsle før ett papir dominerer totalrisikoen.")
+    if any((f.get("nivå") or f.get("nivaa")) == "Stop" for f in flags):
+        points.append("Trailing stop-varsel funnet. Sjekk om exit-regelen beskytter gevinst eller begrenser tap som planlagt.")
+    if any((f.get("nivå") or f.get("nivaa")) == "Datakvalitet" for f in flags):
+        points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre når paper-kurser oppdateres først.")
+    return points[:5]
+
+
+
 def _render_paper_portfolio_control_overview_v1868(portfolio, latest_prices, stats, total_value, position_rows: list[dict] | None = None, rules: dict | None = None):
     rows = list(position_rows) if position_rows is not None else paper_position_rows(portfolio, latest_prices, rules=rules)
     flags = _paper_control_flags_v1863af(rows, _safe_float_v18581(total_value, 0.0))
@@ -11075,19 +11139,6 @@ def render_watchlist_signals_control_center_v18535():
 
 
 
-def _send_pushover_safe_v1863af(message: str, title: str):
-    """Handle both old and new notifier return shapes."""
-    try:
-        result = send_pushover_alert(message, title=title)
-        if isinstance(result, tuple):
-            ok = bool(result[0]) if result else False
-            err = result[1] if len(result) > 1 else ""
-            return ok, err or ""
-        return bool(result), ""
-    except Exception as exc:
-        return False, str(exc)[:180]
-
-
 def _pushover_runtime_status_v1864u() -> dict:
     try:
         load_app_env()
@@ -11123,54 +11174,6 @@ def _paper_control_latest_prices_v1863af(portfolio):
 def _paper_control_rows_v1863af(portfolio, rules: dict | None = None):
     latest_prices = _paper_control_latest_prices_v1863af(portfolio)
     return paper_position_rows(portfolio, latest_prices, rules=rules), latest_prices
-
-
-def _paper_control_flags_v1863af(rows, total_value: float):
-    flags = []
-    for row in rows or []:
-        ticker = str(row.get("ticker") or "-")
-        value = _safe_float_v18581(row.get("value"), 0.0)
-        pnl_pct = _safe_float_v18581(row.get("pnl_pct"), 0.0)
-        weight = (value / total_value * 100.0) if total_value else 0.0
-        updated = str(row.get("updated") or "").strip()
-        if pnl_pct <= -5:
-            flags.append({"ticker": ticker, "nivå": "Krever oppfølging", "signal": f"Tap {pnl_pct:.2f}%", "forslag": "Sjekk stop-loss, nyheter og om posisjonen fortsatt passer reglene."})
-        elif pnl_pct >= 10:
-            flags.append({"ticker": ticker, "nivå": "Gevinst", "signal": f"Gevinst {pnl_pct:.2f}%", "forslag": "Vurder gevinstsikring, trailing stop eller delvis salg."})
-        if weight >= 25:
-            flags.append({"ticker": ticker, "nivå": "Konsentrasjon", "signal": f"{weight:.1f}% av portefoljen", "forslag": "Vurder om enkeltselskap tar for stor plass i paper-testen."})
-        stop_status = str(row.get("stop_status") or "").strip().upper()
-        if stop_status == "STOP UTLØST":
-            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Trailing stop utløst", "forslag": "Kontroller posisjonen og vurder paper-salg."})
-        elif stop_status == "NÆR STOP":
-            flags.append({"ticker": ticker, "nivå": "Stop", "signal": "Nær trailing stop", "forslag": "Følg tett; liten kursnedgang kan utløse salgssignal."})
-        if not updated:
-            flags.append({"ticker": ticker, "nivå": "Datakvalitet", "signal": "Lagret kurs", "forslag": "Trykk Oppdater paper-kurser for ferskere kontroll."})
-    return flags
-
-
-def _paper_control_learning_points_v1863af(rows, stats, flags):
-    points = []
-    if not rows:
-        return ["Ingen paper-posisjoner ennå. Start med små simulerte kjøp for å bygge testgrunnlag."]
-    avg_pnl = sum(_safe_float_v18581(r.get("pnl_pct"), 0.0) for r in rows) / max(1, len(rows))
-    loss_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) < 0])
-    gain_count = len([r for r in rows if _safe_float_v18581(r.get("pnl_pct"), 0.0) > 0])
-    if avg_pnl > 0:
-        points.append(f"Paper-porteføljen har positiv snitt-P/L ({avg_pnl:.2f}%). Test om samme regler holder i flere markeder.")
-    else:
-        points.append(f"Paper-porteføljen har svak/negativ snitt-P/L ({avg_pnl:.2f}%). Se om inngangene skjer for tidlig eller med for lav confidence.")
-    if loss_count > gain_count:
-        points.append("Flere tapere enn vinnere akkurat nå. AI-forslag: stram inn kjøpsscore/confidence før nye paper-kjøp.")
-    if stats.get("closed_trades", 0) and stats.get("win_rate", 0) < 45:
-        points.append(f"Historisk win-rate er {stats.get('win_rate')}%. Test mer konservative regler i Auto Test Lab før ekte ordre.")
-    if any((f.get("nivå") or f.get("nivaa")) == "Konsentrasjon" for f in flags):
-        points.append("Konsentrasjonsvarsel funnet. Porteføljeovervåking bør varsle før ett papir dominerer totalrisikoen.")
-    if any((f.get("nivå") or f.get("nivaa")) == "Stop" for f in flags):
-        points.append("Trailing stop-varsel funnet. Sjekk om exit-regelen beskytter gevinst eller begrenser tap som planlagt.")
-    if any((f.get("nivå") or f.get("nivaa")) == "Datakvalitet" for f in flags):
-        points.append("Noen posisjoner bruker lagret kurs. AI-vurderinger blir bedre når paper-kurser oppdateres først.")
-    return points[:5]
 
 
 def render_paper_portfolio_control_center_v1863af():
