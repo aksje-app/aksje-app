@@ -1,5 +1,6 @@
 from hashlib import sha256
 from research_findings_dashboard import collect
+from portfolio_history_optimizer import METHOD_VERSION
 
 class Store:
     def __init__(self, records): self.records=records
@@ -8,7 +9,7 @@ class Store:
 def test_audit_pairs_same_finalist_and_tracks_insufficient_history():
     ticker="ABC"
     digest=sha256(ticker.encode()).hexdigest()
-    record={"status":"COMPLETE_RESEARCH","finalists":[
+    record={"status":"COMPLETE_RESEARCH","method_version":METHOD_VERSION,"finalists":[
         {"stop_pct":6,"hold_sessions":20,
          "validation":{"total_pct":-15,"trades":4},
          "holdout":{"total_pct":65,"trades":2}},

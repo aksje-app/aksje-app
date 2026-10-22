@@ -290,8 +290,11 @@ def benchmark_summary(state: Mapping[str, Any], *, portfolio_return_pct: float) 
     result={}
     for key in ("index","aurora"):
         row=dict(bench.get(key) or {}) if isinstance(bench.get(key),Mapping) else {}
-        if row and row.get("return_pct") is not None:
+        if row and row.get("return_pct") is not None and row.get("comparison_verified") is True:
             row["alpha_pct"]=round(_f(portfolio_return_pct)-_f(row.get("return_pct")),2)
+        elif row:
+            row["alpha_pct"] = None
+            row["comparison_status"] = "IKKE VERIFISERT: valuta, periode og avkastningsgrunnlag må samsvare"
         result[key]=row
     return result
 
@@ -303,15 +306,19 @@ def set_manual_aurora_benchmark(return_pct: float, *, label: str = "Aurora") -> 
     return bench["aurora"]
 
 
-def refresh_index_benchmark(state: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def refresh_index_benchmark(state: Mapping[str, Any] | None = None, *, persist: bool = True) -> dict[str, Any]:
     data=dict(state or load_state()); cfg=dict(data.get("config") or {})
     ticker=str(cfg.get("benchmark_ticker") or "^STOXX"); label=str(cfg.get("benchmark_label") or ticker)
-    positions=list((data.get("positions") or {}).values())
-    dates=[str(p.get("entry_date") or "")[:10] for p in positions if p.get("entry_date")]
-    start=min(dates) if dates else str(data.get("created_at") or "")[:10]
-    row={"ticker":ticker,"label":label,"return_pct":None,"status":"UNAVAILABLE","updated_at":_now()}
+    # Benchmark and portfolio must use a fixed common inception, independent
+    # of which positions survive a rebalance. Never infer inception from holdings.
+    start=str(data.get("portfolio_tracking_started_at") or data.get("created_at") or "")[:10]
+    row={"ticker":ticker,"label":label,"return_pct":None,"status":"UNAVAILABLE","updated_at":_now(),
+         "start_date":start,"return_basis":"PRICE_RETURN_LOCAL_CURRENCY",
+         "comparison_verified":False}
     try:
         import yfinance as yf
+        if not start:
+            raise ValueError("Porteføljens startdato mangler")
         hist=yf.download(ticker,start=start,progress=False,auto_adjust=False,threads=False)
         close=hist["Close"] if "Close" in hist else None
         if close is not None and len(close)>=2:
@@ -321,7 +328,8 @@ def refresh_index_benchmark(state: Mapping[str, Any] | None = None) -> dict[str,
                 row.update({"return_pct":round((last/first-1.0)*100.0,4),"status":"AVAILABLE","start_date":start,"last_price":round(last,6)})
     except Exception as exc:
         row["error"]=f"{type(exc).__name__}: {exc}"[:240]
-    bench=dict(data.get("benchmark") or {}); bench["index"]=row; data["benchmark"]=bench; save_state(data)
+    if persist:
+        bench=dict(data.get("benchmark") or {}); bench["index"]=row; data["benchmark"]=bench; save_state(data)
     return row
 
 
@@ -2995,7 +3003,9 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     for key in ("index", "aurora"):
         row = bench.get(key) or {}
         if row:
-            story.append(Paragraph(f"{row.get('label', key)}: {_f(row.get('return_pct')):+.2f}% · alpha {_f(row.get('alpha_pct')):+.2f} pp · {row.get('status','-')}", styles["Normal"]))
+            alpha = f"alpha {_f(row['alpha_pct']):+.2f} pp" if row.get("alpha_pct") is not None else "alpha ikke verifisert (periode/valuta/utbytte)"
+            benchmark_return = f"{_f(row['return_pct']):+.2f}%" if row.get("return_pct") is not None else "Ikke tilgjengelig"
+            story.append(Paragraph(f"{row.get('label', key)}: {benchmark_return} · {alpha} · {row.get('status','-')}", styles["Normal"]))
     if not any(bench.get(k) for k in ("index","aurora")):
         story.append(Paragraph("Ingen ekstern benchmark lagret.", styles["Normal"]))
     story.append(Spacer(1, 6)); story.append(Paragraph("Decision Confidence", styles["Heading2"]))
@@ -3286,7 +3296,7 @@ def run_scheduled_shadow_cycle(
                 "change_count": len(result["changes"]), "already_committed": True, "stop_alerts": []}
     new_state = dict(result.get("state") or load_state())
     new_state["last_scheduled_source_run_id"] = source_id
-    index_row = refresh_index_benchmark(new_state)
+    index_row = refresh_index_benchmark(new_state, persist=False)
     benchmark = dict(new_state.get("benchmark") or {})
     benchmark["index"] = index_row
     new_state["benchmark"] = benchmark

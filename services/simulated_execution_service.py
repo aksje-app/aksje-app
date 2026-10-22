@@ -236,23 +236,33 @@ class SimulatedExecutionService:
         The method never applies the cash/position mutation a second time.
         """
         ticker = str(trade.get("ticker") or trade.get("symbol") or "").upper()
-        side = str(trade.get("action") or trade.get("side") or trade.get("type") or "").upper()
+        action = str(trade.get("action") or trade.get("side") or trade.get("type") or "").upper()
+        side = "SELL" if action == "SELL_PARTIAL" else action
         if side not in {"BUY", "SELL"} or not ticker:
             return {"ok": False, "reason": "Ikke en kjøp/salg-handel"}
         legacy_id = str(trade.get("trade_id") or trade.get("id") or "")
         order_id = f"LEGACY-{account_id}-{legacy_id}" if legacy_id else build_order_id(account_id=account_id, run_id=run_id or str(trade.get("run_id") or "LEGACY"), ticker=ticker, side=side, nonce=str(trade.get("timestamp") or trade.get("time") or ""))
         existing = self.orders.get(order_id)
         if existing:
-            return {"ok": True, "order": existing, "fill": self.fills.get(str(existing.get("fill_id") or "")), "mirrored": False}
+            saved_fill = self.fills.get(str(existing.get("fill_id") or ""))
+            if saved_fill:
+                return {"ok": True, "order": existing, "fill": saved_fill, "mirrored": False}
+            # A process may have stopped between the two journal writes.
+            # Repair from the original stored event, never a new retry quote.
+            trade = dict(existing.get("metadata") or {})
+            ticker = str(existing.get("ticker") or ticker)
+            side = str(existing.get("side") or side)
+            action = str(trade.get("action") or side)
         account = self.accounts.get(account_id)
         if not account:
             return {"ok": False, "reason": "Ukjent strategikonto"}
         price = _f(trade.get("price"))
         quantity = _f(trade.get("quantity", trade.get("shares", trade.get("units"))))
         gross = _f(trade.get("value", trade.get("amount", trade.get("notional"))), quantity * price)
-        intent = OrderIntent(
+        intent = existing or OrderIntent(
             order_id=order_id, account_id=account_id, strategy_family=str(account.get("strategy_family") or ""),
-            strategy_id=str(account.get("strategy_id") or ""), strategy_version_id=str(account.get("strategy_version_id") or ""),
+            strategy_id=str(trade.get("strategy_id") or account.get("strategy_id") or ""),
+            strategy_version_id=str(trade.get("strategy_version_id") or account.get("strategy_version_id") or ""),
             run_id=run_id or str(trade.get("run_id") or "LEGACY"), ticker=ticker, side=side,
             requested_quantity=quantity, requested_notional=gross, reference_price=price,
             reason=str(trade.get("reason") or "Legacy paper trade"), execution_authorized=True, status=OrderStatus.FILLED.value,
@@ -263,7 +273,11 @@ class SimulatedExecutionService:
             fill_id=fill_id, order_id=order_id, account_id=account_id, run_id=intent["run_id"], ticker=ticker, side=side,
             quantity=quantity, reference_price=price, fill_price=price, gross_value=gross, fee=_f(trade.get("fee")),
             slippage_value=_f(trade.get("slippage_value")), realized_pnl=_f(trade.get("pnl")),
-            filled_at=str(trade.get("timestamp") or trade.get("time") or _now()), metadata={"legacy_mirror": True},
+            filled_at=str(existing.get("filled_at") if existing else trade.get("timestamp") or trade.get("time") or _now()),
+            metadata={"legacy_mirror": True, "legacy_action": action,
+                      "cost_evidence": "DOCUMENTED" if trade.get("fee") is not None else "MISSING_LEGACY_COST",
+                      "strategy_version_id": intent.get("strategy_version_id"),
+                      "strategy_implementation_version": trade.get("strategy_implementation_version")},
         ).to_dict()
         intent.update({"fill_id": fill_id, "filled_at": fill["filled_at"], "filled_quantity": quantity, "fill_price": price})
         self.orders.upsert(intent); self.fills.upsert(fill)

@@ -38,7 +38,7 @@ def test_stress_radar_computes_market_sector_and_fx_scenarios():
     assert by['usd_-10']['estimated_portfolio_impact_pct']==-6.0
 
 def test_benchmark_summary_supports_index_and_manual_aurora():
-    state=sp.default_state(); state['benchmark']={'index':{'label':'S&P 500','return_pct':4.5,'status':'AVAILABLE'},'aurora':{'label':'Aurora','return_pct':3.0,'status':'MANUAL'}}
+    state=sp.default_state(); state['benchmark']={'index':{'label':'S&P 500','comparison_verified':True,'return_pct':4.5,'status':'AVAILABLE'},'aurora':{'label':'Aurora','comparison_verified':True,'return_pct':3.0,'status':'MANUAL'}}
     result=sp.benchmark_summary(state,portfolio_return_pct=6.0)
     assert result['index']['alpha_pct']==1.5 and result['aurora']['alpha_pct']==3.0
 
@@ -84,7 +84,7 @@ def test_scheduled_cycle_refreshes_index_benchmark(monkeypatch):
     monkeypatch.setattr(sp,'get_or_build_super_portfolio_market_pipeline',lambda **kwargs:pipeline)
     monkeypatch.setattr(sp,'evaluate',lambda **kwargs:{'state':{**state,'positions':{}},'changes':[],'stop_alerts':[],'rebalance_due':False})
     refreshed=[]
-    monkeypatch.setattr(sp,'refresh_index_benchmark',lambda state=None: refreshed.append(True) or {'status':'AVAILABLE','return_pct':1.0})
+    monkeypatch.setattr(sp,'refresh_index_benchmark',lambda state=None, **k: refreshed.append(True) or {'status':'AVAILABLE','return_pct':1.0})
     monkeypatch.setattr(sp,'resource_health',lambda:{'status':'OK','icon':'🟢'})
     monkeypatch.setattr(sp,'save_state',lambda value: state.update(value) or value)
     monkeypatch.setattr(sp,'append_event',lambda *a,**k:None)

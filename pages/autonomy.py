@@ -81,7 +81,8 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     # path. The old path rendered the requested page once without establishing
     # the radio state; the next rerun then defaulted to Oversikt. All requests
     # now flow through one selector and one renderer below.
-    from autonomy_modes import EXPERT, render_expert_console, render_mode_selector, render_simple_mode
+    from autonomy_modes import EXPERT, render_expert_console, render_mode_selector, render_simple_mode, apply_requested_workspace_mode
+    apply_requested_workspace_mode(st.session_state, requested_direct)
     interface_mode = render_mode_selector()
     if interface_mode != EXPERT:
         render_simple_mode()

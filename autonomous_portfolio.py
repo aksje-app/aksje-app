@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
-from services.strategy_binding import stamp_strategy_metadata
+from services.strategy_binding import stamp_strategy_metadata, strategy_metadata
 from services.market_snapshot_service import get_market_snapshot_service
 from services.parallel_strategy_service import get_parallel_strategy_service
 from services.strategy_account_service import get_strategy_account_service
@@ -706,6 +706,36 @@ def candidate_price(candidate: Mapping[str, Any], existing: Mapping[str, Any] | 
 
 # Backwards-compatible private name used by the established execution engine.
 _candidate_price = candidate_price
+
+
+def _execution_candidate(candidate, *, not_before=None):
+    """Attach an actual raw intraday quote, never a scanner/capture timestamp.
+
+    Offline replays must supply their own point-in-time quote. Production may
+    refresh from the provider; neither path substitutes an average/last mark.
+    Exit evidence does not depend on fundamental/buy authorisation gates.
+    """
+    from scanner_fresh_quote import fresh_paper_buy_quote, validate_execution_quote
+    row = deepcopy(candidate)
+    quote = row.get("execution_quote")
+    now = _clock(timezone.utc)
+    quote = dict(quote or {})
+    valid, reason = validate_execution_quote(quote.get("price"),
+        {"execution_quote": quote, "market_data_at": quote.get("market_data_at")},
+        now=now, not_before=not_before)
+    if not valid and _SIMULATION.get() is None:
+        refreshed, _ = fresh_paper_buy_quote(str(row.get("ticker") or ""), now=now)
+        quote = dict(refreshed or {})
+        valid, reason = validate_execution_quote(quote.get("price"),
+            {"execution_quote": quote, "market_data_at": quote.get("market_data_at")},
+            now=now, not_before=not_before)
+    if not valid:
+        return None, reason
+    row.update(price=quote["price"], execution_quote=quote, market_data_at=quote["market_data_at"])
+    raw = dict(row.get("raw") or {})
+    raw["last_price"] = quote["price"]
+    row["raw"] = raw
+    return row, ""
 
 
 def _candidate_score(candidate: Mapping[str, Any], default: float = 0.0) -> float:
@@ -1641,6 +1671,8 @@ def _record_trade(trade: dict[str, Any]) -> None:
     trades = _read(TRADES_PATH, [])
     if not isinstance(trades, list):
         trades = []
+    if trade.get("trade_id") and any(t.get("trade_id") == trade["trade_id"] for t in trades):
+        return
     trades.insert(0, trade)
     _write(TRADES_PATH, trades)
     _append_audit("SIMULATED_TRADE", trade)
@@ -1886,13 +1918,6 @@ def run_autonomous_cycle(
         except Exception as exc:
             _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
             candidates = original_candidates
-    if simulation is None:
-        try:
-            from learning_runtime import capture_autonomy
-            capture_autonomy(candidates, parameters=asdict(params), run_id=run_id,
-                             portfolio_before=starting_portfolio)
-        except Exception as exc:
-            _append_audit("EXPERIMENT_CAPTURE_FAILED", {"run_id": run_id, "error": str(exc)[:300]})
     candidate_map = {str(c.get("ticker") or "").upper(): c for c in candidates if str(c.get("ticker") or "").strip()}
     owned_tickers = {str(ticker).upper() for ticker in (portfolio.get("positions") or {})}
     replacement_pool = [
@@ -1924,6 +1949,13 @@ def run_autonomous_cycle(
                               "action": "HOLD", "reason_code": "NO_CURRENT_CANDIDATE",
                               "reason": "Ingen oppdatert kandidatkurs; siste verdsetting beholdes uten modellhandel"})
             continue
+        candidate, quote_error = _execution_candidate(candidate, not_before=pos.get("market_data_at"))
+        if candidate is None:
+            capital_cleanup["missing_price"] += 1
+            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                              "action": "HOLD", "reason_code": "INVALID_EXECUTION_QUOTE", "reason": quote_error})
+            continue
+        candidate_map[ticker] = candidate
         price = _candidate_price(candidate)
         if price <= 0:
             capital_cleanup["missing_price"] += 1
@@ -1932,6 +1964,7 @@ def run_autonomous_cycle(
                               "reason": "Mangler dokumentert kandidatkurs; siste verdsetting beholdes uten modellhandel"})
             continue
         pos["last_price"] = price
+        pos["market_data_at"] = candidate["market_data_at"]
         pos["highest_price"] = max(_f(pos.get("highest_price"), price), price)
         avg = _f(pos.get("average_price"), price)
         score = _candidate_score(candidate, 100.0)
@@ -1976,6 +2009,8 @@ def run_autonomous_cycle(
             sell_pct = 100.0 if exit_result["action"] == "REPLACE_REVIEW" else exit_result["sell_pct"]
             trade = _sell(portfolio, ticker, price, reason, run_id, params, commit=False, sell_pct=sell_pct)
             if trade:
+                trade.update(price_observed_at=candidate["market_data_at"], decision_at=_now(),
+                             simulated_execution_at=_now(), execution_quote=candidate["execution_quote"])
                 if exit_result["action"] == "REPLACE_REVIEW":
                     capital_cleanup["replaced"] += 1
                     trade["replacement_ticker"] = str(best_replacement.get("ticker") or "")
@@ -2109,7 +2144,16 @@ def run_autonomous_cycle(
                                   "score": score, "order_intent_created": False, "order_executed": False,
                                   "execution_stage": "ENTRY_SAFETY_WAIT"})
                 continue
-            price = verified_open
+            candidate, quote_error = _execution_candidate(candidate,
+                not_before=(portfolio.get("positions", {}).get(ticker) or {}).get("market_data_at"))
+            if candidate is None:
+                decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                                  "action": "SKIP", "execution_stage": "INVALID_EXECUTION_QUOTE", "reason": quote_error})
+                continue
+            candidate_map[ticker] = candidate
+            # The session OPEN qualifies the signal; it is not a fill price
+            # available hours later. Execute at the fresh raw observation.
+            price = _candidate_price(candidate)
 
             equity = portfolio_equity(portfolio)
             reserve = equity * params.reserve_cash_pct / 100
@@ -2144,7 +2188,7 @@ def run_autonomous_cycle(
                 "source_run_id": run_id,
                 "entry_signal_date": pending["entry_signal_date"],
                 "entry_signal_run_id": pending["signal_run_id"],
-                "entry_price_basis": "VERIFIED_NEXT_SESSION_OPEN_SHADOW",
+                "entry_price_basis": "FRESH_RAW_QUOTE_AFTER_NEXT_SESSION_CONFIRMATION",
                 **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                 "entry_confidence": _f(candidate.get("confidence_score")),
                 "entry_components": {
@@ -2176,7 +2220,7 @@ def run_autonomous_cycle(
                 "strategy": _candidate_strategy(candidate), "mode": "THEORETICAL_ONLY",
                 "entry_signal_date": pending["entry_signal_date"],
                 "entry_signal_run_id": pending["signal_run_id"],
-                "entry_price_basis": "VERIFIED_NEXT_SESSION_OPEN_SHADOW",
+                "entry_price_basis": "FRESH_RAW_QUOTE_AFTER_NEXT_SESSION_CONFIRMATION",
                 **_candidate_snapshot_metadata(candidate, market_snapshot_row),
                 **_technical_contribution_metadata(candidate),
                 "entry_confidence": _f(candidate.get("confidence_score")),
@@ -2190,6 +2234,9 @@ def run_autonomous_cycle(
                 },
             }
             trades.append(trade)
+            trade.update(price_observed_at=candidate["market_data_at"], decision_at=_now(),
+                         simulated_execution_at=_now(), execution_quote=candidate["execution_quote"])
+            portfolio["positions"][ticker]["market_data_at"] = candidate["market_data_at"]
             pending_entries.pop(ticker, None)
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "base_score": base_score, "order_intent_created": True, "order_executed": True, "execution_stage": "EXECUTED_AFTER_DECISION_GATE", **_technical_contribution_metadata(candidate)})
 
@@ -2367,6 +2414,14 @@ def run_autonomous_cycle(
 
     emit_progress(6, progress_total, "Kjøps- og læringsbeslutninger er ferdige")
 
+    if simulation is None:
+        try:
+            from learning_runtime import capture_autonomy
+            capture_autonomy([candidate_map.get(str(c.get("ticker") or "").upper(), c) for c in candidates], parameters=asdict(params), run_id=run_id,
+                             portfolio_before=starting_portfolio)
+        except Exception as exc:
+            _append_audit("EXPERIMENT_CAPTURE_FAILED", {"run_id": run_id, "error": str(exc)[:300]})
+
     execution_integrity = _validate_execution_integrity(
         trades, candidate_map, portfolio, starting_portfolio=starting_portfolio
     )
@@ -2384,6 +2439,7 @@ def run_autonomous_cycle(
         _append_audit("AUTONOMOUS_EXECUTION_BLOCKED", {"run_id": run_id, "errors": execution_integrity["errors"]})
     elif simulation is None:
         for trade in trades:
+            trade.update(stamp_strategy_metadata(trade, "autonomy"))
             _record_trade(dict(trade))
             if params.notify_trades:
                 ticker = str(trade.get("ticker") or "")
@@ -2458,7 +2514,7 @@ def run_autonomous_cycle(
         execution_service = get_simulated_execution_service()
         main_account = account_service.sync_legacy_account(
             "autonomy_main", portfolio, strategy_family="autonomy", strategy_id="autonomy_main",
-            strategy_version_id="autonomy_main@1.0.0", display_name="Autonomi hovedstrategi",
+            strategy_version_id=str(strategy_metadata("autonomy")["strategy_version_id"]), display_name="Autonomi hovedstrategi",
             role="PRODUCTION", status=str(portfolio.get("status") or "PAUSED"), run_id=run_id,
             metadata={"source": "autonomous_portfolio", "shared_engine_bridge": True},
         )
@@ -2636,7 +2692,7 @@ def run_autonomous_cycle(
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
     portfolio = dict(portfolio or load_portfolio())
     trades = _read(TRADES_PATH, [])
-    sells = [t for t in trades if t.get("action") == "SELL"] if isinstance(trades, list) else []
+    sells = [t for t in trades if t.get("action") in {"SELL", "SELL_PARTIAL"}] if isinstance(trades, list) else []
     wins = [t for t in sells if _f(t.get("pnl")) > 0]
     losses = [t for t in sells if _f(t.get("pnl")) < 0]
     gross_profit = sum(_f(t.get("pnl")) for t in wins)
@@ -2644,7 +2700,10 @@ def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[st
     equity = portfolio_equity(portfolio)
     initial = _f(portfolio.get("initial_cash"), 1.0)
     high = max(_f(portfolio.get("high_watermark"), equity), equity)
+    from services.economic_accounting_audit import audit as economic_audit
     return {
+        "economic_verification": economic_audit(portfolio, trades if isinstance(trades, list) else []),
+        "return_basis": "LEGACY_LOCAL_PRICE_MODEL_GROSS_OF_UNBOOKED_COSTS",
         "updated_at": _now(), "equity": round(equity, 2), "cash": round(_f(portfolio.get("cash")), 2),
         "total_return_pct": round((equity / initial - 1) * 100, 2) if initial else 0.0,
         "realized_pnl": round(_f(portfolio.get("realized_pnl")), 2),
@@ -3408,6 +3467,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     portfolio_initial_cash = _f(portfolio.get("initial_cash")) or perf["equity"]
     total_return_value = perf["equity"] - portfolio_initial_cash
     st.markdown("##### Porteføljeoversikt")
+    st.warning("Modellregnskap: lokal kursutvikling uten fullstendig valuta- og kostnadsføring. Tallene er ikke verifisert nettoavkastning i NOK.")
     st.caption(
         f"Avkastning beregnes mot aktiv kontos faktiske startverdi {_fmt_nb_money(portfolio_initial_cash)}. "
         "En endret reset-verdi påvirker ikke denne historikken."

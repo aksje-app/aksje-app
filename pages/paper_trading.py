@@ -16,6 +16,7 @@ def render_paper_trading_dashboard(_legacy_context):
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
+    st.warning("Modellregnskap: lokal kursutvikling uten fullstendig valuta- og kostnadsføring. Tallene er ikke verifisert nettoavkastning i NOK.")
     # Read-only diagnostic export of the Paper Trading account, independent of
     # the Portfolio tab and its optional monitoring widgets.
     import io as _paper_io
@@ -23,14 +24,17 @@ def render_paper_trading_dashboard(_legacy_context):
     import zipfile as _paper_zipfile
     from datetime import datetime as _paper_datetime, timezone as _paper_timezone
 
-    with st.expander("📦 Paper Trading – diagnose og historikk (ZIP)", expanded=False):
+    with st.expander("📦 Paper Trading – diagnose og historikk (ZIP)", expanded=False,
+                     key="paper_diagnostics_panel", on_change="rerun"):
         st.caption("Eksporterer lagret Paper-beholdning, handler og regler slik de finnes. Ingen handel eller kurshenting utføres.")
         if st.button("Lag diagnose-ZIP", key="paper_build_diagnostic_zip"):
             _snapshot = load_portfolio() or {}
             _trades = _snapshot.get("trades") or []
             _rules_snapshot = load_rules()
             _stamp = _paper_datetime.now(_paper_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            from services.economic_accounting_audit import audit as _economic_audit
             _manifest = {
+                "economic_verification": _economic_audit(_snapshot, _trades),
                 "generated_at_utc": _stamp,
                 "source": "paper_trading/load_portfolio",
                 "read_only": True,

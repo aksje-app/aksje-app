@@ -86,6 +86,11 @@ jobs:
           name: Superfond-RC16.34p-browser
           path: dist/browser/
           if-no-files-found: ignore
+      - name: Full application Paper download and navigation in browser
+        env:
+          SYSTEM_BROWSER_TEST: "1"
+          PYTHONPATH: .
+        run: pytest -q tests/test_system_revision_browser.py
       - name: Report sharing JavaScript
         env:
           PYTHONPATH: .
@@ -95,6 +100,7 @@ jobs:
           PYTHONPATH: .
         run: |
           pytest -q \
+            tests/test_system_revision_20261022.py \
             tests/test_mobile_pdf_return_link.py \
             tests/test_rc16_33d_sector_quality_mobile_reports.py \
             tests/test_rc16_33e_current_shadow_counts.py \

@@ -25,7 +25,7 @@ EXPERIMENT_PARAMETERS = {
     "manual_exit_cooldown_days", "replacement_rank_buffer", "replacement_score_margin",
 }
 FRAME_KEY = "controlled_learning/experiment_frames.json"
-FIELDS = ("ticker", "symbol", "market", "country", "currency", "sector", "industry", "price", "current_price",
+FIELDS = ("execution_quote", "market_data_at", "ticker", "symbol", "market", "country", "currency", "sector", "industry", "price", "current_price",
           "autonomy_adjusted_investment_score", "last_price", "investment_score", "final_score", "score", "quality_score", "data_quality_score", "risk_score",
           "volatility_pct", "data_freshness", "data_coverage", "event_risk", "price_timestamp", "data_timestamp",
           "return_1d", "return_3d", "return_5d", "return_10d", "return_20d", "return_60d", "return_1m", "return_3m",
@@ -71,8 +71,11 @@ def record_frame(pipeline, *, config, preselection=None, deep_candidates=None, c
     frames = frames[-MAX_FRAMES:]
     while len(json.dumps(frames, default=str).encode()) > MAX_FRAMES_BYTES:
         frames.pop(0)
-    if not write_json(FRAME_KEY, path, frames):
-        return {"status": "CAPTURE_FAILED", "production_changed": False}
+    try:
+        # durable_runtime.write_json returns None on success and raises on failure.
+        write_json(FRAME_KEY, path, frames)
+    except Exception as exc:
+        return {"status": "CAPTURE_FAILED", "error": f"{type(exc).__name__}: {exc}"[:240], "production_changed": False}
     return {"status": "CAPTURED", "frames": len(frames), "sha256": frame["sha256"], "production_changed": False}
 
 def validate_frames(frames):

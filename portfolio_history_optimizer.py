@@ -15,6 +15,7 @@ STOPS=tuple(2.0+0.5*i for i in range(20))
 HOLDS=(5,7,10,14,20,30,40,60,90,120)
 COST_PCT=0.3
 GAP=120
+METHOD_VERSION="2-entry-day-stop-nonoverlapping-capital"
 
 def _score(returns, penalty):
     net=[r-COST_PCT for r in returns]
@@ -44,21 +45,22 @@ def optimize(bars, portfolio):
     candidates=[]
     for stop in STOPS:
         for hold in HOLDS:
-            tr=_score(simulate(bars[:end_train],stop,hold),penalty)
-            va=_score(simulate(bars[validation[0]:validation[1]],stop,hold),penalty)
+            tr=_score(simulate(bars[:end_train],stop,hold,non_overlapping=True),penalty)
+            va=_score(simulate(bars[validation[0]:validation[1]],stop,hold,non_overlapping=True),penalty)
             if tr and va and tr["trades"]>=3 and va["trades"]>=1:
                 candidates.append({"stop_pct":stop,"hold_sessions":hold,"train":tr,"validation":va})
     # Lock finalists before evaluating untouched holdout.
     finalists=sorted(candidates,key=lambda t:(-t["train"]["objective"],-t["validation"]["objective"]))[:20]
     finalists=sorted(finalists,key=lambda t:-t["validation"]["objective"])[:5]
     for f in finalists:
-        f["holdout"]=_score(simulate(bars[holdout[0]:],f["stop_pct"],f["hold_sessions"]),penalty)
+        f["holdout"]=_score(simulate(bars[holdout[0]:],f["stop_pct"],f["hold_sessions"],non_overlapping=True),penalty)
     return {"status":"COMPLETE_RESEARCH","portfolio":portfolio,"budget":200,
             "evaluated":len(candidates),"finalists":finalists,
             "train_end":dates[end_train-1],"validation_start":dates[validation[0]],
             "holdout_start":dates[holdout[0]],"purge_sessions":GAP,
             "cost_round_trip_pct":COST_PCT,
             "scope":"UNCONDITIONAL_ENTRY_EXIT_GRID_NOT_PORTFOLIO_REPLAY",
+            "method_version":METHOD_VERSION,"capital_model":"SINGLE_ASSET_NON_OVERLAPPING",
             "production_changed":False,"promotion_eligible":False}
 
 def run_once(limit=1):
@@ -67,6 +69,10 @@ def run_once(limit=1):
     tickers=sorted(progress.get("completed_tickers") or [])
     key=PREFIX+"optimization_progress.json"
     state=storage.read_json(key,{}) or {}
+    # Leave historical result documents intact; invalidate progress so the
+    # corrected method recomputes them. Readers reject old method versions.
+    if state.get("method_version") != METHOD_VERSION:
+        state={}
     per_engine=dict(state.get("engine_totals") or {})
     for engine in ("AUTONOMY","SUPER_PORTFOLIO"):
         per_engine.setdefault(engine,{"valid_trials":0,"finalists":0,"complete_symbols":0,"insufficient_symbols":0})
@@ -120,7 +126,7 @@ def run_once(limit=1):
         elapsed=0.
     rate=len(done)/elapsed if elapsed>=1800 and len(done)>=5 else 0.
     eta_hours=round((len(tickers)-len(done)-len(failed))/rate/3600,1) if rate>0 else None
-    new={"started_at":started_at,"eta_hours":eta_hours,"status":"COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING",
+    new={"method_version":METHOD_VERSION,"started_at":started_at,"eta_hours":eta_hours,"status":"COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING",
          "total":len(tickers),"processed":len(done),"failed":len(failed),
          "candidate_budget_per_symbol_per_portfolio":200,
          "engine_totals":per_engine,"aggregated_tickers":sorted(reconciled),

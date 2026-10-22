@@ -26,4 +26,4 @@ def test_candidate_without_quote_must_not_sell_at_entry_price():
         portfolio=p,trades=[],now=datetime(2026,10,14,18,0,tzinfo=timezone.utc),run_id='AUDIT-NO-PRICE')
     assert 'CMBTO.OL' in result['portfolio']['positions']
     assert not [t for t in result['trades'] if t.get('ticker')=='CMBTO.OL']
-    assert any(d.get('reason_code')=='NO_CURRENT_MARKET_PRICE' for d in result['portfolio_decisions'])
+    assert any(d.get('reason_code')=='INVALID_EXECUTION_QUOTE' for d in result['portfolio_decisions'])

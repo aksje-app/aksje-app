@@ -13,6 +13,7 @@ def frame(day=0, price=100, **changes):
         data_quality_score=90, sector='Technology', autonomy_outcome_code='KJØPSKANDIDAT',
         portfolio_action='BUY', valid_for_decision=True, evidence_valid_for_decision=True,
         final_decision_ready=True, price_timestamp=at)
+    candidate["execution_quote"] = {"price":price,"market_data_at":at,"source":"yfinance 5m Close","adjustment":"raw"}
     candidate.update(changes)
     value = dict(engine='AUTONOMY', run_id=str(day), at=at,
         config=asdict(ap.AutonomousParameters()), candidates=[candidate])

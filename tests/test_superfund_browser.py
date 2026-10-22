@@ -28,7 +28,7 @@ def server():
 def test_superfund_all_menus_wrap_without_overlap(server,width):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
-        browser=pw.chromium.launch()
+        browser=pw.chromium.launch(executable_path=os.getenv("BROWSER_EXECUTABLE") or None)
         p=browser.new_page(viewport={'width':width,'height':900},device_scale_factor=1)
         p.goto(server+'?aa_nav=superfund')
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
@@ -88,7 +88,7 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
 def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(server,width):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
-        browser=pw.chromium.launch()
+        browser=pw.chromium.launch(executable_path=os.getenv("BROWSER_EXECUTABLE") or None)
         p=browser.new_page(viewport={'width':width,'height':900})
         p.goto(server+'?aa_nav=dashboard')
         p.get_by_role('heading',name='Start',exact=True).wait_for()
@@ -131,7 +131,7 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
 def test_country_ranking_switch_shows_separate_brazil_group(server,width):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
-        browser=pw.chromium.launch()
+        browser=pw.chromium.launch(executable_path=os.getenv("BROWSER_EXECUTABLE") or None)
         p=browser.new_page(viewport={'width':width,'height':900})
         p.goto(server+'?aa_nav=superfund&aa_tab=Kandidater')
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
@@ -143,4 +143,38 @@ def test_country_ranking_switch_shows_separate_brazil_group(server,width):
         group.first.scroll_into_view_if_needed()
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
         p.screenshot(path=f'dist/browser/superfund-country-{width}.png')
+        browser.close()
+
+
+@pytest.mark.parametrize('width',[375,1280])
+def test_superfund_downloaded_pdf_csv_excel_and_diagnostic_zip(server,width):
+    from io import BytesIO
+    import csv
+    import zipfile
+    from pypdf import PdfReader
+    from openpyxl import load_workbook
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.getenv('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+        page.goto(server+'?aa_nav=superfund')
+        page.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        page.get_by_role('combobox',name='Vis område').click()
+        page.get_by_role('option',name='Rapporter og nedlastinger',exact=True).click()
+        page.get_by_role('button',name='Lag rapporter for nedlasting',exact=True).click()
+        files={}
+        for kind in ['PDF','CSV','Excel']:
+            with page.expect_download() as download:
+                page.get_by_role('button',name='Last ned '+kind,exact=True).click()
+            files[kind]=Path(download.value.path()).read_bytes()
+        assert len(PdfReader(BytesIO(files['PDF'])).pages)>0
+        assert list(csv.reader(files['CSV'].decode('utf-8-sig').splitlines()))
+        assert load_workbook(BytesIO(files['Excel']),read_only=True).sheetnames
+        # Diagnose-ZIP belongs to Rapporter og nedlastinger, not Diagnoser.
+        page.get_by_role('button',name='Lag diagnose-ZIP',exact=True).click()
+        with page.expect_download() as download:
+            page.get_by_role('button',name='Last ned diagnose-ZIP',exact=True).click()
+        with zipfile.ZipFile(download.value.path()) as archive:
+            assert archive.testzip() is None and archive.namelist()
+        assert not page.locator('[data-testid="stException"]').count()
         browser.close()
