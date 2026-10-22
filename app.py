@@ -9660,6 +9660,15 @@ if str(st.session_state.get("active_nav_target_v18674c") or "").lower() == "supe
     render_superfund(st)
     st.stop()
 
+# A direct Paper route takes precedence over stale Autonomi/control-center state.
+# Keep the independent Paper account and trades view accessible from its sidebar
+# link, even when an older Autonomi workspace remains in the session.
+if str(st.session_state.get("active_nav_target_v18674c") or "").strip().lower() in {"paper", "paper_trading", "papertrading"}:
+    from pages.paper_trading import render_paper_trading_dashboard as _render_paper_direct
+    set_global_navigation_state(st, nav="paper_trading", group="Testing og portefolje", panel="Paper Trading og kontroll", tab="")
+    _render_paper_direct(get_page_context_v1950(_render_paper_direct))
+    st.stop()
+
 # RC16.34b: Super Portfolio is a true first-class Market page.
 # Do not route it through the generic control-center selector: that path can be
 # overwritten by stale radio state and was the reason the Start/Market buttons
