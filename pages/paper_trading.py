@@ -16,6 +16,52 @@ def render_paper_trading_dashboard(_legacy_context):
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
+    # Read-only diagnostic export of the Paper Trading account, independent of
+    # the Portfolio tab and its optional monitoring widgets.
+    import io as _paper_io
+    import json as _paper_json
+    import zipfile as _paper_zipfile
+    from datetime import datetime as _paper_datetime, timezone as _paper_timezone
+
+    with st.expander("📦 Paper Trading – diagnose og historikk (ZIP)", expanded=False):
+        st.caption("Eksporterer lagret Paper-beholdning, handler og regler slik de finnes. Ingen handel eller kurshenting utføres.")
+        if st.button("Lag diagnose-ZIP", key="paper_build_diagnostic_zip"):
+            _snapshot = load_portfolio() or {}
+            _trades = _snapshot.get("trades") or []
+            _rules_snapshot = load_rules()
+            _stamp = _paper_datetime.now(_paper_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            _manifest = {
+                "generated_at_utc": _stamp,
+                "source": "paper_trading/load_portfolio",
+                "read_only": True,
+                "trade_count": len(_trades),
+                "position_count": len(_snapshot.get("positions") or {}),
+                "limitations": [
+                    "Eksporten viser bare historikk som faktisk finnes i Paper-lagringen.",
+                    "Manglende tidligere handler og eksterne kursserier blir ikke rekonstruert.",
+                    "Dette er modellhandler, ikke bekreftede meglerhandler."
+                ],
+            }
+            _buffer = _paper_io.BytesIO()
+            with _paper_zipfile.ZipFile(_buffer, "w", compression=_paper_zipfile.ZIP_DEFLATED) as _zip:
+                for _name, _data in (
+                    ("manifest.json", _manifest),
+                    ("paper_portfolio.json", _snapshot),
+                    ("paper_trades.json", _trades),
+                    ("paper_rules.json", _rules_snapshot),
+                ):
+                    _zip.writestr(_name, _paper_json.dumps(_data, ensure_ascii=False, indent=2, default=str))
+            st.session_state["paper_diagnostic_zip_bytes"] = _buffer.getvalue()
+            st.session_state["paper_diagnostic_zip_name"] = "Paper_Trading_diagnose_" + _stamp + ".zip"
+        if st.session_state.get("paper_diagnostic_zip_bytes"):
+            st.download_button(
+                "Last ned Paper Trading diagnose-ZIP",
+                data=st.session_state["paper_diagnostic_zip_bytes"],
+                file_name=st.session_state.get("paper_diagnostic_zip_name", "Paper_Trading_diagnose.zip"),
+                mime="application/zip",
+                key="paper_download_diagnostic_zip",
+                width="stretch",
+            )
     st.caption("Automatiske aksjekjøp krever to kvalifiserte skanninger med ulike kursbarer, minst 10 minutter fra hverandre. Dette er gjentatte tekniske kontroller. Kjøp og salg bruker tidsstemplet ujustert intradagkurs, maksimalt 15 minutter gammel.")
     st.caption("Gevinstsikring: 40 % av toppgevinsten ved 2–3 %, 55 % ved 3–5 %, 65 % ved 5–6 %, 70 % fra 6 %. Stopgrensen garanterer ikke utførelseskurs.")
     try:
