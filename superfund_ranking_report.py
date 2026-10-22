@@ -20,7 +20,8 @@ def report_pdf(digest):
     styles=getSampleStyleSheet()
     for style in styles.byName.values():
         style.fontName="NotoSuperRankBold" if style.name in ("Title","Heading2") else "NotoSuperRank"
-        style.leading=max(style.leading,style.fontSize*1.35)
+        if hasattr(style, "leading") and hasattr(style, "fontSize"):
+            style.leading = max(style.leading, style.fontSize * 1.35)
     out=BytesIO()
     doc=SimpleDocTemplate(out,pagesize=A4,leftMargin=40,rightMargin=40,topMargin=44,bottomMargin=42)
     story=[Paragraph("Superfond – rangering",styles["Title"]),Spacer(1,12)]
