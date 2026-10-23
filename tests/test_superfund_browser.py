@@ -1,5 +1,6 @@
 """Actual browser layout checks; enabled explicitly by the release gate."""
 import os
+import socket
 from pathlib import Path
 import subprocess
 import sys
@@ -13,14 +14,17 @@ pytestmark=pytest.mark.skipif(os.getenv('SF_BROWSER_TEST')!='1',reason='Browser 
 @pytest.fixture(scope='module')
 def server():
     env={**os.environ,'PYTHONPATH':'.'}
-    process=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/superfund_ui_fixture.py','--server.port=8599','--server.headless=true','--browser.gatherUsageStats=false','--theme.base=dark'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+    base='http://127.0.0.1:'+str(port)
+    process=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/superfund_ui_fixture.py','--server.port='+str(port),'--server.headless=true','--browser.gatherUsageStats=false','--theme.base=dark'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
         for _ in range(100):
             try:
-                if urlopen('http://localhost:8599/_stcore/health',timeout=1).status==200:break
+                if urlopen(base+'/_stcore/health',timeout=1).status==200:break
             except Exception:time.sleep(.2)
         else:raise AssertionError('Fixture server did not start')
-        yield 'http://localhost:8599'
+        yield base
     finally:process.terminate();process.wait(timeout=10)
 
 

@@ -1,0 +1,359 @@
+{
+  "main": "f0ef5b491219c2a1232bff30cc9b37eed58bc479",
+  "base_pr167": "88e414a6688ab2396599330e18223d2939ed9c16",
+  "files": [
+    {
+      "path": "autonomous_portfolio.py",
+      "modified_existing_symbols": [
+        "_record_trade",
+        "_sector_value",
+        "_sell",
+        "calculate_performance",
+        "portfolio_equity",
+        "render_autonomous_portfolio",
+        "reset_portfolio",
+        "run_autonomous_cycle",
+        "simulate_autonomy_cycle"
+      ],
+      "added_symbols": [
+        "_execution_candidate",
+        "record_documented_nok_fill"
+      ],
+      "removed_symbols": [],
+      "description": "Ferske dokumenterte utførelseskurser for ordinære kjøp/salg; deduplisering ved handelsspeiling; strategiversjon-import; læringssnapshot tas etter kursvalidering. Reset er sperret og rapporter merker gammelt bruttoresultat. Denne kontrollen retter risikotilsyn for eide tickere uten kandidat, med gyldig datert kursbevis fra posisjon eller separat leverandør. Restartens NOK-sizing er kontekstavhengig."
+    },
+    {
+      "path": "autonomy_modes.py",
+      "modified_existing_symbols": [],
+      "added_symbols": [
+        "apply_requested_workspace_mode"
+      ],
+      "removed_symbols": [],
+      "description": "Eksplisitt valgt arbeidsflate åpner ekspertvisning; endrer bare UI-preferanse, ingen handelsregel."
+    },
+    {
+      "path": "investment_pipeline.py",
+      "modified_existing_symbols": [
+        "score_candidate"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Historisk validering merkes IKKE VERIFISERT uten dokumentert evidens/testperiode/utvalg; scoreformelen er ikke endret."
+    },
+    {
+      "path": "learning_experiments.py",
+      "modified_existing_symbols": [
+        "record_frame"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Snapshot bevarer execution_quote/market_data_at; vellykket write_json med returverdi None tolkes korrekt, og feil registreres."
+    },
+    {
+      "path": "market_intelligence.py",
+      "modified_existing_symbols": [
+        "_run_job_impl",
+        "render_report_file_center"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Rapportpakke får spinner; porteføljesnapshot etter Autonomi inkluderer anvendte parametere for etterprøvbar rapport."
+    },
+    {
+      "path": "navigation_state.py",
+      "modified_existing_symbols": [
+        "restore_navigation_checkpoint_v19144"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Unngår identisk skriving til allerede opprettet Streamlit-widget under checkpoint-gjenoppretting."
+    },
+    {
+      "path": "pages/autonomy.py",
+      "modified_existing_symbols": [
+        "render_autonomy_core_control_center_v1880"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Eksplisitte navigasjonsmål etablerer riktig arbeidsflate før moduswidgeten bygges."
+    },
+    {
+      "path": "pages/paper_trading.py",
+      "modified_existing_symbols": [
+        "render_paper_trading_dashboard"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Diagnose-ZIP inkluderer separat NOK-status og merking av gammel historikk. Reset og direkte ujournalført kapitaloverskriving fjernes; vanlig handel og beholdningslagring består."
+    },
+    {
+      "path": "pages/super_portfolio.py",
+      "modified_existing_symbols": [
+        "render_super_portfolio"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Benchmark uten datagrunnlag vises som utilgjengelig; gyldig nullavkastning beholdes. Kostnadsresultat merkes modellestimat. Lesepanel for separat NOK-periode."
+    },
+    {
+      "path": "pages/superfund.py",
+      "modified_existing_symbols": [
+        "_render_superfund"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Lesepanel for revisjon av Superfonds eksisterende modell. Ingen restartkonto eller parallelt fondslager."
+    },
+    {
+      "path": "paper_store.py",
+      "modified_existing_symbols": [
+        "reset_portfolio"
+      ],
+      "added_symbols": [
+        "record_documented_nok_fill"
+      ],
+      "removed_symbols": [],
+      "description": "Destruktiv reset sperres før skriving. Eksplisitt NOK-fill-adapter legges til; vanlig load/save/add_trade endres ikke."
+    },
+    {
+      "path": "paper_trading_guard.py",
+      "modified_existing_symbols": [
+        "check_paper_trade"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Restart-session bruker separat handlingskontekst. Uten session brukes eksisterende sentrale sperrer og ordinært register."
+    },
+    {
+      "path": "paper_trading_professional.py",
+      "modified_existing_symbols": [
+        "holding_days"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "holding_days tar valgfritt now; uten dette er vanlig klokke og holderegel uendret."
+    },
+    {
+      "path": "portfolio_history_optimizer.py",
+      "modified_existing_symbols": [
+        "optimize",
+        "run_once"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Historisk forskning bruker ikke-overlappende kapital, ny metodeversjon og ny beregningsprogresjon. Gamle resultater slettes ikke, men brukes ikke som om de var beregnet med rettet metode."
+    },
+    {
+      "path": "public_report_ui.py",
+      "modified_existing_symbols": [
+        "render_public_report"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Delingskontroller rendres i appens HTML-kontekst fremfor iframe for fungerende nettleser-/mobilhandlinger."
+    },
+    {
+      "path": "quality_valuation_ui.py",
+      "modified_existing_symbols": [
+        "build_screen_pdf"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "PDF skiller markedsdekning fra antall selskaper med dybdeanalyse; endrer ikke verdsettelsesmodellen."
+    },
+    {
+      "path": "report_portfolio_intelligence.py",
+      "modified_existing_symbols": [
+        "build_portfolio_report"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Råd om salg bruker samme basisscore, holdetimer, RSI og exitpolicy som motoren; merkes rådgivende og krever fersk utførelseskurs. Økonomisk revisjonsstatus vedlegges."
+    },
+    {
+      "path": "research_findings_dashboard.py",
+      "modified_existing_symbols": [
+        "collect",
+        "render"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Skjuler forskningsresultater med gammel metodeversjon og teller dem som ugyldig metode; læring og råhistorikk slettes ikke."
+    },
+    {
+      "path": "scheduled_runner.py",
+      "modified_existing_symbols": [
+        "_run_once_locked"
+      ],
+      "added_symbols": [
+        "_repair_public_reports"
+      ],
+      "removed_symbols": [],
+      "description": "Rapportreparasjon trekkes ut til egen avgrenset feilfangende vedlikeholdsfunksjon; feil kan ikke blokkere kontroll av forfalte jobber. Ingen restartkontovalg."
+    },
+    {
+      "path": "services/simulated_execution_service.py",
+      "modified_existing_symbols": [
+        "SimulatedExecutionService",
+        "SimulatedExecutionService.execute",
+        "SimulatedExecutionService.mirror_legacy_trade"
+      ],
+      "added_symbols": [
+        "SimulatedExecutionService._execute_economic",
+        "SimulatedExecutionService._execute_economic.reject",
+        "SimulatedExecutionService._execute_economic.settle"
+      ],
+      "removed_symbols": [],
+      "description": "Eksplisitt økonomisk skjema bruker basisvalutamotor. Ordinær legacy-speiling støtter SELL_PARTIAL, reparerer avbrutt ordre/fill-speiling fra opprinnelig hendelse og bevarer strategi-/kostnadsproveniens; bokfører ikke kontanter på nytt."
+    },
+    {
+      "path": "services/strategy_account_service.py",
+      "modified_existing_symbols": [
+        "StrategyAccountService",
+        "StrategyAccountService.equity",
+        "StrategyAccountService.metrics",
+        "StrategyAccountService.sync_legacy_account"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Legacy-synkronisering avviser allerede opprettet basisvalutakonto. Vanlige legacy-kontoer beholder sync/verdsetting; økonomiske kontoer får verifisert NAV og nettoavkastning."
+    },
+    {
+      "path": "services/super_portfolio_store.py",
+      "modified_existing_symbols": [
+        "export_files"
+      ],
+      "added_symbols": [
+        "record_documented_nok_fill"
+      ],
+      "removed_symbols": [],
+      "description": "Eksport inkluderer separat NOK-regnskapsstatus; eksplisitt ny fill-adapter. Vanlig commit og transaksjonslagring er uendret."
+    },
+    {
+      "path": "strategy_history_worker.py",
+      "modified_existing_symbols": [
+        "simulate"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Historiske stopp kan treffe allerede i kjøpsdagens LOW; valgfritt ikke-overlappende kapitalforløp. Bare forskningssimulering, ikke operative stop-loss-regler."
+    },
+    {
+      "path": "super_portfolio.py",
+      "modified_existing_symbols": [
+        "_position_from_row",
+        "benchmark_summary",
+        "build_pdf",
+        "evaluate",
+        "master_checklist",
+        "refresh_index_benchmark",
+        "run_scheduled_shadow_cycle"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Benchmark har fast startdato og ukjent sammenlignbarhet merkes; scheduler oppfrisker benchmark i minnet uten konkurrerende commit. Restartens posisjoner/oppgjør velges bare med eksplisitt kontekst."
+    },
+    {
+      "path": "superfund_data.py",
+      "modified_existing_symbols": [],
+      "added_symbols": [
+        "nok_quote"
+      ],
+      "removed_symbols": [],
+      "description": "nok_quote bevarer dokumentert ECB-kildedato som allerede brukes av eksisterende nok_rate; kursberegningen endres ikke."
+    },
+    {
+      "path": "superfund_diagnostics.py",
+      "modified_existing_symbols": [
+        "diagnostic_zip"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Diagnosepakke inkluderer revisjonsresultat fra eksisterende fondsmodell."
+    },
+    {
+      "path": "superfund_engine.py",
+      "modified_existing_symbols": [
+        "cycle"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Native journal utvides med antall, brutto, kostnadskomponenter, kurs/FX-bevis og åpningsproveniens. Fjerner trunkering av eldre handler/tap og NAV. Handels-/risikoregler og NOK-oppgjør beholdes."
+    },
+    {
+      "path": "superfund_reports.py",
+      "modified_existing_symbols": [
+        "csv_bytes",
+        "pdf_bytes"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "CSV og PDF viser regnskapsstatus og kostnadsgrunnlag, med eksplisitt merking av uverifisert eldre historikk."
+    },
+    {
+      "path": "superfund_runtime.py",
+      "modified_existing_symbols": [
+        "run_batch"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Registrerer FX-bevis sammen med eksisterende nok_rate på katalog-/cacheoppdatering. Ingen kobling til nye aksjekontoer."
+    },
+    {
+      "path": "tools/build_safe_distribution.py",
+      "modified_existing_symbols": [
+        "excluded"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Distribusjonspakken inkluderer dokumenter for gjeldende release, fremfor historiske release-/acceptance-/deploy-filer."
+    },
+    {
+      "path": "tools/ui_sidebar_stable.py",
+      "modified_existing_symbols": [
+        "_sidebar_persist_nav_v18658"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Navigasjon lagres per sanert brukernavn i runtime, fremfor delt datafil i repositoryet."
+    },
+    {
+      "path": "trading_engine.py",
+      "modified_existing_symbols": [
+        "_auto_sell_hold_guard_v18675",
+        "_automatic_repeat_buy_block_v1931ay",
+        "_automatic_signal_fresh_v1931ay",
+        "_holding_minutes",
+        "_holding_period",
+        "_position_market_value",
+        "_reentry_block_v1931ay",
+        "audit_state_transition",
+        "auto_trade",
+        "paper_buy",
+        "paper_buy_instrument",
+        "paper_liquidity_snapshot",
+        "paper_sell",
+        "portfolio_value",
+        "select_replacement_position",
+        "trades_today_count"
+      ],
+      "added_symbols": [
+        "_trade_now",
+        "load_portfolio",
+        "load_rules",
+        "save_portfolio"
+      ],
+      "removed_symbols": [],
+      "description": "Eksplisitt restartkontekst får isolert portefølje/rules/audit og NOK-bokføring. Klokkehjelper og valgfri now muliggjør simulering; uten kontekst brukes ordinær klokke og gamle kjøp/salg/lagring."
+    },
+    {
+      "path": "ui_sidebar_stable.py",
+      "modified_existing_symbols": [
+        "_sidebar_persist_nav_v18658"
+      ],
+      "added_symbols": [],
+      "removed_symbols": [],
+      "description": "Samme retting av per-bruker navigasjon/runtime-lagring som verktøykopien."
+    }
+  ]
+}

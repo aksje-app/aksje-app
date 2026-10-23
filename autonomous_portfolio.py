@@ -710,7 +710,7 @@ def candidate_price(candidate: Mapping[str, Any], existing: Mapping[str, Any] | 
 _candidate_price = candidate_price
 
 
-def _execution_candidate(candidate, *, not_before=None):
+def _execution_candidate(candidate, *, not_before=None, fallback_quote=None):
     """Attach an actual raw intraday quote, never a scanner/capture timestamp.
 
     Offline replays must supply their own point-in-time quote. Production may
@@ -725,8 +725,19 @@ def _execution_candidate(candidate, *, not_before=None):
     valid, reason = validate_execution_quote(quote.get("price"),
         {"execution_quote": quote, "market_data_at": quote.get("market_data_at")},
         now=now, not_before=not_before)
+    if not valid and fallback_quote:
+        documented = dict(fallback_quote)
+        fallback_valid, _ = validate_execution_quote(documented.get("price"),
+            {"execution_quote":documented,"market_data_at":documented.get("market_data_at")},
+            now=now,not_before=not_before)
+        if fallback_valid:
+            quote = documented
+            valid = True
     if not valid and _SIMULATION.get() is None:
-        refreshed, _ = fresh_paper_buy_quote(str(row.get("ticker") or ""), now=now)
+        try:
+            refreshed, _ = fresh_paper_buy_quote(str(row.get("ticker") or ""), now=now)
+        except Exception:
+            return None, "Kursleverandør utilgjengelig; ingen dokumentert utførelseskurs"
         quote = dict(refreshed or {})
         valid, reason = validate_execution_quote(quote.get("price"),
             {"execution_quote": quote, "market_data_at": quote.get("market_data_at")},
@@ -1953,20 +1964,17 @@ def run_autonomous_cycle(
     for ticker, pos in list((portfolio.get("positions") or {}).items()):
         capital_cleanup["evaluated"] += 1
         candidate = candidate_map.get(ticker, {})
-        # A held position's last/average price is valuation history, not new
-        # execution evidence. Without a fresh candidate quote, never create a
-        # simulated exit, alter score history or claim a new market mark.
-        if not candidate:
-            capital_cleanup["missing_price"] += 1
-            decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
-                              "action": "HOLD", "reason_code": "NO_CURRENT_CANDIDATE",
-                              "reason": "Ingen oppdatert kandidatkurs; siste verdsetting beholdes uten modellhandel"})
-            continue
-        candidate, quote_error = _execution_candidate(candidate, not_before=pos.get("market_data_at"))
+        # Risk supervision covers EVERY held ticker, even if discovery/buy
+        # filters omitted it. A cached numeric mark is never execution evidence.
+        had_candidate = bool(candidate)
+        candidate, quote_error = _execution_candidate(candidate or {"ticker":ticker},
+            not_before=pos.get("market_data_at"),fallback_quote=pos.get("execution_quote"))
         if candidate is None:
             capital_cleanup["missing_price"] += 1
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
-                              "action": "HOLD", "reason_code": "INVALID_EXECUTION_QUOTE", "reason": quote_error})
+                              "action": "HOLD", "reason_code": "INVALID_EXECUTION_QUOTE" if had_candidate else "NO_CURRENT_CANDIDATE",
+                              "risk_execution_blocked":True,
+                              "reason": "Risikovurdering uten utførelse: "+quote_error})
             continue
         candidate_map[ticker] = candidate
         price = _candidate_price(candidate)
