@@ -2725,15 +2725,8 @@ def set_status(active: bool, reason: str = "Brukerhandling") -> dict[str, Any]:
 
 
 def reset_portfolio(confirmation: str) -> dict[str, Any]:
-    if confirmation.strip().upper() != "RESET":
-        raise ValueError("Skriv RESET for å bekrefte.")
-    params = load_parameters()
-    portfolio = default_portfolio(params)
-    _write(PORTFOLIO_PATH, portfolio)
-    for path in (TRADES_PATH, DECISIONS_PATH, NOTIFICATIONS_PATH, EQUITY_HISTORY_PATH, PERFORMANCE_PATH):
-        _write(path, [] if path != PERFORMANCE_PATH else calculate_performance(portfolio))
-    _append_audit("PORTFOLIO_RESET", {"initial_cash": params.initial_cash})
-    return portfolio
+    """Never delete historical decisions, trades, NAV or learning during restart."""
+    raise ValueError("Destruktiv nullstilling er sperret. Bruk arkivert, separat simuleringsperiode.")
 
 
 def build_activation_analysis(*, persist: bool = True) -> dict[str, Any]:
@@ -3595,12 +3588,7 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
         else: st.caption("Ingen hendelser er registrert i valgt logg ennå.")
         st.info("For evaluering: last ned evalueringspakken og last den opp i ChatGPT. Den inneholder parametere, portefølje, handler, beslutninger, ytelse, varslingslogg, audit og siste pipeline-kjøring.")
         st.warning("Kontroller pakken før deling. Ikke legg API-nøkler, Pushover-token eller andre hemmeligheter i runtime-filene.")
-        confirm = st.text_input("Skriv RESET for å nullstille kontoen", key="alp_reset_text_v18688")
-        if st.button("Nullstill autonom konto", key="alp_reset_v18688"):
-            try:
-                reset_portfolio(confirm); st.success("Kontoen er nullstilt."); st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
+        st.info("Ny start krever kontrollert arkiv og separat NOK-periode. Historikk, læringsmodeller og observasjoner nullstilles ikke.")
 
 
 def preview_staged_autonomi_buys(proposals, *, max_position_pct):

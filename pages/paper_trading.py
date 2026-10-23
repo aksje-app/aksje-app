@@ -424,36 +424,7 @@ def render_paper_trading_dashboard(_legacy_context):
         pc3.metric("Kapitalbinding", f"{pro_summary['capital_binding_pct']:.1f}%")
         pc4.metric("Ledig kapital", f"{pro_summary['free_capital_pct']:.1f}%")
         _render_manual_paper_nav_update_v18621(portfolio)
-        with st.expander("Juster startverdier / porteføljeverdi", expanded=False):
-            c_start, c_value = st.columns(2)
-            with c_start:
-                new_start_cash = st.number_input("Startkapital / reset-verdi", min_value=10_000, max_value=50_000_000, value=int(float(_paper_rules.get("start_cash", 100000))), step=10_000, key="paper_start_cash_v1871")
-            with c_value:
-                new_portfolio_value = st.number_input("Porteføljeverdi", min_value=0, max_value=50_000_000, value=int(float(total_value)), step=10_000, key="paper_total_value_v1871")
-            c_apply, c_reset = st.columns(2)
-            with c_apply:
-                if st.button("Bruk porteføljeverdi", key="paper_apply_total_value_v1871", width="content"):
-                    target_value = _safe_float_v18581(new_portfolio_value, total_value)
-                    current_cash = _safe_float_v18581(portfolio.get("cash", 0), 0.0)
-                    positions_value = _safe_float_v18581(liq.get("positions_value", 0), 0.0)
-                    new_cash = round(target_value - positions_value, 2)
-                    if new_cash < 0:
-                        st.error(f"Kan ikke sette porteføljeverdi lavere enn åpne posisjoner ({positions_value:,.0f}).")
-                    else:
-                        portfolio["cash"] = new_cash
-                        _paper_rules["start_cash"] = _safe_float_v18581(new_start_cash, current_cash)
-                        save_rules(_paper_rules)
-                        save_portfolio(portfolio)
-                        st.success(f"Porteføljeverdi oppdatert til ca. {target_value:,.0f}. Cash/kjøpekraft er nå ca. {new_cash:,.0f} ✅")
-                        st.rerun()
-            with c_reset:
-                if st.button("Reset til startkapital", key="restore_reset_paper_portfolio_v1871", width="content"):
-                    target_start = _safe_float_v18581(new_start_cash, 100000.0)
-                    _paper_rules["start_cash"] = target_start
-                    save_rules(_paper_rules)
-                    reset_portfolio(target_start)
-                    st.success(f"Paper portfolio nullstilt til {target_start:,.0f} ✅")
-                    st.rerun()
+        st.info("Ny start forberedes som separat NOK-periode etter kontrollert arkivering. Gamle posisjoner, handler, resultater og læring beholdes. Direkte nullstilling og ujournalførte kapitalendringer er sperret.")
         st.markdown("#### Åpne posisjoner")
         if portfolio.get("positions", {}):
             _render_paper_positions_cards_v1863ac(portfolio, latest_prices, position_rows=paper_position_rows_cache, rules=_paper_rules)

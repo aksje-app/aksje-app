@@ -537,28 +537,9 @@ def add_trade(portfolio, trade):
         save_portfolio(portfolio)
 
 def reset_portfolio(start_cash=100000.0):
-    p = {"cash": float(start_cash), "positions": {}, "trades": [], "fund_savings_plans": [], "review_queue": []}
-    if using_postgres():
-        init_db()
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM paper_positions")
-        cur.execute("DELETE FROM paper_trades")
-        cur.execute(
-            "UPDATE paper_state SET cash=%s, updated_at=%s WHERE id=1",
-            (float(start_cash), datetime.now().isoformat(timespec="seconds")),
-        )
-        conn.commit()
-        conn.close()
-        storage = _storage()
-        if storage is not None:
-            try:
-                storage.write_json(STORAGE_KEY, _merge_portfolio(p))
-            except Exception as e:
-                logging.warning("Silenced exception restored in v18.6.74d: %s", e)
-    else:
-        save_portfolio(p)
-    return p
+    """Legacy destructive reset is retired; preserve trades, positions and learning."""
+    raise ValueError("Destruktiv nullstilling er sperret. Bruk arkivert, separat simuleringsperiode.")
+
 
 def storage_status():
     try:

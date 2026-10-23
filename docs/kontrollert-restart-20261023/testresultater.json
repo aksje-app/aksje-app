@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-23",
+  "repository": "aksje-app/aksje-app",
+  "pull_request": 167,
+  "branch": "fix/systemrevisjon-20261022",
+  "isolated_suite": {
+    "passed": 2459,
+    "subtests_passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 381.42,
+    "browser_cases": 85,
+    "postgresql_integration_cases": 23,
+    "original_99_regressions_passed": 99,
+    "scope": "Etter arkivets fsync-endring; før siste endring som binder kontrollen til periodens lagrede kapital fremfor fremtidig standard."
+  },
+  "latest_targeted_restart_suite": {
+    "passed": 14,
+    "failed": 0,
+    "seconds": 0.65,
+    "scope": "Siste kode, inklusive ny test av endret fremtidig kapitalstandard. Disse testene overlapper den brede pakken."
+  },
+  "other_checks": {
+    "release_contracts_passed": 24,
+    "node_report_sharing_passed": 5,
+    "locked_dependencies_verified": 70,
+    "runtime_guard_ok": true,
+    "cli_help_ok": true
+  },
+  "live_provider_tests": {
+    "status": "IKKE VERIFISERT",
+    "passed": 0,
+    "failed": 2,
+    "symbols": [
+      "MYCR.ST",
+      "MSFT"
+    ],
+    "reason": "CONNECT-proxy returnerer HTTP 403; ingen markedsdata kunne verifiseres."
+  },
+  "production": {
+    "archive_created": false,
+    "draft_accounts_created": false,
+    "account_reset": false,
+    "activation": false,
+    "position_transfer": false,
+    "learning_reset": false,
+    "merge": false,
+    "deploy": false,
+    "missing": [
+      "Tilgang til faktiske produksjonskilder og komplett kildeinventar",
+      "Varig separat privat arkivmål og nøkkelforvaltning",
+      "Kontrollert arkivering og tilbakelesing av faktiske data",
+      "Eksplisitt starttid og senere godkjent motoromkobling"
+    ]
+  },
+  "test_data": "Kun syntetiske data; ekte PostgreSQL-dump og gjenoppretting ble utført i isolerte lokale testdatabaser."
+}

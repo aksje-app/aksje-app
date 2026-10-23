@@ -7,14 +7,14 @@ from services.portfolio_accounting import report
 
 
 def render(st, family):
+    from ui.simulation_restart import render as render_restart
+    render_restart(st,family)
     result = report(family)
     with st.expander('NOK-regnskap – dokumentert periode og historikk', expanded=False):
         st.caption('Historiske modellresultater, inkludert tap, beholdes. De er ikke verifisert nettoavkastning i NOK.')
         period = result['new_period']
         if result['status'] == 'NOT_PREPARED':
-            st.info('Ingen ny NOK-konto er opprettet eller aktivert. Dokumentert åpningsbalanse og uttrykkelig godkjenning kreves.')
-            for missing in result['missing_opening_evidence']:
-                st.write('• '+missing)
+            st.info('Ingen ny NOK-konto er aktivert. Restartplanen over starter med null aksjer og dokumentert ny simuleringskapital etter arkivkontroll. Gamle inngangsverdier trenger ikke rekonstrueres for denne nye perioden.')
         elif result['status'] == 'INTEGRITY_ERROR':
             st.error('Regnskap og journal stemmer ikke. Ingen verifiserte resultater vises.')
             st.write(result['issues'])

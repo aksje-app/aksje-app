@@ -326,3 +326,31 @@ def test_documented_model_dividend_and_cashflow_report(app_server,width):
         assert not page.locator('[data-testid="stException"]').count()
         browser.close()
     assert storage.read_json(accounting.key('paper'))==before
+
+
+@pytest.mark.parametrize('width',[1280,375])
+@pytest.mark.parametrize('route,family,capital',[
+    ('paper_trading','paper',100000),('autonomy&aa_tab=autonomous_portfolio','autonomy',500000),
+    ('super_portfolio','super_portfolio',1000000)])
+def test_controlled_restart_plan_preserves_history_and_never_activates(app_server,width,route,family,capital):
+    """Read-only new-start planning at desktop/mobile, without production input."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+        page.goto(app_server+'/?aa_nav='+route)
+        panel=page.locator('[data-testid="stExpander"]').filter(has_text='Kontrollert ny start – separat simuleringsperiode')
+        panel.locator('summary').wait_for(timeout=45000);panel.locator('summary').click()
+        panel.get_by_text('Tidligere strategilæring: beholdes med modeller, parametere og observasjoner.',exact=True).wait_for()
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=45000)
+        with page.expect_download() as download:
+            panel.get_by_role('button',name='Last ned restartplan / valgt ny periode (JSON)',exact=True).click()
+        data=json.loads(Path(download.value.path()).read_bytes())
+        assert data['status']=='WAITING_FOR_VERIFIED_ARCHIVE'
+        assert data['capital_nok']==capital and data['positions']=={}
+        assert data['learning_reset'] is False and data['legacy_sales_created'] is False
+        assert data['activation_enabled'] is False and data['start_at'] is None
+        assert page.get_by_role('button',name='Reset til startkapital',exact=True).count()==0
+        assert page.get_by_role('button',name='Nullstill autonom konto',exact=True).count()==0
+        assert not page.locator('[data-testid="stException"]').count()
+        browser.close()
