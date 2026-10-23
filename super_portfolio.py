@@ -2865,7 +2865,8 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"stress_radar", "status":"DONE", "label":"Scenario-basert Stress Radar for marked, sektor og valuta"},
         {"key":"resource_panel", "status":"DONE", "label":"Eget resource-panel for memory/cgroup og DB-kapasitet"},
         {"key":"data_freshness", "status":"DONE", "label":"Data Freshness / datakvalitet med FRESH/AGING/STALE/DATA GAP"},
-        {"key":"turnover_costs", "status":"DONE", "label":"Turnover, estimert kurtasje/slippage og nettoavkastning"},
+        {"key":"turnover_costs", "status":"DONE", "label":"Turnover og estimert kostnadsfradrag i historisk modell"},
+        {"key":"verified_nok_transition", "status":"PARTIAL", "label":"Separat NOK-regnskap er testet; dokumentert åpning og godkjent overgang gjenstår"},
         {"key":"event_risk", "status":"DONE", "label":"Event Risk for kommende resultat-/rapportdato når data finnes"},
         {"key":"decision_confidence", "status":"DONE", "label":"Decision Confidence basert på kvalitet, ferskhet, regime og signalenighet"},
         {"key":"horizontal_info_layout", "status":"DONE", "label":"Kompakte horisontale info-paneler med foldbare seksjoner og tabeller"},
@@ -3013,7 +3014,7 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     story.append(Paragraph(f"{conf.get('icon','')} {_f(conf.get('score')):.1f}/100 · {conf.get('label','-')}", styles["Normal"]))
     story.append(Spacer(1, 6)); story.append(Paragraph("Turnover & costs", styles["Heading2"]))
     tc = data.get("turnover_costs") if isinstance(data.get("turnover_costs"), Mapping) else {}
-    story.append(Paragraph(f"Turnover {_f(tc.get('turnover_pct')):.2f}% · estimated cost {_f(tc.get('estimated_cost')):.2f} · net return {_f(tc.get('net_return_pct')):+.2f}%", styles["Normal"]))
+    story.append(Paragraph(f"Turnover {_f(tc.get('turnover_pct')):.2f}% · estimated cost {_f(tc.get('estimated_cost')):.2f} · modellestimat etter kostnader {_f(tc.get('net_return_pct')):+.2f}% (ikke verifisert netto NOK)", styles["Normal"]))
     story.append(Spacer(1, 6)); story.append(Paragraph("Stress Radar", styles["Heading2"]))
     stress = data.get("stress_radar") or []
     if stress:

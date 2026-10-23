@@ -598,3 +598,13 @@ def force_schema_fix():
     Alias brukt av noen UI-versjoner.
     """
     return force_schema_migration()
+
+
+def record_documented_nok_fill(fill, *, storage=None):
+    """Explicit actual-share adapter; never infer a fill from legacy model units.
+
+    Requires a separately approved NOK period. Existing historical execution and
+    selection rules remain unchanged until a controlled handover is authorised.
+    """
+    from services.portfolio_accounting import settle
+    return settle('paper', fill, storage=storage)

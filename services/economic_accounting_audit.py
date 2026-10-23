@@ -39,6 +39,13 @@ def audit(portfolio, trades=(), *, at=None):
     if portfolio.get('accounting_schema') == 'BASE_CURRENCY_SHARES_V1':
         from services.economic_ledger import reconcile
         trades = portfolio.get('trades') or []
+        created = _time(portfolio.get('created_at'))
+        if created is None or created > at:
+            errors.append('INVALID_OR_FUTURE_OPENING_TIME')
+        if any(_time(t.get('timestamp')) is None or _time(t.get('timestamp')) > at for t in trades):
+            errors.append('FUTURE_OR_UNDATED_TRADE_AT_VALUATION')
+        if portfolio.get('marked_at') and (_time(portfolio['marked_at']) is None or _time(portfolio['marked_at']) > at):
+            errors.append('FUTURE_VALUATION_AT_REPORT_TIME')
         try:
             errors.extend(reconcile(portfolio))
         except (ValueError, KeyError, TypeError):

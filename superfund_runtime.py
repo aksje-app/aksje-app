@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import time
-from superfund_data import catalog_page, normalize, details, fx_history, nok_rate
+from superfund_data import catalog_page, normalize, details, fx_history, nok_rate, nok_quote
 from superfund_engine import DEFAULTS, initial, cycle, at, valid_parameters
 from resource_coordinator import coordinated, optional_capacity
 
@@ -246,7 +246,9 @@ def run_batch(page_budget=3, detail_budget=2, *, page_provider=catalog_page, fx_
         write('job.json',{'state':'RUNNING','phase':'HENTER PRODUKTDETALJER','started_at':now,'checked_at':now_iso(),'capacity':capacity})
         items = all_items(index)
         # Refresh FX on cached items too; don't trade on a rate newer than quote day.
-        for item in items: item['nok_rate']=nok_rate(item['currency'],item['price_at'],fx)
+        for item in items:
+            item['nok_rate']=nok_rate(item['currency'],item['price_at'],fx)
+            item['fx_quote']=nok_quote(item['currency'],item['price_at'],fx)
         if enrich and time.monotonic()-started < 40: items=_enrich(items,index, min(4,detail_budget))
         if enrich and time.monotonic()-started < 40:
             try:refresh_news([i for i in items if i.get('detail')])

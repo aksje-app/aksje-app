@@ -59,7 +59,8 @@ def new_account(initial_cash, *, base_currency, at):
 
 
 def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
-            observed_at, source, at, fee, cost_currency, fx_quote=None):
+            observed_at, source, at, fee, cost_currency, fx_quote=None, cost_components=None,
+            cost_source_ref=None):
     """Book a documented simulated fill, including proportional cost on partial exits."""
     if portfolio.get('accounting_schema') != SCHEMA:
         raise ValueError('Explicit reconciled base-currency opening balance required')
@@ -68,6 +69,11 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
     q = number(quantity, positive=True)
     p = number(price, positive=True)
     costs = number(fee)
+    if cost_components is not None:
+        if set(cost_components) != {'brokerage_nok', 'fx_cost_nok', 'other_nok'}:
+            raise ValueError('Explicit brokerage, FX and other cost components required')
+        if not cost_source_ref or abs(sum(number(v) for v in cost_components.values())-costs) > 1e-8:
+            raise ValueError('Cost components must reconcile to documented base-currency fee')
     if not source or not timedelta(0) <= stamp(at)-stamp(observed_at) <= timedelta(minutes=15):
         raise ValueError('Fresh documented execution price required')
     base = portfolio['base_currency']
@@ -80,6 +86,8 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
                    timestamp=at, fx_quote=deepcopy(fx_quote), fx_rate=rate,
                    gross_value=gross, fee=costs, transaction_cost=costs,
                    cost_currency=base, accounting_schema=SCHEMA)
+    if cost_components is not None:
+        request.update(cost_components=deepcopy(cost_components), cost_source_ref=cost_source_ref)
     for old in portfolio.get('trades', []):
         if old.get('trade_id') == trade_id:
             if any(old.get(key) != value for key, value in request.items()):
@@ -103,11 +111,14 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
         cost = number((old or {}).get('cost_basis_base', 0)) + gross + costs
         result['positions'][ticker] = {
             **(old or {}), 'quantity': total, 'quantity_unit': 'ACTUAL_SHARES',
-            'currency': currency, 'last_price': p, 'price_observed_at': observed_at,
+            'currency': currency, 'last_price': p, 'price_observed_at': observed_at, 'price_source': source,
             'fx_quote': deepcopy(fx_quote), 'cost_basis_base': cost,
-            'average_price': (held*float((old or {}).get('average_price', p))+q*p)/total,
             'average_cost_base': cost/total,
         }
+        # Opening positions need not have a documented historical local average.
+        # Never manufacture one from today's FX or the opening mark.
+        if not old or old.get('average_price') is not None:
+            result['positions'][ticker]['average_price'] = (held*float((old or {}).get('average_price', p))+q*p)/total
         result['cash'] = cash-gross-costs
         request['cash_delta'] = -gross-costs
     else:
@@ -124,7 +135,7 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
             del result['positions'][ticker]
         else:
             old.update(quantity=remaining, cost_basis_base=old['cost_basis_base']-allocated_cost,
-                       last_price=p, price_observed_at=observed_at, fx_quote=deepcopy(fx_quote))
+                       last_price=p, price_observed_at=observed_at, price_source=source, fx_quote=deepcopy(fx_quote))
     result['fees_paid'] = number(result.get('fees_paid', 0))+costs
     result['realized_pnl'] = float(result.get('realized_pnl', 0))+pnl
     request['pnl'] = pnl
@@ -136,14 +147,27 @@ def reconcile(portfolio):
     """Prove cash and remaining shares from the complete, recorded opening balance."""
     if portfolio.get('accounting_schema') != SCHEMA:
         return ['UNVERIFIED_OPENING_BALANCE']
-    cash = number(portfolio['initial_cash'], positive=True)
-    quantities = {}
-    bases = {}
+    opening = portfolio.get('opening_balance')
+    if opening:
+        from services.economic_opening import opening_account
+        documented = opening_account(portfolio['opening_document'])
+        if (documented['opening_balance'] != opening
+                or documented['initial_cash'] != portfolio['initial_cash']
+                or documented['created_at'] != portfolio['created_at']):
+            return ['OPENING_BALANCE_DOES_NOT_RECONCILE']
+    cash = number(opening['cash']) if opening else number(portfolio['initial_cash'], positive=True)
+    opening_positions = opening.get('positions', {}) if opening else {}
+    quantities = {t:number(p['quantity'], positive=True) for t,p in opening_positions.items()}
+    bases = {t:number(p['cost_basis_base']) for t,p in opening_positions.items()}
     realized = 0.0
     fees = 0.0
     ids = set()
     issues = []
+    last_trade_at = stamp(portfolio['created_at'])
     for trade in portfolio.get('trades', []):
+        if stamp(trade['timestamp']) < last_trade_at:
+            issues.append('OUT_OF_ORDER_ECONOMIC_JOURNAL')
+        last_trade_at = stamp(trade['timestamp'])
         identity = trade.get('trade_id')
         if not identity or identity in ids:
             issues.append('DUPLICATE_OR_MISSING_TRADE_ID')
@@ -164,6 +188,9 @@ def reconcile(portfolio):
         if abs(gross-number(trade.get('gross_value'))) > .00001:
             issues.append('TRADE_VALUE_DOES_NOT_RECONCILE')
         fee = number(trade.get('fee'))
+        if 'cost_components' in trade and (not trade.get('cost_source_ref') or
+                abs(sum(number(v) for v in trade['cost_components'].values())-fee) > 1e-8):
+            issues.append('COST_COMPONENTS_DO_NOT_RECONCILE')
         fees += fee
         if direction == 1:
             bases[ticker] = bases.get(ticker, 0)+gross+fee
@@ -189,6 +216,6 @@ def reconcile(portfolio):
         issues.append('COST_BASIS_DOES_NOT_RECONCILE')
     if abs(number(portfolio.get('fees_paid'))-fees) > .00001:
         issues.append('FEES_DO_NOT_RECONCILE')
-    if abs(float(portfolio.get('realized_pnl', 0))-realized) > .00001:
+    if not isfinite(float(portfolio.get('realized_pnl', 0))) or abs(float(portfolio.get('realized_pnl', 0))-realized) > .00001:
         issues.append('REALIZED_PNL_DOES_NOT_RECONCILE')
     return issues

@@ -1,0 +1,7 @@
+Nye dokumenterte NOK-perioder får separate kontoer for Paper Trading, Autonomi og Superporteføljen, med den eksisterende basisvalutamotoren. Åpningsgrunnlag, kostnader, handler og markeringer avstemmes mot full atomisk journal; utkast krever eksplisitt godkjenning før bokføring. Medbrakte tap og nettoresultat siden åpning vises separat. Superfond beholder sitt native NOK-regnskap og får direkte avstemming og bedre valutabilag, uten en konkurrerende fondskonto.
+
+Gamle porteføljer og tap beholdes. Ingen produksjonskonto er migrert eller aktivert, og ordinære strategimotorer byttes ikke automatisk over. Dokumentert produksjonsåpning, kontrollert utførelseskobling og uttrykkelig godkjenning gjenstår. Overgangsplan og kontrakter: `docs/f3-20261023/OVERGANG.md`. Ingen merge eller deploy er utført.
+
+Validert: 2406 beståtte tester + 4 deltester, ingen feil/hopp i hele den isolerte pakken; inkludert 19 reelle PostgreSQL-tester og 77 nettleserforløp. Alle opprinnelige 99 feiltilfellene består. NOK/USD/EUR, kjøp/delsalg/tilleggskjøp, kostnader, NAV, samtidighet, tapt commit-kvittering, rollback og journalavvik er testet. 24 releasekontrakter, 70 låste avhengigheter, runtime-kontroll og fem rapportdelingsforløp består.
+
+De to live Yahoo Finance-testene ble også kjørt og feiler med CONNECT-proxy HTTP 403. Leverandørakseptansen er uavklart og blokkerer produksjonsklarering. Nettleserfixturene erstatter innlogging og eksterne leverandører. Full rapport og eksakt dekning: `docs/f3-20261023/rapport.md` og `testresultater.json`.

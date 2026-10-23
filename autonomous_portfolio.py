@@ -3232,6 +3232,8 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     params = load_parameters()
     portfolio = load_portfolio()
     perf = calculate_performance(portfolio)
+    from ui.economic_accounting import render as render_nok_accounting
+    render_nok_accounting(st, 'autonomy')
 
     with st.expander("Kontrollerte skyggetester – Autonomi og Superportefølje"):
         try:
@@ -3635,3 +3637,13 @@ def preview_early_loss_autonomi(position, evidence):
     return review_with_verified_observation(position, evidence,
         entry_field="opened_at", price_field="average_price", current_field="current_price")
 
+
+
+def record_documented_nok_fill(fill, *, storage=None):
+    """Explicit actual-share adapter; never infer a fill from legacy model units.
+
+    Requires a separately approved NOK period. Existing historical execution and
+    selection rules remain unchanged until a controlled handover is authorised.
+    """
+    from services.portfolio_accounting import settle
+    return settle('autonomy', fill, storage=storage)

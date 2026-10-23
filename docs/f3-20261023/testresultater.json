@@ -1,0 +1,86 @@
+{
+  "branch": "fix/systemrevisjon-20261022",
+  "pr": 167,
+  "base_commit": "6bc8b953a898e7090ca6d5d323d985e7b7681224",
+  "full_isolated_suite": {
+    "passed": 2406,
+    "subtests_passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 362.97,
+    "excluded": [
+      "tests/test_superportfolio_live_ohlc_acceptance.py (run separately)"
+    ]
+  },
+  "live_provider": {
+    "passed": 0,
+    "failed": 2,
+    "reason": "CONNECT proxy HTTP 403 against Yahoo Finance; acceptance unresolved",
+    "symbols": [
+      "MYCR.ST",
+      "MSFT"
+    ]
+  },
+  "original_99": {
+    "passed": 99,
+    "failed": 0,
+    "mapping": "opprinnelige-99.json"
+  },
+  "accounting": {
+    "test_economic_ledger": 30,
+    "test_portfolio_accounting": 55,
+    "test_superfund_accounting": 18
+  },
+  "postgres": {
+    "passed": 19,
+    "backend": "isolated localhost PostgreSQL 16",
+    "new_family_accounting_tests": 3
+  },
+  "browser": {
+    "full_app": 68,
+    "superfund": 9,
+    "widths": [
+      375,
+      430,
+      1280
+    ],
+    "new_accounting_flows": 8,
+    "authentication_substituted": true,
+    "external_providers_blocked": true
+  },
+  "other_checks": {
+    "release_contracts": 24,
+    "report_share_paths": 5,
+    "dependency_lock": {
+      "ok": true,
+      "target_python": "3.12.13",
+      "direct_dependency_count": 19,
+      "locked_dependency_count": 70,
+      "missing_roots": [],
+      "root_version_mismatches": [],
+      "installed_mismatches": [],
+      "incompatible_with_target": []
+    },
+    "runtime": {
+      "ok": true,
+      "version": "v19.22.0-rc16.34r",
+      "compiled_python_files": 957,
+      "runtime_modules_in_closure": 400,
+      "failures": []
+    }
+  },
+  "production": {
+    "activated": false,
+    "migrated": false,
+    "deployed": false,
+    "merged": false,
+    "ready_for_activation": false
+  },
+  "pr_update": {
+    "existing_pr": 167,
+    "description_api": "Forbidden (GraphQL)",
+    "prepared_description": "PR.md",
+    "delivery": "same existing branch; no new pull request"
+  }
+}

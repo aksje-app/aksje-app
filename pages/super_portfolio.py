@@ -46,6 +46,8 @@ def render_super_portfolio(_legacy_context) -> None:
         "myke sektor-/korrelasjonsstraffer, Ranking Velocity og Stop Pressure. Ingen ekte ordre sendes."
     )
     state = load_state()
+    from ui.economic_accounting import render as render_nok_accounting
+    render_nok_accounting(st, 'super_portfolio')
     with st.expander("Offisielle innside- og short-hendelser", expanded=False):
         from services.storage_service import get_storage_service
         from market_event_discovery import KEY, purchase_clusters
@@ -466,7 +468,7 @@ def render_super_portfolio(_legacy_context) -> None:
     t1.metric("Turnover",f"{float(tc.get('turnover_pct') or 0):.2f}%")
     t2.metric("Estimert kostnad",f"{float(tc.get('estimated_cost') or 0):,.0f}")
     t3.metric("Brutto",f"{float(tc['gross_return_pct'] if tc.get('gross_return_pct') is not None else weighted_return):+.2f}%")
-    t4.metric("Etter kostnader",f"{float(tc['net_return_pct'] if tc.get('net_return_pct') is not None else weighted_return):+.2f}%")
+    t4.metric("Modellestimat etter kostnader",f"{float(tc['net_return_pct'] if tc.get('net_return_pct') is not None else weighted_return):+.2f}%")
 
     st.markdown("### 🖥️ Ressurser")
     rh=state.get("resource_health") or {}

@@ -16,6 +16,8 @@ def render_paper_trading_dashboard(_legacy_context):
     st.session_state.pop("paper_manual_override_v1871", None)
     _paper_manual_override_state_v18674a()
     portfolio = load_portfolio()
+    from ui.economic_accounting import render as render_nok_accounting
+    render_nok_accounting(st, 'paper')
     st.warning("Modellregnskap: lokal kursutvikling uten fullstendig valuta- og kostnadsføring. Tallene er ikke verifisert nettoavkastning i NOK.")
     # Read-only diagnostic export of the Paper Trading account, independent of
     # the Portfolio tab and its optional monitoring widgets.
@@ -33,6 +35,7 @@ def render_paper_trading_dashboard(_legacy_context):
             _rules_snapshot = load_rules()
             _stamp = _paper_datetime.now(_paper_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             from services.economic_accounting_audit import audit as _economic_audit
+            from services.portfolio_accounting import report as _nok_report
             _manifest = {
                 "economic_verification": _economic_audit(_snapshot, _trades),
                 "generated_at_utc": _stamp,
@@ -50,6 +53,7 @@ def render_paper_trading_dashboard(_legacy_context):
             with _paper_zipfile.ZipFile(_buffer, "w", compression=_paper_zipfile.ZIP_DEFLATED) as _zip:
                 for _name, _data in (
                     ("manifest.json", _manifest),
+                    ("nok_accounting.json", _nok_report("paper")),
                     ("paper_portfolio.json", _snapshot),
                     ("paper_trades.json", _trades),
                     ("paper_rules.json", _rules_snapshot),

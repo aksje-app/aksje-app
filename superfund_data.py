@@ -140,3 +140,13 @@ def nok_rate(currency, price_at, fx):
         return None
     rates = fx['days'][chosen]
     return rates['NOK'] / rates[currency] if rates.get(currency) else None
+
+
+def nok_quote(currency, price_at, fx):
+    """Keep the exact ECB fixing date and source used by the native NOK model."""
+    rate = nok_rate(currency, price_at, fx)
+    if rate is None or currency == 'NOK':
+        return None
+    chosen = max(d for d in fx.get('days', {}) if d <= str(price_at)[:10])
+    return {'currency':currency, 'base_currency':'NOK', 'rate':rate,
+            'observed_at':chosen+'T00:00:00+00:00', 'source':fx.get('source')}

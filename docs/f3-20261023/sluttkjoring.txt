@@ -1,0 +1,12 @@
+============================= slowest 10 durations =============================
+11.64s call     tests/test_v19220_rc14_global_navigation_persistence.py::test_no_literal_session_state_write_occurs_after_same_literal_widget_key_in_function
+11.44s call     tests/test_superfund_browser.py::test_superfund_all_menus_wrap_without_overlap[375]
+11.35s call     tests/test_system_revision_browser.py::test_system_settings_and_full_stop_preserve_execution_block[1280]
+11.21s call     tests/test_system_revision_browser.py::test_system_settings_and_full_stop_preserve_execution_block[375]
+11.21s call     tests/test_superfund_browser.py::test_first_tap_and_fresh_browser_restore_superfund_and_selected_section[375]
+10.90s call     tests/test_superfund_browser.py::test_superfund_all_menus_wrap_without_overlap[430]
+10.74s call     tests/test_superfund_browser.py::test_superfund_all_menus_wrap_without_overlap[1280]
+10.13s call     tests/test_superfund_browser.py::test_first_tap_and_fresh_browser_restore_superfund_and_selected_section[430]
+9.30s call     tests/test_rc16_31cg_alert_chain_audit.py::test_every_pushover_producer_uses_the_single_sanitized_sender
+8.35s call     tests/test_superfund_browser.py::test_superfund_downloaded_pdf_csv_excel_and_diagnostic_zip[375]
+2406 passed, 4 subtests passed in 362.97s (0:06:02)

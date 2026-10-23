@@ -218,3 +218,69 @@ def test_system_settings_and_full_stop_preserve_execution_block(app_server, widt
         page.get_by_role('button',name='⛔ Full stopp / ferie',exact=True).wait_for(timeout=30000)
         assert not page.locator('[data-testid="stException"]').count()
         browser.close()
+
+
+@pytest.mark.parametrize('width',[1280,375])
+@pytest.mark.parametrize('route,family',[
+    ('paper_trading','paper'),('super_portfolio','super_portfolio'),
+    ('autonomy&aa_tab=autonomous_portfolio','autonomy')])
+def test_nok_accounting_status_and_complete_draft_downloads(app_server,width,route,family,tmp_path,monkeypatch):
+    """Real UI downloads: no account auto-creation; documented draft stays inactive."""
+    from playwright.sync_api import sync_playwright
+    from services.storage_service import StorageService
+    from services import portfolio_accounting as accounting
+    from test_portfolio_accounting import opening
+    # Use the same isolated runtime as this browser server. Never touch the
+    # ordinary runtime or a production connection. No activation call is made.
+    storage=StorageService(app_server.runtime_root/'data'/'services',database_url='',mode='local')
+    assert str(storage.base_dir).startswith('/tmp/aksje-browser-')
+    existing=storage.read_json(accounting.key(family))
+    if not existing:
+        accounting.prepare(family,opening(True),prepared_by='TEST ONLY browser draft',storage=storage)
+    before=storage.read_json(accounting.key(family))
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+        page.goto(app_server+'/?aa_nav='+route)
+        panel=page.locator('[data-testid="stExpander"]').filter(has_text='NOK-regnskap – dokumentert periode og historikk')
+        panel.locator('summary').wait_for(timeout=45000)
+        panel.locator('summary').click()
+        panel.get_by_text('Status: Utkast – ikke aktivert',exact=True).wait_for()
+        assert 'Historiske modellresultater, inkludert tap, beholdes' in panel.inner_text()
+        with page.expect_download() as download:
+            panel.get_by_role('button',name='Last ned NOK-regnskap og journal (JSON)',exact=True).click()
+        data=json.loads(Path(download.value.path()).read_bytes())
+        assert data['status']=='DRAFT'
+        assert data['new_period']['approval'] is None
+        assert data['new_period']['carried_opening_unrealized_nok']==-2000
+        assert data['new_period']['period_net_pnl_nok']==0
+        assert data['new_period']['verification']['status']=='BESTÅTT'
+        assert data['legacy_result_basis']=='HISTORISK – IKKE VERIFISERT NETTO NOK'
+        with page.expect_download() as download:
+            panel.get_by_role('button',name='Last ned full NOK-journal (CSV)',exact=True).click()
+        import csv
+        text=Path(download.value.path()).read_text(encoding='utf-8-sig')
+        rows=list(csv.reader(__import__('io').StringIO(text)))
+        assert len(rows)==2 and rows[1][1]=='PREPARED'
+        assert not page.locator('[data-testid="stException"]').count()
+        browser.close()
+    assert storage.read_json(accounting.key(family))==before
+
+
+@pytest.mark.parametrize('width',[1280,375])
+def test_native_fund_accounting_download_preserves_model(app_server,width):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+        page.goto(app_server+'/?aa_nav=superfund')
+        panel=page.locator('[data-testid="stExpander"]').filter(has_text='NOK-regnskap – Superfonds eksisterende modell')
+        panel.locator('summary').wait_for(timeout=45000);panel.locator('summary').click()
+        with page.expect_download() as download:
+            panel.get_by_role('button',name='Last ned Superfond NOK-avstemming (JSON)',exact=True).click()
+        data=json.loads(Path(download.value.path()).read_bytes())
+        assert data['verification']['status']=='IKKE VERIFISERT'
+        assert data['verification']['separate_operational_ledger'] is False
+        assert data['verification']['verified_nav_nok'] is None
+        assert not page.locator('[data-testid="stException"]').count()
+        browser.close()

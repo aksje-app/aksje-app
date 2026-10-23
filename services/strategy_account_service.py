@@ -154,6 +154,8 @@ class StrategyAccountService:
         metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         current = self.get(account_id) or {}
+        if current.get('accounting_schema') == 'BASE_CURRENCY_SHARES_V1':
+            raise ValueError('Legacy synchronisation cannot overwrite an explicit economic account')
         raw_positions = legacy_portfolio.get("positions") if isinstance(legacy_portfolio.get("positions"), Mapping) else {}
         positions = {str(ticker).upper(): _normalise_position(str(ticker), raw) for ticker, raw in raw_positions.items() if isinstance(raw, Mapping)}
         cash = _f(legacy_portfolio.get("cash"), _f(current.get("cash")))
