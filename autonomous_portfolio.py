@@ -162,6 +162,8 @@ def _evaluate_parallel_strategies_isolated(
         return dict(value) if isinstance(value, Mapping) else {}
 
 
+from services.restart_trading import current as _restart_session
+
 _SIMULATION = ContextVar("autonomy_simulation", default=None)
 
 
@@ -176,7 +178,7 @@ def _now() -> str:
     return _clock(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
-def simulate_autonomy_cycle(candidates, *, parameters, portfolio, trades, now, run_id):
+def simulate_autonomy_cycle(candidates, *, parameters, portfolio, trades, now, run_id, restart_state=None):
     """Production transition with explicit state and frozen time; no external effects.
 
     Inputs are final, point-in-time decision candidates. This does not rerun
@@ -189,7 +191,7 @@ def simulate_autonomy_cycle(candidates, *, parameters, portfolio, trades, now, r
     params.notify_trades = params.notify_risk_events = False
     params.enable_learning_probe_buys = False
     context = {"now": now, "parameters": params, "portfolio": deepcopy(portfolio),
-               "trades": deepcopy(trades)}
+               "trades": deepcopy(trades), "pending_entries":deepcopy((restart_state or {}).get("pending_entries",{}))}
     token = _SIMULATION.set(context)
     try:
         return run_autonomous_cycle(deepcopy(candidates), run_id=run_id)
@@ -1625,11 +1627,17 @@ def portfolio_status_summary(latest_chain: Mapping[str, Any] | None = None) -> d
 
 def portfolio_equity(portfolio: Mapping[str, Any]) -> float:
     positions = portfolio.get("positions") or {}
-    market_value = sum(_f(p.get("quantity")) * _f(p.get("last_price", p.get("average_price"))) for p in positions.values())
+    session = _restart_session('autonomy')
+    market_value = sum((_f(p.get("quantity")) * _f(p.get("last_price", p.get("average_price")))) *
+                       (session.rate(t) if session else 1) for t,p in positions.items())
     return _f(portfolio.get("cash")) + market_value
 
 
 def _sector_value(portfolio: Mapping[str, Any], sector: str) -> float:
+    session = _restart_session('autonomy')
+    if session:
+        return sum(session.market_value(t,_f(p.get('quantity')),_f(p.get('last_price')))
+                   for t,p in portfolio.get('positions',{}).items() if str(p.get('sector') or 'Unknown')==sector)
     return sum(
         _f(p.get("quantity")) * _f(p.get("last_price", p.get("average_price")))
         for p in (portfolio.get("positions") or {}).values()
@@ -1744,9 +1752,11 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
     quantity = total_quantity * sell_pct / 100.0
     if quantity <= 0:
         return None
-    proceeds = quantity * price
+    session = _restart_session('autonomy')
+    executed = session.fill(ticker,'SELL',quantity,price,reason) if session else None
+    proceeds = executed['gross_value']-executed['fee'] if executed else quantity * price
     cost = quantity * _f(pos.get("average_price"))
-    pnl = proceeds - cost
+    pnl = executed['pnl'] if executed else proceeds - cost
     portfolio["cash"] = _f(portfolio.get("cash")) + proceeds
     portfolio["realized_pnl"] = _f(portfolio.get("realized_pnl")) + pnl
     partial = quantity + 1e-8 < total_quantity
@@ -1770,7 +1780,7 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
     trade = {
         "trade_id": f"AT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
         "action": "SELL_PARTIAL" if partial else "SELL", "ticker": ticker, "price": round(price, 4), "quantity": round(quantity, 8),
-        "value": round(proceeds, 2), "pnl": round(pnl, 2), "pnl_pct": round((price / _f(pos.get('average_price'), price) - 1) * 100, 2),
+        "value": proceeds if executed else round(proceeds, 2), "pnl": round(pnl, 2), "pnl_pct": round((price / _f(pos.get('average_price'), price) - 1) * 100, 2),
         "reason": reason, "primary_sell_reason": reason.split(":", 1)[-1].strip(),
         "entry_price": round(entry_price, 4), "exit_price": round(price, 4),
         "gross_return_pct": round((price / entry_price - 1) * 100, 2) if entry_price else 0.0,
@@ -1791,8 +1801,11 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
 
 def run_autonomous_cycle(
     candidates: Sequence[Mapping[str, Any]], run_id: str | None = None,
-    *, progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    *, progress_callback: Callable[[Mapping[str, Any]], None] | None = None, restart_context=None,
 ) -> dict[str, Any]:
+    if restart_context is not None:
+        from services.restart_trading import autonomy
+        return autonomy(**restart_context, candidates=candidates, run_id=run_id)
     simulation = _SIMULATION.get()
     params = simulation["parameters"] if simulation is not None else load_parameters().normalized()
     portfolio = deepcopy(simulation["portfolio"]) if simulation is not None else load_portfolio()
@@ -1828,7 +1841,7 @@ def run_autonomous_cycle(
     emit_progress(0, progress_total, "Klargjør Autonomi-porteføljer og læringskonto")
 
     original_candidates = [dict(c) for c in (candidates or []) if isinstance(c, Mapping)]
-    stored_pending = _read(PENDING_ENTRIES_PATH, {}) if simulation is None else {}
+    stored_pending = _read(PENDING_ENTRIES_PATH, {}) if simulation is None else simulation.get("pending_entries",{})
     pending_entries = {str(k).upper(): dict(v) for k, v in stored_pending.items() if isinstance(v, Mapping)} if isinstance(stored_pending, Mapping) else {}
 
     market_snapshot_row: dict[str, Any] = {}
@@ -2085,7 +2098,7 @@ def run_autonomous_cycle(
                     "required_outcome": "Kjøpskandidat",
                 })
                 continue
-            if ticker in exited_this_cycle:
+            if ticker in exited_this_cycle or (_restart_session('autonomy') and _restart_session('autonomy').actions.get(ticker)=='SELL'):
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP", "reason": "Ingen gjeninntreden i samme beslutningssyklus"})
                 continue
             base_score = _candidate_score(candidate)
@@ -2128,7 +2141,7 @@ def run_autonomous_cycle(
                 })
                 continue
 
-            if simulation is not None or ticker in portfolio["positions"]:
+            if (simulation is not None and _restart_session('autonomy') is None) or ticker in portfolio["positions"]:
                 pending = {"entry_signal_date": _now()[:10], "signal_run_id": run_id}
                 entry_reject, verified_open = "", price
             else:
@@ -2161,15 +2174,17 @@ def run_autonomous_cycle(
             proposed = min(params.maximum_position_pct, max(0.5, _f(candidate.get("proposed_position_pct"), params.maximum_position_pct)))
             existing_position = dict(portfolio["positions"].get(ticker) or {})
             existing_quantity = _f(existing_position.get("quantity"))
-            existing_value = existing_quantity * price
+            session = _restart_session('autonomy')
+            rate = session.rate(ticker) if session else 1
+            existing_value = existing_quantity * price * rate
             # Position sizing is a cap on the TOTAL holding, not on each order.
             target_value = max(0.0, equity * proposed / 100 - existing_value)
             sector = str(candidate.get("sector") or "Unknown")
             sector_room = max(0.0, equity * params.maximum_sector_pct / 100 - _sector_value(portfolio, sector))
             value = min(target_value, available, sector_room)
-            quantity = math.floor(value / price * 10000) / 10000 if price > 0 else 0
+            quantity = session.size_buy(ticker,value) if session else (math.floor(value / price * 10000) / 10000 if price > 0 else 0)
             value = quantity * price
-            if quantity <= 0 or value < 100:
+            if quantity <= 0 or value * rate < 100:
                 decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "SKIP", "reason": "Utilstrekkelig kapital eller sektorrom", "score": score})
                 continue
 
@@ -2178,7 +2193,8 @@ def run_autonomous_cycle(
                 if promoted:
                     learning_trades.append(promoted)
                     learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "PROMOTED", "reason": "Kandidaten bestod ordinære kjøpsporter og ble flyttet til Autonom portefølje", "price": price, "score": score, "learning_probe": True})
-            portfolio["cash"] = _f(portfolio.get("cash")) - value
+            executed = session.fill(ticker,'BUY',quantity,price,'Autonomi: ordinære kjøpsporter godkjent') if session else None
+            portfolio["cash"] = session.account()['cash'] if session else _f(portfolio.get("cash")) - value
             new_position = {
                 "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
                 "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
@@ -2216,7 +2232,7 @@ def run_autonomous_cycle(
             trade = {
                 "trade_id": f"AT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
                 "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
-                "value": round(value, 2), "pnl": 0.0, "reason": f"Justert score {score:.1f} (base {base_score:.1f}), risiko {risk:.1f}, datakvalitet {quality:.1f}",
+                "value": executed["gross_value"]+executed["fee"] if executed else round(value, 2), "pnl": 0.0, "reason": f"Justert score {score:.1f} (base {base_score:.1f}), risiko {risk:.1f}, datakvalitet {quality:.1f}",
                 "strategy": _candidate_strategy(candidate), "mode": "THEORETICAL_ONLY",
                 "entry_signal_date": pending["entry_signal_date"],
                 "entry_signal_run_id": pending["signal_run_id"],
@@ -2425,6 +2441,8 @@ def run_autonomous_cycle(
     execution_integrity = _validate_execution_integrity(
         trades, candidate_map, portfolio, starting_portfolio=starting_portfolio
     )
+    if not execution_integrity["ok"] and _restart_session('autonomy'):
+        raise ValueError('Autonomy strategy/ledger mismatch: '+ '; '.join(execution_integrity['errors']))
     if not execution_integrity["ok"]:
         # Atomic safety fallback: no ordinary portfolio mutation or order ledger is
         # committed when the completed cycle is internally inconsistent.
@@ -2479,7 +2497,7 @@ def run_autonomous_cycle(
         ledger = deepcopy(simulation["trades"]) + deepcopy(trades)
         return {"portfolio": portfolio, "trades": trades, "trade_history": ledger,
                 "portfolio_decisions": decisions, "execution_integrity": execution_integrity,
-                "production_changed": False, "fill_model": "PRODUCTION_MARKS_GROSS_OF_FEES"}
+                "production_changed": False, "fill_model": "DOCUMENTED_NOK_NET" if _restart_session('autonomy') else "PRODUCTION_MARKS_GROSS_OF_FEES", "pending_entries":pending_entries}
 
     equity = portfolio_equity(portfolio)
     portfolio["updated_at"] = _now()

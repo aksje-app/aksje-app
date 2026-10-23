@@ -56,6 +56,7 @@ def verify(doc):
     # accounting proof. This also detects missing journal rows or altered balances.
     account = baseline
     approval = None
+    strategy_runs = set()
     for event in doc['events']:
         payload = event['payload']
         if event['kind'] == 'PREPARED':
@@ -73,6 +74,18 @@ def verify(doc):
             if approval is None:raise ValueError('Unapproved economic event')
             from services.economic_events import book_event
             account = book_event(account, payload)
+        elif event['kind'] == 'STRATEGY_RUN':
+            if (approval is None or payload['family'] != doc['family']
+                    or not payload.get('run_id') or payload['run_id'] in strategy_runs
+                    or digest(payload['request'])!=payload.get('request_sha256')
+                    or payload['request']['period']!=payload['period_id']
+                    or payload['request']['family']!=doc['family']
+                    or payload['request']['run_id']!=payload['run_id']
+                    or payload['request']['at']!=payload['at']
+                    or not isinstance(payload.get('state'),dict)
+                    or stamp(payload['at']) < stamp(approval['approved_at'])):
+                raise ValueError('Invalid or duplicate strategy run receipt')
+            strategy_runs.add(payload['run_id'])
         elif event['kind'] == 'MARK':
             if approval is None:
                 raise ValueError('Unapproved mark')

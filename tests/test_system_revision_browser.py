@@ -354,3 +354,72 @@ def test_controlled_restart_plan_preserves_history_and_never_activates(app_serve
         assert page.get_by_role('button',name='Nullstill autonom konto',exact=True).count()==0
         assert not page.locator('[data-testid="stException"]').count()
         browser.close()
+
+
+@pytest.mark.parametrize('width',[1280,375])
+@pytest.mark.parametrize('route,family',[
+    ('paper_trading','paper'),('autonomy&aa_tab=autonomous_portfolio','autonomy'),('super_portfolio','super_portfolio')])
+def test_documented_restart_metrics_charts_and_all_downloads(app_server,width,route,family,sealed,monkeypatch):
+    from datetime import datetime,timedelta,timezone
+    from services.storage_service import StorageService
+    from services import simulation_restart as restart,portfolio_accounting as ledger,restart_trading as trading
+    from test_restart_trading import evidence
+    import pandas as pd
+    from pypdf import PdfReader
+    from playwright.sync_api import sync_playwright
+    monkeypatch.setenv('APP_ENVIRONMENT','test')
+    storage=StorageService(app_server.runtime_root/'data'/'services',database_url='',mode='local')
+    root,receipt,cert,key=sealed
+    period_id='browser-'+family+'-'+str(width)
+    start=(datetime.now(timezone.utc)+timedelta(seconds=1)).isoformat()
+    bundle=restart.prepare(period_id,start_at=start,prepared_by='TEST ONLY browser reviewer',archive_root=root,
+        archive_id=receipt['archive_id'],certificate=cert,private_key=key,storage=storage)
+    scoped=restart.AccountStorage(period_id,storage)
+    for name,doc in bundle['accounts'].items():
+        ledger.approve(name,dict(approved_by='TEST ONLY',approval_ref='TEST browser capital',family=name,
+            opening_sha256=doc['opening_sha256'],start_at=start,approved_at=start,scope='test'),storage=scoped)
+    def decision(session):
+        session.fill('TEST','BUY',10,100,'TEST ONLY existing ordinary decision');return {'ok':True}
+    trading.run(period_id=period_id,family=family,run_id='browser-fill',at=start,evidence=evidence(start),settings={},
+                operation=decision,strategy_input={},account_ref=trading.account_reference(period_id,family,storage=storage),storage=storage)
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+        page.goto(app_server+'/?aa_nav='+route)
+        panel=page.locator('[data-testid="stExpander"]').filter(has_text='Kontrollert ny start – separat simuleringsperiode')
+        panel.locator('summary').first.click()
+        panel.get_by_label('Periode-ID for innsyn i klargjort ny konto').fill(period_id)
+        panel.get_by_label('Periode-ID for innsyn i klargjort ny konto').press('Enter')
+        page.wait_for_timeout(300)
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=30000)
+        if not panel.locator('details').first.evaluate('(element) => element.open'):
+            panel.locator('summary').first.click()
+        panel.get_by_text('Nettoavkastning etter kostnader %',exact=True).wait_for(timeout=30000)
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=30000)
+        assert not page.locator('[data-testid="stException"]').count()
+        assert panel.get_by_text('Realisert resultat NOK',exact=True).is_visible()
+        assert panel.get_by_text('Urealisert resultat NOK',exact=True).is_visible()
+        panel.get_by_role('button',name='Last ned valgt NOK-periode (CSV)',exact=True).scroll_into_view_if_needed()
+        panel.locator('[data-testid="stVegaLiteChart"]').wait_for(state='attached',timeout=15000)
+        for fmt in ['csv','xlsx','pdf','zip']:
+            with page.expect_download() as download:
+                panel.get_by_role('button',name='Last ned valgt NOK-periode ('+fmt.upper()+')',exact=True).click()
+            raw=Path(download.value.path()).read_bytes()
+            if fmt=='pdf': assert period_id in ''.join(p.extract_text() for p in PdfReader(BytesIO(raw)).pages)
+            elif fmt=='csv': assert period_id in raw.decode('utf-8-sig')
+            elif fmt=='xlsx':
+                book=pd.read_excel(BytesIO(raw),sheet_name=None)
+                assert len(book['Beholdning'])==1 and len(book['Handler'])==1
+                assert book['Oversikt'].iloc[0]['periode']==period_id
+            else:
+                with zipfile.ZipFile(BytesIO(raw)) as z:
+                    assert z.testzip() is None
+                    data=json.loads(z.read('nok_periode.json'))
+                    assert data['family']==family and data['period_id']==period_id
+                    assert data['account']['new_period']['cash_nok']==restart.CAPITALS[family]-10010
+        assert panel.get_by_text('Tidligere strategilæring: beholdes med modeller, parametere og observasjoner.',exact=True).is_visible()
+        browser.close()
+
+
+# Synthetic archive fixtures stay outside the app runtime and Git.
+from test_simulation_restart import certificate,sources,dump_program,sealed

@@ -93,6 +93,13 @@ def check_paper_trade(
             action_n, ticker_n, source_n, run_n,
         )
 
+    from services.restart_trading import current
+    session = current('paper')
+    if session:
+        opposite = 'SELL' if action_n == 'BUY' else 'BUY'
+        if session.actions.get(ticker_n) == opposite:
+            return TradeGateResult(False,'SAME_RUN_ROUNDTRIP','Samme kjøring kan ikke kjøpe og selge samme aksje.',action_n,ticker_n,source_n,run_n)
+        return TradeGateResult(True,'ALLOWED','Eksplisitt NOK-periode.',action_n,ticker_n,source_n,run_n)
     if run_n and ticker_n:
         opposite = "SELL" if action_n == "BUY" else "BUY" if action_n == "SELL" else ""
         with _LOCK:

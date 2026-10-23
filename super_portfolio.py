@@ -2082,11 +2082,17 @@ def _cooldown_reason(state: Mapping[str, Any], ticker: str, now: datetime) -> st
 
 
 def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, Any], now_iso: str, cfg: SuperPortfolioConfig, history: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    entry_price = _f(old.get("entry_price")) or _f(row.get("_shadow_entry_fill_price")) or _f(row.get("price"))
+    from services.restart_trading import current as restart_session
+    session = restart_session('super_portfolio')
+    entry_price = (session.quote(row['ticker'])['price'] if session and not old else 0) or _f(old.get("entry_price")) or _f(row.get("_shadow_entry_fill_price")) or _f(row.get("price"))
+    if session and not old:
+        row = dict(row,price=entry_price)
     entry_date = str(old.get("entry_date") or now_iso)
     mark = _f(row.get("price"))
     if not old and row.get("_entry_execution_evidence") and not _timestamp_from_row(row.get("raw_candidate") or row):
         mark = entry_price  # an untimed analytical price is not a later execution mark
+    if session:
+        mark = session.quote(row['ticker'])['price']
     peak = max(_f(old.get("peak_price")), entry_price, mark)
     pos = {
         "ticker": row.get("ticker"), "market": row.get("market"), "sector": row.get("sector"),
@@ -2096,7 +2102,7 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "best_rank_since_entry": min([int(v) for v in (old.get("best_rank_since_entry"), old.get("entry_rank"), row.get("rank")) if v is not None], default=None),
         "last_full_assessment_at": now_iso,
         "entry_date": entry_date, "entry_price": entry_price, "last_price": mark, "peak_price": peak,
-        "entry_price_basis": old.get("entry_price_basis") if old else ("NEXT_SESSION_OPEN_SHADOW" if _f(row.get("_shadow_entry_fill_price")) else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL"),
+        "entry_price_basis": "DOCUMENTED_RESTART_EXECUTION" if session else old.get("entry_price_basis") if old else ("NEXT_SESSION_OPEN_SHADOW" if _f(row.get("_shadow_entry_fill_price")) else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL"),
         "entry_signal_price_timestamp": old.get("entry_signal_price_timestamp") if old else _timestamp_from_row(row),
         "target_weight_pct": round(_f(weight), 2), "investment_score": row.get("investment_score"), "portfolio_score": row.get("portfolio_score"),
         "portfolio_score_adjusted": row.get("portfolio_score_adjusted", row.get("portfolio_score")),
@@ -2196,7 +2202,10 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
     return alerts
 
 
-def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True, now: datetime | None = None, rebalance_policy: str = "FORCE", simulation_state: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True, now: datetime | None = None, rebalance_policy: str = "FORCE", simulation_state: Mapping[str, Any] | None = None, restart_context=None) -> dict[str, Any]:
+    if restart_context is not None:
+        from services.restart_trading import super_portfolio
+        return super_portfolio(**restart_context,pipeline=pipeline,rebalance_policy=rebalance_policy)
     if simulation_state is not None and (persist or pipeline is None):
         raise ValueError("Simulation requires frozen pipeline and persist=False")
     pipeline = dict(pipeline if pipeline is not None else get_or_build_super_portfolio_market_pipeline())
@@ -2650,8 +2659,11 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         elif change["action"] == "BUY":
             change["execution_price"] = pos.get("entry_price")
     from services.super_portfolio_accounting import settle
-    performance = settle(accounting_before, positions, changes, operation_id=operation_id,
-                         decision_at=now_iso, cost_bps=cfg.transaction_cost_bps)
+    from services.restart_trading import current as restart_session
+    session = restart_session('super_portfolio')
+    performance = (session.settle_targets(accounting_before,positions,changes,now_iso) if session else
+                   settle(accounting_before, positions, changes, operation_id=operation_id,
+                          decision_at=now_iso, cost_bps=cfg.transaction_cost_bps))
     positions = performance["positions"]
     changes = performance["transactions"]
     position_rows = list(positions.values())

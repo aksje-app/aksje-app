@@ -49,8 +49,13 @@ class _Drafts:
 def prepare(period_id, *, start_at, prepared_by, archive_root, archive_id,
             certificate, private_key, storage=None):
     request=plan(period_id,start_at=start_at,prepared_by=prepared_by)
+    storage=storage or get_storage_service()
+    existing=storage.read_json(_key(period_id),None)
+    if existing: verify_bundle(existing)
     reviewed=verify_archive(archive_root,archive_id,certificate=certificate,private_key=private_key)
-    if stamp(start_at)<stamp(reviewed['created_at']):raise ValueError('New period cannot predate its source archive')
+    if stamp(start_at)<=stamp(reviewed['created_at']):raise ValueError('New period cannot predate its source archive')
+    review_at=existing.get('archive_review_at',reviewed['verified_at']) if existing else reviewed['verified_at']
+    if stamp(start_at)<=stamp(review_at):raise ValueError('New start must follow verified archive review')
     archive_proof={k:reviewed[k] for k in ('archive_id','cipher_sha256','manifest_sha256','file_count')}
     builder=_Drafts()
     accounts={}
@@ -60,7 +65,7 @@ def prepare(period_id, *, start_at, prepared_by, archive_root, archive_id,
             capital_kind=request['capital_kind'],source_archive=archive_proof)
         accounts[family]=accounting.prepare(family,opening,prepared_by=prepared_by,storage=builder)
     bundle={**request,'status':'PREPARED_NOT_ACTIVE','archive':archive_proof,'accounts':accounts,
-            'learning_reset':False,'legacy_positions_transferred':False,'legacy_sales_created':False}
+            'learning_reset':False,'legacy_positions_transferred':False,'legacy_sales_created':False,'archive_review_at':review_at}
     bundle['opening_sha256s']={f:a['opening_sha256'] for f,a in accounts.items()}
     bundle['preparation_sha256']=digest({k:v for k,v in bundle.items() if k!='accounts'})
     def mutation(current):
@@ -100,7 +105,8 @@ class AccountStorage:
             result=deepcopy(bundle);result['accounts'][family]=candidate
             verify_bundle(result)
             return result
-        return self.storage.mutate_json(self.key,mutation)
+        updated = self.storage.mutate_json(self.key,mutation)
+        return deepcopy(updated['accounts'][family])
 
 
 def report(period_id, *, storage=None, at=None):

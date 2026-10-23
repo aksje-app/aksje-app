@@ -23,11 +23,28 @@ def render(st,family):
                 data['family']=family;data['account']=prepared['accounts'][family]
                 st.write('Klargjort periode: '+prepared['start_at'])
                 st.write('Kontostatus: '+data['account']['status'])
-                period=data['account']['new_period']
-                if period:
-                    st.write({'Kontanter i valgt ny konto NOK':period['cash_nok'],'Posisjoner i valgt ny konto':len(period['positions'])})
-                    if data['account']['status']=='ACTIVE' and period['verification']['verified_nav'] is not None:
-                        st.metric('Nytt nettoresultat siden restart NOK',f"{period['period_net_pnl_nok']:,.2f}")
+                from services.restart_reporting import snapshot,export,tables
+                data=snapshot(period_id,family)
+                period=data['account']['new_period'];verified=period['verification']
+                st.write('Startkapital NOK: '+f"{period['opening_nav_nok']:,.2f}")
+                metrics=[('Disponibel kontantbeholdning NOK',period['cash_nok']),
+                    ('Markedsverdi aksjer NOK',verified['verified_nav']-period['cash_nok'] if verified['verified_nav'] is not None else None),
+                    ('NAV i valgt NOK-periode',verified['verified_nav']),
+                    ('Realisert resultat NOK',period['realized_pnl_nok']),('Urealisert resultat NOK',period['unrealized_pnl_nok']),
+                    ('Samlede kostnader NOK',sum(period['costs_nok'].values()))]
+                for label,value in metrics:
+                    st.metric(label,f"{value:,.2f}" if value is not None else 'IKKE VERIFISERT')
+                if data['account']['status']=='ACTIVE' and verified['verified_nav'] is not None:
+                    st.metric('Nytt nettoresultat siden restart NOK',f"{period['period_net_pnl_nok']:,.2f}")
+                    st.metric('Nettoavkastning etter kostnader %',f"{verified['verified_net_return_pct']:.4f}")
+                st.dataframe(tables(data)['Beholdning'],hide_index=True,width='stretch')
+                if data['nav_history']:
+                    import pandas as pd
+                    st.line_chart(pd.DataFrame(data['nav_history']).set_index('at')[['nav_nok']],width='stretch')
+                for fmt,mime in [('csv','text/csv'),('xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+                                 ('pdf','application/pdf'),('zip','application/zip')]:
+                    st.download_button('Last ned valgt NOK-periode ('+fmt.upper()+')',export(data,fmt),
+                        file_name=family+'_'+period_id+'.'+fmt,mime=mime,key=family+'_restart_'+fmt,on_click='ignore')
             except (ValueError,KeyError,TypeError):
                 st.error('Perioden finnes ikke eller bestod ikke integritetskontrollen. Gamle beholdninger brukes ikke som reserve.')
                 return
