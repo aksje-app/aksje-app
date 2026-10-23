@@ -1,0 +1,52 @@
+{
+  "sources": [
+    {
+      "filename": "SP_jobdiagnose_SPJ-20261021-131559-9C8E27.zip",
+      "sha256": "363c3b576b759e3d66e3dda68efdc24e55f8a910350f8335407fdf426a50f050"
+    },
+    {
+      "filename": "SuperPortfolio_Diagnose_AKRBP_OL.zip",
+      "sha256": "7c1cd6a21c83cbabd4766dcf0bb62909bf915bdce7a41ed325499d02fb2993c9"
+    }
+  ],
+  "retained_snapshots": 20,
+  "first_at": "2026-10-12T00:55:07+00:00",
+  "last_at": "2026-10-21T13:25:28+00:00",
+  "actions": {
+    "BUY": 16,
+    "SELL": 3,
+    "ADD": 2
+  },
+  "buy_reasons": {
+    "RISK_EXIT_REFILL": 16
+  },
+  "retained_sales": [
+    {
+      "action": "SELL",
+      "ticker": "HALO",
+      "reason_code": "PROFIT_PROTECTION_EXIT",
+      "entry_price": 118.08000183105469,
+      "exit_price": 116.81999969482422,
+      "snapshot_at": "2026-10-16T00:12:38+00:00"
+    },
+    {
+      "action": "SELL",
+      "ticker": "TREL-B.ST",
+      "reason_code": "CONFIRMED_PROFIT_PROTECTION_EXIT",
+      "entry_price": 457.0,
+      "exit_price": 462.79998779296875,
+      "snapshot_at": "2026-10-17T00:25:12+00:00"
+    },
+    {
+      "action": "SELL",
+      "ticker": "DNO.OL",
+      "reason_code": "PROFIT_PROTECTION_EXIT",
+      "entry_price": 22.420000076293945,
+      "exit_price": 22.299999237060547,
+      "snapshot_at": "2026-10-21T01:10:24+00:00"
+    }
+  ],
+  "reported_nav_first": 984151.47,
+  "reported_nav_last": 973526.92,
+  "economic_verification": "IKKE VERIFISERT; ufullstendige salgsrader og valuta-/kostnadsgrunnlag"
+}

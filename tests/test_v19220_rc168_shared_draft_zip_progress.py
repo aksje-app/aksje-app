@@ -13,7 +13,7 @@ def test_reports_and_overview_share_the_exact_draft_starter():
     action = reports[reports.index('if q1.button("📄 Nytt utkast"'):reports.index('if q2.button("🌅 Kjør morgenanalyse"')]
     assert 'from autonomy_overview import start_shared_manual_draft_job' in action
     assert 'start_shared_manual_draft_job(trigger="MANUAL_DRAFT_TEST")' in action
-    assert '_rerun_reports_v19220_rc11' not in action
+    assert '_rerun_reports_v19220_rc11(st)' in action
     assert 'load_draft_job()' not in action
 
 

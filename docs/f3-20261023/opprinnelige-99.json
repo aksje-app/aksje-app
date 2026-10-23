@@ -1,0 +1,497 @@
+[
+  {
+    "previous_node": "tests/test_rc16_31_notification_text_closure.py::test_learning_report_uses_norwegian_number_and_version",
+    "current_method": "test_learning_report_uses_norwegian_number_and_version",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ab_report_delivery_evidence_baseline.py::test_technical_report_contains_all_tasks_and_clear_coverage_language",
+    "current_method": "test_technical_report_contains_all_tasks_and_clear_coverage_language",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ad_stabilization.py::test_release_identity_is_stabilization_only",
+    "current_method": "test_release_identity_is_stabilization_only",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ae_deterministic_deploy.py::test_release_identity_advances_only_deploy_stabilization",
+    "current_method": "test_release_identity_advances_only_deploy_stabilization",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31al_end_to_end_stabilization.py::test_mobile_report_actions_are_above_iframe_and_keep_return_path",
+    "current_method": "test_mobile_report_actions_are_above_iframe_and_keep_return_path",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ar_current_contract_replacements.py::test_one_canonical_release_identity_replaces_old_literal_version_tests",
+    "current_method": "test_one_canonical_release_identity_replaces_old_literal_version_tests",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31at_live_report_closure.py::test_scanner_configuration_defaults_to_standard_service_capacity",
+    "current_method": "test_scanner_configuration_defaults_to_standard_service_capacity",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31au_end_to_end_closure.py::test_release_identity_and_mobile_safe_diagnostic_delivery",
+    "current_method": "test_release_identity_and_mobile_safe_diagnostic_delivery",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31av_production_learning_closure.py::test_release_identity_is_av_over_au",
+    "current_method": "test_release_identity_is_av_over_au",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31av_production_learning_closure.py::test_learning_horizons_and_caps_are_fail_closed",
+    "current_method": "test_learning_horizons_and_caps_are_fail_closed",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31aw_controlled_observation_learning.py::test_az_version_lineage",
+    "current_method": "test_az_version_lineage",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31aw_controlled_observation_learning.py::test_scheduler_nonblocking_before_scanner",
+    "current_method": "test_scheduler_nonblocking_before_scanner",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31aw_controlled_observation_learning.py::test_weekly_survives_pushover_failure",
+    "current_method": "test_weekly_survives_pushover_failure",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ax_production_stabilization.py::test_ax_version_lineage",
+    "current_method": "test_ax_version_lineage",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ay_trade_safety_rotation.py::test_40_day_weak_position_is_cash_review_without_replacement",
+    "current_method": "test_40_day_weak_position_is_cash_review_without_replacement",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ba_actionability_selection.py::test_selection_control_exposes_missed_value_without_changing_production",
+    "current_method": "test_selection_control_exposes_missed_value_without_changing_production",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bb_production_recovery.py::test_retention_applies_only_one_bounded_batch",
+    "current_method": "test_retention_applies_only_one_bounded_batch",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31be_production_closure.py::test_retention_release_default_applies_when_render_omits_single_env",
+    "current_method": "test_retention_release_default_applies_when_render_omits_single_env",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bf_trend_discovery.py::test_norway_stabilization_source_contracts_present",
+    "current_method": "test_norway_stabilization_source_contracts_present",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bk_norway_scope_trend_ui.py::test_trend_details_cover_top_1_to_10_and_have_period_toggle",
+    "current_method": "test_trend_details_cover_top_1_to_10_and_have_period_toggle",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bk_norway_scope_trend_ui.py::test_full_universe_report_does_not_claim_70_20_10_rotation",
+    "current_method": "test_full_universe_report_does_not_claim_70_20_10_rotation",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bl_ui_memory_closure.py::test_version_is_bl_and_builds_on_bk",
+    "current_method": "test_version_is_bl_and_builds_on_bk",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bl_ui_memory_closure.py::test_autonomy_progress_poll_is_two_seconds_and_phase_is_explicit",
+    "current_method": "test_autonomy_progress_poll_is_two_seconds_and_phase_is_explicit",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bl_ui_memory_closure.py::test_trend_chart_uses_tight_normalized_plotly_and_rsi_reference_lines",
+    "current_method": "test_trend_chart_uses_tight_normalized_plotly_and_rsi_reference_lines",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bn_fresh_trend_opportunity.py::test_pipeline_source_reserves_fresh_evidence_lane",
+    "current_method": "test_pipeline_source_reserves_fresh_evidence_lane",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bo_short_report_fresh_alert.py::test_bo_version_contract",
+    "current_method": "test_bo_version_contract",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bo_short_report_fresh_alert.py::test_short_report_is_limited_and_points_to_technical_details",
+    "current_method": "test_short_report_is_limited_and_points_to_technical_details",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bp_topbar_status_closure.py::test_version_bumped_to_bp",
+    "current_method": "test_version_bumped_to_bp",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bq_manual_memory_terminal_status.py::test_version_bumped_to_bq",
+    "current_method": "test_version_bumped_to_bq",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31br_complete_norway_universe.py::test_trend_discovery_reads_full_stage1_screening_pool",
+    "current_method": "test_trend_discovery_reads_full_stage1_screening_pool",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31br_complete_norway_universe.py::test_version_is_br",
+    "current_method": "test_version_is_br",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bs_evidence_semantics.py::test_version_is_bs",
+    "current_method": "test_version_is_bs",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bt_euronext_live_source.py::test_version_is_bt",
+    "current_method": "test_version_is_bt",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bv_official_csv_universe.py::test_official_csv_fetch_prefers_oslo_specific_variant",
+    "current_method": "test_official_csv_fetch_prefers_oslo_specific_variant",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bv_official_csv_universe.py::test_official_csv_fetch_uses_all_stock_variant_when_specific_export_empty",
+    "current_method": "test_official_csv_fetch_uses_all_stock_variant_when_specific_export_empty",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bv_official_csv_universe.py::test_version_is_bv",
+    "current_method": "test_version_is_bv",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bw_euronext_real_payload_parser.py::test_version_is_bw",
+    "current_method": "test_version_is_bw",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bx_stabilization_ui.py::test_bx_version",
+    "current_method": "test_bx_version",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31bx_stabilization_ui.py::test_ui_workflow_closure_is_present_in_sources",
+    "current_method": "test_ui_workflow_closure_is_present_in_sources",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31ca_closure.py::test_market_intelligence_uses_exchange_helper_for_recommendation_table_source",
+    "current_method": "test_market_intelligence_uses_exchange_helper_for_recommendation_table_source",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31cg_whole_chain_alert_integrity.py::test_line_safe_compaction_keeps_one_footer_and_no_partial_data_line",
+    "current_method": "test_line_safe_compaction_keeps_one_footer_and_no_partial_data_line",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31cg_whole_chain_alert_integrity.py::test_stagnation_never_names_an_implicit_replacement",
+    "current_method": "test_stagnation_never_names_an_implicit_replacement",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31cs_autonomy_continuity.py::test_flat_position_exits_to_cash_without_replacement",
+    "current_method": "test_flat_position_exits_to_cash_without_replacement",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31cs_autonomy_continuity.py::test_improving_score_protects_flat_position",
+    "current_method": "test_improving_score_protects_flat_position",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31e_observable_learning.py::test_observations_are_isolated_idempotent_and_mature",
+    "current_method": "test_observations_are_isolated_idempotent_and_mature",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31h_autonomy_clarity.py::test_currency_alerts_use_three_decimals_end_to_end",
+    "current_method": "test_currency_alerts_use_four_decimals_end_to_end",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31h_autonomy_clarity.py::test_currency_notification_rounds_rate_and_limit_to_three_decimals",
+    "current_method": "test_currency_notification_rounds_rate_and_limit_to_four_decimals",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31j_stability_observatory.py::StabilityObservatoryTests::test_mobile_delivery_makes_download_primary_and_external_secondary",
+    "current_method": "test_mobile_delivery_makes_download_primary_and_external_secondary",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31l_decision_chain_integrity.py::DecisionChainIntegrityTests::test_version",
+    "current_method": "test_version",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31m_capital_allocation_integrity.py::test_version_is_rc16_31m",
+    "current_method": "test_version_is_rc16_31m",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31n_report_reconciliation.py::ReportReconciliationTests::test_pdf_renderer_contains_every_promised_portfolio_field",
+    "current_method": "test_pdf_renderer_contains_every_promised_portfolio_field",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31n_report_reconciliation.py::ReportReconciliationTests::test_version_includes_rc16_31o_reconciliation_contract",
+    "current_method": "test_version_includes_rc16_31o_reconciliation_contract",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31p_candidate_short_learning.py::test_version_contract_and_production_threshold_are_not_recalibrated_here",
+    "current_method": "test_version_contract_and_production_threshold_are_not_recalibrated_here",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31s_public_report_mobile_return.py::test_public_report_landing_preserves_program_tab_and_has_return_action",
+    "current_method": "test_public_report_landing_preserves_program_tab_and_has_return_action",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31s_public_report_mobile_return.py::test_public_report_action_escapes_untrusted_url_content",
+    "current_method": "test_public_report_action_escapes_untrusted_url_content",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31u_export_precision_technical_delivery.py::test_ui_does_not_require_local_technical_file",
+    "current_method": "test_ui_does_not_require_local_technical_file",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31v_report_center_navigation_hotfix.py::test_release_identity_is_directly_based_on_rc16_31u",
+    "current_method": "test_release_identity_is_directly_based_on_rc16_31u",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_31w_insider_short_sources.py::test_report_ui_prioritises_full_pdf_and_explains_zip",
+    "current_method": "test_report_ui_prioritises_full_pdf_and_explains_zip",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32b_version_contract.py::test_current_release_is_canonical_runtime_version",
+    "current_method": "test_current_release_is_canonical_runtime_version",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32c_version_contract.py::test_rc16_32c_is_canonical_runtime_version",
+    "current_method": "test_rc16_32c_is_canonical_runtime_version",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32d_version_contract.py::test_rc16_32d_is_canonical_runtime_version",
+    "current_method": "test_rc16_32d_is_canonical_runtime_version",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32f_version_contract.py::test_rc16_32f_is_canonical_runtime_version",
+    "current_method": "test_rc16_32f_is_canonical_runtime_version",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32q_priority_reporting.py::test_release_version_and_safety_statement_are_current",
+    "current_method": "test_release_version_and_safety_statement_are_current",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32w_scheduled_quality_reports.py::test_release_version_is_scheduled_quality_reports",
+    "current_method": "test_release_version_is_scheduled_quality_reports",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32w_scheduled_quality_reports.py::test_scheduled_selection_prioritizes_holdings_then_ranked_candidates",
+    "current_method": "test_scheduled_selection_prioritizes_holdings_then_ranked_candidates",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32w_scheduled_quality_reports.py::test_due_scheduled_screen_persists_partial_result_and_pdf",
+    "current_method": "test_due_scheduled_screen_persists_partial_result_and_pdf",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32x_mobile_market_quality_view.py::test_release_identity_for_mobile_market_quality_view",
+    "current_method": "test_release_identity_for_mobile_market_quality_view",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32x_mobile_market_quality_view.py::test_market_toolbar_is_mobile_safe_and_quality_is_a_first_class_view",
+    "current_method": "test_market_toolbar_is_mobile_safe_and_quality_is_a_first_class_view",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32x_mobile_market_quality_view.py::test_quality_panel_can_be_opened_directly",
+    "current_method": "test_quality_panel_can_be_opened_directly",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32za_quality_mobile_return.py::test_quality_ui_parses_and_uses_native_return_navigation",
+    "current_method": "test_quality_ui_parses_and_uses_native_return_navigation",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32za_quality_mobile_return.py::test_quality_mobile_rows_are_isolated_and_warning_is_explicit",
+    "current_method": "test_quality_mobile_rows_are_isolated_and_warning_is_explicit",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_32zb_quality_full_market_automation.py::test_quality_pdf_labels_deep_vs_market_coverage",
+    "current_method": "test_quality_pdf_labels_deep_vs_market_coverage",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_33c_report_package.py::test_ui_exposes_all_shareable_artifacts",
+    "current_method": "test_ui_exposes_all_shareable_artifacts",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_rc16_33c_report_package.py::test_extended_pdf_returns_to_app_context",
+    "current_method": "test_extended_pdf_returns_to_app_context",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v18694_executive_diversity.py::test_weekend_reason_is_consistent_across_timezones",
+    "current_method": "test_weekend_reason_is_consistent_across_timezones",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v18710_cancellation_scan_progress.py::test_started_status_records_actual_scan_limit_and_total",
+    "current_method": "test_started_status_records_actual_scan_limit_and_total",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1902_live_progress_performance_decision_evidence.py::LiveProgressPerformanceDecisionEvidenceTests::test_net_insider_sales_cannot_be_positive",
+    "current_method": "test_net_insider_sales_cannot_be_positive",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1902_live_progress_performance_decision_evidence.py::LiveProgressPerformanceDecisionEvidenceTests::test_overview_uses_isolated_live_fragment",
+    "current_method": "test_overview_uses_isolated_live_fragment",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1904_report_notification_control.py::ReportNotificationControlTests::test_polling_exists_only_for_running_status",
+    "current_method": "test_polling_exists_only_for_running_status",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1907_unattended_scheduler.py::UnattendedSchedulerTests::test_report_repair_failure_cannot_block_scheduler",
+    "current_method": "test_report_repair_failure_cannot_block_scheduler",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1909_pdf_ticker_repair.py::PdfTickerRepairTests::test_autonomy_overview_has_current_run_download_card",
+    "current_method": "test_autonomy_overview_has_current_run_download_card",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1910_evidence_reliability.py::EvidenceReliabilityTests::test_cvm_primary_source_parses_verified_transaction",
+    "current_method": "test_cvm_primary_source_parses_verified_transaction",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1911_evidence_integrity.py::EvidenceIntegrityTests::test_version_and_current_release_notes_are_available_in_source_repository",
+    "current_method": "test_version_and_current_release_notes_are_available_in_source_repository",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19141_decision_gate_runtime_consistency.py::test_nasdaq_direct_parser_returns_structured_manager_transaction",
+    "current_method": "test_nasdaq_direct_parser_returns_structured_manager_transaction",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1914_scheduler_progress_exports.py::test_job_ui_contains_progress_bar_and_safe_test_buttons",
+    "current_method": "test_job_ui_contains_progress_bar_and_safe_test_buttons",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19150_full_system_stabilization.py::test_full_system_release_audit_is_clean",
+    "current_method": "test_full_system_release_audit_is_clean",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19160_quality_production.py::test_streamlit_deprecations_removed_from_runtime_python",
+    "current_method": "test_streamlit_deprecations_removed_from_runtime_python",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19167_stability_only.py::test_distribution_keeps_only_current_root_release_contract",
+    "current_method": "test_distribution_keeps_only_current_root_release_contract",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1921_decision_report.py::test_pdf_has_one_page_decision_section_before_full_technical_appendix",
+    "current_method": "test_pdf_has_one_page_decision_section_before_full_technical_appendix",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc1611_visible_package_progress.py::VisiblePackageProgressTests::test_archived_report_button_uses_same_visible_progress_helper",
+    "current_method": "test_archived_report_button_uses_same_visible_progress_helper",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc1611_visible_package_progress.py::VisiblePackageProgressTests::test_latest_report_button_uses_visible_progress_helper",
+    "current_method": "test_latest_report_button_uses_visible_progress_helper",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc161_progress_hotfix.py::test_report_center_reuses_overview_progress_fragment",
+    "current_method": "test_report_center_reuses_overview_progress_fragment",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc1622_scheduler_stabilization.py::test_cron_has_narrow_report_lock_cadence_and_production_capacity",
+    "current_method": "test_cron_has_narrow_report_lock_cadence_and_production_capacity",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc1623_report_test_and_public_pdf.py::test_public_renderer_uses_native_static_pdf_not_optional_st_pdf",
+    "current_method": "test_public_renderer_uses_native_static_pdf_not_optional_st_pdf",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc162_shared_progress.py::test_reports_and_overview_use_one_progress_implementation",
+    "current_method": "test_reports_and_overview_use_one_progress_implementation",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc168_shared_draft_zip_progress.py::test_reports_and_overview_share_the_exact_draft_starter",
+    "current_method": "test_reports_and_overview_share_the_exact_draft_starter",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v19220_rc6_currency_navigation.py::test_currency_route_has_one_stable_group_in_all_navigation_sources",
+    "current_method": "test_currency_route_has_one_stable_group_in_all_navigation_sources",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1950_modular_strategy_versioning.py::test_app_monolith_is_reduced_and_style_layers_are_external",
+    "current_method": "test_app_monolith_is_reduced_and_style_layers_are_external",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  },
+  {
+    "previous_node": "tests/test_v1970_parallel_strategy_interface.py::test_style_injection_executes_with_runtime_dependencies",
+    "current_method": "test_style_injection_executes_with_runtime_dependencies",
+    "result": "BESTÅTT I F3-SLUTTKJØRING"
+  }
+]

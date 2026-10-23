@@ -39,10 +39,8 @@ def test_changed_modules_are_valid_python() -> None:
 
 
 def test_release_version_and_safety_statement_are_current() -> None:
-    source = _source("app_version.py")
-    assert 'APP_VERSION = "v19.22.0-rc16.32t"' in source
-    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.32s"' in source
-    assert "v19.22.0-rc16.32q: Priority and Portfolio Clarity" in source
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_notification_priority_is_delivery_only_and_batched() -> None:

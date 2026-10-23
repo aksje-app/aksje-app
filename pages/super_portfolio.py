@@ -18,6 +18,8 @@ def _terminal_job_needs_app_refresh(job, refreshed_run_id: str) -> bool:
 def render_super_portfolio(_legacy_context) -> None:
     from ui.legacy_context import bind_legacy_context
     bind_legacy_context(globals(), _legacy_context, preserve={"render_super_portfolio"})
+    from ui.simulation_restart import render_active
+    if render_active(st,'super_portfolio'):return
     import pandas as pd
     from super_portfolio import (
         build_pdf,
@@ -46,6 +48,8 @@ def render_super_portfolio(_legacy_context) -> None:
         "myke sektor-/korrelasjonsstraffer, Ranking Velocity og Stop Pressure. Ingen ekte ordre sendes."
     )
     state = load_state()
+    from ui.economic_accounting import render as render_nok_accounting
+    render_nok_accounting(st, 'super_portfolio')
     with st.expander("Offisielle innside- og short-hendelser", expanded=False):
         from services.storage_service import get_storage_service
         from market_event_discovery import KEY, purchase_clusters
@@ -335,8 +339,8 @@ def render_super_portfolio(_legacy_context) -> None:
     b1,b2,b3 = st.columns(3)
     idx = bench.get("index") or {}
     aur = bench.get("aurora") or {}
-    b1.metric(str(idx.get("label") or "Indeks"), f"{float(idx.get('return_pct') or 0):+.2f}%", delta=f"Alpha {float(idx.get('alpha_pct') or 0):+.2f} pp" if idx.get("return_pct") is not None else None)
-    b2.metric(str(aur.get("label") or "Aurora"), f"{float(aur.get('return_pct') or 0):+.2f}%", delta=f"Alpha {float(aur.get('alpha_pct') or 0):+.2f} pp" if aur.get("return_pct") is not None else None)
+    b1.metric(str(idx.get("label") or "Indeks"), f"{float(idx['return_pct']):+.2f}%" if idx.get('return_pct') is not None else 'Ikke tilgjengelig', delta=f"Alpha {float(idx.get('alpha_pct') or 0):+.2f} pp" if idx.get("alpha_pct") is not None else None)
+    b2.metric(str(aur.get("label") or "Aurora"), f"{float(aur['return_pct']):+.2f}%" if aur.get('return_pct') is not None else 'Ikke tilgjengelig', delta=f"Alpha {float(aur.get('alpha_pct') or 0):+.2f} pp" if aur.get("alpha_pct") is not None else None)
     confidence = state.get("decision_confidence") or {}
     b3.metric("🧠 Decision Confidence", f"{confidence.get('icon','⚪')} {float(confidence.get('score') or 0):.1f}/100")
 
@@ -465,8 +469,8 @@ def render_super_portfolio(_legacy_context) -> None:
     t1,t2,t3,t4=st.columns(4)
     t1.metric("Turnover",f"{float(tc.get('turnover_pct') or 0):.2f}%")
     t2.metric("Estimert kostnad",f"{float(tc.get('estimated_cost') or 0):,.0f}")
-    t3.metric("Brutto",f"{float(tc.get('gross_return_pct') or weighted_return):+.2f}%")
-    t4.metric("Etter kostnader",f"{float(tc.get('net_return_pct') or weighted_return):+.2f}%")
+    t3.metric("Brutto",f"{float(tc['gross_return_pct'] if tc.get('gross_return_pct') is not None else weighted_return):+.2f}%")
+    t4.metric("Modellestimat etter kostnader",f"{float(tc['net_return_pct'] if tc.get('net_return_pct') is not None else weighted_return):+.2f}%")
 
     st.markdown("### 🖥️ Ressurser")
     rh=state.get("resource_health") or {}

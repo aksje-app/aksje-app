@@ -2139,7 +2139,8 @@ def render_report_file_center(
     if include_complete_zip:
         left, right = st.columns([1, 1])
         if left.button("⬇ Bygg komplett rapportpakke", key=f"{key}_build_zip_{run_id}", width="stretch"):
-            package, package_manifest = build_complete_report_package(available, run_id)
+            with st.spinner("Bygger komplett rapportpakke med PDF, JSON, tekst og revisjon…"):
+                package, package_manifest = build_complete_report_package(available, run_id)
             if not package:
                 st.error("Komplett rapportpakke kunne ikke bygges.")
             else:
@@ -6806,6 +6807,7 @@ def _run_job_impl(
     _final_portfolio = _load_final_portfolio()
     _final_portfolio["maximum_open_positions"] = int(_final_parameters.maximum_open_positions)
     _final_portfolio["reserve_cash_pct"] = float(_final_parameters.reserve_cash_pct)
+    _final_portfolio["parameters"] = asdict(_final_parameters)
     _final_portfolio["snapshot_timing"] = "ETTER_AUTONOMI"
     _final_portfolio["snapshot_run_id"] = str(run_id)
     run["autonomous_portfolio_snapshot"] = _final_portfolio

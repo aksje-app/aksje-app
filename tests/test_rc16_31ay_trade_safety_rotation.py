@@ -88,7 +88,7 @@ def test_40_day_weak_position_is_cash_review_without_replacement():
     decision = evaluate_exit(
         entry_price=100,
         current_price=100.5,
-        highest_price=104,
+        highest_price=100.5,
         entry_score=78,
         current_score=70,
         holding_days=43,
@@ -105,8 +105,8 @@ def test_40_day_weak_position_is_cash_review_without_replacement():
             "cash_review_max_return_pct": 1,
         },
     )
-    assert decision["action"] == "CASH_REVIEW"
-    assert decision["reason_code"] == "OPPORTUNITY_COST"
+    assert decision["action"] == "SELL"
+    assert decision["reason_code"] == "OPPORTUNITY_COST_CASH_EXIT"
 
 
 def test_profitable_position_is_not_forced_to_cash():

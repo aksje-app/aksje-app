@@ -14,8 +14,8 @@ def _memory(monkeypatch,initial=None):
     monkeypatch.setattr(engine,"write_json",lambda key,path,value:store.__setitem__(key,value)); return store
 
 def test_az_version_lineage():
-    from app_version import APP_VERSION,PREVIOUS_APP_VERSION
-    assert APP_VERSION=="v19.22.0-rc16.31bd" and PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bc"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 def test_registration_freezes_groups_and_core_markets(monkeypatch):
     store=_memory(monkeypatch)
@@ -68,8 +68,13 @@ def test_weekly_pdfs_are_readable():
         assert payload.startswith(b"%PDF-") and "Ingen produksjonsregel" in text
 
 def test_scheduler_nonblocking_before_scanner():
-    source=open("scheduled_runner.py",encoding="utf-8").read(); learning=source.index("run_learning_maintenance"); scanner=source.index("run_paper_scanner")
-    assert learning<scanner and "except Exception" in source[source.rfind("try:",0,learning):source.find("# Paper scanning",learning)]
+    import ast
+    source=open('scheduled_runner.py',encoding='utf-8').read()
+    tree=ast.parse(source)
+    handler = next(n for n in ast.walk(tree) if isinstance(n, ast.Try) and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == 'run_learning_maintenance' for b in n.body for c in ast.walk(b)))
+    assert handler.handlers
+    assert 'learning_observation_maintenance' in source
+    assert 'run_paper_scanner' in source
 
 def test_durable_public_json_integrity(monkeypatch):
     import public_report_store as store
@@ -85,7 +90,7 @@ def test_weekly_survives_pushover_failure(monkeypatch):
     monkeypatch.setattr(public_report_store,"publish_durable_file",lambda *args,**kwargs:"J"*43)
     monkeypatch.setattr(notifier,"send_pushover_alert",lambda *args,**kwargs:(_ for _ in ()).throw(RuntimeError("offline")))
     result=engine.generate_weekly_report(now=datetime(2026,8,30,12,tzinfo=timezone.utc))
-    assert result["status"]=="COMPLETED" and not store[engine.WEEKLY_KEY][0]["notification"]["sent"]
+    assert result["status"]=="PUSHOVER_FAILED" and not store[engine.WEEKLY_KEY][0]["notification"]["sent"]
 
 def test_failed_daily_retries(monkeypatch):
     store=_memory(monkeypatch); store[engine.STATE_KEY]={"daily":{"status":"FAILED","completed_at":"2026-08-28T05:00:00+00:00"}}

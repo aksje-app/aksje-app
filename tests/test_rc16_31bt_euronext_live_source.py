@@ -69,5 +69,5 @@ def test_fallback_exposes_real_fetch_error(monkeypatch):
 
 
 def test_version_is_bt():
-    import app_version
-    assert app_version.APP_VERSION == 'v19.22.0-rc16.31bt'
+    from release_contract_checks import assert_current_release
+    assert_current_release()

@@ -3,6 +3,7 @@ from collections import Counter
 from hashlib import sha256
 from statistics import median
 from services.storage_service import get_storage_service
+from portfolio_history_optimizer import METHOD_VERSION
 
 ENGINES = (("AUTONOMY", "Autonomi"), ("SUPER_PORTFOLIO", "Superporteføljen"))
 PREFIX = "strategy_history/"
@@ -18,9 +19,13 @@ def collect(storage, engine):
     incomplete_history = 0
     paired = []
     zero_holdout_trades = 0
+    invalid_method = 0
     for ticker in tickers:
         digest = sha256(str(ticker).encode()).hexdigest()
         record = storage.read_json(PREFIX + "optimized/" + engine + "/" + digest + ".json", {}) or {}
+        if record.get("status") == "COMPLETE_RESEARCH" and record.get("method_version") != METHOD_VERSION:
+            invalid_method += 1
+            continue
         if record.get("status") != "COMPLETE_RESEARCH":
             if record.get("status") in ("INSUFFICIENT_HISTORY", "INSUFFICIENT_PURGED_PERIODS"):
                 incomplete_history += 1
@@ -43,7 +48,7 @@ def collect(storage, engine):
             else:
                 zero_holdout_trades += 1
     return {"total": int(state.get("total") or 0), "processed": int(state.get("processed") or 0),
-            "complete": complete, "missing_records": missing, "incomplete_history": incomplete_history,
+            "complete": complete, "missing_records": missing, "incomplete_history": incomplete_history, "invalid_method": invalid_method,
             "paired": paired, "zero_holdout_trades": zero_holdout_trades, "counts": counts,
             "holdout": holdout, "validation": validation, "updated_at": state.get("updated_at")}
 
@@ -58,6 +63,8 @@ def render(st):
             st.markdown("### " + label)
             st.metric("Aksjer undersøkt", "{} / {}".format(data["processed"], data["total"]))
             st.metric("Aksjer med fullstendig test", data["complete"])
+            if data["invalid_method"]:
+                st.warning(f"{data['invalid_method']} eldre resultater er utelatt: overlappende kapitalbruk og inngangsdagens stopp må beregnes på nytt.")
             if data["missing_records"]:
                 st.warning("{} aksjer har ikke fullstendig testresultat. Det kan skyldes for kort kurshistorikk eller manglende data.".format(data["missing_records"]))
             if data["incomplete_history"]:

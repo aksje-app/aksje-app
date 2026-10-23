@@ -48,8 +48,8 @@ def _thirteen_row_run() -> dict:
 
 
 def test_release_identity_is_av_over_au():
-    assert APP_VERSION == "v19.22.0-rc16.31bd"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bc"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_realistic_thirteen_recommendations_survive_every_export_channel():
@@ -130,7 +130,7 @@ def test_mobile_delivery_has_durable_open_download_copy_and_return_paths():
 
 
 def test_learning_horizons_and_caps_are_fail_closed():
-    assert ap.LEARNING_OUTCOME_HORIZONS == (1, 5, 20, 60)
+    assert ap.LEARNING_OUTCOME_HORIZONS == (1, 3, 5, 20, 60)
     assert ap.LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS == 30
     assert ap.LEARNING_TOTAL_SAFETY_CAP == 120
 

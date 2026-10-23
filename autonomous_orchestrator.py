@@ -90,7 +90,7 @@ def run_post_scan_chain(
         try:
             from autonomous_portfolio import load_portfolio, run_autonomous_cycle
             portfolio = load_portfolio()
-            if not candidates:
+            if not candidates and not portfolio.get('economic_period_id'):
                 stage("AUTONOMOUS_PORTFOLIO", "SKIPPED", {"reason": "Ingen kandidater fra skanningen"})
             else:
                 # The production portfolio remains fail-closed inside

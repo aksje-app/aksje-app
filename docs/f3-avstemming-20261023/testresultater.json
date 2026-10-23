@@ -1,0 +1,102 @@
+{
+  "branch": "fix/systemrevisjon-20261022",
+  "pr": 167,
+  "base_commit": "19ed8781b5057fd3467b270f5c1e5cd4fa650a57",
+  "isolated_suite": {
+    "passed": 2440,
+    "subtests_passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 368.54
+  },
+  "cases_by_module": {
+    "test_economic_ledger": 30,
+    "test_portfolio_accounting": 55,
+    "test_superfund_accounting": 18,
+    "test_economic_events": 17,
+    "test_production_reconciliation": 15,
+    "test_system_revision_browser": 70,
+    "test_superfund_browser": 9
+  },
+  "postgres_tests": 22,
+  "original_99": {
+    "passed": 99,
+    "failed": 0,
+    "mapping": "../f3-20261023/opprinnelige-99.json"
+  },
+  "live_provider": {
+    "passed": 0,
+    "failed": 2,
+    "status": "IKKE VERIFISERT",
+    "reason": "CONNECT proxy HTTP 403; direct connection timed out"
+  },
+  "other_checks": {
+    "release_contracts": 24,
+    "report_sharing": 5,
+    "dependencies": {
+      "ok": true,
+      "target_python": "3.12.13",
+      "direct_dependency_count": 19,
+      "locked_dependency_count": 70,
+      "missing_roots": [],
+      "root_version_mismatches": [],
+      "installed_mismatches": [],
+      "incompatible_with_target": []
+    },
+    "runtime": {
+      "ok": true,
+      "version": "v19.22.0-rc16.34r",
+      "compiled_python_files": 962,
+      "runtime_modules_in_closure": 401,
+      "failures": []
+    }
+  },
+  "production_evidence": {
+    "new_original_sources_checked": 0,
+    "production_queries_executed": 0,
+    "production_copy_trials_performed": 0,
+    "accounts": {
+      "paper": {
+        "status": "STOPPED",
+        "reason": "NO_PRODUCTION_SOURCE_AVAILABLE",
+        "full_reconciliation": "IKKE VERIFISERT"
+      },
+      "autonomy": {
+        "status": "STOPPED",
+        "reason": "NO_PRODUCTION_SOURCE_AVAILABLE",
+        "full_reconciliation": "IKKE VERIFISERT"
+      },
+      "super_portfolio": {
+        "status": "STOPPED",
+        "reason": "NO_PRODUCTION_SOURCE_AVAILABLE",
+        "full_reconciliation": "IKKE VERIFISERT"
+      },
+      "superfund": {
+        "status": "STOPPED",
+        "reason": "NO_PRODUCTION_SOURCE_AVAILABLE",
+        "full_reconciliation": "IKKE VERIFISERT"
+      }
+    },
+    "synthetic_tests_used_as_production_evidence": false
+  },
+  "browser_limitations": [
+    "Authentication substituted",
+    "External HTTP/socket providers blocked",
+    "Synthetic isolated model accounts only",
+    "DOM control inventory is not a complete action test"
+  ],
+  "resolved_during_validation": [
+    "Native fund download timeout: read-only accounting downloads no longer rerun the app; browser waits for completed render"
+  ],
+  "production_activation": false,
+  "migration": false,
+  "merge": false,
+  "deploy": false,
+  "pr_update": {
+    "existing_pr": 167,
+    "description_api": "Forbidden (GraphQL)",
+    "prepared_description": "PR.md",
+    "code_delivery": "same existing branch"
+  }
+}

@@ -1,0 +1,554 @@
+{
+  "scope": "16 routes at 375 and 1280 pixels; controls are DOM observations, not unique tested features",
+  "full_action_coverage": false,
+  "routes": [
+    {
+      "route": "ai",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 153,
+      "visible_controls": 134,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "ai",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 137,
+      "visible_controls": 93,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "analysis",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "AI Kandidattest",
+        "Kilder og import"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 203,
+      "visible_controls": 181,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "analysis",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "AI Kandidattest",
+        "Kilder og import"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 187,
+      "visible_controls": 140,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "approvals",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🧪 Læringsportefølje",
+        "Utvikling i læringsporteføljen",
+        "Ukentlig kontrollert observasjonslæring",
+        "Åpne læringsposisjoner"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [
+        "Læringshandler",
+        "Observasjonsbeslutninger",
+        "Lukkede observasjoner"
+      ],
+      "observed_controls": 185,
+      "visible_controls": 166,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "approvals",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🧪 Læringsportefølje",
+        "Utvikling i læringsporteføljen",
+        "Ukentlig kontrollert observasjonslæring",
+        "Åpne læringsposisjoner"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [
+        "Læringshandler",
+        "Observasjonsbeslutninger",
+        "Lukkede observasjoner"
+      ],
+      "observed_controls": 186,
+      "visible_controls": 141,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "dashboard",
+      "width": 1280,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God ettermiddag",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 47,
+      "visible_controls": 47,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "dashboard",
+      "width": 375,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God ettermiddag",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 47,
+      "visible_controls": 22,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "drift_center",
+      "width": 1280,
+      "headings": [
+        "🧭 Driftssenter",
+        "🧭 Driftssenter",
+        "Status trinn 1–8",
+        "🔴 Av",
+        "🔴 Av",
+        "🟡 Venter",
+        "🔴 Av",
+        "🔴 Av",
+        "🔴 Av",
+        "🟢 Aktiv",
+        "🔴 Av",
+        "Kontrollert aktivering · steg 1–7",
+        "⚠️ Produksjonshandel · steg 8"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 80,
+      "visible_controls": 80,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "drift_center",
+      "width": 375,
+      "headings": [
+        "🧭 Driftssenter",
+        "🧭 Driftssenter",
+        "Status trinn 1–8",
+        "🔴 Av",
+        "🔴 Av",
+        "🟡 Venter",
+        "🔴 Av",
+        "🔴 Av",
+        "🔴 Av",
+        "🟢 Aktiv",
+        "🔴 Av",
+        "Kontrollert aktivering · steg 1–7",
+        "⚠️ Produksjonshandel · steg 8"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 80,
+      "visible_controls": 55,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "fx_alerts",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 187,
+      "visible_controls": 167,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "fx_alerts",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 171,
+      "visible_controls": 126,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "jobs",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "📊 Rapportsenter · Investor Edition",
+        "1. Status for planlagte rapporter",
+        "2. Handlinger",
+        "3. Siste rapporter",
+        "4. Historikk"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 288,
+      "visible_controls": 248,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "jobs",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "📊 Rapportsenter · Investor Edition",
+        "1. Status for planlagte rapporter",
+        "2. Handlinger",
+        "3. Siste rapporter",
+        "4. Historikk"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 272,
+      "visible_controls": 207,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "long_engine",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "🚀 Long Engine Alpha"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 160,
+      "visible_controls": 141,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "long_engine",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "🚀 Long Engine Alpha"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 144,
+      "visible_controls": 100,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "market",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked",
+        "Markedsoversikt"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 165,
+      "visible_controls": 146,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "market",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked",
+        "Markedsoversikt"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 149,
+      "visible_controls": 105,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "operations",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🔔 Varsling – Alert Center",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett",
+        "Performance Dashboard"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [
+        "Varselsenter",
+        "Watchlist / signaler",
+        "Valutavarsler"
+      ],
+      "observed_controls": 227,
+      "visible_controls": 197,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "operations",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🔔 Varsling – Alert Center",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett",
+        "Performance Dashboard"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [
+        "Varselsenter",
+        "Watchlist / signaler",
+        "Valutavarsler"
+      ],
+      "observed_controls": 212,
+      "visible_controls": 156,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "quality_reports",
+      "width": 1280,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God ettermiddag",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 47,
+      "visible_controls": 47,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "quality_reports",
+      "width": 375,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God ettermiddag",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 47,
+      "visible_controls": 22,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "quality_valuation",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 167,
+      "visible_controls": 148,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "quality_valuation",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 151,
+      "visible_controls": 107,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "super_portfolio",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "📈 Strategitesting – historisk fremdrift",
+        "Strategitester og bearbeiding",
+        "Trinnvise kjøp og sektorgrenser",
+        "Historisk parameterforskning",
+        "Autonomi",
+        "Superporteføljen",
+        "🚦 Hva skjer nå?",
+        "📈 Utvikling – totalt",
+        "📉 Utvikling – alle aksjer",
+        "📊 Benchmark",
+        "🛡️ Rebalance Gate",
+        "📊 Før / etter rebalansering",
+        "🧯 Stress Radar",
+        "💸 Turnover & kostnader",
+        "🖥️ Ressurser",
+        "🔎 Decision Trace / diagnose",
+        "⚔️ Utfordrere til porteføljen"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 67,
+      "visible_controls": 67,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "super_portfolio",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "📈 Strategitesting – historisk fremdrift",
+        "Strategitester og bearbeiding",
+        "Trinnvise kjøp og sektorgrenser",
+        "Historisk parameterforskning",
+        "Autonomi",
+        "Superporteføljen",
+        "🚦 Hva skjer nå?",
+        "📈 Utvikling – totalt",
+        "📉 Utvikling – alle aksjer",
+        "📊 Benchmark",
+        "🛡️ Rebalance Gate",
+        "📊 Før / etter rebalansering",
+        "🧯 Stress Radar",
+        "💸 Turnover & kostnader",
+        "🖥️ Ressurser",
+        "🔎 Decision Trace / diagnose",
+        "⚔️ Utfordrere til porteføljen"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 67,
+      "visible_controls": 42,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "superfund",
+      "width": 1280,
+      "headings": [
+        "Superfondportefølje",
+        "📊 Superfond – datainnsamling og læring",
+        "Porteføljeoversikt",
+        "Eide fond · løpende rangering"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 41,
+      "visible_controls": 41,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "superfund",
+      "width": 375,
+      "headings": [
+        "Superfondportefølje",
+        "📊 Superfond – datainnsamling og læring",
+        "Porteføljeoversikt",
+        "Eide fond · løpende rangering"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 41,
+      "visible_controls": 16,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "system",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 161,
+      "visible_controls": 142,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "system",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 143,
+      "visible_controls": 99,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "top_picks",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 154,
+      "visible_controls": 135,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    },
+    {
+      "route": "top_picks",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "rendering": "BESTÅTT",
+      "tabs_recorded": [],
+      "observed_controls": 138,
+      "visible_controls": 94,
+      "individual_control_actions": "IKKE FULLSTENDIG VERIFISERT"
+    }
+  ]
+}

@@ -124,6 +124,17 @@ def save_interface_mode(mode: str) -> str:
     return clean
 
 
+def apply_requested_workspace_mode(state, requested_workspace):
+    """An explicit menu destination must not disappear behind Simple mode.
+
+    This is a UI preference only; it does not enable an engine or trading rule.
+    Apply before constructing the mode widget so subsequent reruns stay there.
+    """
+    from navigation_state import AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7
+    if requested_workspace in AUTONOMY_WORKSPACE_LABEL_BY_SLUG_V19220_RC7 and requested_workspace != "overview":
+        state["autonomy_interface_mode_v1884"] = EXPERT
+
+
 def render_mode_selector() -> str:
     stored = load_interface_mode()
     mode = st.radio(

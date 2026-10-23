@@ -60,6 +60,9 @@ evaluation snapshot. It creates a receipt only, not invented historical fills.
 
 def commit(state, *, operation_id="", trades=(), result=None, storage=None):
     storage = storage or get_storage_service()
+    from services.production_restart import selected
+    if selected('super_portfolio',storage=storage,require_running=False) is not None:
+        raise ValueError('Selected NOK account forbids parallel native balance/journal writes')
     proposed = deepcopy(state)
     expected = int(proposed.get("_revision", 0))
     proposed.pop("_pending_commit", None)
@@ -178,6 +181,18 @@ def export_files(storage=None):
                 "opening_balance": state.get("accounting_opening_balance"),
                 "cash": state.get("cash"), "portfolio_value": state.get("portfolio_value"),
                 "positions": state.get("positions") or {}, "actual_broker_trades": False}
-    return {"transactions.json": json.dumps(rows, ensure_ascii=False, indent=2, default=str),
+    from services.portfolio_accounting import report as nok_report
+    return {"nok_accounting.json": json.dumps(nok_report("super_portfolio", storage=storage), ensure_ascii=False, indent=2),
+            "transactions.json": json.dumps(rows, ensure_ascii=False, indent=2, default=str),
             "transactions.csv": output.getvalue(),
             "transaction_coverage.json": json.dumps(coverage, ensure_ascii=False, indent=2, default=str)}
+
+
+def record_documented_nok_fill(fill, *, storage=None):
+    """Explicit actual-share adapter; never infer a fill from legacy model units.
+
+    Requires a separately approved NOK period. Existing historical execution and
+    selection rules remain unchanged until a controlled handover is authorised.
+    """
+    from services.portfolio_accounting import settle
+    return settle('super_portfolio', fill, storage=storage)

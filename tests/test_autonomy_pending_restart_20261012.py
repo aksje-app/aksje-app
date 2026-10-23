@@ -55,10 +55,11 @@ def test_pending_entry_survives_restart_and_buys_next_session(monkeypatch):
     now[0] = datetime(2026, 10, 12, 14, 0, tzinfo=timezone.utc)
     second = dict(candidate, session_date='2026-10-12', session_open=100,
                   previous_close=99, price=101)
+    second['execution_quote']={'price':101,'market_data_at':now[0].isoformat(),'source':'yfinance 5m Close','adjustment':'raw'}
     result = ap.run_autonomous_cycle([second], 'ENTRY-DAY-2')
     buys = [x for x in result['portfolio_trades'] if x['action'] == 'BUY']
     assert len(buys) == 1
-    assert buys[0]['price'] == 100
+    assert buys[0]['price'] == 101  # observed fill, not the hours-old session open
     assert buys[0]['entry_signal_date'] == '2026-10-09'
     assert buys[0]['entry_signal_run_id'] == 'ENTRY-DAY-1'
     assert 'MSFT' not in read(ap.PENDING_ENTRIES_PATH, {})

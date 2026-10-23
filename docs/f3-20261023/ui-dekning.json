@@ -1,0 +1,716 @@
+{
+  "note": "DOM-inventar er ikke funksjonstest av hver kontroll. Bare eksplisitte testforløp teller som utført handling.",
+  "browser_tests": {
+    "full_app": 68,
+    "superfund": 9,
+    "widths": [
+      375,
+      430,
+      1280
+    ],
+    "new_accounting_flows": 8,
+    "authentication_substituted": true,
+    "external_providers_blocked": true
+  },
+  "routes": [
+    {
+      "route": "ai",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 134,
+      "observed_controls_total": 153,
+      "visible_controls_by_tag": {
+        "BUTTON": 56,
+        "INPUT": 39,
+        "A": 38,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "ai",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 93,
+      "observed_controls_total": 137,
+      "visible_controls_by_tag": {
+        "BUTTON": 25,
+        "A": 30,
+        "INPUT": 37,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 1
+    },
+    {
+      "route": "analysis",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "AI Kandidattest",
+        "Kilder og import"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 181,
+      "observed_controls_total": 203,
+      "visible_controls_by_tag": {
+        "BUTTON": 79,
+        "INPUT": 57,
+        "A": 40,
+        "DIV": 5
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "analysis",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "AI Kandidattest",
+        "Kilder og import"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 140,
+      "observed_controls_total": 187,
+      "visible_controls_by_tag": {
+        "BUTTON": 48,
+        "A": 32,
+        "INPUT": 55,
+        "DIV": 5
+      },
+      "visible_disabled_controls": 1
+    },
+    {
+      "route": "approvals",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🧪 Læringsportefølje",
+        "Utvikling i læringsporteføljen",
+        "Ukentlig kontrollert observasjonslæring",
+        "Åpne læringsposisjoner"
+      ],
+      "tabs_executed": [
+        "Læringshandler",
+        "Observasjonsbeslutninger",
+        "Lukkede observasjoner"
+      ],
+      "visible_controls": 166,
+      "observed_controls_total": 185,
+      "visible_controls_by_tag": {
+        "BUTTON": 67,
+        "INPUT": 47,
+        "A": 51,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "approvals",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🧪 Læringsportefølje",
+        "Utvikling i læringsporteføljen",
+        "Ukentlig kontrollert observasjonslæring",
+        "Åpne læringsposisjoner"
+      ],
+      "tabs_executed": [
+        "Læringshandler",
+        "Observasjonsbeslutninger",
+        "Lukkede observasjoner"
+      ],
+      "visible_controls": 141,
+      "observed_controls_total": 186,
+      "visible_controls_by_tag": {
+        "BUTTON": 52,
+        "A": 43,
+        "INPUT": 45,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "dashboard",
+      "width": 1280,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God kveld",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 47,
+      "observed_controls_total": 47,
+      "visible_controls_by_tag": {
+        "BUTTON": 31,
+        "INPUT": 3,
+        "A": 13
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "dashboard",
+      "width": 375,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God kveld",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 22,
+      "observed_controls_total": 47,
+      "visible_controls_by_tag": {
+        "BUTTON": 16,
+        "A": 5,
+        "INPUT": 1
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "drift_center",
+      "width": 1280,
+      "headings": [
+        "🧭 Driftssenter",
+        "🧭 Driftssenter",
+        "Status trinn 1–8",
+        "🔴 Av",
+        "🔴 Av",
+        "🟡 Venter",
+        "🔴 Av",
+        "🔴 Av",
+        "🔴 Av",
+        "🟢 Aktiv",
+        "🔴 Av",
+        "Kontrollert aktivering · steg 1–7",
+        "⚠️ Produksjonshandel · steg 8"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 80,
+      "observed_controls_total": 80,
+      "visible_controls_by_tag": {
+        "BUTTON": 48,
+        "INPUT": 11,
+        "A": 21
+      },
+      "visible_disabled_controls": 4
+    },
+    {
+      "route": "drift_center",
+      "width": 375,
+      "headings": [
+        "🧭 Driftssenter",
+        "🧭 Driftssenter",
+        "Status trinn 1–8",
+        "🔴 Av",
+        "🔴 Av",
+        "🟡 Venter",
+        "🔴 Av",
+        "🔴 Av",
+        "🔴 Av",
+        "🟢 Aktiv",
+        "🔴 Av",
+        "Kontrollert aktivering · steg 1–7",
+        "⚠️ Produksjonshandel · steg 8"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 55,
+      "observed_controls_total": 80,
+      "visible_controls_by_tag": {
+        "BUTTON": 33,
+        "A": 13,
+        "INPUT": 9
+      },
+      "visible_disabled_controls": 4
+    },
+    {
+      "route": "fx_alerts",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 167,
+      "observed_controls_total": 187,
+      "visible_controls_by_tag": {
+        "BUTTON": 66,
+        "INPUT": 58,
+        "A": 42,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 7
+    },
+    {
+      "route": "fx_alerts",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 126,
+      "observed_controls_total": 171,
+      "visible_controls_by_tag": {
+        "BUTTON": 35,
+        "A": 34,
+        "INPUT": 56,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 3
+    },
+    {
+      "route": "jobs",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "📊 Rapportsenter · Investor Edition",
+        "1. Status for planlagte rapporter",
+        "2. Handlinger",
+        "3. Siste rapporter",
+        "4. Historikk"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 248,
+      "observed_controls_total": 288,
+      "visible_controls_by_tag": {
+        "BUTTON": 104,
+        "INPUT": 84,
+        "A": 59,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 7
+    },
+    {
+      "route": "jobs",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "📊 Rapportsenter · Investor Edition",
+        "1. Status for planlagte rapporter",
+        "2. Handlinger",
+        "3. Siste rapporter",
+        "4. Historikk"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 207,
+      "observed_controls_total": 272,
+      "visible_controls_by_tag": {
+        "BUTTON": 73,
+        "A": 51,
+        "INPUT": 82,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 3
+    },
+    {
+      "route": "long_engine",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "🚀 Long Engine Alpha"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 141,
+      "observed_controls_total": 160,
+      "visible_controls_by_tag": {
+        "BUTTON": 59,
+        "INPUT": 39,
+        "A": 39,
+        "DIV": 4
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "long_engine",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "🚀 Long Engine Alpha"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 100,
+      "observed_controls_total": 144,
+      "visible_controls_by_tag": {
+        "BUTTON": 28,
+        "A": 31,
+        "INPUT": 37,
+        "DIV": 4
+      },
+      "visible_disabled_controls": 1
+    },
+    {
+      "route": "market",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked",
+        "Markedsoversikt"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 146,
+      "observed_controls_total": 165,
+      "visible_controls_by_tag": {
+        "BUTTON": 59,
+        "INPUT": 46,
+        "A": 40,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "market",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked",
+        "Markedsoversikt"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 105,
+      "observed_controls_total": 149,
+      "visible_controls_by_tag": {
+        "BUTTON": 28,
+        "A": 32,
+        "INPUT": 44,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 1
+    },
+    {
+      "route": "operations",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🔔 Varsling – Alert Center",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett",
+        "Performance Dashboard"
+      ],
+      "tabs_executed": [
+        "Varselsenter",
+        "Watchlist / signaler",
+        "Valutavarsler"
+      ],
+      "visible_controls": 197,
+      "observed_controls_total": 227,
+      "visible_controls_by_tag": {
+        "BUTTON": 78,
+        "INPUT": 65,
+        "A": 53,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 7
+    },
+    {
+      "route": "operations",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Autonomi",
+        "🧠 Autonomi",
+        "Hurtigvalg",
+        "🔔 Varsling – Alert Center",
+        "Valutavarsler",
+        "Status nå",
+        "Bakgrunnsstatus og diagnose",
+        "Varseloppsett",
+        "Performance Dashboard"
+      ],
+      "tabs_executed": [
+        "Varselsenter",
+        "Watchlist / signaler",
+        "Valutavarsler"
+      ],
+      "visible_controls": 156,
+      "observed_controls_total": 212,
+      "visible_controls_by_tag": {
+        "BUTTON": 47,
+        "A": 45,
+        "INPUT": 63,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 3
+    },
+    {
+      "route": "quality_reports",
+      "width": 1280,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God kveld",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 47,
+      "observed_controls_total": 47,
+      "visible_controls_by_tag": {
+        "BUTTON": 31,
+        "INPUT": 3,
+        "A": 13
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "quality_reports",
+      "width": 375,
+      "headings": [
+        "🌡️ Markedstemperatur – global børshelse",
+        "God kveld",
+        "Krever oppmerksomhet",
+        "Dagens beslutninger",
+        "Hurtighandlinger"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 22,
+      "observed_controls_total": 47,
+      "visible_controls_by_tag": {
+        "BUTTON": 16,
+        "A": 5,
+        "INPUT": 1
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "quality_valuation",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 148,
+      "observed_controls_total": 167,
+      "visible_controls_by_tag": {
+        "BUTTON": 58,
+        "INPUT": 50,
+        "A": 39,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 6
+    },
+    {
+      "route": "quality_valuation",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "Marked"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 107,
+      "observed_controls_total": 151,
+      "visible_controls_by_tag": {
+        "BUTTON": 27,
+        "A": 31,
+        "INPUT": 48,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 2
+    },
+    {
+      "route": "super_portfolio",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "📈 Strategitesting – historisk fremdrift",
+        "Strategitester og bearbeiding",
+        "Trinnvise kjøp og sektorgrenser",
+        "Historisk parameterforskning",
+        "Autonomi",
+        "Superporteføljen",
+        "🚦 Hva skjer nå?",
+        "📈 Utvikling – totalt",
+        "📉 Utvikling – alle aksjer",
+        "📊 Benchmark",
+        "🛡️ Rebalance Gate",
+        "📊 Før / etter rebalansering",
+        "🧯 Stress Radar",
+        "💸 Turnover & kostnader",
+        "🖥️ Ressurser",
+        "🔎 Decision Trace / diagnose",
+        "⚔️ Utfordrere til porteføljen"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 68,
+      "observed_controls_total": 68,
+      "visible_controls_by_tag": {
+        "BUTTON": 38,
+        "INPUT": 4,
+        "A": 26
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "super_portfolio",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio",
+        "📈 Strategitesting – historisk fremdrift",
+        "Strategitester og bearbeiding",
+        "Trinnvise kjøp og sektorgrenser",
+        "Historisk parameterforskning",
+        "Autonomi",
+        "Superporteføljen",
+        "🚦 Hva skjer nå?",
+        "📈 Utvikling – totalt",
+        "📉 Utvikling – alle aksjer",
+        "📊 Benchmark",
+        "🛡️ Rebalance Gate",
+        "📊 Før / etter rebalansering",
+        "🧯 Stress Radar",
+        "💸 Turnover & kostnader",
+        "🖥️ Ressurser",
+        "🔎 Decision Trace / diagnose",
+        "⚔️ Utfordrere til porteføljen"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 43,
+      "observed_controls_total": 68,
+      "visible_controls_by_tag": {
+        "BUTTON": 23,
+        "A": 18,
+        "INPUT": 2
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "superfund",
+      "width": 1280,
+      "headings": [
+        "Superfondportefølje",
+        "📊 Superfond – datainnsamling og læring",
+        "Porteføljeoversikt",
+        "Eide fond · løpende rangering"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 42,
+      "observed_controls_total": 42,
+      "visible_controls_by_tag": {
+        "BUTTON": 26,
+        "INPUT": 4,
+        "A": 12
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "superfund",
+      "width": 375,
+      "headings": [
+        "Superfondportefølje",
+        "📊 Superfond – datainnsamling og læring",
+        "Porteføljeoversikt",
+        "Eide fond · løpende rangering"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 17,
+      "observed_controls_total": 42,
+      "visible_controls_by_tag": {
+        "BUTTON": 11,
+        "A": 4,
+        "INPUT": 2
+      },
+      "visible_disabled_controls": 0
+    },
+    {
+      "route": "system",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 142,
+      "observed_controls_total": 161,
+      "visible_controls_by_tag": {
+        "BUTTON": 64,
+        "INPUT": 39,
+        "A": 38,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "system",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 99,
+      "observed_controls_total": 143,
+      "visible_controls_by_tag": {
+        "BUTTON": 31,
+        "A": 30,
+        "INPUT": 37,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 1
+    },
+    {
+      "route": "top_picks",
+      "width": 1280,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 135,
+      "observed_controls_total": 154,
+      "visible_controls_by_tag": {
+        "BUTTON": 56,
+        "INPUT": 40,
+        "A": 38,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 5
+    },
+    {
+      "route": "top_picks",
+      "width": 375,
+      "headings": [
+        "🌍 AI Super Portfolio"
+      ],
+      "tabs_executed": [],
+      "visible_controls": 94,
+      "observed_controls_total": 138,
+      "visible_controls_by_tag": {
+        "BUTTON": 25,
+        "A": 30,
+        "INPUT": 38,
+        "DIV": 1
+      },
+      "visible_disabled_controls": 1
+    }
+  ],
+  "raw_inventory_and_screenshots": "/workspace/.audit-167/f3-ui-controls-final/"
+}

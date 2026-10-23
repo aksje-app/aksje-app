@@ -33,7 +33,8 @@ def run(monkeypatch, *, position_value=1000, max_positions=30, omit=None):
         'data_quality_score': 100, 'price': 100, 'sector': 'Technology',
         'portfolio_action': 'BUY', 'autonomy_outcome_code': 'KJØPSKANDIDAT',
         'valid_for_decision': True, 'evidence_valid_for_decision': True,
-        'final_decision_ready': True}
+        'final_decision_ready': True,
+        'execution_quote': {'price':100,'market_data_at':'2026-10-09T15:00:00Z','source':'yfinance 5m Close','adjustment':'raw'}}
     if omit:
         row.pop(omit)
     return ap.run_autonomous_cycle([row], 'ACCOUNTING-AUDIT')

@@ -1,0 +1,17 @@
+Ny full isolert kjøring etter gjenopptakelse og etter siste kode-/testendring:
+2507 passed, 4 subtests passed in 417.19s
+0 failures, 0 errors, 0 skips.
+91 nettleserforløp, 24 PostgreSQL-integrasjonstester, alle opprinnelige 99 regresjonstilfeller besto.
+
+Den bevarte sluttkjøringen fra avbrutt økt fullførte også:
+2507 passed, 4 subtests passed in 433.11s
+
+Main-sammenligning: seks felles ordinære prober besto på begge grener.
+Superfond med PR166: 154 passed, 0 skipped in 100.53s.
+Native fondsøkonomi: tolv kontrollpunkter i tre valutaer samsvarer med main.
+24 releasekontrakter, fem Node-forløp, avhengighets-/runtimekontroll besto.
+Tallene fra ulike kjøringer overlapper og skal ikke summeres.
+
+Live Yahoo: to tester feilet med CONNECT-proxy HTTP 403. IKKE VERIFISERT.
+Innledende åtte nettleserfeil skyldtes fast port; rettet og erstattet av beståtte sluttkjøringer.
+Ingen merge, deploy, produksjonsarkivering, nullstilling eller produksjonsaktivering.

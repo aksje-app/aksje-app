@@ -646,6 +646,11 @@ def restore_navigation_checkpoint_v19144(st, checkpoint: dict[str, Any] | None) 
     if not isinstance(values, dict):
         return False
     for key, value in values.items():
+        # Streamlit forbids even assigning the same value to a widget key
+        # after that widget was constructed. A background fragment normally
+        # changed nothing; leave those keys untouched instead of crashing.
+        if st.session_state.get(key) == value:
+            continue
         if value is None:
             st.session_state.pop(key, None)
         else:

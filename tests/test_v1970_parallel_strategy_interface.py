@@ -213,4 +213,5 @@ def test_style_injection_executes_with_runtime_dependencies(monkeypatch):
     spec.loader.exec_module(module)
     module.inject_foundation_styles_v1950()
     module.inject_final_density_styles_v1950()
-    assert len(calls) == 7
+    assert len(calls) == 8
+    assert all("<style>" in args[0] and kwargs.get("unsafe_allow_html") for args, kwargs in calls)

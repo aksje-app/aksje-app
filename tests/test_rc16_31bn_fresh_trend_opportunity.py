@@ -108,4 +108,4 @@ def test_pipeline_source_reserves_fresh_evidence_lane():
     assert "FRESH_TREND_ACCELERATION" in src
     assert "fresh_signal_reserved_slot" in src
     assert "areas\": [\"news\", \"insider\", \"short\"]" in src
-    assert VERSION.endswith("31bn")
+    assert VERSION == __import__("trend_intelligence").VERSION

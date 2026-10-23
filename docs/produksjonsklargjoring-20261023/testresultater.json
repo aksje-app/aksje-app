@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-23",
+  "repository": "aksje-app/aksje-app",
+  "branch": "fix/systemrevisjon-20261022",
+  "pull_request": 167,
+  "base_commit": "43c756095dcf9b72e3171c87ec798b10b173d837",
+  "main": "f0ef5b491219c2a1232bff30cc9b37eed58bc479",
+  "pr166": "8c1fd952732c5ff560797f8fb8597a02d9b1d7d7",
+  "isolated_suite": {
+    "passed": 2563,
+    "subtests_passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 521.76,
+    "after_last_application_and_test_change": true,
+    "browser_cases": 97,
+    "postgresql_backed_cases": 77,
+    "production_mode_new_cases": 50,
+    "production_mode_browser_cases": 6,
+    "original_99_passed": 99
+  },
+  "compatibility_pr166": {
+    "passed": 154,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 96.03,
+    "latest_application_bytes_identical": true,
+    "merge_performed": false
+  },
+  "additional_operational_smoke": {
+    "passed": 3,
+    "failed": 0,
+    "postgresql": true,
+    "environment": "production",
+    "scope": [
+      "Paper AUTO entry and risk exit",
+      "Real Autonomi orchestrator handoff",
+      "Real Superportfolio scheduled worker"
+    ]
+  },
+  "superfund_economic_comparison": {
+    "currencies": [
+      "NOK",
+      "USD",
+      "EUR"
+    ],
+    "checkpoints": 12,
+    "identical_to_main": true,
+    "synthetic_data": true
+  },
+  "release_contracts_passed": 24,
+  "node_share_paths_passed": 5,
+  "runtime_guard": {
+    "ok": true,
+    "version": "v19.22.0-rc16.34r",
+    "compiled_python_files": 980,
+    "runtime_modules_in_closure": 409,
+    "failures": []
+  },
+  "dependency_lock": {
+    "ok": true,
+    "target_python": "3.12.13",
+    "direct_dependency_count": 19,
+    "locked_dependency_count": 70,
+    "missing_roots": [],
+    "root_version_mismatches": [],
+    "installed_mismatches": [],
+    "incompatible_with_target": []
+  },
+  "strategy_ast_proof": {
+    "baseline": "43c756095dcf9b72e3171c87ec798b10b173d837",
+    "upstream_pipeline_ast_identical": true,
+    "learning_probe_gates_and_body_ast_identical": true,
+    "new_helpers": [
+      "prepare_cycle_candidates",
+      "open_learning_probes",
+      "sync_learning_account"
+    ]
+  },
+  "application_and_test_sha256": {
+    "autonomous_orchestrator.py": "b612cafeed135e03433a726b96454d86c659ee0a55904bcfd2ec09b1b6fd9986",
+    "autonomous_portfolio.py": "1dbed01393c280a34f2139d3e33b62f387a8c732f93031943636c40ea4d056f5",
+    "autonomy_overview.py": "2ff8c1cfac6e265aa1b9f0410b7d9f9f3c3f01419c02d4ce691846cbadfcf7a8",
+    "pages/autonomy.py": "1679678d180b22083c52f4b2a9e50c0c5064b7e66170e060febc608ebbcf6a5d",
+    "pages/paper_trading.py": "4c4515ec00a940da4ac865b7d972bb4af7006a9e1a40121d9a2e7bb7ae638766",
+    "pages/super_portfolio.py": "f5dd51ea1a30f2a67c4095a98dea38c5d1483d346c1a60107f05e72f41f032cc",
+    "paper_store.py": "9b1b3900cffe687880d48d8df6eb459e9a770c11f8bc1b8513417facb00fa301",
+    "paper_trading.py": "cface09598013815854dc9a880b7a1badb86200b6b43372eb29d2761ff00a2f0",
+    "scripts/production_restart.py": "b5c7c4c9f0a1547ea27bece20d05e0420c1335e0e58eef1d8b5004678c026172",
+    "scripts/production_restart_ui_fixture.py": "f0666fe9a84473beca3964fc78b1ad66ea46c6bd4878b05e4e3f9548aeb97a88",
+    "services/autonomy_nok_companion.py": "2a6cde0d591074e2832f4c6ad63a06e917e7a40dd594687df0327ad59889e042",
+    "services/portfolio_accounting.py": "908fc52b65eb40c654184cb240453130a76da0e420133b00ce51e257e76145e4",
+    "services/production_inventory.py": "7fe4ddcaa6cad4ec1450b38e2b39688244b0e6414176e505d45309e80cbc1797",
+    "services/production_restart.py": "12a2583dfdda5a4f7ea72a275b44e0abf68cfc7d4a5ab242ef3c25148bb7e59e",
+    "services/production_routing.py": "0760edce56eda264189a44bfd83898ee1792216781608c58b83c2e0019b9e3b3",
+    "services/restart_trading.py": "20e3f5944cb3f01cb431a784fd4f8701ff55e5ee3b019074c7ca54316aeff96e",
+    "services/simulation_archive.py": "6248b8371cb362c8fe98db14f8ec53ce14ad9fc7413686adb279e6fae1fb0949",
+    "services/simulation_restart.py": "a041629703c7c3df8146681a4584b025c3b44959bb388227c514ead3257ee98b",
+    "services/super_portfolio_store.py": "6974876b8280d6a66d145142049da7065a00ec024d00f5b96345ab1c109524e0",
+    "super_portfolio.py": "c4e4adaee25e9ca6ced762693052337c39fb912bbb127e56441954d28400a4d2",
+    "tests/test_production_restart.py": "0ba76d6c41994a94dfb8040426da76b025a54c435af6e6b1762141c0289d771b",
+    "tests/test_production_restart_browser.py": "8d263c8bdbe598eaddc5219129d79e3759300ace7c28d1f51829a7b13f84586f",
+    "tests/test_v1980_shared_execution_accounts_export.py": "a364e42028d9cb7913fc424de6f186f9b101fb03a563f3420a4cbaf199baf608",
+    "trading_engine.py": "82b318c6d2b7c4ddcefe6181788ff24feb85316a65628299a60dc64a2f3dd920",
+    "ui/simulation_restart.py": "385be2407b00c5c843d391897a8cf5ba7bdae42d238aa1fc89895a902adc9eb1"
+  },
+  "live_provider": {
+    "daily_ohlc_tests_failed": 2,
+    "status": "IKKE VERIFISERT",
+    "reason": "CONNECT proxy HTTP 403",
+    "intraday_cli_exit_code": 2,
+    "intraday_checks": {
+      "MYCR.ST": "IKKE VERIFISERT",
+      "MSFT": "IKKE VERIFISERT",
+      "SEKNOK=X": "IKKE VERIFISERT",
+      "USDNOK=X": "IKKE VERIFISERT"
+    },
+    "orders_executed": false,
+    "instrument_currency_metadata": "NOT REACHED AFTER PRICE FAILURE"
+  },
+  "production": {
+    "data_read": false,
+    "data_changed": false,
+    "archive_created": false,
+    "reset": false,
+    "accounts_activated": false,
+    "merge": false,
+    "deploy": false,
+    "configured_source_connection_variables": false,
+    "actual_render_inventory_verified": false
+  },
+  "superseded_runs": [
+    {
+      "passed": 1437,
+      "failed": 1,
+      "completed": false,
+      "reason": "Legacy activation exception text; compatibility restored"
+    },
+    {
+      "passed": 1683,
+      "failed": 0,
+      "completed": false,
+      "reason": "Interrupted to finish overview metrics integration"
+    },
+    {
+      "passed": 2554,
+      "subtests_passed": 4,
+      "failed": 1,
+      "seconds": 505.32,
+      "reason": "Legacy whitespace-based source contract; replaced by actual AST call/argument verification"
+    },
+    {
+      "passed": 2555,
+      "subtests_passed": 4,
+      "failed": 0,
+      "seconds": 502.07,
+      "reason": "Completed successfully before final independent-learning and integrity guards"
+    },
+    {
+      "passed": 2462,
+      "subtests_passed": 4,
+      "failed": 94,
+      "seconds": 147.93,
+      "reason": "One stale browser download target and leaked Playwright cleanup caused follow-on browser failures; account-key selectors and finally-close fixed"
+    },
+    {
+      "passed": 2546,
+      "failed": 7,
+      "errors": 6,
+      "seconds": 479.2,
+      "reason": "Autonomi fixture inherited unrelated runtime settings; fixture now seeds documented canonical PG settings before archive, with approved-snapshot fallback and strict backend checks"
+    }
+  ],
+  "readiness": "CODE_COMPLETE_AND_TESTED; PRODUCTION ACTIVATION NOT PERFORMED; OPERATOR INVENTORY, BACKUP, RESTORE, LIVE CHECKS AND SIGNED APPROVAL REQUIRED"
+}

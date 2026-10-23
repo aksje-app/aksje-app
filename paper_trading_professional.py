@@ -11,10 +11,10 @@ def _f(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
-def holding_days(position: Mapping[str, Any] | None) -> float:
+def holding_days(position: Mapping[str, Any] | None, now=None) -> float:
     from trade_time import elapsed_hours
     raw = (position or {}).get("opened_at") or (position or {}).get("entry_time")
-    hours = elapsed_hours(raw)
+    hours = elapsed_hours(raw, now)
     return hours / 24.0 if hours is not None else 0.0
 
 

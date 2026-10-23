@@ -154,6 +154,8 @@ class StrategyAccountService:
         metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         current = self.get(account_id) or {}
+        if current.get('accounting_schema') == 'BASE_CURRENCY_SHARES_V1':
+            raise ValueError('Legacy synchronisation cannot overwrite an explicit economic account')
         raw_positions = legacy_portfolio.get("positions") if isinstance(legacy_portfolio.get("positions"), Mapping) else {}
         positions = {str(ticker).upper(): _normalise_position(str(ticker), raw) for ticker, raw in raw_positions.items() if isinstance(raw, Mapping)}
         cash = _f(legacy_portfolio.get("cash"), _f(current.get("cash")))
@@ -188,6 +190,12 @@ class StrategyAccountService:
         return saved
 
     def equity(self, account: Mapping[str, Any]) -> float:
+        if account.get("accounting_schema") == "BASE_CURRENCY_SHARES_V1":
+            from services.economic_accounting_audit import audit
+            result = audit(account)
+            if result["verified_nav"] is None:
+                raise ValueError("Basisvalutaverdi kan ikke verifiseres: " + "; ".join(result["issues"]))
+            return result["verified_nav"]
         return _f(account.get("cash")) + sum(
             _f(pos.get("quantity")) * _f(pos.get("last_price"), _f(pos.get("average_price")))
             for pos in (account.get("positions") or {}).values()
@@ -201,6 +209,13 @@ class StrategyAccountService:
             _f(pos.get("quantity")) * _f(pos.get("last_price"), _f(pos.get("average_price")))
             for pos in (account.get("positions") or {}).values()
         )
+        economic = None
+        if account.get("accounting_schema") == "BASE_CURRENCY_SHARES_V1":
+            from services.economic_accounting_audit import audit
+            economic = audit(account)
+            if economic["verified_nav"] is None:
+                raise ValueError("Basisvalutaregnskapet kan ikke avstemmes")
+            positions_value = sum(economic["converted_position_values"].values())
         if accounting_mode == "INDEPENDENT_NOTIONAL_OBSERVATIONS":
             entry_notional = _f(metadata.get("entry_notional")) or sum(
                 _f(pos.get("quantity")) * _f(pos.get("average_price"))
@@ -227,7 +242,7 @@ class StrategyAccountService:
             "positions_value": round(positions_value, 2),
             "equity": round(equity, 2),
             "return_value": round(equity - initial, 2),
-            "return_pct": round(((equity / initial) - 1) * 100, 4) if initial else 0.0,
+            "return_pct": economic["verified_net_return_pct"] if economic else round(((equity / initial) - 1) * 100, 4) if initial else 0.0,
             "drawdown_pct": round(max(0.0, (1 - equity / high) * 100), 4) if high else 0.0,
             "open_positions": len(account.get("positions") or {}),
             "realized_pnl": round(_f(account.get("realized_pnl")), 2),

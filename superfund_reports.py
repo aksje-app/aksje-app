@@ -13,14 +13,17 @@ def safe_text(value):
 
 
 def csv_bytes(snapshot):
+    from services.superfund_accounting import audit_native
+    from datetime import datetime, timezone
+    accounting=audit_native(snapshot.get('model',{}),at=snapshot.get('at') or datetime.now(timezone.utc).isoformat())
     stream=StringIO(); writer=csv.writer(stream)
-    writer.writerow(['ISIN','Fond','Kategori','Kjøpstid','Rang ved kjøp','Rang nå','Poeng ved kjøp','Poeng nå','Rang blant eide','Antall','Verdi NOK','Gevinst NOK','Investeringsland / region','Registreringsland','Avkastningsvaluta'])
+    writer.writerow(['ISIN','Fond','Kategori','Kjøpstid','Rang ved kjøp','Rang nå','Poeng ved kjøp','Poeng nå','Rang blant eide','Antall','Verdi NOK','Gevinst NOK','Investeringsland / region','Registreringsland','Avkastningsvaluta','Regnskapsstatus','Kostnadsgrunnlag'])
     owned={r['id']:r for r in owned_rankings(snapshot)}
     for key,p in snapshot.get('model',{}).get('positions',{}).items():
         current=owned.get(key,{})
         value=p['quantity']*p['last_nok']
         ident=dict(identity_lines(resolve_identity(snapshot,p)))
-        writer.writerow([p['isin'],safe_text(p['name']),safe_text(p['category']),p['bought_at'],p['rank_at_buy'],p['rank_now'],p.get('score_at_buy'),current.get('score_now'),current.get('owned_rank'),p['quantity'],value,value-p['cost_nok'],safe_text(ident['Investeringsland / region']),safe_text(ident['Registreringsland']),safe_text(ident['Avkastningsvaluta'])])
+        writer.writerow([p['isin'],safe_text(p['name']),safe_text(p['category']),p['bought_at'],p['rank_at_buy'],p['rank_now'],p.get('score_at_buy'),current.get('score_now'),current.get('owned_rank'),p['quantity'],value,value-p['cost_nok'],safe_text(ident['Investeringsland / region']),safe_text(ident['Registreringsland']),safe_text(ident['Avkastningsvaluta']),accounting['status'],accounting['cost_basis']])
     return ('\ufeff'+stream.getvalue()).encode('utf-8')
 
 
@@ -85,6 +88,12 @@ def pdf_bytes(snapshot):
     model=snapshot.get('model',{});equity=model.get('cash',0)+sum(p['quantity']*p['last_nok'] for p in model.get('positions',{}).values())
     line(f"Verdi NOK {equity:,.2f} · kontanter {model.get('cash',0):,.2f} · største fall {model.get('max_drawdown_pct',0):.2f}%")
     line('MODELLHANDEL. Ingen ordre sendes til Nordnet. Utførelse er et estimat på senere observert kurs; NAV, valuta og ordrefrister kan gi avvik.')
+    from services.superfund_accounting import audit_native
+    from datetime import datetime, timezone
+    accounting=audit_native(snapshot.get('model',{}),at=snapshot.get('at') or datetime.now(timezone.utc).isoformat())
+    line('Regnskapsstatus: '+accounting['status'])
+    line(accounting['cost_basis'])
+    line('Historiske resultater og tap beholdes. Manglende åpnings- eller handelsdata rekonstrueres ikke.')
     if snapshot.get('risk'):
         r=snapshot['risk'];line('Hendelsesrisiko','Heading2')
         line(f"Brasil konservativ øvre eksponering {r['brazil_upper_pct']:.1f}% · tak {r['cap_pct']}% · risikoindikator {r['risk_indicator']}/100")

@@ -174,7 +174,7 @@ def test_scheduled_rebalance_due_forces_fresh_market_pipeline(monkeypatch):
     monkeypatch.setattr(sp, 'load_state', lambda: state)
     monkeypatch.setattr(sp, 'get_or_build_super_portfolio_market_pipeline', lambda **kwargs: calls.append(dict(kwargs)) or (fresh if kwargs.get('force_refresh') else cached))
     monkeypatch.setattr(sp, 'evaluate', lambda **kwargs: {'state': {**state, 'source_run_id': kwargs['pipeline']['run_id']}, 'changes': [], 'stop_alerts': [], 'rebalance_due': True})
-    monkeypatch.setattr(sp, 'refresh_index_benchmark', lambda *_: {})
+    monkeypatch.setattr(sp, 'refresh_index_benchmark', lambda *_, **k: {})
     monkeypatch.setattr(sp, 'resource_health', lambda: {})
     monkeypatch.setattr(sp, 'save_state', lambda value: value)
     monkeypatch.setattr(sp, 'append_event', lambda *a, **k: None)

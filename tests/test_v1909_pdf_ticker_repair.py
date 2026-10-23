@@ -79,11 +79,15 @@ class PdfTickerRepairTests(unittest.TestCase):
         self.assertEqual(recovered, payload)
 
     def test_autonomy_overview_has_current_run_download_card(self):
-        source = Path("autonomy_overview.py").read_text(encoding="utf-8")
-        self.assertIn("Ferdig rapport", source)
-        self.assertIn("current_result_id", source)
-        self.assertIn("📄 Last ned PDF", source)
-        self.assertIn("PDF-status:", source)
+        import inspect
+        from autonomy_overview import render_autonomy_overview
+        source = inspect.getsource(render_autonomy_overview)
+        self.assertIn('render_report_file_center(', source)
+        self.assertIn('current_result_id', source)
+        from market_intelligence import render_report_file_center
+        files = inspect.getsource(render_report_file_center)
+        self.assertIn('standard["data"]', files)
+        self.assertIn('technical["data"]', files)
 
 
 if __name__ == "__main__":

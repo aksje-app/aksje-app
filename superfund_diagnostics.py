@@ -111,7 +111,9 @@ def diagnostic_zip(progress=None):
               },
               'evidence_type':'SAVED_SNAPSHOT_ONLY',
               'warning':'Rullerende kurshistorikk er ikke det samme som utvikling etter signalstart.'}
-    entries=[('decision_timeline.json',timeline),('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger),('ranking_digest.json',read('ranking_digest.json',{})),('ranking_digest_delivery.json',read('ranking_digest_delivery.json',{}))]
+    from services.superfund_accounting import audit_native
+    native_accounting=audit_native(snap.get('model',{}),at=snap.get('at') or stamp)
+    entries=[('nok_accounting.json',native_accounting),('decision_timeline.json',timeline),('snapshot.json',snap),('catalog_index.json',index),('learning_index.json',archive),('parameters.json',config()),('owned_ranking_controls.json',ranking_checks),('rotation_controls.json',rotation_controls),('rotation_shadow.json',rotation),('rotation_comparison.json',comparison),('challenger_report.json',challenger),('ranking_digest.json',read('ranking_digest.json',{})),('ranking_digest_delivery.json',read('ranking_digest_delivery.json',{}))]
     entries += [(name,read(name,{})) for name in ('job.json','request.json','capacity_watch.json','parameter_audit.json','risk_decisions.json','fx.json','news.json')]
     # Prioritise immutable learning/shadow evidence before catalogue bulk.
     paths=[f['key'][len(PREFIX):] for f in reversed(archive.get('frames',[])) if re.fullmatch(r'superfund/history/\d{4}-\d{2}-\d{2}\.json',f.get('key',''))]

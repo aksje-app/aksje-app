@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-23",
+  "repository": "aksje-app/aksje-app",
+  "branch": "fix/systemrevisjon-20261022",
+  "pull_request": 167,
+  "base_commit": "88e414a6688ab2396599330e18223d2939ed9c16",
+  "main": "f0ef5b491219c2a1232bff30cc9b37eed58bc479",
+  "pr166": "8c1fd952732c5ff560797f8fb8597a02d9b1d7d7",
+  "full_isolated_suite": {
+    "passed": 2507,
+    "subtests_passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 417.19,
+    "after_last_code_and_test_change": true,
+    "browser_cases": 91,
+    "postgresql_cases": 24,
+    "original_99_passed": 99
+  },
+  "recovered_previous_full_suite": {
+    "passed": 2507,
+    "subtests_passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 433.11
+  },
+  "common_main_probes": {
+    "passed_on_main": 6,
+    "passed_on_pr167": 6,
+    "restart_context": null,
+    "source_root_asserted": true
+  },
+  "compatibility_pr166": {
+    "passed": 154,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 100.53,
+    "scope": "Separat testkopi; ingen merge eller kopiering av PR166-kode til PR167"
+  },
+  "superfund_economic_comparison": {
+    "currencies": [
+      "NOK",
+      "USD",
+      "EUR"
+    ],
+    "checkpoints": 12,
+    "projections_identical": true,
+    "synthetic_data": true,
+    "projection_sha256": "a89eb586152ca6bce1b1b8edc85e609004d28a1d761a2de0c6ada65284c12351"
+  },
+  "release_contracts_passed": 24,
+  "node_report_share_paths_passed": 5,
+  "dependency_lock": {
+    "ok": true,
+    "target_python": "3.12.13",
+    "direct_dependency_count": 19,
+    "locked_dependency_count": 70,
+    "missing_roots": [],
+    "root_version_mismatches": [],
+    "installed_mismatches": [],
+    "incompatible_with_target": []
+  },
+  "runtime_guard": {
+    "ok": true,
+    "version": "v19.22.0-rc16.34r",
+    "compiled_python_files": 972,
+    "runtime_modules_in_closure": 407,
+    "failures": []
+  },
+  "code_sha256": {
+    "autonomous_portfolio.py": "f9b25571500c57eeeb2d3f0b4ae36274dfea754910ce33f86d7747090ef9a557",
+    "tests/test_superfund_browser.py": "75d4a64cbb5dc504198bcca43e064c834f82bbdec219cf70a089d61684d7e009",
+    "tests/test_ordinary_pr167_regression.py": "d194d392e176e2cb6a3c4185529481a4c4f80dd7e734401fd3671d954a150148",
+    "tests/test_restart_startup_guards.py": "898bd29bf834eae4c9cbe4083f3a0e980b39037075b17546d7071ddce748381b"
+  },
+  "live_provider_tests": {
+    "passed": 0,
+    "failed": 2,
+    "status": "IKKE VERIFISERT",
+    "reason": "CONNECT-proxy HTTP 403",
+    "symbols": [
+      "MYCR.ST",
+      "MSFT"
+    ]
+  },
+  "superseded_initial_run": {
+    "passed": 2499,
+    "failed": 8,
+    "reason": "To Superfond-nettleserfixturer brukte fast port 8599. Rettet til egen dynamisk port. Sluttkjøringene over erstatter denne."
+  },
+  "production": {
+    "data_changed": false,
+    "archive_created": false,
+    "reset": false,
+    "accounts_activated": false,
+    "merge": false,
+    "deploy": false
+  },
+  "merge_assessment": "KLAR FOR MERGE SOM SPERRET FUNKSJONALITET. Separat produksjonsaktivering er ikke godkjent eller utført."
+}

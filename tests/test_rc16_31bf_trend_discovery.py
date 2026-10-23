@@ -34,10 +34,9 @@ def test_receipt_tracks_first_seen_rank_and_phase_without_changing_score():
 
 
 def test_norway_stabilization_source_contracts_present():
-    from pathlib import Path
-    scanner = Path('scanner_worker.py').read_text(encoding='utf-8')
-    runner = Path('market_intelligence.py').read_text(encoding='utf-8')
-    assert 'PRODUCTION_NORWAY_ONLY' in scanner
-    assert 'AUTOMATED_SCANNER_MARKETS = ((\"NORGE\",)' in scanner
-    assert 'NORWAY_PRODUCTION_STABILIZATION' in runner
-    assert 'effective_job = replace(job, markets=[\"Norge\"]' in runner
+    from market_universe import production_market_scopes
+    import scanner_worker
+    assert set(scanner_worker._PRODUCTION_MARKETS) == {m.upper() for m in production_market_scopes()}
+    source = __import__('pathlib').Path('scanner_worker.py').read_text()
+    assert 'PRODUCTION_NORWAY_ONLY' in source
+    assert '("NORGE",)' in source

@@ -1,0 +1,12 @@
+Full isolert suite etter siste kodeendring:
+2485 passed, 4 subtests passed in 412.45s
+0 failures, 0 errors, 0 skips.
+91 nettleserforløp; 24 PostgreSQL-integrasjonstester; alle opprinnelige 99 regresjonstilfeller besto.
+
+Før sluttkjøring: 33 restart-/handelstester, 135 økonomiske regresjoner og seks nye nettleserforløp besto (overlapper full pakke).
+24 releasekontrakter, fem Node-delingsforløp, avhengighets- og runtimekontroll besto.
+
+Yahoo-leverandørtester forsøkt separat:
+2 failed in 0.43s; CONNECT-proxy HTTP 403. IKKE VERIFISERT.
+
+Kun isolerte testdata. Ingen produksjonsarkivering, produksjonskontoutkast, nullstilling, produksjonsaktivering, merge eller deploy.

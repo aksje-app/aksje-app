@@ -74,10 +74,8 @@ def test_historical_inventory_is_complete_and_no_longer_active_xfail_debt():
 
 
 def test_one_canonical_release_identity_replaces_old_literal_version_tests():
-    assert APP_VERSION == "v19.22.0-rc16.31bd"
-    tag = APP_VERSION.replace("-rc", "_RC")
-    assert (ROOT / f"RELEASE_NOTES_{tag}.md").is_file()
-    assert (ROOT / f"VALIDATION_REPORT_{tag}.md").is_file()
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_fixed_report_contract_and_fresh_afternoon_are_explicit(monkeypatch):

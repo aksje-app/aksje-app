@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_release_identity_advances_only_deploy_stabilization():
-    assert APP_VERSION == "v19.22.0-rc16.31bd"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bc"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_production_roots_and_complete_lock_are_exact_and_installed():

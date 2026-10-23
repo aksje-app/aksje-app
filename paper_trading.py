@@ -10,6 +10,17 @@ TRAILING_STOP_PCT = float(load_rules().get("trailing_stop_pct", 3.0)) / 100
 
 def performance_stats(portfolio=None, latest_prices=None, rules=None):
     portfolio = portfolio or load_portfolio()
+    if portfolio.get('economic_period_id'):
+        from services.production_routing import metrics
+        result=metrics('paper');trades=portfolio.get('trades',[])
+        closed=[t for t in trades if t['action']=='SELL'];wins=[t for t in closed if t['pnl']>0];losses=[t for t in closed if t['pnl']<=0]
+        return {**result,'total_value':result['equity'],'closed_trades':len(closed),
+            'win_rate':len(wins)/len(closed)*100 if closed else 0,
+            'avg_win':sum(t.get('pnl_pct',0) for t in wins)/len(wins) if wins else 0,
+            'avg_loss':sum(t.get('pnl_pct',0) for t in losses)/len(losses) if losses else 0,
+            'trades_today':len(trades),'buys_today':len([t for t in trades if t['action']=='BUY']),
+            'max_trades_per_day':int((rules or load_rules()).get('max_trades_per_day',3)),
+            'max_buys_per_day':int((rules or load_rules()).get('max_trades_per_day',3))}
     rules = rules or load_rules()
     start_cash = float(rules.get("start_cash", 100000))
     total = portfolio_value(portfolio, latest_prices or {}, rules=rules)

@@ -21,7 +21,7 @@ def test_learning_report_uses_norwegian_number_and_version(monkeypatch):
     report = learning.generate_management_report(force=True)
 
     assert report is not None
-    assert "drawdown 0,12 %." in captured["message"]
-    assert f"Programversjon: {APP_VERSION}" in captured["message"]
-    assert f"Rapport-ID: {report['report_id']}" in captured["message"]
+    assert "Drawdown 0,12%." in captured["message"]
+    assert f"· {APP_VERSION}" in captured["message"]
+    assert f"Teknisk: {report['report_id']}" in captured["message"]
     assert "0.12%" not in captured["message"]

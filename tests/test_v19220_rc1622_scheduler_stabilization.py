@@ -28,7 +28,7 @@ def test_cron_has_narrow_report_lock_cadence_and_production_capacity():
     runner = Path("scheduled_runner.py").read_text(encoding="utf-8")
     blueprint = Path("render.yaml").read_text(encoding="utf-8")
     assert "already_coordinated=False" in runner
-    assert "The report lock must never cover paper scanning" in runner
+    assert "Paper scanning has its own lock" in runner
     assert "REPORT_MAINTENANCE_INTERVAL_MINUTES" in runner
     assert 'schedule: "*/15 * * * *"' in blueprint
     assert "plan: standard" in blueprint

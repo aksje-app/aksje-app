@@ -1,0 +1,12 @@
+Isolert bred testpakke, etter fsync-endring:
+2459 passed, 4 subtests passed in 381.42s
+Ingen feil, errors eller skips. 85 nettleserforløp; 23 PostgreSQL-integrasjonstester.
+
+Siste målrettede testkjøring, etter binding til periodens lagrede kapital:
+14 passed in 0.65s
+Overlappende tester; tallene skal ikke summeres.
+
+Eksterne leverandørtester:
+2 failed in 0.42s – CONNECT-proxy HTTP 403. IKKE VERIFISERT.
+
+Kun syntetiske data. Ingen produksjonsarkivering, produksjonsutkast, nullstilling, aktivering, merge eller deploy.

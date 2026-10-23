@@ -1,10 +1,11 @@
 from insider_intelligence import score_transactions
+from datetime import datetime, timezone
 from investment_pipeline import PipelineConfig
 
 
 def test_clustered_buys_score_positive():
     rows = [
-        {"Date": "2026-07-19", "Transaction": "Purchase", "Insider": "A", "Position": "CEO", "Shares": 10000, "Value": 1500000},
+        {"Date": datetime.now(timezone.utc).date().isoformat(), "Transaction": "Purchase", "Insider": "A", "Position": "CEO", "Shares": 10000, "Value": 1500000},
         {"Date": "2026-07-18", "Transaction": "Purchase", "Insider": "B", "Position": "CFO", "Shares": 5000, "Value": 800000},
     ]
     result = score_transactions("TEST", rows)
@@ -14,7 +15,7 @@ def test_clustered_buys_score_positive():
 
 
 def test_sales_score_negative():
-    rows = [{"Date": "2026-07-19", "Transaction": "Sale", "Insider": "A", "Position": "CEO", "Shares": -10000, "Value": 1500000}]
+    rows = [{"Date": datetime.now(timezone.utc).date().isoformat(), "Transaction": "Sale", "Insider": "A", "Position": "CEO", "Shares": -10000, "Value": 1500000}]
     result = score_transactions("TEST", rows)
     assert result["score"] < 50
     assert result["sell_count"] == 1

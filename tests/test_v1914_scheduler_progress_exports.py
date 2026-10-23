@@ -124,4 +124,5 @@ def test_job_ui_contains_progress_bar_and_safe_test_buttons():
     assert "Test med Pushover" in source
     assert "send_notifications=bool(send_push)" in source
     assert "Kjør manglende rapport nå" in source
-    assert "Last ned rapport som tekst" in source
+    assert "Bygg komplett rapportpakke" in source
+    assert "📝 Last ned tekst" in source

@@ -59,12 +59,12 @@ def test_return_baseline_and_graph_are_bound_to_active_portfolio():
     assert "Startkapital ved neste RESET" in source
 
 
-def test_currency_alerts_use_three_decimals_end_to_end():
+def test_currency_alerts_use_four_decimals_end_to_end():
     service = (ROOT / "currency_alert_service.py").read_text(encoding="utf-8")
     app = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert 'Kurs: {rate:.3f}' in service
-    assert '{rate:.3f} <= {lower:.3f}' in service
-    assert 'format="%.3f"' in app
+    assert 'Kurs: {rate:.4f}' in service
+    assert '{rate:.4f} <= {lower:.4f}' in service
+    assert 'format="%.4f"' in app
     block = app[app.index("def render_currency_alerts_control_center_v1863af"):app.index("# v18.5.37")]
     assert "Kurs: {rate:.2f}" not in block
     assert "Grenser: {lower_v:.2f}" not in block
@@ -78,7 +78,7 @@ def test_known_legacy_profile_has_scoped_one_time_migration():
     assert "key in raw and abs" in source
 
 
-def test_currency_notification_rounds_rate_and_limit_to_three_decimals(monkeypatch):
+def test_currency_notification_rounds_rate_and_limit_to_four_decimals(monkeypatch):
     sys.modules.setdefault("requests", types.SimpleNamespace(post=lambda *args, **kwargs: None))
     import currency_alert_service as service
 
@@ -112,5 +112,5 @@ def test_currency_notification_rounds_rate_and_limit_to_three_decimals(monkeypat
     )
     assert rows[0]["status"] == "breach_lower"
     assert sent
-    assert "Kurs: 1.838" in sent[0][1]
-    assert "1.838 <= 1.840" in sent[0][1]
+    assert "Kurs: 1.8376" in sent[0][1]
+    assert "1.8376 <= 1.8400" in sent[0][1]

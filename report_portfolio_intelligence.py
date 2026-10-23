@@ -6,6 +6,8 @@ from typing import Any, Mapping, Sequence
 
 from issuer_identity import issuer_identity
 from exit_policy import evaluate_exit, policy_from
+from trade_time import elapsed_hours
+from decision_inputs import candidate_base_score
 from short_intelligence import normalize_short_snapshot, portfolio_short_exposure
 
 
@@ -205,13 +207,16 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         pnl_pct = ((last / entry) - 1.0) * 100.0 if entry > 0 and last > 0 else 0.0
         pnl_amount = (last - entry) * quantity if entry > 0 and last > 0 else 0.0
         entry_score = _f(position.get("entry_score"), _f(position.get("autonomy_adjusted_investment_score")))
-        current_score = _f(candidate.get("effective_entry_score"), _f(candidate.get("investment_score"), entry_score))
+        current_score = candidate_base_score(candidate, entry_score)
         score_change = current_score - entry_score if entry_score else 0.0
         event_protected, event_reason = _event_protection(candidate, now)
         exit_decision = evaluate_exit(entry_price=entry, current_price=last,
                                       highest_price=_f(position.get("highest_price"), max(entry, last)),
                                       entry_score=entry_score, current_score=current_score,
                                       holding_days=holding_days,
+                                      holding_hours=elapsed_hours(position.get("last_added_at") or position.get("opened_at") or position.get("entry_time"), now) or 0.0,
+                                      previous_stop_distance_pct=position.get("distance_to_effective_stop_pct"),
+                                      rsi=candidate.get("rsi"), previous_rsi=position.get("last_rsi"),
                                       take_profit_taken=bool(position.get("partial_take_profit_taken")),
                                       best_replacement_score=best_replacement_score,
                                       replacement_ticker=str(best_replacement.get("ticker") or ""),
@@ -256,6 +261,7 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
             "current_score": round(current_score, 2), "score_change": round(score_change, 2),
             "sideways_20d_proxy": sideways, "weakened_score": weakened, "capital_efficiency_status": label,
             "exit_action": exit_decision["action"], "exit_reason_code": exit_decision["reason_code"],
+            "execution_authorized": False, "execution_status": "ADVISORY_REQUIRES_ENGINE_AND_FRESH_QUOTE",
             "exit_reason": exit_decision["reason"], "suggested_sell_pct": exit_decision["sell_pct"],
             "monitoring_status": exit_decision.get("monitoring_status"),
             "next_formal_review_day": exit_decision.get("next_formal_review_day"),
@@ -345,7 +351,9 @@ def build_portfolio_report(portfolio: Mapping[str, Any], candidates: Sequence[Ma
         buy_inactivity_reason = "Ingen ny kandidat har passert alle data-, evidens-, beslutnings-, risiko- og porteføljeporter."
     else:
         buy_inactivity_reason = "Ingen kandidater var tilgjengelige for kjøpsvurdering i kjøringen."
+    from services.economic_accounting_audit import audit as economic_audit
     return {
+        "economic_verification": economic_audit(portfolio, at=now),
         "snapshot_timing": "ETTER_AUTONOMI",
         "snapshot_run_id": str(portfolio.get("last_run_id") or ""),
         "valuation_unit": str(portfolio.get("valuation_currency") or "SIMULERT KONTOENHET"),

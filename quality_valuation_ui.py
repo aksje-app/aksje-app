@@ -157,7 +157,9 @@ def build_screen_pdf(result: Mapping[str, Any]) -> bytes:
                 f"Tid {result.get('generated_at') or '-'} - status {result.get('state') or '-'}")
     y = write(y, "Scenario er sammenligning, ikke kursmål eller kjøpsordre.", font=bold, size=8.5)
     if result.get("market_universe_count") is not None:
-        y = write(y, f"Marked: {result.get('market_examined_count') or 0}/{result.get('market_universe_count') or 0} undersøkt - {result.get('market_usable_count') or 0} med brukbare data.")
+        coverage = "full dekning" if result.get("market_coverage_complete") else "ufullstendig dekning"
+        y = write(y, f"Markedsgrunnlag: {result.get('market_examined_count') or 0}/{result.get('market_universe_count') or 0} undersøkt - {coverage}.")
+        y = write(y, f"Dybdeanalyse: {result.get('completed') or 0}/{result.get('selected') or 0} valgte selskaper.")
     y -= 5
 
     rank = 0

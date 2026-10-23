@@ -1,0 +1,14 @@
+{
+  "extra_roots": {},
+  "runtime_roots": {},
+  "database_environment_variables": {},
+  "restore_database_environment_variables": {},
+  "archive_root": "/PRIVATE/separate-immutable-archives",
+  "certificate": "/PRIVATE/archive-public.pem",
+  "restore_destination": "/PRIVATE/new-isolated-restore-directory",
+  "inventory_ack_sha256": null,
+  "external_stores_reviewed": false,
+  "coverage_confirmed": false,
+  "coverage": {},
+  "accounts": {}
+}

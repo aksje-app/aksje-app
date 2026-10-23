@@ -30,6 +30,44 @@ except Exception:  # fail-safe: trading must not crash if audit helper is unavai
     def audit_state_transition(event, before, after=None, detail=None, level="INFO"):
         return {}
 
+# Explicit restart sessions never access legacy balances or write legacy audit.
+from services.restart_trading import current as _restart_session
+_legacy_load_portfolio, _legacy_save_portfolio = load_portfolio, save_portfolio
+_legacy_load_rules, _legacy_audit_state_transition = load_rules, audit_state_transition
+
+
+def _trade_now(tz=None):
+    session = _restart_session('paper')
+    if session:
+        from services.economic_ledger import stamp
+        instant = stamp(session.at)
+        return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+    return datetime.now(tz)
+
+
+def load_portfolio():
+    session = _restart_session('paper')
+    return session.projection() if session else _legacy_load_portfolio()
+
+
+def save_portfolio(portfolio):
+    session = _restart_session('paper')
+    return session.save_strategy(portfolio) if session else _legacy_save_portfolio(portfolio)
+
+
+def load_rules():
+    session = _restart_session('paper')
+    return dict(session.settings) if session else _legacy_load_rules()
+
+
+def audit_state_transition(*args, **kwargs):
+    session = _restart_session('paper')
+    if session:
+        session.decisions.append({'audit_event':str(args[0]), 'detail':kwargs.get('detail',{})})
+        return {}
+    return _legacy_audit_state_transition(*args, **kwargs)
+
+
 POSITION_SIZE_PCT = 10.0
 MAX_OPEN_POSITIONS = 5
 STOP_LOSS_PCT = MAX_TRAILING_STOP_PCT
@@ -99,6 +137,10 @@ def _settings_bool(name, default=False):
 
 def _position_market_value(portfolio, rules=None):
     """Current market value of open positions using last_price/entry fallback."""
+    session = _restart_session('paper')
+    if session: return session.nav()-session.account()['cash']
+    if (portfolio or {}).get('economic_period_id'):
+        return portfolio['portfolio_value']-portfolio['cash']
     total = 0.0
     for _ticker, pos in (portfolio or {}).get("positions", {}).items():
         try:
@@ -118,7 +160,16 @@ def paper_liquidity_snapshot(portfolio=None, latest_prices=None, rules=None):
     Portfolio value is cash + open position market value. Unrealized P/L is
     informational and does not increase cash before a SELL.
     """
+    session = _restart_session('paper')
+    if session:
+        account = session.account(); nav = session.nav()
+        return {'cash':account['cash'],'buying_power':account['cash'],'total_value':nav,
+                'positions_value':nav-account['cash'],'cost_basis':sum(p['cost_basis_base'] for p in account['positions'].values())}
     portfolio = portfolio or load_portfolio()
+    if portfolio.get('economic_period_id'):
+        nav=portfolio['portfolio_value']
+        return {'cash':portfolio['cash'],'buying_power':portfolio['cash'],'total_value':nav,
+            'positions_value':nav-portfolio['cash'],'cost_basis':sum(p['cost_basis_base'] for p in portfolio['positions'].values())}
     latest_prices = latest_prices or {}
     positions_value = 0.0
     cost_basis = 0.0
@@ -153,7 +204,10 @@ def adjusted_score(item, decision):
 
 
 def portfolio_value(portfolio=None, latest_prices=None, rules=None):
+    session = _restart_session('paper')
+    if session: return session.nav()
     portfolio = portfolio or load_portfolio()
+    if portfolio.get('economic_period_id'):return portfolio['portfolio_value']
     latest_prices = latest_prices or {}
     total = float(portfolio.get("cash", 0))
     for ticker, pos in portfolio.get("positions", {}).items():
@@ -213,7 +267,7 @@ def trades_today_count(portfolio=None, trade_type=None):
     Brukes for å hindre at auto-kjøp spammer posisjoner.
     """
     portfolio = portfolio or load_portfolio()
-    today = datetime.now().date().isoformat()
+    today = _trade_now().date().isoformat()
     count = 0
 
     for trade in portfolio.get("trades", []):
@@ -370,7 +424,7 @@ def _holding_minutes(pos, now=None):
         opened = datetime.fromisoformat(str(pos.get("opened_at") or pos.get("entry_time")).replace("Z", "+00:00"))
         if opened.tzinfo is None:
             opened = opened.replace(tzinfo=timezone.utc)
-        return max(0, int(((now or datetime.now(timezone.utc)) - opened).total_seconds() / 60))
+        return max(0, int(((now or _trade_now(timezone.utc)) - opened).total_seconds() / 60))
     except (ValueError, TypeError):
         return None
 
@@ -380,7 +434,7 @@ def _holding_period(pos: Mapping[str, Any], ticker: str, now: datetime | None = 
     opened = _parse_trade_time_v18660((pos or {}).get("opened_at") or (pos or {}).get("entry_time"))
     if opened is None:
         return None, False
-    end = (now or datetime.now()).date()
+    end = (now or _trade_now()).date()
     start = opened.date()
     if end < start:
         return None, False
@@ -409,7 +463,7 @@ def _automatic_signal_fresh_v1931ay(trade_context, rules, now=None):
         max_age = max(1.0, float((rules or {}).get("automatic_signal_max_age_minutes", 120) or 120))
     except Exception:
         max_age = 120.0
-    reference = now or datetime.now(timezone.utc)
+    reference = now or _trade_now(timezone.utc)
     if reference.tzinfo:
         reference = reference.astimezone(timezone.utc).replace(tzinfo=None)
     age_minutes = (reference - stamp).total_seconds() / 60.0
@@ -422,7 +476,7 @@ def _reentry_block_v1931ay(portfolio, ticker, confidence, rules, buy_price=None,
     """Block churn after every SELL; risk exits receive a longer quarantine."""
     ticker = str(ticker or "").upper().strip()
     from trade_time import utc_time
-    now = utc_time(now or datetime.now(timezone.utc)).replace(tzinfo=None)
+    now = utc_time(now or _trade_now(timezone.utc)).replace(tzinfo=None)
     trades = list((portfolio or {}).get("trades", []) or [])
     for trade in sorted(trades, key=lambda row: _parse_trade_time_v18660(row.get("time")) or datetime.max, reverse=True):
         try:
@@ -497,7 +551,7 @@ def _automatic_repeat_buy_block_v1931ay(portfolio, ticker, rules, now=None):
     if cooldown_hours <= 0:
         return False, ""
     ticker = str(ticker or "").upper().strip()
-    now = now or datetime.now()
+    now = now or _trade_now()
     for trade in (portfolio or {}).get("trades", []) or []:
         if str(trade.get("ticker") or "").upper().strip() != ticker or str(trade.get("type") or "").upper() != "BUY":
             continue
@@ -534,7 +588,7 @@ def select_replacement_position(portfolio, candidate_score, *, rules=None):
             score = float(raw_score)
             if score > 10.0:
                 score = score / 10.0
-            age_days = holding_days(pos)
+            age_days = holding_days(pos, now=_trade_now(timezone.utc))
             # Replacement is for laggards, not healthy winners.
             eligible = age_days >= min_age_days and (pnl_pct <= 1.0 or score <= candidate_score - margin)
             if eligible:
@@ -559,6 +613,10 @@ def select_replacement_position(portfolio, candidate_score, *, rules=None):
 
 
 def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None, manual_override="OFF", target_price=None, initial_risk_amount=None):
+    from services.production_routing import paper as route_paper
+    routed=route_paper(ticker,'BUY',confidence=confidence,trade_context=trade_context,price=price,
+        reason=reason,amount_nok=amount_override)
+    if routed is not None:return routed
     gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
     gate = check_paper_trade(
         "BUY", ticker=ticker, source=gate_context.get("source") or "trading_engine.paper_buy",
@@ -572,10 +630,10 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     if gate_context.get("automatic"):
         from scanner_fresh_quote import validate_execution_quote
         from paper_entry_confirmation import entry_is_confirmed
-        valid, message = validate_execution_quote(price, gate_context)
+        valid, message = validate_execution_quote(price, gate_context, now=_trade_now(timezone.utc))
         if not valid:
             return False, message
-        if not entry_is_confirmed(ticker, gate_context.get("execution_quote"), gate_context.get("entry_confirmation") or {}):
+        if not entry_is_confirmed(ticker, gate_context.get("execution_quote"), gate_context.get("entry_confirmation") or {}, now=_trade_now(timezone.utc)):
             return False, "Automatisk kjøp venter på to kvalifiserte skanninger med nye kursdata"
     fresh, freshness_msg = _automatic_signal_fresh_v1931ay(gate_context, rules)
     if not fresh:
@@ -592,7 +650,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     if not trade_ctx.get("decision_snapshot"):
         candidate_snapshot = gate_context.get("candidate") if isinstance(gate_context.get("candidate"), Mapping) else {}
         trade_ctx["decision_snapshot"] = {
-            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "captured_at": _trade_now().isoformat(timespec="seconds"),
             "ticker": str(ticker).upper(),
             "candidate_snapshot": dict(candidate_snapshot),
             "portfolio_action": str(candidate_snapshot.get("portfolio_action") or "").upper(),
@@ -667,6 +725,9 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
     if not ok:
         audit_state_transition("paper_buy_blocked", before, detail={"ticker": ticker, "amount": round(float(amount or 0), 2), "reason": msg, "manual_override": manual_override_state}, level="WARNING")
         return False, explain_blocked_action([msg], action="Kjøp")
+    session = _restart_session('paper')
+    if session:
+        return session.paper_buy(ticker,price,amount,confidence,reason,trade_ctx)
     shares = amount / price
     is_add_to_position = bool(existing_pos)
     if is_add_to_position:
@@ -698,7 +759,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "reason": reason,
             "asset_type": "Aksje",
             "units_label": "shares",
-            "last_added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "last_added_at": _trade_now(timezone.utc).isoformat(timespec="seconds"),
             "target_price": float(target_price or existing_pos.get("target_price", 0) or 0),
             "initial_risk_amount": float(initial_risk_amount or existing_pos.get("initial_risk_amount", 0) or 0),
             "country": trade_ctx.get("country", existing_pos.get("country", "")),
@@ -718,7 +779,7 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
             "ticker": ticker, "shares": shares, "entry_price": price, "avg_price": price,
             "last_price": price, "highest_price": price, "stop_loss": sl,
             "take_profit": tp, "trailing_stop": tr, "trailing_stop_level": tr, "trailing_stop_pct": trailing_pct_for_position, "confidence": int(confidence or 0), "reason": reason,
-            "opened_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
+            "opened_at": _trade_now(timezone.utc).isoformat(timespec="seconds"), "asset_type": "Aksje", "units_label": "shares",
             "target_price": float(target_price or 0), "initial_risk_amount": float(initial_risk_amount or 0),
             "country": trade_ctx.get("country", ""), "market": trade_ctx.get("market", ""),
             "sector": trade_ctx.get("sector", ""), "industry": trade_ctx.get("industry", ""),
@@ -758,6 +819,10 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
 
 
 def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct=100.0, sell_shares=None):
+    from services.production_routing import paper as route_paper
+    routed=route_paper(ticker,'SELL',trade_context=trade_context,price=price,reason=reason,
+        sell_pct=sell_pct,quantity=sell_shares)
+    if routed is not None:return routed
     gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
     gate = check_paper_trade(
         "SELL", ticker=ticker, source=gate_context.get("source") or "trading_engine.paper_sell",
@@ -781,7 +846,7 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         return False, f"Ingen posisjon i {ticker}"
     if gate_context.get("automatic"):
         from scanner_fresh_quote import validate_execution_quote
-        valid, message = validate_execution_quote(price, gate_context, not_before=pos.get("market_data_at"))
+        valid, message = validate_execution_quote(price, gate_context, not_before=pos.get("market_data_at"), now=_trade_now(timezone.utc))
         if not valid:
             return False, message
     reason = paper_reason_label(reason, "SELL") or "PAPER-SALG"
@@ -796,6 +861,9 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         shares = total_shares * pct / 100.0
     if shares <= 0:
         return False, "Salgsantall må være større enn 0"
+    session = _restart_session('paper')
+    if session:
+        return session.paper_sell(ticker,price,shares,reason)
     amount = shares * price
     pnl_pct = ((price-entry)/entry*100) if entry else 0
     risk_levels = strict_profit_protection_levels({
@@ -811,7 +879,7 @@ def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct
         pos["shares"] = remaining_shares
         pos["units"] = remaining_shares
         pos["last_price"] = price
-        pos["last_partial_sell_at"] = datetime.now().isoformat(timespec="seconds")
+        pos["last_partial_sell_at"] = _trade_now().isoformat(timespec="seconds")
         portfolio["positions"][ticker] = pos
     else:
         del portfolio["positions"][ticker]
@@ -876,13 +944,23 @@ def _auto_sell_hold_guard_v18675(pos, rules, reason_kind="signal"):
         minimum_hours = 24.0
     raw = (pos or {}).get("last_added_at") or (pos or {}).get("opened_at") or (pos or {}).get("entry_time")
     from trade_time import elapsed_hours
-    age_hours = elapsed_hours(raw, datetime.now(timezone.utc))
+    age_hours = elapsed_hours(raw, _trade_now(timezone.utc))
     if age_hours is None:
         return minimum_hours <= 0, 0.0, minimum_hours
     return age_hours >= minimum_hours, age_hours, minimum_hours
 
 
-def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, trade_context=None):
+def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, trade_context=None, *, restart_context=None):
+    if restart_context is not None:
+        from services.restart_trading import paper
+        if float(price) != restart_context['evidence'][str(ticker).upper()]['price']:
+            raise ValueError('Reference price differs from documented execution')
+        return paper(**restart_context,signals=[dict(ticker=ticker,signal=signal,confidence=confidence,
+            rsi=rsi,prev_rsi=prev_rsi,trade_context=trade_context or {})])
+    from services.production_routing import paper as route_paper
+    routed=route_paper(ticker,'AUTO',signal=signal,confidence=confidence,trade_context=trade_context,
+        price=price,rsi=rsi,prev_rsi=prev_rsi)
+    if routed is not None:return routed
     auto_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
     auto_context.setdefault("source", "trading_engine.auto_trade")
     auto_context["automatic"] = True
@@ -899,7 +977,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
     price = float(price)
     from scanner_fresh_quote import validate_execution_quote
     previous_pos = portfolio.get("positions", {}).get(ticker) or {}
-    valid, message = validate_execution_quote(price, auto_context, not_before=previous_pos.get("market_data_at"))
+    valid, message = validate_execution_quote(price, auto_context, not_before=previous_pos.get("market_data_at"), now=_trade_now(timezone.utc))
     if not valid:
         return False, message
     sig = str(signal or "").upper()
@@ -976,7 +1054,7 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
         except Exception as e:
             logging.warning("Silenced exception restored in v18.6.3: %s", e)
         max_stagnant_days = float(rules.get("max_stagnant_holding_days", rules.get("stagnation_days", 5)) or 5)
-        age_days = holding_days(pos)
+        age_days = holding_days(pos, now=_trade_now(timezone.utc))
         if age_days >= max_stagnant_days and pnl_pct <= 1.0 and str(risk_levels.get("stop_status")) not in {"PROFIT PROTECT"}:
             return paper_sell(ticker, price, f"Time exit {age_days:.0f} dager", {**auto_context,
                 "rule_used": "Time exit",
@@ -1157,7 +1235,7 @@ def paper_buy_instrument(
             "trailing_stop_pct": trailing_pct_for_position,
             "confidence": int(confidence or 0),
             "reason": reason,
-            "opened_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "opened_at": _trade_now(timezone.utc).isoformat(timespec="seconds"),
             "asset_type": asset_type,
             "units_label": units_label,
             "currency": currency,

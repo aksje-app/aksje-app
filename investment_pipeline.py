@@ -567,7 +567,17 @@ def score_candidate(row: Mapping[str, Any], config: PipelineConfig) -> Candidate
         "Likviditet": "BESTÅTT" if liquidity >= config.min_liquidity_score else "IKKE BESTÅTT",
         "AI Discovery": "BESTÅTT" if discovery >= 55 else "ADVARSEL",
         "Research": "BESTÅTT" if research >= 50 else "ADVARSEL",
-        "Historisk validering": "BESTÅTT" if validation >= 50 else "ADVARSEL",
+        "Historisk validering": (
+            "IKKE VERIFISERT" if not config.use_backtest or not (
+                isinstance(row.get("historical_validation"), Mapping)
+                and row["historical_validation"].get("verified") is True
+                and _f(row["historical_validation"].get("sample_size")) > 0
+                and row["historical_validation"].get("evidence_id")
+                and row["historical_validation"].get("test_period_end")
+                and derived.get("component_trace", {}).get("validation", {}).get("inputs")
+            )
+            else "BESTÅTT" if validation >= 50 else "ADVARSEL"
+        ),
         "Porteføljetilpasning": "BESTÅTT" if portfolio_fit >= 50 else "ADVARSEL",
         "Risiko": "BESTÅTT" if risk <= config.max_risk_score else "IKKE BESTÅTT",
         "Konfidens": "BESTÅTT" if derived["confidence"] >= 55 else "ADVARSEL",

@@ -254,6 +254,9 @@ def _save_json(portfolio):
         json.dump(_merge_portfolio(portfolio), f, indent=2, ensure_ascii=False)
 
 def load_portfolio():
+    from services.production_routing import view
+    selected=view('paper')
+    if selected is not None:return selected
     if not using_postgres():
         return _load_json()
 
@@ -404,6 +407,8 @@ def load_portfolio():
         raise StorageUnavailableError("paper_portfolio PostgreSQL load feilet; lokal fallback er blokkert i produksjon") from e
 
 def save_portfolio(portfolio):
+    from services.production_routing import guard_legacy_write
+    guard_legacy_write('paper')
     portfolio = _merge_portfolio(portfolio)
     if not using_postgres():
         _save_json(portfolio)
@@ -478,6 +483,8 @@ def save_portfolio(portfolio):
         raise StorageUnavailableError("paper_portfolio PostgreSQL save feilet; lokal fallback er blokkert i produksjon") from e
 
 def add_trade(portfolio, trade):
+    from services.production_routing import guard_legacy_write
+    guard_legacy_write('paper')
     require_paper_trade(
         str((trade or {}).get("type") or "TRADE"),
         ticker=str((trade or {}).get("ticker") or ""),
@@ -537,28 +544,9 @@ def add_trade(portfolio, trade):
         save_portfolio(portfolio)
 
 def reset_portfolio(start_cash=100000.0):
-    p = {"cash": float(start_cash), "positions": {}, "trades": [], "fund_savings_plans": [], "review_queue": []}
-    if using_postgres():
-        init_db()
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM paper_positions")
-        cur.execute("DELETE FROM paper_trades")
-        cur.execute(
-            "UPDATE paper_state SET cash=%s, updated_at=%s WHERE id=1",
-            (float(start_cash), datetime.now().isoformat(timespec="seconds")),
-        )
-        conn.commit()
-        conn.close()
-        storage = _storage()
-        if storage is not None:
-            try:
-                storage.write_json(STORAGE_KEY, _merge_portfolio(p))
-            except Exception as e:
-                logging.warning("Silenced exception restored in v18.6.74d: %s", e)
-    else:
-        save_portfolio(p)
-    return p
+    """Legacy destructive reset is retired; preserve trades, positions and learning."""
+    raise ValueError("Destruktiv nullstilling er sperret. Bruk arkivert, separat simuleringsperiode.")
+
 
 def storage_status():
     try:
@@ -598,3 +586,13 @@ def force_schema_fix():
     Alias brukt av noen UI-versjoner.
     """
     return force_schema_migration()
+
+
+def record_documented_nok_fill(fill, *, storage=None):
+    """Explicit actual-share adapter; never infer a fill from legacy model units.
+
+    Requires a separately approved NOK period. Existing historical execution and
+    selection rules remain unchanged until a controlled handover is authorised.
+    """
+    from services.portfolio_accounting import settle
+    return settle('paper', fill, storage=storage)

@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-23",
+  "repository": "aksje-app/aksje-app",
+  "branch": "fix/systemrevisjon-20261022",
+  "pull_request": 167,
+  "base_commit": "7dd7afa73e75d466dbbb44f0ce0d8875c4d509c7",
+  "full_isolated_suite": {
+    "passed": 2485,
+    "subtests_passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 412.45,
+    "after_last_code_change": true,
+    "browser_cases": 91,
+    "postgresql_cases": 24,
+    "original_99_regressions_passed": 99
+  },
+  "targeted_before_full_run": {
+    "restart_and_trading_tests_passed": 33,
+    "economic_regressions_passed": 135,
+    "new_browser_cases_passed": 6,
+    "overlap_with_full_suite": true
+  },
+  "release_contracts_passed": 24,
+  "node_report_share_paths_passed": 5,
+  "dependency_lock": {
+    "ok": true,
+    "target_python": "3.12.13",
+    "direct_dependency_count": 19,
+    "locked_dependency_count": 70,
+    "missing_roots": [],
+    "root_version_mismatches": [],
+    "installed_mismatches": [],
+    "incompatible_with_target": []
+  },
+  "runtime_guard": {
+    "ok": true,
+    "version": "v19.22.0-rc16.34r",
+    "compiled_python_files": 970,
+    "runtime_modules_in_closure": 407,
+    "failures": []
+  },
+  "provider_tests": {
+    "status": "IKKE VERIFISERT",
+    "failed": 2,
+    "passed": 0,
+    "symbols": [
+      "MYCR.ST",
+      "MSFT"
+    ],
+    "reason": "CONNECT-proxy HTTP 403",
+    "alternative_verified_network_environment_available": false
+  },
+  "production": {
+    "data_read": false,
+    "archive_created": false,
+    "drafts_created": false,
+    "account_reset": false,
+    "activation": false,
+    "learning_reset": false,
+    "positions_transferred": false,
+    "merge": false,
+    "deploy": false
+  },
+  "scope": "Syntetiske data. Ordinære strategimotorer med eksplisitt testkonto; ingen produksjonsaktivering. Nettleserinnlogging og eksterne tjenester substituert.",
+  "remaining": [
+    "Produksjonskilder og fullstendig kildeinventar",
+    "Varig privat arkivlagring, nøkkelforvaltning og faktisk arkiv/gjenopprettingsprøve",
+    "Separat kontrollert scheduler-kobling, produksjonsgodkjenning/aktivering og tørrkjøring",
+    "Virkelig leverandørtilgang er ikke verifisert"
+  ],
+  "merge_assessment": "Lokale kontroller støtter review/merge som sperret simuleringskobling. Produksjonsaktivering er ikke klar og krever separat endring/godkjenning."
+}

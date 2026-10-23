@@ -51,6 +51,8 @@ def sha256(path: Path) -> str:
 
 def excluded(relative: Path) -> bool:
     parts = relative.parts
+    if len(parts) == 1 and relative.name.startswith(("RELEASE_NOTES_", "ACCEPTANCE_", "DEPLOY_")):
+        return relative.name not in {f"RELEASE_NOTES_{DOC_TAG}.md", f"ACCEPTANCE_{DOC_TAG}.md", f"DEPLOY_{DOC_TAG}.md"}
     if (parts and parts[0] in MUTABLE_PARTS) or "__pycache__" in parts:
         return True
     if relative.name in FORBIDDEN_NAMES or relative.suffix.lower() in FORBIDDEN_SUFFIXES:

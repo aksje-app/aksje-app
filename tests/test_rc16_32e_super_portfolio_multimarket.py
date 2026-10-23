@@ -64,7 +64,7 @@ def test_scheduled_cycle_uses_independent_super_portfolio_market_pipeline(monkey
     monkeypatch.setattr(sp, "load_state", lambda: state)
     monkeypatch.setattr(sp, "get_or_build_super_portfolio_market_pipeline", lambda **kwargs: pipeline)
     monkeypatch.setattr(sp, "evaluate", lambda **kwargs: used.append(kwargs.get("pipeline")) or {"state": {**state, "positions": {}}, "changes": [], "stop_alerts": [], "rebalance_due": False})
-    monkeypatch.setattr(sp, "refresh_index_benchmark", lambda state=None: {})
+    monkeypatch.setattr(sp, "refresh_index_benchmark", lambda state=None, **k: {})
     monkeypatch.setattr(sp, "resource_health", lambda: {"status": "OK"})
     monkeypatch.setattr(sp, "save_state", lambda value: state.update(value) or value)
     monkeypatch.setattr(sp, "append_event", lambda *a, **k: None)

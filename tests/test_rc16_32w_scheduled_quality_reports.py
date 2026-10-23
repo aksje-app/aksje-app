@@ -7,10 +7,8 @@ OSLO = ZoneInfo("Europe/Oslo")
 
 
 def test_release_version_is_scheduled_quality_reports():
-    from app_version import APP_VERSION, APP_VERSION_NAME
-
-    assert APP_VERSION == "v19.22.0-rc16.32x"
-    assert "Mobile Market Quality View" in APP_VERSION_NAME
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_quality_schedule_runs_before_each_required_report_only_on_weekdays():
@@ -34,7 +32,8 @@ def test_scheduled_selection_prioritizes_holdings_then_ranked_candidates(monkeyp
             {"ticker": "HIGH.OL", "investment_score": 88},
         ],
     }
-    assert schedule.select_symbols(latest, limit=3) == ["OWN.OL", "HIGH.OL", "LOW.OL"]
+    assert schedule.select_symbols(latest, limit=3) == ["HIGH.OL", "LOW.OL"]
+    assert schedule._holding_symbols(latest) == ["OWN.OL"]
 
 
 def test_partial_quality_snapshot_is_visible_in_fixed_reports(monkeypatch):
@@ -123,6 +122,10 @@ def test_due_scheduled_screen_persists_partial_result_and_pdf(monkeypatch):
     monkeypatch.setattr(engine, "run_screen", lambda *args, **kwargs: dict(result))
     monkeypatch.setattr(quality_valuation_alerts, "transition_messages", lambda previous, current: [])
 
+    monkeypatch.setattr(schedule, "_full_universe", lambda markets: ["GOOD.OL", "MISS.OL"])
+    monkeypatch.setattr("quality_market_prescreen.full_market_prescreen", lambda *a, **k: {"finalists": ["GOOD.OL", "MISS.OL"], "examined_count": 2})
+    monkeypatch.setattr("quality_filing_discovery.refresh", lambda **k: {})
+    monkeypatch.setattr("quality_turnaround_shadow.tracked_prices", lambda *a, **k: {})
     summary = schedule.run_due_scheduled_screen()
     assert summary["state"] == "PARTIAL"
     assert summary["completed"] == 1

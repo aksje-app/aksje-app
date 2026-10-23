@@ -140,6 +140,10 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None)
     fid = hashlib.sha256((time_gates+frame_id(items)+json.dumps(p,sort_keys=True)+str(buy_hold)+now.date().isoformat()+json.dumps(approvals,sort_keys=True)).encode()).hexdigest()[:20]
     if s.get('last_frame') == fid:
         return s, {'state': 'UNCHANGED', 'changes': [], 'rows': rows}
+    if (not s.get('accounting_opening') and not s['positions'] and not s['trades']
+            and not s['history'] and s['cash'] == s['initial_capital']):
+        s['accounting_opening'] = {'at':now.isoformat(), 'cash_nok':s['cash'],
+            'source':'CONFIGURED_SIMULATION_CAPITAL', 'positions':{}}
     changes = []; pending = []
     # Value existing exposure at the same fresh evidence used for the fill gate.
     for key,pos in s['positions'].items():
@@ -225,14 +229,25 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None)
             pos = s['positions'].get(item['id'])
             if not pos: continue
             fraction=max(0.0,min(1.0,float(order.get('fraction',1))))
-            proceeds = pos['quantity'] * fraction * price * (1 - friction); s['cash'] += proceeds
+            qty = pos['quantity'] * fraction
+            proceeds = qty * price * (1 - friction); s['cash'] += proceeds
             pnl = proceeds - pos['cost_nok']*fraction; s['cooldowns'][item['isin']] = now.isoformat()
             if not buy_hold and event_risk.brazil_weight(pos)[0]>0 and (event_risk.active(now) or event_risk.active(at(order['requested_at']))):
                 event_risk.register_exit(s,pos,now,p)
             if fraction>=1:s['positions'].pop(item['id'])
             else:
                 pos['quantity']*=1-fraction;pos['cost_nok']*=1-fraction
-        event = {**order, 'name':item['name'], 'executed_at': now.isoformat(), 'price_at': item['price_at'],
+        gross_nok = qty * price
+        event = {**order, 'quantity':qty, 'gross_nok':gross_nok,
+                 'cost_components':{'brokerage_nok':gross_nok*p['fee_bps']/10000,
+                     'fx_cost_nok':gross_nok*(p['fx_bps'] if item['currency'] != 'NOK' else 0)/10000,
+                     'other_nok':gross_nok*((item.get('spread_pct') or 0)/200 if item['kind']=='etf' else 0)},
+                 'cost_source':'CONFIGURED_MODEL_BPS_AND_QUOTED_HALF_SPREAD', 'cost_currency':'NOK',
+                 'cost_policy':{'fee_bps':p['fee_bps'], 'fx_bps':p['fx_bps'],
+                     'kind':item['kind'], 'spread_pct':item.get('spread_pct')},
+                 'currency':item['currency'], 'local_price':item['price'],
+                 'fx_quote':deepcopy(item.get('fx_quote')), 'nok_rate':item['nok_rate'],
+                 'price_source':item.get('source'), 'cash_after_nok':s['cash'], 'name':item['name'], 'executed_at': now.isoformat(), 'price_at': item['price_at'],
                  'price_nok': price, 'pnl_nok': pnl, 'execution': 'DELAYED_MODEL_ESTIMATE'}
         s['trades'].append(event); changes.append(event)
     s['orders'] = pending
@@ -241,6 +256,9 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None)
         row = lookup.get(key)
         if not row or eligibility(row, now, p, buy=False): continue
         price = row['price'] * row['nok_rate']; pos['last_nok'] = price
+        pos['valuation_evidence'] = {'currency':row['currency'], 'local_price':row['price'],
+            'price_at':row['price_at'], 'source':row.get('source'),
+            'fx_quote':deepcopy(row.get('fx_quote')), 'nok_rate':row['nok_rate']}
         if row.get('detail',{}).get('regions'):
             pos['regions']=row['detail']['regions']
             pos['investment_area']=identity(row).get('investment_area')
@@ -338,7 +356,7 @@ def cycle(state, items, now, parameters=None, *, buy_hold=False, approvals=None)
             committed += allocation; slots -= 1; owned.add(row['isin'])
     s['last_frame'] = fid
     s['history'].append({'at': now.isoformat(), 'equity': equity, 'cash': s['cash'], 'frame': fid})
-    s['history'] = s['history'][-1500:]; s['trades'] = s['trades'][-2000:]
+    # The native journal is authoritative: never discard older executions or losses.
     s['peak_equity'] = max(s.get('peak_equity', equity), equity)
     s['max_drawdown_pct'] = max(s.get('max_drawdown_pct', 0), (1-equity/s['peak_equity'])*100)
     return s, {'state': 'COMPLETED', 'changes': changes, 'rows': rows,

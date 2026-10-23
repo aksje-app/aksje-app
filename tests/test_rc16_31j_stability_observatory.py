@@ -42,13 +42,16 @@ class StabilityObservatoryTests(unittest.TestCase):
         self.assertEqual(diff[0]["ticker"], "AAA.OL")
 
     def test_mobile_delivery_makes_download_primary_and_external_secondary(self):
-        overview = (ROOT / "autonomy_overview.py").read_text(encoding="utf-8")
-        reports = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        self.assertIn("Last ned PDF – kan deles", overview)
-        self.assertIn("Ekstern offentlig PDF", overview)
-        self.assertIn("Last ned full rapport med vedlegg", reports)
-        self.assertIn("Last ned kort rapport (3 sider)", reports)
-        self.assertIn("kan denne lenken forlate appen", reports)
+        import inspect
+        from market_intelligence import render_report_file_center
+        from public_report_ui import _report_landing_actions
+        source = inspect.getsource(render_report_file_center)
+        self.assertIn('download_button(', source)
+        self.assertIn('📄 Standard PDF', source)
+        self.assertIn('📊 Teknisk PDF', source)
+        markup = _report_landing_actions('/report.pdf', return_href='/?aa_nav=reports')
+        self.assertIn('rel="noopener noreferrer"', markup)
+        self.assertIn('target="_self"', markup)
 
     def test_full_system_check_covers_operational_risks(self):
         source = (ROOT / "report_system_check.py").read_text(encoding="utf-8")

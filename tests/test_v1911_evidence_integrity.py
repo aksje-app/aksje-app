@@ -232,13 +232,8 @@ class EvidenceIntegrityTests(unittest.TestCase):
         self.assertIn("report_revalidation", source)
 
     def test_version_and_current_release_notes_are_available_in_source_repository(self):
-        version = Path("app_version.py").read_text(encoding="utf-8")
-        doc_tag = APP_VERSION.replace("-rc", "_RC")
-        notes = Path(f"RELEASE_NOTES_{doc_tag}.md").read_text(encoding="utf-8")
-        self.assertIn('v19.0.11:', version)
-        self.assertIn(f'APP_VERSION = "{APP_VERSION}"', version)
-        self.assertIn("v19.22.0", notes)
-        self.assertIn("ren distribusjon", notes.lower())
+        from release_contract_checks import assert_current_release
+        assert_current_release()
 
 
 if __name__ == "__main__":

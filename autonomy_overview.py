@@ -124,6 +124,13 @@ def collect_autonomy_overview() -> dict[str, Any]:
     notifications = _rows("autonomous_portfolio/notifications.json", NOTIFICATIONS_PATH)
     performance = read_json("autonomous_portfolio/performance.json", PERFORMANCE_PATH, {})
     performance = dict(performance) if isinstance(performance, Mapping) else {}
+    if portfolio.get('economic_period_id'):
+        from services.production_routing import metrics
+        from services.production_restart import selected
+        performance=metrics('autonomy')
+        account=selected('autonomy',require_running=False)['bundle']['accounts']['autonomy']
+        runs=[e['payload'] for e in account['events'] if e['kind']=='STRATEGY_RUN']
+        decisions=list(runs[-1]['result'].get('decisions',[])) if runs else []
     approvals = _rows("controlled_learning/promotion_approvals.json", APPROVALS_PATH)
     pending = [{**row, "approval_source": "LEARNING"} for row in approvals if str(row.get("status") or "").upper() == "PENDING"]
     try:
@@ -139,13 +146,13 @@ def collect_autonomy_overview() -> dict[str, Any]:
     next_run = _next_scheduled_run(active_jobs)
     equity = portfolio_equity(portfolio)
     initial = _number(portfolio.get("initial_cash"), _number(getattr(params, "initial_cash", 0)))
-    drawdown = _number(performance.get("drawdown_pct"), 0)
+    drawdown = performance.get('drawdown_pct') if portfolio.get('economic_period_id') else _number(performance.get("drawdown_pct"), 0)
     return {
         "version": VERSION, "status": status, "running": is_running(status),
         "jobs": jobs, "active_jobs": active_jobs, "next_run": next_run,
         "archive": archive, "latest_archive": latest_archive, "latest_run": latest_run,
         "candidates": candidates, "portfolio": portfolio, "positions": positions,
-        "equity": equity, "return_pct": ((equity / initial - 1) * 100 if initial else 0),
+        "equity": equity, "return_pct": performance.get('total_return_pct') if portfolio.get('economic_period_id') else ((equity / initial - 1) * 100 if initial else 0),
         "drawdown_pct": drawdown, "decisions": decisions,
         "notifications": notifications, "pending_approvals": pending,
         "data_contract": contract, "data_quality": quality,
@@ -671,9 +678,9 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             st.markdown("#### Portefølje og risiko")
             q1, q2, q3, q4 = st.columns(4)
             q1.metric("Status", snapshot["portfolio"].get("status") or "-")
-            q2.metric("Verdi", f"{snapshot['equity']:,.0f} kr")
-            q3.metric("Avkastning", f"{snapshot['return_pct']:+.2f} %")
-            q4.metric("Drawdown", f"{snapshot['drawdown_pct']:.2f} %")
+            q2.metric("Verdi", f"{snapshot['equity']:,.0f} kr" if snapshot['equity'] is not None else 'IKKE VERIFISERT')
+            q3.metric("Avkastning", f"{snapshot['return_pct']:+.2f} %" if snapshot['return_pct'] is not None else 'IKKE VERIFISERT')
+            q4.metric("Drawdown", f"{snapshot['drawdown_pct']:.2f} %" if snapshot['drawdown_pct'] is not None else 'IKKE VERIFISERT')
             st.caption(f"{len(snapshot['positions'])} åpne teoretiske posisjoner · ingen ekte handler utføres.")
             if st.button("Åpne Læringsportefølje", key="autonomy_overview_portfolio_v1883"):
                 _goto("Læringsportefølje")

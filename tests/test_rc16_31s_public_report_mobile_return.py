@@ -5,20 +5,20 @@ import public_report_ui
 
 def test_public_report_landing_preserves_program_tab_and_has_return_action():
     markup = public_report_ui._report_landing_actions(
-        "/app/static/reports/public_report_SAFE_TOKEN.pdf"
+        "/app/static/reports/public_report_SAFE_TOKEN.pdf", return_href="/?aa_nav=reports", return_label="Tilbake til programmet"
     )
 
     assert 'target="_blank"' in markup
     assert 'rel="noopener noreferrer"' in markup
     assert 'href="/?aa_nav=reports" target="_self"' in markup
-    assert "Åpne PDF i ny fane" in markup
+    assert "Åpne PDF" in markup
     assert markup.count("Tilbake til programmet") == 1
     assert '<iframe title="Rapportvisning"' in markup
     assert 'data-testid="public-report-mobile-shell"' in markup
 
 
 def test_public_report_action_escapes_untrusted_url_content():
-    markup = public_report_ui._report_landing_actions('/report.pdf" onmouseover="bad')
+    markup = public_report_ui._report_landing_actions('/report.pdf" onmouseover="bad', return_href='/?aa_nav=reports')
 
     assert 'onmouseover="bad' not in markup
     assert "&quot;" in markup

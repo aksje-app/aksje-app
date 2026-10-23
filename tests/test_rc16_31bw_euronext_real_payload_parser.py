@@ -85,8 +85,8 @@ def test_json_parser_accepts_mapping_rows_and_embedded_mic():
 
 
 def test_version_is_bw():
-    import app_version
-    assert app_version.APP_VERSION == 'v19.22.0-rc16.31bw'
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_per_mic_parser_rejects_rows_that_explicitly_belong_to_other_market():

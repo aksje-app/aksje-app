@@ -8,7 +8,7 @@ def test_reports_and_overview_use_one_progress_implementation():
     reports = Path("market_intelligence.py").read_text(encoding="utf-8")
 
     assert "def render_shared_manual_job_progress" in overview
-    assert 'fragment(run_every="5s")(_live_progress_panel)' in overview
+    assert 'fragment(run_every="2s")(_live_progress_panel)' in overview
     assert "from autonomy_overview import render_shared_manual_job_progress" in reports
 
     action = reports[reports.index("##### 2. Handlinger"):reports.index("##### 3. Siste rapporter")]

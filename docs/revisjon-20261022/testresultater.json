@@ -1,0 +1,55 @@
+{
+  "baseline_commit": "f0ef5b491219c2a1232bff30cc9b37eed58bc479",
+  "branch": "fix/systemrevisjon-20261022",
+  "full_suite_baseline": {
+    "failed": 100,
+    "passed": 2093,
+    "skipped": 21
+  },
+  "full_suite_branch": {
+    "failed": 99,
+    "passed": 2113,
+    "skipped": 47
+  },
+  "new_failure_names": [],
+  "active_suite": {
+    "passed": 628,
+    "skipped": 47
+  },
+  "quality_suite": {
+    "passed": 497
+  },
+  "new_regressions": {
+    "passed": 19
+  },
+  "full_application_browser": {
+    "passed": 24,
+    "widths": [
+      375,
+      1280
+    ]
+  },
+  "superfund_browser": {
+    "passed": 9,
+    "widths": [
+      375,
+      430,
+      1280
+    ]
+  },
+  "release_contract_scripts": {
+    "passed": 24
+  },
+  "javascript_sharing_paths": {
+    "passed": 5
+  },
+  "syntax": "PASS",
+  "local_postgres": "IKKE VERIFISERT",
+  "external_live_ohlc": "IKKE VERIFISERT; excluded from both comparable full suites",
+  "production_after_changes": "IKKE VERIFISERT",
+  "complete_UI_coverage": false,
+  "F3_fully_fixed": false,
+  "merge_ready": false,
+  "production_deployed": false,
+  "overlapping_suites_do_not_sum": true
+}

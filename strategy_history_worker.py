@@ -15,30 +15,38 @@ PREFIX = "strategy_history/"
 STOPS = (3.0, 5.0, 7.0, 10.0)
 HOLDS = (5, 10, 20, 60)
 
-def simulate(rows, stop_pct, hold_days):
+def simulate(rows, stop_pct, hold_days, *, non_overlapping=False):
     """Next-day-open entry; earliest subsequent daily LOW stop, otherwise close at horizon.
     Conservative gap fills at opening price when below stop; no fees assumed.
     """
     result = []
     if len(rows) < hold_days + 2:
         return result
+    next_entry = 0
     for signal in range(len(rows) - hold_days - 1):
+        if non_overlapping and signal + 1 < next_entry:
+            continue
         entry_bar = rows[signal + 1]
         entry = float(entry_bar.get("open") or 0)
         if entry <= 0: continue
         stop = entry * (1 - stop_pct / 100.0)
         exit_price = None
-        for age in range(1, hold_days + 1):
+        # A position exists from the entry OPEN, so that same bar's LOW can
+        # hit its stop. Do not skip the riskiest first trading session.
+        exit_index = signal + 1 + hold_days
+        for age in range(0, hold_days + 1):
             bar = rows[signal + 1 + age]
             low = float(bar.get("low") or bar.get("close") or 0)
             opened = float(bar.get("open") or bar.get("close") or 0)
             if low > 0 and low <= stop:
                 exit_price = min(stop, opened) if opened > 0 else stop
+                exit_index = signal + 1 + age
                 break
         if exit_price is None:
             exit_price = float(rows[signal + 1 + hold_days].get("close") or 0)
         if exit_price > 0:
             result.append((exit_price / entry - 1.0) * 100)
+            next_entry = exit_index + 1
     return result
 
 def run_once():

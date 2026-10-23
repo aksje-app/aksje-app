@@ -53,6 +53,10 @@ def _operation_id(pipeline):
 
 def _execution_quotes(tickers, now):
     """Execution prices have their own provider timestamps, never scan timestamps."""
+    from services.restart_trading import current
+    session=current('super_portfolio')
+    if session:
+        return {t:dict(price=session.quote(t)['price'],market_data_at=session.quote(t)['observed_at'],source=session.quote(t)['source'],adjustment='raw') for t in tickers}
     from scanner_fresh_quote import fresh_paper_buy_quote
     quotes = {}
     for ticker in tickers:
@@ -290,8 +294,11 @@ def benchmark_summary(state: Mapping[str, Any], *, portfolio_return_pct: float) 
     result={}
     for key in ("index","aurora"):
         row=dict(bench.get(key) or {}) if isinstance(bench.get(key),Mapping) else {}
-        if row and row.get("return_pct") is not None:
+        if row and row.get("return_pct") is not None and row.get("comparison_verified") is True:
             row["alpha_pct"]=round(_f(portfolio_return_pct)-_f(row.get("return_pct")),2)
+        elif row:
+            row["alpha_pct"] = None
+            row["comparison_status"] = "IKKE VERIFISERT: valuta, periode og avkastningsgrunnlag må samsvare"
         result[key]=row
     return result
 
@@ -303,15 +310,19 @@ def set_manual_aurora_benchmark(return_pct: float, *, label: str = "Aurora") -> 
     return bench["aurora"]
 
 
-def refresh_index_benchmark(state: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def refresh_index_benchmark(state: Mapping[str, Any] | None = None, *, persist: bool = True) -> dict[str, Any]:
     data=dict(state or load_state()); cfg=dict(data.get("config") or {})
     ticker=str(cfg.get("benchmark_ticker") or "^STOXX"); label=str(cfg.get("benchmark_label") or ticker)
-    positions=list((data.get("positions") or {}).values())
-    dates=[str(p.get("entry_date") or "")[:10] for p in positions if p.get("entry_date")]
-    start=min(dates) if dates else str(data.get("created_at") or "")[:10]
-    row={"ticker":ticker,"label":label,"return_pct":None,"status":"UNAVAILABLE","updated_at":_now()}
+    # Benchmark and portfolio must use a fixed common inception, independent
+    # of which positions survive a rebalance. Never infer inception from holdings.
+    start=str(data.get("portfolio_tracking_started_at") or data.get("created_at") or "")[:10]
+    row={"ticker":ticker,"label":label,"return_pct":None,"status":"UNAVAILABLE","updated_at":_now(),
+         "start_date":start,"return_basis":"PRICE_RETURN_LOCAL_CURRENCY",
+         "comparison_verified":False}
     try:
         import yfinance as yf
+        if not start:
+            raise ValueError("Porteføljens startdato mangler")
         hist=yf.download(ticker,start=start,progress=False,auto_adjust=False,threads=False)
         close=hist["Close"] if "Close" in hist else None
         if close is not None and len(close)>=2:
@@ -321,7 +332,8 @@ def refresh_index_benchmark(state: Mapping[str, Any] | None = None) -> dict[str,
                 row.update({"return_pct":round((last/first-1.0)*100.0,4),"status":"AVAILABLE","start_date":start,"last_price":round(last,6)})
     except Exception as exc:
         row["error"]=f"{type(exc).__name__}: {exc}"[:240]
-    bench=dict(data.get("benchmark") or {}); bench["index"]=row; data["benchmark"]=bench; save_state(data)
+    if persist:
+        bench=dict(data.get("benchmark") or {}); bench["index"]=row; data["benchmark"]=bench; save_state(data)
     return row
 
 
@@ -441,7 +453,15 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
 
 
 def load_state() -> dict[str, Any]:
+    from services.production_routing import view
+    selected=view('super_portfolio')
+    if selected is not None:return selected
     value = read_json(STATE_KEY, STATE_PATH, {})
+    return _normalized_loaded_state(value)
+
+
+def _normalized_loaded_state(value):
+    """Existing configuration normalization, also usable by read-only operators."""
     state = dict(value) if isinstance(value, Mapping) and value else default_state()
     # RC16.32r safety migration: old persisted 7/10/15–18% stop settings must
     # never survive a deploy. Volatility may reduce position size, but it may
@@ -477,6 +497,13 @@ def load_state() -> dict[str, Any]:
 
 
 def save_state(state: Mapping[str, Any]) -> dict[str, Any]:
+    from services.restart_trading import current
+    session=current('super_portfolio')
+    if session:
+        session.save_strategy(state)
+        return dict(state)
+    from services.production_routing import guard_legacy_write
+    guard_legacy_write('super_portfolio')
     value = dict(state)
     value["version"] = VERSION
     value["updated_at"] = _now()
@@ -2074,11 +2101,17 @@ def _cooldown_reason(state: Mapping[str, Any], ticker: str, now: datetime) -> st
 
 
 def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, Any], now_iso: str, cfg: SuperPortfolioConfig, history: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    entry_price = _f(old.get("entry_price")) or _f(row.get("_shadow_entry_fill_price")) or _f(row.get("price"))
+    from services.restart_trading import current as restart_session
+    session = restart_session('super_portfolio')
+    entry_price = (session.quote(row['ticker'])['price'] if session and not old else 0) or _f(old.get("entry_price")) or _f(row.get("_shadow_entry_fill_price")) or _f(row.get("price"))
+    if session and not old:
+        row = dict(row,price=entry_price)
     entry_date = str(old.get("entry_date") or now_iso)
     mark = _f(row.get("price"))
     if not old and row.get("_entry_execution_evidence") and not _timestamp_from_row(row.get("raw_candidate") or row):
         mark = entry_price  # an untimed analytical price is not a later execution mark
+    if session:
+        mark = session.quote(row['ticker'])['price']
     peak = max(_f(old.get("peak_price")), entry_price, mark)
     pos = {
         "ticker": row.get("ticker"), "market": row.get("market"), "sector": row.get("sector"),
@@ -2088,7 +2121,7 @@ def _position_from_row(row: Mapping[str, Any], weight: float, old: Mapping[str, 
         "best_rank_since_entry": min([int(v) for v in (old.get("best_rank_since_entry"), old.get("entry_rank"), row.get("rank")) if v is not None], default=None),
         "last_full_assessment_at": now_iso,
         "entry_date": entry_date, "entry_price": entry_price, "last_price": mark, "peak_price": peak,
-        "entry_price_basis": old.get("entry_price_basis") if old else ("NEXT_SESSION_OPEN_SHADOW" if _f(row.get("_shadow_entry_fill_price")) else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL"),
+        "entry_price_basis": "DOCUMENTED_RESTART_EXECUTION" if session else old.get("entry_price_basis") if old else ("NEXT_SESSION_OPEN_SHADOW" if _f(row.get("_shadow_entry_fill_price")) else "CANDIDATE_SNAPSHOT_NOT_EXECUTED_FILL"),
         "entry_signal_price_timestamp": old.get("entry_signal_price_timestamp") if old else _timestamp_from_row(row),
         "target_weight_pct": round(_f(weight), 2), "investment_score": row.get("investment_score"), "portfolio_score": row.get("portfolio_score"),
         "portfolio_score_adjusted": row.get("portfolio_score_adjusted", row.get("portfolio_score")),
@@ -2188,7 +2221,14 @@ def _stop_alerts(previous: Mapping[str, Mapping[str, Any]], current: Mapping[str
     return alerts
 
 
-def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True, now: datetime | None = None, rebalance_policy: str = "FORCE", simulation_state: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True, now: datetime | None = None, rebalance_policy: str = "FORCE", simulation_state: Mapping[str, Any] | None = None, restart_context=None) -> dict[str, Any]:
+    if restart_context is not None:
+        from services.restart_trading import super_portfolio
+        return super_portfolio(**restart_context,pipeline=pipeline,rebalance_policy=rebalance_policy)
+    if simulation_state is None:
+        from services.production_routing import super_portfolio as route_super_portfolio
+        routed=route_super_portfolio(pipeline,rebalance_policy)
+        if routed is not None:return routed
     if simulation_state is not None and (persist or pipeline is None):
         raise ValueError("Simulation requires frozen pipeline and persist=False")
     pipeline = dict(pipeline if pipeline is not None else get_or_build_super_portfolio_market_pipeline())
@@ -2642,8 +2682,11 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
         elif change["action"] == "BUY":
             change["execution_price"] = pos.get("entry_price")
     from services.super_portfolio_accounting import settle
-    performance = settle(accounting_before, positions, changes, operation_id=operation_id,
-                         decision_at=now_iso, cost_bps=cfg.transaction_cost_bps)
+    from services.restart_trading import current as restart_session
+    session = restart_session('super_portfolio')
+    performance = (session.settle_targets(accounting_before,positions,changes,now_iso) if session else
+                   settle(accounting_before, positions, changes, operation_id=operation_id,
+                          decision_at=now_iso, cost_bps=cfg.transaction_cost_bps))
     positions = performance["positions"]
     changes = performance["transactions"]
     position_rows = list(positions.values())
@@ -2857,7 +2900,8 @@ def master_checklist() -> list[dict[str, str]]:
         {"key":"stress_radar", "status":"DONE", "label":"Scenario-basert Stress Radar for marked, sektor og valuta"},
         {"key":"resource_panel", "status":"DONE", "label":"Eget resource-panel for memory/cgroup og DB-kapasitet"},
         {"key":"data_freshness", "status":"DONE", "label":"Data Freshness / datakvalitet med FRESH/AGING/STALE/DATA GAP"},
-        {"key":"turnover_costs", "status":"DONE", "label":"Turnover, estimert kurtasje/slippage og nettoavkastning"},
+        {"key":"turnover_costs", "status":"DONE", "label":"Turnover og estimert kostnadsfradrag i historisk modell"},
+        {"key":"verified_nok_transition", "status":"PARTIAL", "label":"Separat NOK-regnskap er testet; dokumentert åpning og godkjent overgang gjenstår"},
         {"key":"event_risk", "status":"DONE", "label":"Event Risk for kommende resultat-/rapportdato når data finnes"},
         {"key":"decision_confidence", "status":"DONE", "label":"Decision Confidence basert på kvalitet, ferskhet, regime og signalenighet"},
         {"key":"horizontal_info_layout", "status":"DONE", "label":"Kompakte horisontale info-paneler med foldbare seksjoner og tabeller"},
@@ -2995,7 +3039,9 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     for key in ("index", "aurora"):
         row = bench.get(key) or {}
         if row:
-            story.append(Paragraph(f"{row.get('label', key)}: {_f(row.get('return_pct')):+.2f}% · alpha {_f(row.get('alpha_pct')):+.2f} pp · {row.get('status','-')}", styles["Normal"]))
+            alpha = f"alpha {_f(row['alpha_pct']):+.2f} pp" if row.get("alpha_pct") is not None else "alpha ikke verifisert (periode/valuta/utbytte)"
+            benchmark_return = f"{_f(row['return_pct']):+.2f}%" if row.get("return_pct") is not None else "Ikke tilgjengelig"
+            story.append(Paragraph(f"{row.get('label', key)}: {benchmark_return} · {alpha} · {row.get('status','-')}", styles["Normal"]))
     if not any(bench.get(k) for k in ("index","aurora")):
         story.append(Paragraph("Ingen ekstern benchmark lagret.", styles["Normal"]))
     story.append(Spacer(1, 6)); story.append(Paragraph("Decision Confidence", styles["Heading2"]))
@@ -3003,7 +3049,7 @@ def build_pdf(state: Mapping[str, Any] | None = None) -> bytes:
     story.append(Paragraph(f"{conf.get('icon','')} {_f(conf.get('score')):.1f}/100 · {conf.get('label','-')}", styles["Normal"]))
     story.append(Spacer(1, 6)); story.append(Paragraph("Turnover & costs", styles["Heading2"]))
     tc = data.get("turnover_costs") if isinstance(data.get("turnover_costs"), Mapping) else {}
-    story.append(Paragraph(f"Turnover {_f(tc.get('turnover_pct')):.2f}% · estimated cost {_f(tc.get('estimated_cost')):.2f} · net return {_f(tc.get('net_return_pct')):+.2f}%", styles["Normal"]))
+    story.append(Paragraph(f"Turnover {_f(tc.get('turnover_pct')):.2f}% · estimated cost {_f(tc.get('estimated_cost')):.2f} · modellestimat etter kostnader {_f(tc.get('net_return_pct')):+.2f}% (ikke verifisert netto NOK)", styles["Normal"]))
     story.append(Spacer(1, 6)); story.append(Paragraph("Stress Radar", styles["Heading2"]))
     stress = data.get("stress_radar") or []
     if stress:
@@ -3088,6 +3134,12 @@ def run_lightweight_stop_surveillance(
     This path cannot add, rank or rebalance positions. Missing/stale provider
     data causes no sale; the next scheduled cycle retries after the interval.
     """
+    from services.restart_trading import current
+    session=current('super_portfolio')
+    if session is None:
+        from services.production_routing import super_risk
+        routed=super_risk(at=now)
+        if routed is not None:return routed
     data = deepcopy(dict(state or load_state()))
     accounting_before = deepcopy(data)
     reference = now or _now_dt()
@@ -3215,8 +3267,9 @@ def run_lightweight_stop_surveillance(
     identity = [(t, previous[t].get("position_id") or previous[t].get("entry_date"), q.get("market_data_at")) for t, q in sorted(prices.items())]
     operation_id = "stop:" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     from services.super_portfolio_accounting import settle
-    accounting = settle(accounting_before, positions, changes, operation_id=operation_id,
-                        decision_at=reference.isoformat(timespec="seconds"), cost_bps=cfg.transaction_cost_bps)
+    accounting = (session.settle_targets(accounting_before,positions,changes,reference.isoformat(timespec="seconds")) if session else
+        settle(accounting_before, positions, changes, operation_id=operation_id,
+                        decision_at=reference.isoformat(timespec="seconds"), cost_bps=cfg.transaction_cost_bps))
     changes = accounting.pop("transactions")
     data.update(accounting)
     data["vacancy_diagnostics"].update(cash=accounting["cash"],
@@ -3229,6 +3282,9 @@ def run_lightweight_stop_surveillance(
         data["_pending_commit"] = {"operation_id": operation_id, "transactions": changes}
     data = save_state(data)
 
+    if session:
+        return {'state':'COMPLETED','changes':changes,'stop_alerts':alerts,'notification':'NOT_SENT',
+            'checked_positions':len(previous),'accounting':'AUTHORITATIVE_NOK_JOURNAL'}
     notification = "NOT_SENT"
     if alerts and bool((data.get("config") or {}).get("auto_pushover", True)):
         ok, detail = notify_stop_alerts(alerts, data)
@@ -3261,6 +3317,9 @@ def run_scheduled_shadow_cycle(
     Normal scheduled runs use AUTO policy: daily analysis/stop surveillance,
     weekly ordinary rebalancing, immediate hard-stop exits.
     """
+    from services.production_routing import super_portfolio as route_super_portfolio
+    routed=route_super_portfolio(pipeline,'AUTO',scheduled=True)
+    if routed is not None:return routed
     state = load_state()
     config_data = state.get("config") if isinstance(state.get("config"), Mapping) else {}
     allowed = set(SuperPortfolioConfig.__dataclass_fields__)
@@ -3286,7 +3345,7 @@ def run_scheduled_shadow_cycle(
                 "change_count": len(result["changes"]), "already_committed": True, "stop_alerts": []}
     new_state = dict(result.get("state") or load_state())
     new_state["last_scheduled_source_run_id"] = source_id
-    index_row = refresh_index_benchmark(new_state)
+    index_row = refresh_index_benchmark(new_state, persist=False)
     benchmark = dict(new_state.get("benchmark") or {})
     benchmark["index"] = index_row
     new_state["benchmark"] = benchmark

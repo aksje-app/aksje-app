@@ -5,7 +5,7 @@ def test_grid_dimensions():
 
 def test_next_open_and_gap_stop():
     rows = [{"date":str(i),"open":100.0,"low":100.0,"close":100.0} for i in range(10)]
-    rows[1]["open"] = 110.0
+    rows[1].update(open=110.0, low=110.0)  # no entry-day stop in this gap scenario
     rows[2].update(open=98.0,low=97.0,close=99.0)
     assert simulate(rows, 5.0, 5)[0] < -10
 

@@ -98,7 +98,7 @@ def test_missing_or_stale_quotes_never_execute(runtime, monkeypatch, bad):
     if bad == "future": q = quote(50, NOW + timedelta(minutes=2))
     if bad == "missing_time": q.pop("market_data_at")
     if bad == "nan": q["price"] = float("nan")
-    monkeypatch.setattr(sp, "_execution_quotes", lambda *a: {} if bad is None else {"BWE.OL": q})
+    monkeypatch.setattr(sp, "_execution_quotes", lambda *a, **k: {} if bad is None else {"BWE.OL": q})
     result = sp.run_lightweight_stop_surveillance(now=NOW)
     saved = storage.read_json(journal.STATE_KEY)
     assert not result["changes"] and not journal.transactions(storage)
@@ -250,7 +250,7 @@ def test_one_approved_refill_slot_cannot_buy_three(runtime, monkeypatch):
 def test_untimed_candidate_cannot_be_booked_as_fresh_purchase(runtime, monkeypatch):
     storage, state = runtime
     storage.write_json(journal.STATE_KEY, state)
-    monkeypatch.setattr(sp, "_execution_quotes", lambda *a: {})
+    monkeypatch.setattr(sp, "_execution_quotes", lambda *a, **k: {})
     result = sp.evaluate(pipeline={"run_id": "missing-price-evidence", "created_at": NOW.isoformat(),
                                  "candidates": [candidate("DNO.OL", 90)]}, now=NOW, persist=True)
     assert result["changes"] == []
@@ -300,7 +300,7 @@ def test_scheduled_sp_job_with_committed_trades_is_not_executed_twice(runtime, m
                                result={"run_id": pipeline["run_id"], "verification": {"ok": True}}, storage=storage)
         return {"state": saved, "changes": changes, "stop_alerts": []}
     monkeypatch.setattr(sp, "evaluate", evaluate)
-    monkeypatch.setattr(sp, "refresh_index_benchmark", lambda *a: {})
+    monkeypatch.setattr(sp, "refresh_index_benchmark", lambda *a, **k: {})
     monkeypatch.setattr(sp, "resource_health", lambda: {})
     publish = worker.publish_verified_result
     if fail_publication:

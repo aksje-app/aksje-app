@@ -53,7 +53,7 @@ def test_technical_report_contains_all_tasks_and_clear_coverage_language():
     source = Path("market_intelligence.py").read_text(encoding="utf-8")
     assert 'Paragraph(f"Komplett oppgavespor ({len(decision_tasks)})"' in source
     assert "for task in decision_tasks:" in source
-    assert "Kontrollandel måler kontrolluniversets andel" in source
+    assert "Kontrollandel måler hvor stor del av det gjeldende universet" in source
     assert "Grunnkontroll innsider" in Path("investment_pipeline.py").read_text(encoding="utf-8")
     assert "Grunnkontroll short" in Path("investment_pipeline.py").read_text(encoding="utf-8")
 

@@ -27,6 +27,17 @@ def _render_superfund(st):
     if job.get('state')=='DEFERRED_CAPACITY':st.info(job.get('message'))
     if job.get('error'):st.warning(job['error'])
     s=snapshot();model=s.get('model',{})
+    from services.superfund_accounting import audit_native
+    from datetime import datetime, timezone
+    native_accounting=audit_native(model, at=datetime.now(timezone.utc).isoformat())
+    with st.expander('NOK-regnskap – Superfonds eksisterende modell', expanded=False):
+        st.write(native_accounting['status'])
+        st.caption(native_accounting['cost_basis'])
+        st.caption('Eldre uverifiserte resultater og tap beholdes. Ingen separat fondskonto opprettes.')
+        if native_accounting['issues']:st.write(native_accounting['issues'])
+        st.download_button('Last ned Superfond NOK-avstemming (JSON)',
+            json.dumps({'verification':native_accounting,'model':model},ensure_ascii=False,indent=2).encode(),
+            file_name='superfond_nok_avstemming.json',mime='application/json',key='sf_nok_json',on_click='ignore')
     from superfund_history_progress_view import render as render_fund_history
     render_fund_history(st,s)
     index=read('catalog_index.json',{})
@@ -50,6 +61,7 @@ def _render_superfund(st):
     equity=model.get('cash',0)+sum(p['quantity']*p['last_nok'] for p in model.get('positions',{}).values())
     st.metric('Modellportefølje NOK',f'{equity:,.0f}' if s else '—')
     st.metric('Avkastning',f"{(equity/model.get('initial_capital',1)-1)*100:+.2f}%" if s else '—')
+    st.caption('Regnskapsstatus: '+native_accounting['status']+' · Modellsimulering med estimerte handels- og valutakostnader. Eldre tap og uverifiserte resultater beholdes.')
     st.caption('Siste komplette snapshot: '+date_label(s.get('at')))
     risk=s.get('risk',{})
     if risk:

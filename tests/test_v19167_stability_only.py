@@ -26,9 +26,10 @@ def test_distribution_keeps_only_current_root_release_contract() -> None:
     current = {
         f'RELEASE_NOTES_{tag}.md', f'ACCEPTANCE_{tag}.md', f'DEPLOY_{tag}.md',
     }
+    from tools.build_safe_distribution import excluded
     release_docs = {
         path.name for pattern in ('RELEASE_NOTES_*.md', 'ACCEPTANCE_*.md', 'DEPLOY_*.md')
-        for path in ROOT.glob(pattern)
+        for path in ROOT.glob(pattern) if not excluded(path.relative_to(ROOT))
     }
     assert release_docs == current
     assert not list(ROOT.glob('CHANGE_INVENTORY_*.txt'))

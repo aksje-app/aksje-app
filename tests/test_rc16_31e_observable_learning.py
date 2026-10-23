@@ -34,7 +34,7 @@ def test_observations_are_isolated_idempotent_and_mature(monkeypatch):
             {"market_date": f"2026-{1 + (day - 1) // 28:02d}-{1 + (day - 1) % 28:02d}"},
         )
     original = next(row for row in store if row["source_run_id"] == "RUN-1")
-    assert [row["horizon_days"] for row in original["outcome_measurements"]] == [1, 5, 20, 60]
+    assert [row["horizon_days"] for row in original["outcome_measurements"]] == [1, 3, 5, 20, 60]
     assert original["status"] == "MATURED"
     assert original["maximum_gain_pct"] > 0
     assert original["simulated_exit_outcomes"]["TAKE_PROFIT"]["production_applied"] is False

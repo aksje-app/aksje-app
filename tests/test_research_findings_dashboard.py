@@ -1,5 +1,6 @@
 from hashlib import sha256
 from research_findings_dashboard import collect
+from portfolio_history_optimizer import METHOD_VERSION
 
 class Storage:
     def __init__(self, values):
@@ -10,7 +11,7 @@ class Storage:
 def test_research_findings_use_persisted_evidence():
     ticker = "TEST"
     path = "strategy_history/optimized/AUTONOMY/" + sha256(ticker.encode()).hexdigest() + ".json"
-    result = {"status": "COMPLETE_RESEARCH", "finalists": [
+    result = {"status": "COMPLETE_RESEARCH", "method_version": METHOD_VERSION, "finalists": [
         {"stop_pct": 4.0, "hold_sessions": 20,
          "validation": {"total_pct": 3.0},
          "holdout": {"total_pct": -2.0, "trades": 2}}

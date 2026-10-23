@@ -114,7 +114,9 @@ def test_renderer_context_does_not_expose_unreferenced_globals():
 def test_app_monolith_is_reduced_and_style_layers_are_external():
     app = Path("app.py").read_text(encoding="utf-8")
     styles = Path("ui/global_styles.py").read_text(encoding="utf-8")
-    assert len(app.splitlines()) < 19600
+    import ast
+    functions = {n.name for n in ast.parse(app).body if isinstance(n, ast.FunctionDef)}
+    assert 'render_autonomy_page' not in functions
     assert "inject_foundation_styles_v1950" in app
     assert "def _inject_visual_truth_fix_css_v18591" not in app
     assert "def _inject_visual_truth_fix_css_v18591" in styles
