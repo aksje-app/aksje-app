@@ -26,7 +26,8 @@ def _portfolio() -> dict:
 
 class ReportReconciliationTests(unittest.TestCase):
     def test_version_includes_rc16_31o_reconciliation_contract(self):
-        self.assertEqual(APP_VERSION, "v19.22.0-rc16.31bd")
+        from release_contract_checks import assert_current_release
+        assert_current_release()
 
     def test_authoritative_portfolio_accounting_reconciles_every_total(self):
         report = build_portfolio_report(_portfolio(), [], now=datetime(2026, 8, 15, tzinfo=timezone.utc))
@@ -54,7 +55,7 @@ class ReportReconciliationTests(unittest.TestCase):
 
     def test_pdf_renderer_contains_every_promised_portfolio_field(self):
         source = Path("market_intelligence.py").read_text(encoding="utf-8")
-        renderer = source[source.index('portfolio_rows = [["Ticker"'):source.index("if decision_anomalies:")]
+        renderer = source[source.index('portfolio_rows = [["Ticker · børs · land"'):source.index("Eksisterende portefølje og kapitalbinding")]
         for field in (
             "initial_capital", "portfolio_equity", "total_market_value", "cash",
             "available_purchase_limit", "required_cash_reserve", "realized_pnl",

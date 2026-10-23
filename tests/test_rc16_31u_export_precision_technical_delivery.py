@@ -90,8 +90,10 @@ def test_archive_keeps_technical_delivery_identity(monkeypatch):
 
 
 def test_ui_does_not_require_local_technical_file():
-    source = open("market_intelligence.py", encoding="utf-8").read()
-    archive = source[source.index("delivery = resolve_report_delivery(saved_run, row)"):]
-    assert "technical_path.is_file()" not in archive
-    assert "resolve_technical_report_delivery(saved_run, row)" in archive
-    assert "Full rapport med vedlegg" in archive
+    import inspect
+    from market_intelligence import render_report_file_center
+    source = inspect.getsource(render_report_file_center)
+    assert 'technical_path.is_file()' not in source
+    assert 'resolve_technical_report_delivery(report, archived)' in source
+    assert 'technical["data"]' in source
+    assert 'application/pdf' in source

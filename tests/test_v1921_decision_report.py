@@ -222,9 +222,9 @@ def test_pdf_has_one_page_decision_section_before_full_technical_appendix():
     assert "Markedsanalyse – beslutningsside" in pages[0]
     assert "Rapportpålitelighet" not in pages[0]
     assert "Prioritert vurderingsrekkefølge 1-3" in pages[0]
-    assert "Oppgaver til neste kjøring" in "\n".join(pages[:2])
+    assert "Oppgaver og hendelser før neste handelsdag" in "\n".join(pages[:2])
     technical_page = next(i for i, text in enumerate(pages) if "Teknisk vedlegg" in text)
-    assert technical_page <= 2  # side 1 er beslutningsside, side 2 oppfølging
+    assert technical_page <= 3  # beslutning, oppfølging og eksplisitt porteføljeregnskap før vedlegget
     assert technical_page > 0
     assert "Full rangering" in pages[technical_page]
 

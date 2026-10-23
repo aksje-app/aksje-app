@@ -9,7 +9,8 @@ import runtime_identity
 
 
 def test_bx_version():
-    assert app_version.APP_VERSION == "v19.22.0-rc16.31bx"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_canonical_duplicate_prefers_ready_richer_record_and_merges_missing():
@@ -78,8 +79,8 @@ def test_ui_workflow_closure_is_present_in_sources():
     assert 'run_every="2s"' in autonomy
     assert "Grunnkontrollutvalg:" in autonomy
     assert "render_report_file_center" in autonomy
-    assert "📄 Standardrapport PDF" in market
-    assert "📊 Teknisk rapport PDF" in market
+    assert "📄 Standard PDF" in market
+    assert "📊 Teknisk PDF" in market
     assert "🧾 Rapportdata JSON" in market
     assert "🩺 Diagnose ZIP" in market
     assert "⬇ Last ned komplett rapportpakke" in market

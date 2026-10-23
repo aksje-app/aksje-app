@@ -21,8 +21,8 @@ def _zip_bytes() -> bytes:
 
 
 def test_release_identity_and_mobile_safe_diagnostic_delivery(tmp_path, monkeypatch):
-    assert APP_VERSION == "v19.22.0-rc16.31bd"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bc"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
     monkeypatch.setattr(mb, "__file__", str(tmp_path / "manual_job_background.py"))
     first = mb.publish_diagnostic_download(_zip_bytes(), "Diagnose æøå.zip")
     second = mb.publish_diagnostic_download(_zip_bytes(), "Diagnose æøå.zip")

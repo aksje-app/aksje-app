@@ -51,4 +51,8 @@ def test_portfolio_removes_duplicate_share_class_and_moves_weight_to_cash():
 def test_weekend_reason_is_consistent_across_timezones():
     sunday_late_utc = datetime(2026, 7, 19, 21, 25, tzinfo=timezone.utc)
     statuses = build_market_status(["USA", "Norge", "Finland"], now=sunday_late_utc)
-    assert {x["reason"] for x in statuses} == {"Helg"}
+    by_market = {x["market"]: x for x in statuses}
+    assert by_market["USA"]["reason"] == by_market["Norge"]["reason"] == "Helg"
+    # Finland has already crossed midnight into Monday in its exchange timezone.
+    assert by_market["Finland"]["reason"] == "Utenfor ordinær åpningstid"
+    assert all(x["status"] == "STENGT" for x in statuses)

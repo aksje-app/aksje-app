@@ -17,7 +17,8 @@ def _document_from_quality(quality):
 
 
 def test_version_is_bs():
-    assert app_version.APP_VERSION == "v19.22.0-rc16.31bs"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_evidence_success_rate_uses_controlled_population_not_all_candidates():

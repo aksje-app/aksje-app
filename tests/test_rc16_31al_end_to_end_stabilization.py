@@ -146,14 +146,11 @@ def test_portfolio_assessment_closes_every_candidate_even_with_zero_buys():
 
 
 def test_mobile_report_actions_are_above_iframe_and_keep_return_path():
-    source = Path("public_report_ui.py").read_text(encoding="utf-8")
-    assert source.index("Last ned / del PDF") < source.index("<iframe")
-    assert source.index("Tilbake til programmet") < source.index("<iframe")
-    assert "render_mobile_file_delivery(" in source
-    delivery = Path("mobile_file_delivery.py").read_text(encoding="utf-8")
-    assert "st.download_button(" in delivery
-    assert "st.code(" in delivery
-    assert 'data-testid="public-report-mobile-shell"' in source
+    from public_report_ui import _report_landing_actions
+    markup = _report_landing_actions('/test.pdf', return_href='/?aa_nav=reports', return_label='Tilbake til programmet')
+    assert markup.index('Åpne PDF') < markup.index('<iframe')
+    assert markup.index('Tilbake til programmet') < markup.index('<iframe')
+    assert 'href="/?aa_nav=reports" target="_self"' in markup
 
 
 def test_required_report_schedule_contract_remains_08_14_22():

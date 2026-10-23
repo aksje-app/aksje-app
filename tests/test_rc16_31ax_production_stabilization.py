@@ -4,9 +4,8 @@ from datetime import datetime, timezone
 
 
 def test_ax_version_lineage():
-    from app_version import APP_VERSION, PREVIOUS_APP_VERSION
-    assert APP_VERSION == "v19.22.0-rc16.31bd"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bc"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_revalidation_is_blocked_around_all_mandatory_reports():

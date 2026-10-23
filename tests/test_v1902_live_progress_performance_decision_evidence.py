@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 import unittest
 from pathlib import Path
@@ -44,7 +45,7 @@ class LiveProgressPerformanceDecisionEvidenceTests(unittest.TestCase):
 
     def test_overview_uses_isolated_live_fragment(self):
         source = (ROOT / "autonomy_overview.py").read_text(encoding="utf-8")
-        self.assertIn('fragment(run_every="5s")', source)
+        self.assertIn('fragment(run_every="2s")', source)
         self.assertIn("_render_live_progress", source)
         self.assertIn("Vis teknisk diagnostikk", source)
         self.assertIn("Markedsgjennomføring", source)
@@ -57,8 +58,8 @@ class LiveProgressPerformanceDecisionEvidenceTests(unittest.TestCase):
 
     def test_net_insider_sales_cannot_be_positive(self):
         rows = [
-            {"date": "2026-07-20", "transaction": "purchase", "shares": 10, "price": 10, "insider": "A"},
-            {"date": "2026-07-20", "transaction": "sale", "shares": 1000, "price": 100, "insider": "B"},
+            {"date": datetime.now(timezone.utc).date().isoformat(), "transaction": "purchase", "shares": 10, "price": 10, "insider": "A"},
+            {"date": datetime.now(timezone.utc).date().isoformat(), "transaction": "sale", "shares": 1000, "price": 100, "insider": "B"},
         ]
         result = insider_intelligence.score_transactions("TEST", rows)
         self.assertLess(result["net_value"], 0)

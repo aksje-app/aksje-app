@@ -41,7 +41,7 @@ class ReportNotificationControlTests(unittest.TestCase):
     def test_polling_exists_only_for_running_status(self):
         source = (ROOT / "autonomy_overview.py").read_text(encoding="utf-8")
         self.assertIn("if running and callable(fragment):", source)
-        self.assertIn('fragment(run_every="5s")', source)
+        self.assertIn('fragment(run_every="2s")', source)
 
     def test_simple_mode_and_mobile_expose_reports(self):
         simple = (ROOT / "autonomy_modes.py").read_text(encoding="utf-8")

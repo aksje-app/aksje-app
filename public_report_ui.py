@@ -310,8 +310,7 @@ def render_public_report(st) -> bool:
 
     st.markdown("### Rapport")
     st.caption("Les rapporten i appen. Åpne/del PDF bare når du trenger systemets PDF-viser.")
-    import streamlit.components.v1 as components
-    components.html(_share_controls_html(static_url), height=250)
+    st.html(_share_controls_html(static_url), unsafe_allow_javascript=True)
     st.markdown(
         _report_landing_actions(
             static_url,

@@ -75,7 +75,7 @@ def test_report_center_reuses_overview_progress_fragment():
     overview = Path("autonomy_overview.py").read_text(encoding="utf-8")
     shared = overview[overview.index("def _live_progress_panel"):overview.index("def render_autonomy_overview")]
     assert 'fragment(run_every="2s")(_live_progress_panel)' in shared
-    assert "get_active_status()" in shared
+    assert "get_active_status_snapshot()" in overview
     assert "render_shared_manual_job_progress" in shared
 
 

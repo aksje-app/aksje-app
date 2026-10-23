@@ -59,7 +59,8 @@ def test_currency_route_has_one_stable_group_in_all_navigation_sources():
     sidebar = (ROOT / "ui_sidebar_stable.py").read_text(encoding="utf-8")
     fallback = (ROOT / "tools" / "ui_sidebar_stable.py").read_text(encoding="utf-8")
 
-    assert '"valutavarsler", "top picks"' in workspace
+    assert 'valutavarsler' in workspace
+    assert 'top picks' in workspace
     assert '"fx_alerts": ("Marked og signaler", "💱 Valutavarsler")' in sidebar
     assert '"fx_alerts": ("Marked og signaler", "💱 Valutavarsler")' in fallback
     for source in (app, sidebar, fallback):

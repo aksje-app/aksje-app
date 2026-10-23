@@ -62,12 +62,14 @@ def test_retention_applies_only_one_bounded_batch(monkeypatch):
     monkeypatch.setattr(retention, "load_storage_retention_state", lambda: {})
     monkeypatch.setattr(retention, "_save_state", lambda state: state)
     monkeypatch.setenv("STORAGE_RETENTION_BATCH_SIZE", "7")
+    monkeypatch.setattr("public_report_store.prune_expired_public_reports", lambda: {"state": "COMPLETED", "deleted": 0})
+    monkeypatch.setattr("public_report_store.prune_expired_public_files", lambda: {"state": "COMPLETED", "deleted": 0})
     result = retention.run_storage_retention(apply=True)
     assert result["state"] == "PARTIAL"
     assert result["deleted_this_batch"] == 7
     assert result["pending_after_batch"] == 43
     assert len(fake.deleted) == 7
-    assert result["public_reports"]["state"] == "DEFERRED"
+    assert result["public_reports"]["state"] == "COMPLETED"
 
 
 def test_required_report_grace_is_sixty_minutes(monkeypatch):

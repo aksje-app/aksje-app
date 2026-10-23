@@ -57,7 +57,7 @@ def test_every_stage1_candidate_gets_fresh_preview_before_deep_cut():
 def test_trend_discovery_reads_full_stage1_screening_pool():
     src = Path('trend_intelligence.py').read_text(encoding='utf-8')
     assert 'run.get("fresh_screening_candidates")' in src
-    assert '"full_stage1_universe":len(pool)' in src
+    assert '"full_stage1_universe":full_stage1' in src
     assert 'exchange_name' in src
 
 
@@ -85,8 +85,8 @@ def test_candidate_assessment_carries_exchange_identity():
 
 
 def test_version_is_br():
-    import app_version
-    assert app_version.APP_VERSION == 'v19.22.0-rc16.31br'
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_fresh_stage1_payload_is_compact_to_protect_manual_report_memory():

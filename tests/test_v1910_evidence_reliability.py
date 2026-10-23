@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import io
 import os
 import tempfile
@@ -33,7 +34,7 @@ class EvidenceReliabilityTests(unittest.TestCase):
         csv_data = (
             "Denominacao Companhia;Data Negocio;Tipo Movimentacao;Quantidade;Preco;"
             "Nome Pessoa;Cargo;Protocolo\n"
-            "Petroleo Brasileiro SA Petrobras;2026-07-22;Compra;100;30,50;"
+            f"Petroleo Brasileiro SA Petrobras;{datetime.now(timezone.utc):%Y-%m-%d};Compra;100;30,50;"
             "Pessoa Teste;Diretor;CVM-123\n"
         ).encode("latin-1")
         buffer = io.BytesIO()

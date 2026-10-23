@@ -25,16 +25,22 @@ class VisiblePackageProgressTests(unittest.TestCase):
             self.assertIn(expected, messages)
 
     def test_latest_report_button_uses_visible_progress_helper(self):
-        source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        block = source[source.index('if st.button("Bygg ZIP med PDF, JSON, tekst og revisjon"'):source.index('if st.session_state.get(latest_package_key)')]
-        self.assertIn("_build_report_package_with_visible_progress_v19220_rc1611", block)
-        self.assertNotIn("build_single_report_package(", block)
+        import inspect
+        from market_intelligence import render_report_file_center
+        source = inspect.getsource(render_report_file_center)
+        self.assertIn('with st.spinner(', source)
+        self.assertIn('build_complete_report_package(available, run_id)', source)
+        self.assertNotIn('build_single_report_package(', source)
+        self.assertIn('if left.button(', source)
 
     def test_archived_report_button_uses_same_visible_progress_helper(self):
-        source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")
-        start = source.index('if p1.button("Bygg ZIP med PDF, JSON, tekst og revisjon"')
-        block = source[start:source.index('if st.session_state.get(package_state_key)', start)]
-        self.assertIn("_build_report_package_with_visible_progress_v19220_rc1611", block)
+        import inspect
+        from market_intelligence import render_report_file_center
+        source = inspect.getsource(render_report_file_center)
+        self.assertIn('with st.spinner(', source)
+        self.assertIn('build_complete_report_package(available, run_id)', source)
+        self.assertNotIn('build_single_report_package(', source)
+        self.assertIn('if left.button(', source)
 
     def test_visible_progress_contract_contains_required_fields(self):
         source = (ROOT / "market_intelligence.py").read_text(encoding="utf-8")

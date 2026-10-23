@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_release_identity_is_directly_based_on_rc16_31u():
-    assert APP_VERSION == "v19.22.0-rc16.31bd"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bc"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_report_center_does_not_call_private_app_persistence_function():

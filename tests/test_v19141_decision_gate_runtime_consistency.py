@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from copy import deepcopy
 from pathlib import Path
 import sys
@@ -219,6 +221,8 @@ def test_nasdaq_direct_parser_returns_structured_manager_transaction():
     <description>Nature of transaction: Acquisition; Volume: 200; Unit price: 10.5; Name: Kari Test; Position: CEO; Transaction date: 2026-07-22</description>
     <link>https://official.example/notice</link><guid>N-1</guid><pubDate>Wed, 22 Jul 2026 10:00:00 GMT</pubDate>
     </item></channel></rss>'''
+    rss = rss.replace(b'Wed, 22 Jul 2026 10:00:00 GMT', datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT').encode())
+    rss = rss.replace(b'2026-07-22', datetime.now(timezone.utc).strftime('%Y-%m-%d').encode())
     session = _Session([_Response(content=rss), _Response(content=b"<rss><channel/></rss>")])
     result = fetch_nasdaq_nordic("TEST.HE", "Test Oyj", "Finland", session=session)
     assert result["status"] == "SUCCESS_WITH_RESULTS"

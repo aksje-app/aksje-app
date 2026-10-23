@@ -10,12 +10,12 @@ def test_ui_exposes_all_shareable_artifacts():
     assert ("Last ned / del diagnose" in src or "Åpne / kopier diagnose" in src or '"Diagnose"' in src)
     assert ("Last ned / del komplett kontrollpakke" in src or "Åpne / del komplett kontrollpakke" in src or '"Last ned alt"' in src)
     assert ("⌂ Hovedsiden" in src or "← Tilbake til Kvalitet" in src)
-    assert ('_absolute_report_return_url("overview")' in src or '_absolute_report_return_url("quality_reports")' in src)
+    assert ('_absolute_report_return_url("overview")' in src or '_absolute_report_return_url("quality_reports", str(result.get("run_key") or ""))' in src)
 
 def test_extended_pdf_returns_to_app_context():
     src=(ROOT/"quality_extended_report.py").read_text(encoding="utf-8")
     assert "add_pdf_return_links" in src
-    assert ('_absolute_report_return_url("overview")' in src or '_absolute_report_return_url("quality_reports")' in src)
+    assert ('_absolute_report_return_url("overview")' in src or '_absolute_report_return_url("quality_reports", str(result.get("run_key") or ""))' in src)
 
 def test_public_report_has_app_return():
     src=(ROOT/"public_report_ui.py").read_text(encoding="utf-8")

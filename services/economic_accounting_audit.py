@@ -36,6 +36,13 @@ def audit(portfolio, trades=(), *, at=None):
     at=at.astimezone(timezone.utc)
     base=str(portfolio.get('base_currency') or (portfolio.get('config') or {}).get('base_currency') or '').upper()
     errors=[]
+    if portfolio.get('accounting_schema') == 'BASE_CURRENCY_SHARES_V1':
+        from services.economic_ledger import reconcile
+        trades = portfolio.get('trades') or []
+        try:
+            errors.extend(reconcile(portfolio))
+        except (ValueError, KeyError, TypeError):
+            errors.append('INVALID_ECONOMIC_JOURNAL')
     if not base:errors.append('MISSING_BASE_CURRENCY')
     cash=_number(portfolio.get('cash'))
     if cash is None:errors.append('MISSING_BASE_CASH')

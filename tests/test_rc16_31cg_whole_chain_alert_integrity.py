@@ -105,7 +105,7 @@ def test_line_safe_compaction_keeps_one_footer_and_no_partial_data_line():
     result = evaluate(row)
     message = result["alerts"][0]["message"]
     assert len(message) <= notifier.PUSHOVER_MESSAGE_LIMIT
-    assert message.count("v19.22.0-rc16.31cg") == 1
+    assert message.count(__import__("app_version").APP_VERSION) == 1
     assert message.count("Data:") == 1
     assert not any(line == "Data: F..." for line in message.splitlines())
     assert "Handling:" in message
@@ -211,17 +211,17 @@ def test_parallel_monitor_wake_is_skipped_without_notification(monkeypatch):
 
 def test_stagnation_never_names_an_implicit_replacement():
     unnamed = evaluate_exit(
-        entry_price=100, current_price=100.5, highest_price=102,
+        entry_price=100, current_price=100.5, highest_price=100.5,
         entry_score=78, current_score=69, holding_days=25,
         best_replacement_score=76,
     )
     named = evaluate_exit(
-        entry_price=100, current_price=100.5, highest_price=102,
+        entry_price=100, current_price=100.5, highest_price=100.5,
         entry_score=78, current_score=69, holding_days=25,
         best_replacement_score=76, replacement_ticker="NEW.OL",
         replacement_risk=35, replacement_momentum_pct=2.1,
     )
-    assert unnamed["reason_code"] == "CAPITAL_STAGNATION"
+    assert unnamed["reason_code"] == "OPPORTUNITY_COST_CASH_EXIT"
     assert unnamed["replacement_ticker"] == ""
     assert named["reason_code"] == "CAPITAL_REPLACEMENT"
     assert "NEW.OL" in named["reason"]

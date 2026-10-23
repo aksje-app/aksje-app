@@ -1,0 +1,45 @@
+{
+  "branch": "fix/systemrevisjon-20261022",
+  "base_commit": "0803e414fb5421858b8bdc2386cebc750d5c569f",
+  "full_suite": {
+    "summary": "2325 passed, 4 subtests passed in 335.03s (0:05:35)",
+    "passed": 2325,
+    "failed": 0,
+    "skipped": 0,
+    "subtests_passed": 4,
+    "seconds": 335.03,
+    "excluded": [
+      "tests/test_superportfolio_live_ohlc_acceptance.py (2 live provider tests)"
+    ]
+  },
+  "original_99": {
+    "passed": 99,
+    "failed": 0,
+    "node_mapping": "opprinnelige-99.json"
+  },
+  "browser": {
+    "full_app": 60,
+    "superfund": 9,
+    "widths": [
+      375,
+      430,
+      1280
+    ],
+    "route_inventory_entries": 32,
+    "complete_action_coverage": false
+  },
+  "economic_and_previous_F1_F10_regressions": 49,
+  "postgres_existing_integrations": 14,
+  "postgres_economic_concurrency": 2,
+  "release_contract_scripts": 24,
+  "javascript_sharing_paths": 5,
+  "syntax": "PASS",
+  "dependency_lock": "70 exact pins verified",
+  "pdf_round_trip": "PASS",
+  "local_authentication": "Actual local admin creation, logout and password login passed using AppTest; production auth and browser cookie restoration not verified",
+  "F3_fully_completed": false,
+  "F3_limitations": "Legacy Paper/Autonomy/SP execution paths are not automatically migrated; opening-balance/history versus separate new NOK accounts requires clarification",
+  "merge_performed": false,
+  "deploy_performed": false,
+  "github_API": "403 Forbidden; branch updates use authenticated Git instead"
+}

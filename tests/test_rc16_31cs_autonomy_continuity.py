@@ -5,7 +5,7 @@ from exit_policy import evaluate_exit
 
 def test_flat_position_exits_to_cash_without_replacement():
     result = evaluate_exit(
-        entry_price=100, current_price=100.5, highest_price=102,
+        entry_price=100, current_price=100.5, highest_price=100.5,
         entry_score=74, current_score=74.5, holding_days=31,
     )
     assert result["action"] == "SELL"
@@ -15,7 +15,7 @@ def test_flat_position_exits_to_cash_without_replacement():
 
 def test_improving_score_protects_flat_position():
     result = evaluate_exit(
-        entry_price=100, current_price=100.5, highest_price=102,
+        entry_price=100, current_price=100.5, highest_price=100.5,
         entry_score=70, current_score=74, holding_days=31,
     )
     assert result["action"] == "REVIEW"

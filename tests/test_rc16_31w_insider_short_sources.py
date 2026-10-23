@@ -71,7 +71,10 @@ def test_no_public_norwegian_position_is_not_reported_as_zero():
 
 
 def test_report_ui_prioritises_full_pdf_and_explains_zip():
-    source = open("market_intelligence.py", encoding="utf-8").read()
-    assert "📘 Last ned full rapport med vedlegg" in source
-    assert "📄 Last ned kort rapport (3 sider)" in source
-    assert "Bygg ZIP med PDF, JSON, tekst og revisjon" in source
+    import inspect
+    from market_intelligence import render_report_file_center
+    source=inspect.getsource(render_report_file_center)
+    assert '📄 Standard PDF' in source
+    assert '📊 Teknisk PDF' in source
+    assert '⬇ Bygg komplett rapportpakke' in source
+    assert source.index('📊 Teknisk PDF') < source.index('⬇ Bygg komplett rapportpakke')

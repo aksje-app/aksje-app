@@ -4,8 +4,8 @@ from app_version import APP_VERSION, PREVIOUS_APP_VERSION
 
 
 def test_bo_version_contract():
-    assert APP_VERSION == "v19.22.0-rc16.31bo"
-    assert PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bn"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_short_report_surfaces_fresh_trend_before_technical_gate():
@@ -22,7 +22,7 @@ def test_short_report_surfaces_fresh_trend_before_technical_gate():
 
 def test_short_report_is_limited_and_points_to_technical_details():
     src = Path("market_intelligence.py").read_text(encoding="utf-8")
-    assert 'fresh_watch_short = [row for row in fresh_watch_short if isinstance(row, Mapping)][:3]' in src
-    assert 'Full forklaring med RSI, OBV, breakout' in src
-    assert '"relativ styrke, støtte/motstand og ekstra nyhets-/insider-/shortkontroll ligger i teknisk vedlegg."' in src
-    assert '"Dette er observasjonssignaler, ikke kjøpsfullmakt.' in src
+    assert 'for receipt in fresh_watch_short[:3]:' in src
+    assert '_trend_chart({"trend_receipt": receipt}' in src
+    assert 'fresh_signal' in src and 'momentum 3d' in src
+    assert 'observasjon' in src and 'ikke kjøpsfullmakt' in src

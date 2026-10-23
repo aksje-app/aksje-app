@@ -20,9 +20,9 @@ from report_portfolio_intelligence import build_candidate_watch_queue
 def test_scanner_configuration_defaults_to_standard_service_capacity(monkeypatch):
     monkeypatch.delenv("SCANNER_MEMORY_SOFT_LIMIT_MB", raising=False)
     config = scanner_runtime.scanner_configuration_snapshot()
-    assert config["scanner_memory_soft_limit_mb"] == 1700.0
+    assert config["scanner_memory_soft_limit_mb"] == 1450.0
     assert config["scanner_min_tickers_per_cycle"] == 1
-    assert config["automated_markets"] == ["USA", "NORGE", "SVERIGE"]
+    assert config["automated_markets"] == ["NORGE"]
 
 
 def test_channel_projection_carries_exact_public_quality_denominators():
@@ -92,9 +92,9 @@ def test_diagnostic_prefers_persisted_scanner_runtime_over_web_fallback(monkeypa
     monkeypatch.setattr(scanner_runtime, "load_scanner_status", lambda: {
         "execution_id": "PAPER-CURRENT", "state": "SKIPPED_POLICY",
         "scanner_configuration": {
-            "automated_markets": ["USA", "NORGE", "SVERIGE"],
+            "automated_markets": ["NORGE"],
             "scanner_max_tickers": 30,
-            "scanner_memory_soft_limit_mb": 1700.0,
+            "scanner_memory_soft_limit_mb": 1450.0,
             "scanner_min_tickers_per_cycle": 1,
             "source": "paper_scanner_runtime",
             "secret_values_included": False,
@@ -114,7 +114,7 @@ def test_diagnostic_prefers_persisted_scanner_runtime_over_web_fallback(monkeypa
     with ZipFile(io.BytesIO(payload)) as archive:
         configuration = json.loads(archive.read("scanner/SCANNER_CONFIGURATION.json"))
         context = json.loads(archive.read("runtime/DIAGNOSTIC_CONTEXT.json"))
-    assert configuration["scanner_memory_soft_limit_mb"] == 1700.0
+    assert configuration["scanner_memory_soft_limit_mb"] == 1450.0
     assert configuration["collector_process_soft_limit_mb"] == 410.0
     assert configuration["source"] == "persisted_paper_scanner_runtime"
     assert context["selected_status_is_historical"] is True

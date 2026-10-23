@@ -50,13 +50,14 @@ def test_official_csv_fetch_prefers_oslo_specific_variant():
             return None
     class Session:
         def get(self, url, params=None, **kwargs):
-            assert params['mics'] == 'XOSL,MERK,XOAS'
+            assert params['mics'] in neu.NORWAY_EQUITY_MICS
             return Resp(_csv(160))
     rows, attempts = neu._fetch_official_csv(Session(), 1.0)
     assert len(rows) == 160
     assert attempts[0]['strategy'] == 'OFFICIAL_CSV_EXPORT'
-    assert attempts[0]['variant'] == 'OSLO_MICS'
-    assert attempts[0]['rows'] == 160
+    assert attempts[0]['variant'] == 'MIC_XOSL'
+    assert {r['exchange_mic'] for r in rows} == set(neu.NORWAY_EQUITY_MICS)
+    assert sum(a['rows'] for a in attempts) == 160
 
 
 def test_official_csv_fetch_uses_all_stock_variant_when_specific_export_empty():
@@ -72,12 +73,12 @@ def test_official_csv_fetch_uses_all_stock_variant_when_specific_export_empty():
     class Session:
         def get(self, url, params=None, **kwargs):
             calls.append(params['mics'])
-            if params['mics'] == 'XOSL,MERK,XOAS':
+            if params['mics'] in neu.NORWAY_EQUITY_MICS:
                 return Resp('Name;ISIN;Symbol;Market\n')
             return Resp(_csv(160))
     rows, attempts = neu._fetch_official_csv(Session(), 1.0)
     assert len(rows) == 160
-    assert calls == ['XOSL,MERK,XOAS', 'dm_all_stock']
+    assert calls == ['XOSL', 'MERK', 'XOAS', 'dm_all_stock']
     assert attempts[-1]['variant'] == 'ALL_STOCKS'
 
 
@@ -102,8 +103,8 @@ def test_live_master_prefers_official_csv_without_touching_html_or_legacy(monkey
 
 
 def test_version_is_bv():
-    import app_version
-    assert app_version.APP_VERSION == 'v19.22.0-rc16.31bv'
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 def test_current_json_contract_matches_pd_es_oslo_table_route():
     params, data = neu._request_payload_current()

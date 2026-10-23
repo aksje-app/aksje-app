@@ -56,7 +56,11 @@ def _sidebar_persist_nav_v18658(st, nav: str) -> None:
     try:
         import json
         from pathlib import Path
-        path = Path("data/ui_state_v18658.json")
+        from storage_architecture import runtime_data_path
+        import re
+        user = st.session_state.get("auth_user") or {}
+        username = re.sub(r"[^A-Za-z0-9._-]+", "_", str(user.get("username") or "anonymous")).strip("._") or "anonymous"
+        path = runtime_data_path("ui_state", f"{username}.json")
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "nav": str(nav or ""),

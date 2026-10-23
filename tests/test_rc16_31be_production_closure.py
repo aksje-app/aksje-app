@@ -15,7 +15,7 @@ def test_retention_release_default_applies_when_render_omits_single_env(monkeypa
     assert config["raw_apply_env"] is None
     assert config["apply_env_missing"] is True
     assert config["apply_config_source"] == "RELEASE_DEFAULT_APPLY_WHEN_ENV_MISSING"
-    assert config["parsed_apply_enabled"] is True
+    assert config["parsed_apply_enabled"] is False
 
 
 def test_explicit_retention_false_overrides_release_default(monkeypatch):

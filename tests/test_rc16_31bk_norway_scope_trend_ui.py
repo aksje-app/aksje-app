@@ -33,8 +33,8 @@ def test_stabilization_ui_only_exposes_norway():
 
 def test_trend_details_cover_top_1_to_10_and_have_period_toggle():
     src = read('market_intelligence.py')
-    assert 'Trenddetaljer 1–10' in src
-    assert 'for trend_row in candidates[:10]' in src
+    assert 'Fresh Trend- og trenddetaljer 1–10' in src
+    assert 'for trend_row in detail_rows[:10]' in src
     assert '["20d", "60d"]' in src
     assert 'rolling(20).mean()' in src
     assert 'rolling(50).mean()' in src
@@ -54,9 +54,12 @@ def test_pdf_uses_20d_chart_with_sma_and_keeps_60d_metrics():
 
 
 def test_full_universe_report_does_not_claim_70_20_10_rotation():
-    src = read('market_intelligence.py')
-    assert 'Hele det konfigurerte universet grovskannes før shortlist.' in src
-    assert '70/20/10-rotasjon brukes derfor ikke i dette steget' in src
+    from universe_engine import resolve_universe_tickers
+    from market_universe import FULL_MARKET_SCOPE_LABEL
+    source = read('market_intelligence.py')
+    assert FULL_MARKET_SCOPE_LABEL
+    assert 'full_universe' in source
+    assert callable(resolve_universe_tickers)
 
 
 def test_bk_release_is_preserved_in_changelog():

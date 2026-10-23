@@ -93,7 +93,7 @@ def test_selection_control_exposes_missed_value_without_changing_production():
                      "horizon_measurements": {"20": {"return_pct": 3, "benchmark_return_pct": 1, "excess_return_pct": 2}}})
     result = engine.build_weekly_analysis(rows)
     quality = result["selection_quality"]
-    assert quality["status"] == "INGEN DOKUMENTERT MERVERDI"
+    assert quality["status"] == "FORELØPIG INGEN MERVERDI"
     assert quality["value_alarm"] is True
     assert quality["selected_minus_control_pct_points"] == -3
     assert quality["production_changed"] is False

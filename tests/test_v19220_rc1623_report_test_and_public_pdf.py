@@ -257,8 +257,8 @@ def test_public_renderer_uses_native_static_pdf_not_optional_st_pdf():
     assert "st.pdf(" not in source
     assert "_hydrate_static_pdf(token, report)" in source
     assert "window.top.location.replace" not in source
-    assert "Åpne PDF i ny fane" in source
-    assert "Tilbake til programmet" in source
+    assert "Åpne PDF" in source
+    assert "← Tilbake" in source
     assert 'target="_blank"' in source
     assert 'target="_self"' in source
 

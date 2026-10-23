@@ -33,7 +33,11 @@ def app_server():
                     if urlopen(base+'/_stcore/health',timeout=1).status==200:break
                 except Exception:time.sleep(.2)
             else:raise AssertionError('Full app did not start')
-            yield base
+            class AppAddress(str):
+                pass
+            address = AppAddress(base)
+            address.runtime_root = Path(runtime)
+            yield address
         finally:
             proc.terminate();proc.wait(timeout=10)
 
@@ -99,5 +103,118 @@ def test_autonomy_workspace_rendering(app_server,width,slug,label):
         if slug=='overview':page.get_by_text('Ekspertmodus',exact=True).click()
         page.get_by_text('Aktiv arbeidsflate: '+label+'.',exact=False).first.wait_for(timeout=20000)
         page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=30000)
+        assert not page.locator('[data-testid="stException"]').count()
+        browser.close()
+
+
+@pytest.mark.parametrize('width', [1280, 375])
+@pytest.mark.parametrize('route', [
+    'dashboard', 'analysis', 'top_picks', 'long_engine', 'ai', 'fx_alerts',
+    'market', 'super_portfolio', 'superfund', 'system', 'quality_valuation',
+    'quality_reports', 'drift_center', 'jobs', 'approvals', 'operations',
+])
+def test_active_routes_and_control_inventory(app_server, width, route, tmp_path):
+    """Open active routes and every rendered tab; inventory is not an action pass."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page = browser.new_page(viewport={'width': width, 'height': 900}, accept_downloads=True)
+        from streamlit.proto.ForwardMsg_pb2 import ForwardMsg
+        finished = []
+        def observe_socket(ws):
+            def receive(frame):
+                if not isinstance(frame, bytes):
+                    return
+                message = ForwardMsg()
+                message.ParseFromString(frame)
+                if message.WhichOneof('type') == 'script_finished' and message.script_finished == ForwardMsg.FINISHED_SUCCESSFULLY:
+                    finished.append(True)
+            ws.on('framereceived', receive)
+        page.on('websocket', observe_socket)
+        import uuid
+        probe = uuid.uuid4().hex
+        page.goto(app_server + '/?aa_nav=' + route + '&audit_probe=' + probe)
+        receipt = app_server.runtime_root / ('render-complete-' + probe + '.json')
+        deadline = time.monotonic() + 30
+        while not receipt.exists() and time.monotonic() < deadline:
+            assert not page.locator('[data-testid="stException"]').count(), page.locator('[data-testid="stException"]').all_text_contents()
+            page.wait_for_timeout(100)
+        assert receipt.exists(), 'App script did not complete: ' + route
+        deadline = time.monotonic() + 30
+        while not finished and time.monotonic() < deadline:
+            page.wait_for_timeout(100)
+        assert finished, 'Browser did not receive the completed rendering: ' + route
+        # React applies websocket deltas asynchronously. The navigation shell
+        # must have real text before taking the control inventory.
+        if width < 768:
+            page.locator('.st-key-aa_mobile_nav_overview button').wait_for(state='attached', timeout=30000)
+        else:
+            page.get_by_role('button', name='Logg ut', exact=True).wait_for(state='attached', timeout=30000)
+        page.wait_for_timeout(300)
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'", timeout=45000)
+        assert not page.locator('[data-testid="stException"]').count(), page.locator('[data-testid="stException"]').all_text_contents()
+        assert page.get_by_role('heading').count(), 'Expected actual page content'
+        # Tabs use real Streamlit callbacks/reruns, including panels hidden at first render.
+        tabs = page.get_by_role('tab').all_text_contents()
+        for label in dict.fromkeys(tabs):
+            tab = page.get_by_role('tab', name=label, exact=True).first
+            if tab.is_visible():
+                tab.click()
+                page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'", timeout=45000)
+                assert not page.locator('[data-testid="stException"]').count(), label
+        controls = page.evaluate('''() => [...document.querySelectorAll('button,input,select,a,[role="combobox"],[role="slider"]')].map(e => ({tag:e.tagName,role:e.getAttribute('role'),label:e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.name,disabled:!!e.disabled,visible:!!e.getClientRects().length}))''')
+        destination = Path(os.environ.get('AUDIT_CONTROL_OUTPUT', str(tmp_path)))
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / f'{route}-{width}.json').write_text(json.dumps({'route':route,'width':width,'url':page.url,'headings':page.get_by_role('heading').all_text_contents(),'tabs_executed':tabs,'controls_observed':controls},ensure_ascii=False,indent=2))
+        page.screenshot(path=str(destination / f'{route}-{width}.png'), full_page=True)
+        browser.close()
+
+
+@pytest.mark.parametrize('width', [1280, 375])
+def test_currency_settings_save_and_reload(app_server, width):
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900})
+        page.goto(app_server+'/?aa_nav=fx_alerts')
+        page.get_by_role('heading',name='Varseloppsett',exact=True).wait_for(timeout=30000)
+        page.get_by_label('Nedre grense',exact=True).fill('1.8123')
+        page.get_by_label('Øvre grense',exact=True).fill('2.0123')
+        for label in ('Aktiv', 'Send Pushover ved brudd'):
+            if page.get_by_role('checkbox',name=label,exact=True).is_checked():
+                page.get_by_text(label,exact=True).click()
+        page.get_by_role('button',name='Lagre varsel',exact=True).click()
+        page.get_by_text('Valutavarselet er lagret.',exact=False).wait_for(timeout=30000)
+        page.reload()
+        expect(page.get_by_label('Nedre grense',exact=True)).to_have_value('1.8123',timeout=30000)
+        expect(page.get_by_label('Øvre grense',exact=True)).to_have_value('2.0123')
+        assert not page.get_by_role('checkbox',name='Aktiv',exact=True).is_checked()
+        assert not page.get_by_role('checkbox',name='Send Pushover ved brudd',exact=True).is_checked()
+        assert not page.locator('[data-testid="stException"]').count()
+        browser.close()
+
+
+@pytest.mark.parametrize('width', [1280, 375])
+def test_system_settings_and_full_stop_preserve_execution_block(app_server, width):
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900})
+        page.goto(app_server+'/?aa_nav=system')
+        page.get_by_label('Søkintervall minutter',exact=True).wait_for(timeout=30000)
+        if page.get_by_role('checkbox',name='Bakgrunnssøk aktiv',exact=True).is_checked():
+            page.get_by_text('Bakgrunnssøk aktiv',exact=True).click()
+        page.get_by_label('Søkintervall minutter',exact=True).fill('19')
+        page.get_by_role('button',name='💾 Lagre søk/cron som ventende',exact=True).click()
+        page.get_by_text('Søk/cron lagret som ventende',exact=False).wait_for(timeout=30000)
+        page.reload()
+        expect(page.get_by_label('Søkintervall minutter',exact=True)).to_have_value('19',timeout=30000)
+        assert not page.get_by_role('checkbox',name='Bakgrunnssøk aktiv',exact=True).is_checked()
+        page.get_by_role('button',name='⛔ Full stopp / ferie',exact=True).click()
+        page.get_by_role('button',name='🔓 Slå av Full stopp',exact=True).wait_for(timeout=30000)
+        expect(page.get_by_role('button',name='⚡ Kjør auto-kjøp nå',exact=True)).to_be_disabled()
+        page.reload()
+        page.get_by_role('button',name='🔓 Slå av Full stopp',exact=True).click(timeout=30000)
+        page.get_by_role('button',name='⛔ Full stopp / ferie',exact=True).wait_for(timeout=30000)
         assert not page.locator('[data-testid="stException"]').count()
         browser.close()

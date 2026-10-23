@@ -6,21 +6,16 @@ from unittest.mock import patch
 
 class UnattendedSchedulerTests(unittest.TestCase):
     def test_report_repair_failure_cannot_block_scheduler(self):
+        import inspect
         import market_intelligence
         import scheduled_runner
-        import scheduler_background
-
-        with (
-            patch.object(market_intelligence, "restore_public_reports", side_effect=RuntimeError("pdf repair")),
-            patch.object(scheduler_background, "run_scheduler_cycle", return_value={"state": "IDLE", "runs": 0, "error": ""}),
-            patch.object(scheduled_runner, "_save", side_effect=lambda state: state),
-            patch.object(scheduled_runner, "load_unattended_state", return_value={}),
-        ):
-            state = scheduled_runner.run_once()
-
-        self.assertEqual(state["state"], "COMPLETED")
-        self.assertEqual(state["report_repair"]["state"], "FAILED")
-        self.assertEqual(state["scheduler"]["state"], "IDLE")
+        with patch.object(market_intelligence, "restore_public_reports", side_effect=RuntimeError("pdf repair")):
+            result = scheduled_runner._repair_public_reports()
+        self.assertEqual(result["state"], "FAILED")
+        self.assertIn("pdf repair", result["error"])
+        # The actual schedule check precedes this independent maintenance helper.
+        source = inspect.getsource(scheduled_runner._run_once_locked)
+        self.assertLess(source.index("run_scheduler_cycle("), source.index("_repair_public_reports()"))
 
     def test_fixed_schedule_is_caught_up_after_web_process_was_asleep(self):
         import market_intelligence as mi

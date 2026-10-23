@@ -1,5 +1,8 @@
 # Aksjeappen – feilretting og funksjonsrevisjon 22. oktober 2026
 
+> Oppfølging 23. oktober: se [ny rapport](../revisjon-20261023/rapport.md). Tallene nedenfor dokumenterer den tidligere kjøringen og er bevart som historikk.
+
+
 ## Konklusjon og avgrensning
 
 Arbeidet bygger på `main` ved `f0ef5b491219c2a1232bff30cc9b37eed58bc479`, etter PR #162–165. Endringene ligger på `fix/systemrevisjon-20261022`. Main, Render og produksjonsdata er ikke endret.

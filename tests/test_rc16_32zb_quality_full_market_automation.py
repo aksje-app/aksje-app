@@ -55,6 +55,6 @@ def test_prescreen_has_memory_deadline_and_explicit_coverage():
 
 def test_quality_pdf_labels_deep_vs_market_coverage():
     src=_src("quality_valuation_ui.py")
-    assert "dybdeanalyse" in src
+    assert "dybdeanalyse" in src.lower()
     assert "Markedsgrunnlag:" in src
     assert "full dekning" in src

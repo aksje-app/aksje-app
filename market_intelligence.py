@@ -2139,7 +2139,8 @@ def render_report_file_center(
     if include_complete_zip:
         left, right = st.columns([1, 1])
         if left.button("⬇ Bygg komplett rapportpakke", key=f"{key}_build_zip_{run_id}", width="stretch"):
-            package, package_manifest = build_complete_report_package(available, run_id)
+            with st.spinner("Bygger komplett rapportpakke med PDF, JSON, tekst og revisjon…"):
+                package, package_manifest = build_complete_report_package(available, run_id)
             if not package:
                 st.error("Komplett rapportpakke kunne ikke bygges.")
             else:

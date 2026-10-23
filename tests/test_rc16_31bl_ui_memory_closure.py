@@ -8,9 +8,8 @@ def read(name: str) -> str:
 
 
 def test_version_is_bl_and_builds_on_bk():
-    src = read("app_version.py")
-    assert 'APP_VERSION = "v19.22.0-rc16.31bl"' in src
-    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bk"' in src
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_progress_snapshot_chooses_freshest_runtime_or_atomic_mirror():
@@ -24,7 +23,7 @@ def test_progress_snapshot_chooses_freshest_runtime_or_atomic_mirror():
 def test_autonomy_progress_poll_is_two_seconds_and_phase_is_explicit():
     src = read("autonomy_overview.py")
     assert 'fragment(run_every="2s")' in src
-    assert 't3.metric("Fasefremdrift"' in src
+    assert 'st.metric("Fasefremdrift"' in src
     assert "Hovedprosenten er samlet fremdrift" in src
 
 
@@ -41,7 +40,7 @@ def test_report_detail_state_survives_browser_refresh_and_is_lazy():
 def test_trend_chart_uses_tight_normalized_plotly_and_rsi_reference_lines():
     src = read("market_intelligence.py")
     assert "import plotly.graph_objects as go" in src
-    assert '"Indeks (start = 100)"' in src
+    assert '"Kurs"' in src
     assert '"range": [lo - pad, hi + pad]' in src
     assert 'rfig.add_hline(y=70' in src
     assert 'rfig.add_hline(y=30' in src

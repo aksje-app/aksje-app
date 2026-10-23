@@ -7,9 +7,8 @@ def read(name: str) -> str:
 
 
 def test_version_bumped_to_bq():
-    src = read("app_version.py")
-    assert 'APP_VERSION = "v19.22.0-rc16.31bq"' in src
-    assert 'PREVIOUS_APP_VERSION = "v19.22.0-rc16.31bp"' in src
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_runtime_memory_exposes_cgroup_breakdown_and_reclaim():

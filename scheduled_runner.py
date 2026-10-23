@@ -290,6 +290,16 @@ def _maintenance_due(previous: dict[str, Any], key: str, *, default_minutes: int
         return True
 
 
+def _repair_public_reports() -> dict[str, Any]:
+    """Bounded artifact repair; its failure cannot prevent checking due jobs."""
+    try:
+        from market_intelligence import restore_public_reports
+        return {"state": "COMPLETED", "completed_at": _now(),
+                "restored": int(restore_public_reports(limit=25) or 0)}
+    except Exception as exc:
+        return {"state": "FAILED", "completed_at": _now(), "error": str(exc)[:500]}
+
+
 def _run_once_locked() -> dict[str, Any]:
     _configure_headless_logging()
     from runtime_identity import publish_runtime_identity, validate_cluster_alignment, validate_expected_runtime
@@ -654,15 +664,7 @@ def _run_once_locked() -> dict[str, Any]:
     # Repair delivery artifacts, but never let this maintenance step block the
     # actual schedule check.
     if _maintenance_due(previous, "report_repair", default_minutes=360):
-        try:
-            from market_intelligence import restore_public_reports
-
-            state["report_repair"] = {
-                "state": "COMPLETED", "completed_at": _now(),
-                "restored": int(restore_public_reports(limit=25) or 0),
-            }
-        except Exception as exc:
-            state["report_repair"] = {"state": "FAILED", "completed_at": _now(), "error": str(exc)[:500]}
+        state["report_repair"] = _repair_public_reports()
     else:
         state["report_repair"] = {**dict(previous.get("report_repair") or {}), "state": "NOT_DUE"}
 

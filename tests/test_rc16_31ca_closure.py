@@ -86,4 +86,6 @@ def test_market_intelligence_uses_exchange_helper_for_recommendation_table_sourc
     from pathlib import Path
     source = Path(__file__).resolve().parents[1].joinpath("market_intelligence.py").read_text(encoding="utf-8")
     assert '_exchange_for_ticker(row.get("ticker"), row.get("exchange_name") or row.get("market_segment"))' in source
-    assert 'render_report_file_center(\n                st, latest' in source
+    import ast
+    tree = ast.parse(source)
+    assert sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'render_report_file_center' for n in ast.walk(tree)) >= 1

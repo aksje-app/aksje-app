@@ -118,6 +118,12 @@ class SimulatedExecutionService:
         if str(row.get("status") or "").upper() == OrderStatus.REJECTED.value:
             return {"ok": False, "order": row, "fill": None, "account": account}
 
+        if account.get("accounting_schema") == "BASE_CURRENCY_SHARES_V1":
+            return self._execute_economic(row, account, fee_pct=fee_pct,
+                                          slippage_bps=slippage_bps,
+                                          allow_fractional=allow_fractional,
+                                          minimum_order_value=minimum_order_value)
+
         side = str(row.get("side") or "").upper()
         ticker = str(row.get("ticker") or "").upper()
         reference = _f(row.get("reference_price"))
@@ -227,6 +233,80 @@ class SimulatedExecutionService:
     def execute_order(self, **kwargs: Any) -> dict[str, Any]:
         intent = self.create_intent(**kwargs)
         return self.execute(intent)
+
+    def _execute_economic(self, row, account, *, fee_pct, slippage_bps,
+                          allow_fractional, minimum_order_value):
+        """Use the currency ledger only after an explicit reconciled opening."""
+        from services.economic_ledger import execute, number
+        meta = dict(row.get("metadata") or {})
+        side = row.get("side")
+        def reject(reason):
+            existing = self.orders.get(str(row.get("order_id") or ""))
+            if existing and existing.get("status") == OrderStatus.FILLED.value:
+                return {"ok": False, "order": existing,
+                        "fill": self.fills.get(existing.get("fill_id")),
+                        "account": self.accounts.get(row["account_id"]),
+                        "rejection_code": "INVALID_ECONOMIC_EVIDENCE", "reason": reason}
+            return self._reject(row, "INVALID_ECONOMIC_EVIDENCE", reason)
+        try:
+            reference = number(row.get("reference_price"), positive=True)
+            slip = number(slippage_bps) / 10000
+            price = reference * (1 + slip if side == "BUY" else 1 - slip)
+            quantity = number(row.get("requested_quantity"), positive=True)
+            if not allow_fractional:
+                quantity = math.floor(quantity)
+            # Explicit base-currency fees take precedence over an estimated fee.
+            fee = number(meta.get("transaction_cost"))
+            updated, trade = execute(
+                account, trade_id=str(row["order_id"]), ticker=row["ticker"],
+                side=side, quantity=quantity, price=price,
+                currency=meta.get("currency"), observed_at=meta.get("price_observed_at"),
+                source=meta.get("price_source"), at=meta.get("execution_at"),
+                fee=fee, cost_currency=meta.get("cost_currency"), fx_quote=meta.get("fx_quote"),
+            )
+            if trade["gross_value"] < minimum_order_value:
+                raise ValueError("Ordre under minsteverdi i basisvaluta")
+        except (ValueError, KeyError, TypeError) as exc:
+            return reject(str(exc))
+        fill_id = f"FILL-{row['order_id']}"
+        fill = {**trade, "fill_id": fill_id, "order_id": row["order_id"],
+                "account_id": row["account_id"], "run_id": row.get("run_id"),
+                "side": side, "fill_price": price, "reference_price": reference,
+                "filled_at": trade["timestamp"], "realized_pnl": trade["pnl"],
+                "metadata": meta}
+        # Cash, shares and the authoritative journal live in one atomic
+        # account document. Re-evaluate against the current locked balance;
+        # a quote validated against a stale read must never overspend it.
+        repository = self.accounts.accounts
+        def settle(rows):
+            rows = list(rows or [])
+            current = next((a for a in rows if a.get("account_id") == row["account_id"]), None)
+            if not current or current.get("status") != AccountStatus.ACTIVE.value:
+                raise ValueError("Strategikontoen er ikke aktiv")
+            settled, _ = execute(
+                current, trade_id=str(row["order_id"]), ticker=row["ticker"],
+                side=side, quantity=quantity, price=price,
+                currency=meta.get("currency"), observed_at=meta.get("price_observed_at"),
+                source=meta.get("price_source"), at=meta.get("execution_at"),
+                fee=fee, cost_currency=meta.get("cost_currency"), fx_quote=meta.get("fx_quote"),
+            )
+            return [settled, *(a for a in rows if a.get("account_id") != row["account_id"])]
+        try:
+            committed = repository.storage.mutate_json(repository.key, settle, [])
+        except ValueError as exc:
+            return reject(str(exc))
+        saved = next(a for a in committed if a.get("account_id") == row["account_id"])
+        trade = next(t for t in saved["trades"] if t["trade_id"] == str(row["order_id"]))
+        fill.update(trade)
+        fill["realized_pnl"] = trade["pnl"]
+        # These are repairable projections. A retry reads the authoritative
+        # account journal and reuses the same deterministic fill ID.
+        self.fills.upsert(fill)
+        row.update(status=OrderStatus.FILLED.value, fill_id=fill_id,
+                   filled_at=trade["timestamp"], filled_quantity=trade["quantity"],
+                   fill_price=price, fee=fee)
+        self.orders.upsert(row)
+        return {"ok": True, "account": saved, "fill": fill, "order": row}
 
 
     def mirror_legacy_trade(self, *, account_id: str, trade: Mapping[str, Any], run_id: str = "") -> dict[str, Any]:

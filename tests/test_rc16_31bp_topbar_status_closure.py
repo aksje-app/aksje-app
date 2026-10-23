@@ -4,9 +4,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_version_bumped_to_bp():
-    import app_version
-    assert app_version.APP_VERSION == "v19.22.0-rc16.31bp"
-    assert app_version.PREVIOUS_APP_VERSION == "v19.22.0-rc16.31bo"
+    from release_contract_checks import assert_current_release
+    assert_current_release()
 
 
 def test_regime_and_macro_persist_topbar_snapshots():
