@@ -125,8 +125,10 @@ def approve(family, approval, *, storage=None):
     """
     env = os.getenv('APP_ENVIRONMENT', 'production').lower()
     production = env not in {'test', 'development'}
-    if production and os.getenv('ECONOMIC_PRODUCTION_ACTIVATION_ENABLED') != 'true':
-        raise ValueError('Production activation requires explicit operator approval and enablement')
+    from services.production_restart import permitted
+    controlled = hasattr(storage,'key') and permitted(storage.key.split('/')[1],family)
+    if production and not controlled:
+        raise ValueError('Production activation blocked: Restart activation requires explicit signed operator authorization')
     def mutation(current):
         verify(current)
         if not current:

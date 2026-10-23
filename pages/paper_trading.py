@@ -11,6 +11,8 @@ _PRESERVE = {'render_paper_trading_dashboard'}
 
 def render_paper_trading_dashboard(_legacy_context):
     bind_legacy_context(globals(), _legacy_context, preserve=_PRESERVE)
+    from ui.simulation_restart import render_active
+    if render_active(st,'paper'):return
     st.subheader("💼 Handel – Paper Trading")
     st.caption("Paper Trading profileres med render-tider. Kjøp og salg lagrer forklaringsgrunnlag for revisjon og replay.")
     st.session_state.pop("paper_manual_override_v1871", None)

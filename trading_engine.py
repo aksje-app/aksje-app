@@ -139,6 +139,8 @@ def _position_market_value(portfolio, rules=None):
     """Current market value of open positions using last_price/entry fallback."""
     session = _restart_session('paper')
     if session: return session.nav()-session.account()['cash']
+    if (portfolio or {}).get('economic_period_id'):
+        return portfolio['portfolio_value']-portfolio['cash']
     total = 0.0
     for _ticker, pos in (portfolio or {}).get("positions", {}).items():
         try:
@@ -164,6 +166,10 @@ def paper_liquidity_snapshot(portfolio=None, latest_prices=None, rules=None):
         return {'cash':account['cash'],'buying_power':account['cash'],'total_value':nav,
                 'positions_value':nav-account['cash'],'cost_basis':sum(p['cost_basis_base'] for p in account['positions'].values())}
     portfolio = portfolio or load_portfolio()
+    if portfolio.get('economic_period_id'):
+        nav=portfolio['portfolio_value']
+        return {'cash':portfolio['cash'],'buying_power':portfolio['cash'],'total_value':nav,
+            'positions_value':nav-portfolio['cash'],'cost_basis':sum(p['cost_basis_base'] for p in portfolio['positions'].values())}
     latest_prices = latest_prices or {}
     positions_value = 0.0
     cost_basis = 0.0
@@ -201,6 +207,7 @@ def portfolio_value(portfolio=None, latest_prices=None, rules=None):
     session = _restart_session('paper')
     if session: return session.nav()
     portfolio = portfolio or load_portfolio()
+    if portfolio.get('economic_period_id'):return portfolio['portfolio_value']
     latest_prices = latest_prices or {}
     total = float(portfolio.get("cash", 0))
     for ticker, pos in portfolio.get("positions", {}).items():
@@ -606,6 +613,10 @@ def select_replacement_position(portfolio, candidate_score, *, rules=None):
 
 
 def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=None, amount_override=None, manual_override="OFF", target_price=None, initial_risk_amount=None):
+    from services.production_routing import paper as route_paper
+    routed=route_paper(ticker,'BUY',confidence=confidence,trade_context=trade_context,price=price,
+        reason=reason,amount_nok=amount_override)
+    if routed is not None:return routed
     gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
     gate = check_paper_trade(
         "BUY", ticker=ticker, source=gate_context.get("source") or "trading_engine.paper_buy",
@@ -808,6 +819,10 @@ def paper_buy(ticker, price, confidence=0, reason="BUY signal", trade_context=No
 
 
 def paper_sell(ticker, price, reason="SELL signal", trade_context=None, sell_pct=100.0, sell_shares=None):
+    from services.production_routing import paper as route_paper
+    routed=route_paper(ticker,'SELL',trade_context=trade_context,price=price,reason=reason,
+        sell_pct=sell_pct,quantity=sell_shares)
+    if routed is not None:return routed
     gate_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
     gate = check_paper_trade(
         "SELL", ticker=ticker, source=gate_context.get("source") or "trading_engine.paper_sell",
@@ -942,6 +957,10 @@ def auto_trade(ticker, price, signal, confidence=0, rsi=None, prev_rsi=None, tra
             raise ValueError('Reference price differs from documented execution')
         return paper(**restart_context,signals=[dict(ticker=ticker,signal=signal,confidence=confidence,
             rsi=rsi,prev_rsi=prev_rsi,trade_context=trade_context or {})])
+    from services.production_routing import paper as route_paper
+    routed=route_paper(ticker,'AUTO',signal=signal,confidence=confidence,trade_context=trade_context,
+        price=price,rsi=rsi,prev_rsi=prev_rsi)
+    if routed is not None:return routed
     auto_context = dict(trade_context or {}) if isinstance(trade_context, Mapping) else {}
     auto_context.setdefault("source", "trading_engine.auto_trade")
     auto_context["automatic"] = True

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import ast
 import json
 from pathlib import Path
 import zipfile
@@ -190,7 +191,21 @@ def test_source_integration_and_ui_contracts():
     autonomous = (ROOT / "autonomous_portfolio.py").read_text(encoding="utf-8")
     scanner = (ROOT / "scanner_worker.py").read_text(encoding="utf-8")
     repos = (ROOT / "repositories" / "application.py").read_text(encoding="utf-8")
-    assert 'account_service.sync_legacy_account(\n            "autonomy_learning", learning_portfolio' in autonomous
+    # The canonical learning bridge may live in a shared helper. Verify its
+    # actual call and arguments rather than a particular continuation indent.
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == 'account_service'
+        and node.func.attr == 'sync_legacy_account'
+        and len(node.args) >= 2
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == 'autonomy_learning'
+        and isinstance(node.args[1], ast.Name)
+        and node.args[1].id == 'learning_portfolio'
+        for node in ast.walk(ast.parse(autonomous))
+    )
     assert 'account_id="autonomy_learning", trade=legacy_trade' in autonomous
     assert "get_autonomy_activation_service().analyse" in autonomous
     assert "Eksporter testresultater (ZIP)" in autonomous

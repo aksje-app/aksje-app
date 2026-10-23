@@ -1,8 +1,8 @@
 """Explicit, atomic strategy execution against an archived restart period.
 
-No active-account pointer, legacy sync, network fetch, learning write or production
-activation. Strategy rules remain in their ordinary engines. Only this session's
-ledger supplies balances; strategy metadata cannot supply quantities or cash.
+Production callers require a signed, explicitly selected operator grant. No legacy
+sync, network fetch or learning write occurs inside the atomic session. Strategy
+rules remain in their ordinary engines. Only the journal supplies balances.
 """
 from contextvars import ContextVar
 from copy import deepcopy
@@ -16,6 +16,7 @@ from services.economic_opening import digest
 from services.storage_service import get_storage_service
 
 _CURRENT = ContextVar('explicit_restart_trading_session', default=None)
+_PREVIEW = ContextVar('non_persistent_production_preview', default=False)
 
 
 def current(family=None):
@@ -78,6 +79,12 @@ class Session:
             self.rate(ticker); self.fee(ticker)
         if not set(self.account()['positions']) <= set(self.evidence):
             raise ValueError('Complete fresh evidence for held instruments required')
+        for ticker,pos in self.account()['positions'].items():
+            row=self.evidence[ticker]
+            if row['currency']!=pos['currency']:
+                raise ValueError('Instrument currency differs from documented holding')
+            if stamp(row['observed_at'])<stamp(pos['price_observed_at']):
+                raise ValueError('Execution evidence predates the latest documented position quote')
     def mark(self):
         marks = {t:dict(price=self.quote(t)['price'], observed_at=self.quote(t)['observed_at'],
                         source=self.quote(t)['source'], fx_quote=self.quote(t).get('fx_quote'))
@@ -115,6 +122,7 @@ class Session:
                 'entry_price':pos.get('average_price'), 'avg_price':pos.get('average_price'),
                 'market_value':self.market_value(ticker,pos['quantity'],pos['last_price']),
                 'market_data_at':pos['price_observed_at'], 'asset_type':'Aksje',
+                'execution_quote':dict(price=self.quote(ticker)['price'],market_data_at=self.quote(ticker)['observed_at'],source=self.quote(ticker)['source'],adjustment='raw'),
                 'target_weight_pct':self.market_value(ticker,pos['quantity'],pos['last_price'])/self.nav()*100}
         receipts = [e['payload'] for e in self.doc()['events'] if e['kind']=='STRATEGY_RUN']
         reasons = {d['trade_id']:d for run in receipts for d in run['decisions'] if d.get('trade_id')}
@@ -131,7 +139,7 @@ class Session:
     def save_strategy(self, portfolio):
         # Cache only non-authoritative strategy information, never balances/trades.
         self.state = {k:deepcopy(v) for k,v in portfolio.items()
-                      if k not in {'cash','initial_cash','trades','realized_pnl','portfolio_value','history'}}
+                      if k not in {'cash','initial_cash','trades','realized_pnl','portfolio_value','history','_pending_commit'}}
     def paper_buy(self,ticker,price,budget,confidence,reason,ctx):
         import trading_engine as engine
         quantity = self.size_buy(ticker,budget)
@@ -192,20 +200,22 @@ def account_reference(period_id,family,*,storage=None):
                 approval_sha256=digest(doc['approval']),scope=doc['approval']['scope'])
 
 
-def run(*, period_id, family, run_id, at, evidence, settings, operation, strategy_input, account_ref=None, storage=None):
+def run(*, period_id, family, run_id, at, evidence, settings, operation, strategy_input, account_ref=None, storage=None, routing_input=None):
     """One transaction for all marks, fills, strategy decisions and retry receipt.
 
-    Only isolated test execution is enabled in this release. A production rollout
-    requires a separately reviewed activation path and exact approval.
+    Production execution revalidates the selected signed account and stop barrier
+    under the same transaction lock as every fill and retry receipt.
     """
-    if os.getenv('APP_ENVIRONMENT','production').lower() != 'test':
-        raise ValueError('Restart strategy execution requires separate production enablement; test only')
+    environment=os.getenv('APP_ENVIRONMENT','production').lower()
+    production=environment=='production'
+    if environment != 'test' and not production:
+        raise ValueError('Restart strategy execution requires test or explicitly approved production environment')
     if current() is not None: raise ValueError('Nested or cross-account strategy jobs are forbidden')
     if family not in ledger.FAMILIES or not run_id: raise ValueError('Explicit family and stable job ID required')
     stamp(at)
     key = restart._key(period_id)
     request = dict(period=period_id,family=family,run_id=run_id,at=at,evidence=evidence,
-                   settings=settings,strategy_input=strategy_input,account_ref=account_ref)
+                   settings=settings,strategy_input=strategy_input,account_ref=account_ref,routing_input=routing_input)
     request_hash = digest(request)
     answer = {}
     def mutation(bundle):
@@ -240,11 +250,59 @@ def run(*, period_id, family, run_id, at, evidence, settings, operation, strateg
         restart.verify_bundle(memory.bundle)
         answer.update(result)
         return memory.bundle
-    (storage or get_storage_service()).mutate_json(key,mutation)
+    backend=storage or get_storage_service()
+    def authorized(bundle):
+        from services import production_restart as control
+        if production and not _PREVIEW.get():
+            chosen=control.selected(family,storage=backend)
+            if chosen is None or chosen['pointer']['period_id']!=period_id:raise ValueError('No explicitly selected production account')
+            grant=control._check_record(bundle,family,running=True)
+            from services.production_routing import strategy_settings
+            if digest(settings)!=digest(strategy_settings(family,storage=backend)):raise ValueError('Production strategy settings differ from canonical governance')
+            for row in evidence.values():
+                if (row.get('cost_components')!=grant['cost_policy']['components_per_fill'] or
+                    row.get('cost_source_ref')!=grant['cost_policy']['source_ref']):raise ValueError('Unapproved simulation cost assumptions')
+        with control.permission(period_id,family):return mutation(bundle)
+    if production and not _PREVIEW.get():
+        from services.production_restart import require_backend
+        require_backend(backend)
+    backend.mutate_json(key,authorized)
     return answer
 
 
-def paper(*, period_id,run_id,at,evidence,rules,signals,account_ref=None,storage=None):
+def preview(*,period_id,family,at,evidence,settings,strategy_input,storage=None):
+    """Run the REAL strategies in private memory; no persistent approval or orders.
+
+    APP_ENVIRONMENT remains production. This API cannot return its memory backend
+    or install routing, and the before/after source document must be identical.
+    """
+    from services.production_restart import permission
+    backend=storage or get_storage_service();key=restart._key(period_id)
+    before=backend.read_json(key);restart.verify_bundle(before)
+    memory=Memory(before,key);scoped=restart.AccountStorage(period_id,memory)
+    doc=scoped.read_json(ledger.key(family))
+    if doc['status']=='DRAFT':
+        scope='test' if os.getenv('APP_ENVIRONMENT') in {'test','development'} else 'production'
+        approval=dict(approved_by='NON_PERSISTENT_PREVIEW',approval_ref='NO ACTIVATION OR ORDER',family=family,
+            opening_sha256=doc['opening_sha256'],start_at=doc['account']['created_at'],approved_at=at,scope=scope)
+        with permission(period_id,family):ledger.approve(family,approval,storage=scoped)
+    token=_PREVIEW.set(True)
+    try:
+        common=dict(period_id=period_id,run_id='preview:'+digest(dict(at=at,evidence=evidence,input=strategy_input)),
+            at=at,evidence=evidence,account_ref=account_reference(period_id,family,storage=memory),storage=memory)
+        if family=='paper':result=paper(**common,rules=settings,signals=strategy_input)
+        elif family=='autonomy':result=autonomy(**common,parameters=settings,candidates=strategy_input)
+        else:
+            common['run_id']=strategy_input['run_id']
+            result=super_portfolio(**common,config=settings,pipeline=strategy_input,rebalance_policy='AUTO')
+        result=dict(result=result,account=ledger.report(family,storage=scoped,at=stamp(at)),mode='DRY_RUN_NO_ORDERS_NO_PERSISTENT_WRITES',
+            source_sha256=digest(before),evidence=deepcopy(evidence),settings=deepcopy(settings))
+    finally:_PREVIEW.reset(token)
+    if backend.read_json(key)!=before:raise ValueError('Source changed during preview; repeat on a stable snapshot')
+    return result
+
+
+def paper(*, period_id,run_id,at,evidence,rules,signals,account_ref=None,storage=None,routing_input=None):
     def operation(session):
         import trading_engine as engine
         outcomes=[]
@@ -266,10 +324,10 @@ def paper(*, period_id,run_id,at,evidence,rules,signals,account_ref=None,storage
             outcomes.append(dict(ticker=ticker,ok=ok,message=message))
         return dict(family='paper',period_id=period_id,run_id=run_id,outcomes=outcomes)
     return run(period_id=period_id,family='paper',run_id=run_id,at=at,evidence=evidence,settings=rules,
-               operation=operation,strategy_input=signals,account_ref=account_ref,storage=storage)
+               operation=operation,strategy_input=signals,account_ref=account_ref,storage=storage,routing_input=routing_input)
 
 
-def autonomy(*,period_id,run_id,at,evidence,parameters,candidates,account_ref=None,storage=None):
+def autonomy(*,period_id,run_id,at,evidence,parameters,candidates,account_ref=None,storage=None,evidence_blocks=None,routing_input=None):
     def operation(session):
         from autonomous_portfolio import simulate_autonomy_cycle
         view=session.projection()
@@ -285,12 +343,12 @@ def autonomy(*,period_id,run_id,at,evidence,parameters,candidates,account_ref=No
         session.save_strategy(result['portfolio'])
         session.state['pending_entries']=deepcopy(result['pending_entries'])
         return dict(family='autonomy',period_id=period_id,run_id=run_id,
-                    decisions=result['portfolio_decisions'],execution_integrity=result['execution_integrity'])
+                    decisions=result['portfolio_decisions']+list(evidence_blocks or []),execution_integrity=result['execution_integrity'])
     return run(period_id=period_id,family='autonomy',run_id=run_id,at=at,evidence=evidence,settings=parameters,
-               operation=operation,strategy_input=candidates,account_ref=account_ref,storage=storage)
+               operation=operation,strategy_input=dict(candidates=candidates,evidence_blocks=evidence_blocks) if evidence_blocks else candidates,account_ref=account_ref,storage=storage,routing_input=routing_input)
 
 
-def super_portfolio(*,period_id,run_id,at,evidence,config,pipeline,rebalance_policy='AUTO',account_ref=None,storage=None):
+def super_portfolio(*,period_id,run_id,at,evidence,config,pipeline,rebalance_policy='AUTO',account_ref=None,storage=None,routing_input=None):
     if not isinstance(pipeline,dict): raise ValueError('Explicit completed market pipeline required')
     if any(row.get('source') != 'Super Portfolio independent market universe' for row in pipeline.get('candidates',[])):
         raise ValueError('Restart requires documented ordinary market-pipeline candidates')
@@ -304,4 +362,4 @@ def super_portfolio(*,period_id,run_id,at,evidence,config,pipeline,rebalance_pol
         return dict(family='super_portfolio',period_id=period_id,run_id=run_id,
                     changes=result['changes'],entry_gate=result['entry_gate'],ranking=result['snapshot']['ranking'])
     return run(period_id=period_id,family='super_portfolio',run_id=run_id,at=at,evidence=evidence,settings=config,
-               operation=operation,strategy_input=dict(pipeline=pipeline,rebalance_policy=rebalance_policy),account_ref=account_ref,storage=storage)
+               operation=operation,strategy_input=dict(pipeline=pipeline,rebalance_policy=rebalance_policy),account_ref=account_ref,storage=storage,routing_input=routing_input)

@@ -1,7 +1,8 @@
 """Prepare fresh, separately namespaced simulation periods after archive review.
 
-No legacy reset or production activation. Learning stays in its existing stores.
-The economic ledger owns balances; historical model state is never a fallback.
+No legacy reset. Production mutations require the explicit operator path in
+production_restart. Learning stays in its existing stores. The economic ledger
+owns balances; historical model state is never a fallback.
 """
 from copy import deepcopy
 import os
@@ -95,13 +96,23 @@ class AccountStorage:
         return deepcopy(bundle['accounts'][family])
     def mutate_json(self,key,transform,default=None):
         family=self._family(key)
+        if os.getenv('APP_ENVIRONMENT','production').lower()=='production':
+            from services.restart_trading import Memory
+            if not isinstance(self.storage,Memory):
+                from services.production_restart import require_backend
+                require_backend(self.storage)
         def mutation(bundle):
             if not bundle or bundle.get('status')!='PREPARED_NOT_ACTIVE':
                 raise ValueError('Explicit prepared restart period required')
             verify_bundle(bundle)
             current=deepcopy(bundle['accounts'][family]);candidate=transform(current)
-            if candidate.get('status')!='DRAFT' and os.getenv('APP_ENVIRONMENT','production').lower()!='test':
-                raise ValueError('Restart activation is not implemented for production or development')
+            previous=bundle['accounts'][family]
+            if candidate.get('events',[])[:len(previous['events'])]!=previous['events']:
+                raise ValueError('Existing economic journal cannot be rewritten or truncated')
+            if (previous.get('status')!='DRAFT' or candidate.get('status')!='DRAFT') and os.getenv('APP_ENVIRONMENT','production').lower()!='test':
+                from services.production_restart import permitted
+                if not permitted(bundle['period_id'],family):
+                    raise ValueError('Explicit operator authorization or selected production job required')
             result=deepcopy(bundle);result['accounts'][family]=candidate
             verify_bundle(result)
             return result
@@ -114,7 +125,7 @@ def report(period_id, *, storage=None, at=None):
     bundle=scoped.storage.read_json(scoped.key,None)
     if not bundle:raise ValueError('Unknown period; no legacy fallback')
     verify_bundle(bundle)
-    return dict(period_id=period_id,status=bundle['status'],start_at=bundle['start_at'],
+    return dict(period_id=period_id,status='PRODUCTION_AUTHORIZED' if bundle.get('production_controls') else bundle['status'],start_at=bundle['start_at'],
         archive=deepcopy(bundle['archive']),capital_kind=bundle['capital_kind'],
         learning_reset=False,legacy_positions_transferred=False,
         prior_learning='BEVART – EGEN STRATEGILÆRING, IKKE NYTT ØKONOMISK RESULTAT',
@@ -123,7 +134,7 @@ def report(period_id, *, storage=None, at=None):
 
 
 def verify_bundle(bundle):
-    immutable={k:v for k,v in bundle.items() if k not in {'accounts','preparation_sha256'}}
+    immutable={k:v for k,v in bundle.items() if k not in {'accounts','preparation_sha256','production_controls'}}
     if digest(immutable)!=bundle.get('preparation_sha256') or set(bundle['accounts'])!=set(CAPITALS):
         raise ValueError('Restart preparation integrity failure')
     for family,doc in bundle['accounts'].items():

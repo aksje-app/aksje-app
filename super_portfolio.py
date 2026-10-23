@@ -53,6 +53,10 @@ def _operation_id(pipeline):
 
 def _execution_quotes(tickers, now):
     """Execution prices have their own provider timestamps, never scan timestamps."""
+    from services.restart_trading import current
+    session=current('super_portfolio')
+    if session:
+        return {t:dict(price=session.quote(t)['price'],market_data_at=session.quote(t)['observed_at'],source=session.quote(t)['source'],adjustment='raw') for t in tickers}
     from scanner_fresh_quote import fresh_paper_buy_quote
     quotes = {}
     for ticker in tickers:
@@ -449,7 +453,15 @@ def default_state(config: SuperPortfolioConfig | None = None) -> dict[str, Any]:
 
 
 def load_state() -> dict[str, Any]:
+    from services.production_routing import view
+    selected=view('super_portfolio')
+    if selected is not None:return selected
     value = read_json(STATE_KEY, STATE_PATH, {})
+    return _normalized_loaded_state(value)
+
+
+def _normalized_loaded_state(value):
+    """Existing configuration normalization, also usable by read-only operators."""
     state = dict(value) if isinstance(value, Mapping) and value else default_state()
     # RC16.32r safety migration: old persisted 7/10/15–18% stop settings must
     # never survive a deploy. Volatility may reduce position size, but it may
@@ -485,6 +497,13 @@ def load_state() -> dict[str, Any]:
 
 
 def save_state(state: Mapping[str, Any]) -> dict[str, Any]:
+    from services.restart_trading import current
+    session=current('super_portfolio')
+    if session:
+        session.save_strategy(state)
+        return dict(state)
+    from services.production_routing import guard_legacy_write
+    guard_legacy_write('super_portfolio')
     value = dict(state)
     value["version"] = VERSION
     value["updated_at"] = _now()
@@ -2206,6 +2225,10 @@ def evaluate(*, pipeline: Mapping[str, Any] | None = None, persist: bool = True,
     if restart_context is not None:
         from services.restart_trading import super_portfolio
         return super_portfolio(**restart_context,pipeline=pipeline,rebalance_policy=rebalance_policy)
+    if simulation_state is None:
+        from services.production_routing import super_portfolio as route_super_portfolio
+        routed=route_super_portfolio(pipeline,rebalance_policy)
+        if routed is not None:return routed
     if simulation_state is not None and (persist or pipeline is None):
         raise ValueError("Simulation requires frozen pipeline and persist=False")
     pipeline = dict(pipeline if pipeline is not None else get_or_build_super_portfolio_market_pipeline())
@@ -3111,6 +3134,12 @@ def run_lightweight_stop_surveillance(
     This path cannot add, rank or rebalance positions. Missing/stale provider
     data causes no sale; the next scheduled cycle retries after the interval.
     """
+    from services.restart_trading import current
+    session=current('super_portfolio')
+    if session is None:
+        from services.production_routing import super_risk
+        routed=super_risk(at=now)
+        if routed is not None:return routed
     data = deepcopy(dict(state or load_state()))
     accounting_before = deepcopy(data)
     reference = now or _now_dt()
@@ -3238,8 +3267,9 @@ def run_lightweight_stop_surveillance(
     identity = [(t, previous[t].get("position_id") or previous[t].get("entry_date"), q.get("market_data_at")) for t, q in sorted(prices.items())]
     operation_id = "stop:" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     from services.super_portfolio_accounting import settle
-    accounting = settle(accounting_before, positions, changes, operation_id=operation_id,
-                        decision_at=reference.isoformat(timespec="seconds"), cost_bps=cfg.transaction_cost_bps)
+    accounting = (session.settle_targets(accounting_before,positions,changes,reference.isoformat(timespec="seconds")) if session else
+        settle(accounting_before, positions, changes, operation_id=operation_id,
+                        decision_at=reference.isoformat(timespec="seconds"), cost_bps=cfg.transaction_cost_bps))
     changes = accounting.pop("transactions")
     data.update(accounting)
     data["vacancy_diagnostics"].update(cash=accounting["cash"],
@@ -3252,6 +3282,9 @@ def run_lightweight_stop_surveillance(
         data["_pending_commit"] = {"operation_id": operation_id, "transactions": changes}
     data = save_state(data)
 
+    if session:
+        return {'state':'COMPLETED','changes':changes,'stop_alerts':alerts,'notification':'NOT_SENT',
+            'checked_positions':len(previous),'accounting':'AUTHORITATIVE_NOK_JOURNAL'}
     notification = "NOT_SENT"
     if alerts and bool((data.get("config") or {}).get("auto_pushover", True)):
         ok, detail = notify_stop_alerts(alerts, data)
@@ -3284,6 +3317,9 @@ def run_scheduled_shadow_cycle(
     Normal scheduled runs use AUTO policy: daily analysis/stop surveillance,
     weekly ordinary rebalancing, immediate hard-stop exits.
     """
+    from services.production_routing import super_portfolio as route_super_portfolio
+    routed=route_super_portfolio(pipeline,'AUTO',scheduled=True)
+    if routed is not None:return routed
     state = load_state()
     config_data = state.get("config") if isinstance(state.get("config"), Mapping) else {}
     allowed = set(SuperPortfolioConfig.__dataclass_fields__)

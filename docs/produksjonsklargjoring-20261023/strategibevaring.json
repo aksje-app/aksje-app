@@ -1,0 +1,10 @@
+{
+  "baseline": "43c756095dcf9b72e3171c87ec798b10b173d837",
+  "upstream_pipeline_ast_identical": true,
+  "learning_probe_gates_and_body_ast_identical": true,
+  "new_helpers": [
+    "prepare_cycle_candidates",
+    "open_learning_probes",
+    "sync_learning_account"
+  ]
+}

@@ -1,0 +1,14 @@
+2563 passed, 4 subtests passed in 521.76s
+0 failures, 0 errors, 0 skips.
+97 browser cases; 77 PostgreSQL-backed cases (including 6 browser cases).
+50 production lifecycle/regression cases; 6 approved-account PC/mobile browser cases.
+All original 99 regression cases passed.
+PR166 combination: 154 passed, 0 skipped in 96.03s.
+Additional real worker/orchestrator/AUTO probes: 3 passed.
+Superfund: 12 economic checkpoints in 3 currencies identical to main.
+24 release contracts; 5 Node sharing paths; dependency/runtime guards passed.
+Counts from overlapping runs must not be added.
+
+Live daily OHLC: 2 failed, CONNECT proxy HTTP 403. NOT VERIFIED.
+Live intraday CLI: MYCR.ST, MSFT, SEKNOK=X, USDNOK=X NOT VERIFIED; exit 2; no orders.
+No actual production data access/write/archive/reset/activation. No merge/deploy.

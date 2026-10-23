@@ -168,6 +168,16 @@ jobs:
           PYTHONPATH: .
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
         run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py tests/test_revision_trade_postgres.py
+      - name: Production-mode NOK lifecycle and PC/mobile exports on isolated PostgreSQL
+        env:
+          PYTHONPATH: .
+          APP_ENVIRONMENT: test
+          APP_RUNTIME_ROOT: /tmp/nok-production-gate
+          DATABASE_URL: ""
+          AUTH_DATABASE_URL: ""
+          TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
+          SYSTEM_BROWSER_TEST: "1"
+        run: pytest -q tests/test_production_restart.py tests/test_production_restart_browser.py tests/test_restart_trading.py tests/test_simulation_restart.py tests/test_restart_startup_guards.py
       - name: Set traceable build identifier
         shell: bash
         run: |

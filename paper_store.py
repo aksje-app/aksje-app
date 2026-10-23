@@ -254,6 +254,9 @@ def _save_json(portfolio):
         json.dump(_merge_portfolio(portfolio), f, indent=2, ensure_ascii=False)
 
 def load_portfolio():
+    from services.production_routing import view
+    selected=view('paper')
+    if selected is not None:return selected
     if not using_postgres():
         return _load_json()
 
@@ -404,6 +407,8 @@ def load_portfolio():
         raise StorageUnavailableError("paper_portfolio PostgreSQL load feilet; lokal fallback er blokkert i produksjon") from e
 
 def save_portfolio(portfolio):
+    from services.production_routing import guard_legacy_write
+    guard_legacy_write('paper')
     portfolio = _merge_portfolio(portfolio)
     if not using_postgres():
         _save_json(portfolio)
@@ -478,6 +483,8 @@ def save_portfolio(portfolio):
         raise StorageUnavailableError("paper_portfolio PostgreSQL save feilet; lokal fallback er blokkert i produksjon") from e
 
 def add_trade(portfolio, trade):
+    from services.production_routing import guard_legacy_write
+    guard_legacy_write('paper')
     require_paper_trade(
         str((trade or {}).get("type") or "TRADE"),
         ticker=str((trade or {}).get("ticker") or ""),

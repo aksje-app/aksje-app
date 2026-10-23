@@ -164,6 +164,7 @@ def _evaluate_parallel_strategies_isolated(
 
 from services.restart_trading import current as _restart_session
 
+_NOK_LEARNING = ContextVar('nok_canonical_learning_update',default=False)
 _SIMULATION = ContextVar("autonomy_simulation", default=None)
 
 
@@ -239,6 +240,9 @@ def _read(path: Path, default: Any) -> Any:
 
 
 def _write(path: Path, value: Any) -> None:
+    if path in {PORTFOLIO_PATH,TRADES_PATH,PERFORMANCE_PATH,EQUITY_HISTORY_PATH,PENDING_ENTRIES_PATH,DECISIONS_PATH}:
+        from services.production_routing import guard_legacy_write
+        guard_legacy_write('autonomy')
     if _SIMULATION.get() is not None:
         raise RuntimeError("Production writes are forbidden during simulation")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -593,6 +597,9 @@ def ensure_portfolio_separation() -> dict[str, int]:
     the exact cost basis to the ordinary theoretical portfolio. The migration is
     idempotent and leaves an explicit audit record.
     """
+    from services.production_restart import selected
+    if selected('autonomy',require_running=False) is not None:
+        return {'positions_moved':0,'cash_restored':0}
     params = load_parameters()
     primary = _read(PORTFOLIO_PATH, None)
     primary_created = not isinstance(primary, dict)
@@ -649,6 +656,9 @@ def ensure_portfolio_separation() -> dict[str, int]:
 
 
 def load_portfolio() -> dict[str, Any]:
+    from services.production_routing import view
+    selected=view('autonomy')
+    if selected is not None:return selected
     ensure_portfolio_separation()
     params = load_parameters()
     value = _read(PORTFOLIO_PATH, None)
@@ -1318,6 +1328,8 @@ def _record_learning_trade(trade: dict[str, Any]) -> None:
     rows = _read(LEARNING_TRADES_PATH, [])
     if not isinstance(rows, list):
         rows = []
+    if _NOK_LEARNING.get() and any((row.get('run_id'),row.get('ticker'),row.get('action'))==(trade.get('run_id'),trade.get('ticker'),trade.get('action')) for row in rows):
+        return
     rows.insert(0, trade)
     _write(LEARNING_TRADES_PATH, rows)
     _append_audit("LEARNING_SIMULATED_TRADE", trade)
@@ -1637,6 +1649,7 @@ def portfolio_status_summary(latest_chain: Mapping[str, Any] | None = None) -> d
 
 
 def portfolio_equity(portfolio: Mapping[str, Any]) -> float:
+    if portfolio.get('economic_period_id'):return portfolio['portfolio_value']
     positions = portfolio.get("positions") or {}
     session = _restart_session('autonomy')
     market_value = sum((_f(p.get("quantity")) * _f(p.get("last_price", p.get("average_price")))) *
@@ -1810,6 +1823,338 @@ def _sell(portfolio: dict[str, Any], ticker: str, price: float, reason: str, run
     return trade
 
 
+def prepare_cycle_candidates(original_candidates,portfolio,params,run_id,emit_progress):
+    progress_total=10
+    market_snapshot_row: dict[str, Any] = {}
+    parallel_strategy_run: dict[str, Any] = {}
+    technical_contribution: dict[str, Any] = {}
+    try:
+        snapshot_service = get_market_snapshot_service()
+        market_snapshot = snapshot_service.build_market_snapshot(
+            original_candidates, run_id=run_id, source="autonomy_cycle",
+            metadata={"strategy_family": "autonomy", "candidate_count": len(original_candidates)},
+            progress_callback=lambda completed, total, ticker: emit_progress(
+                0, progress_total,
+                f"Bygger avgrenset markedssnapshot {completed}/{total}", ticker=ticker,
+            ),
+        )
+        market_snapshot_row = market_snapshot.to_dict()
+        emit_progress(0, progress_total, "Lagrer markedssnapshot separat uten å laste historikken")
+        snapshot_service.save(market_snapshot_row)
+        snapshots_by_ticker = {str(row.get("ticker") or "").upper(): row for row in market_snapshot_row.get("candidates", [])}
+        enriched_candidates = []
+        for candidate in original_candidates:
+            row = dict(candidate)
+            snapshot_row = snapshots_by_ticker.get(str(row.get("ticker") or "").upper(), {})
+            for key, value in _candidate_snapshot_metadata(snapshot_row, market_snapshot_row).items():
+                if value:
+                    row.setdefault(key, value)
+            enriched_candidates.append(row)
+        candidates = enriched_candidates
+        emit_progress(1, progress_total, "Markedssnapshot er lagret")
+        try:
+            technical_portfolio = {}
+            try:
+                from paper_trading import load_portfolio as load_paper_portfolio
+                technical_portfolio = load_paper_portfolio() or {}
+            except Exception:
+                technical_portfolio = {}
+            parallel_strategy_run = _evaluate_parallel_strategies_isolated(
+                market_snapshot,
+                run_id=run_id,
+                autonomy_portfolio=portfolio,
+                technical_portfolio=technical_portfolio,
+                params=params,
+            )
+            _append_audit("PARALLEL_STRATEGY_CYCLE_COMPLETED", {
+                "run_id": run_id,
+                "strategy_run_id": parallel_strategy_run.get("strategy_run_id"),
+                "strategies": parallel_strategy_run.get("strategy_count"),
+                "decisions": parallel_strategy_run.get("decision_count"),
+                "errors": parallel_strategy_run.get("error_count"),
+                "execution_authorized": False,
+            })
+            emit_progress(2, progress_total, "Parallelle strategier er vurdert")
+        except Exception as parallel_exc:
+            # A benchmark/challenger failure must never stop Autonomi production.
+            _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
+                "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}",
+                "timeout": isinstance(parallel_exc, ParallelStrategyTimeout),
+                "failed_open": True,
+                "execution_authorized": False,
+            })
+            emit_progress(2, progress_total, "Parallelle strategier ble hoppet over etter kontrollert feil/timeout")
+        try:
+            contribution_result = get_autonomy_technical_contribution_service().apply(
+                candidates, parallel_strategy_run=parallel_strategy_run, run_id=run_id,
+                minimum_investment_score=float(params.minimum_investment_score),
+            )
+            candidates = list(contribution_result.get("candidates") or candidates)
+            technical_contribution = dict(contribution_result.get("summary") or {})
+            _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_COMPLETED", {
+                "run_id": run_id,
+                "applied": technical_contribution.get("applied_count", 0),
+                "wait": technical_contribution.get("wait_count", 0),
+                "threshold_crossings": technical_contribution.get("threshold_crossings", 0),
+                "hard_gates_unchanged": True,
+                "execution_authorized": False,
+            })
+            emit_progress(3, progress_total, "Teknisk strategibidrag er kontrollert")
+        except Exception as technical_exc:
+            # Missing technical contribution must never stop the base Autonomi engine.
+            technical_contribution = {
+                "run_id": run_id, "status": "FAILED_OPEN",
+                "error": f"{type(technical_exc).__name__}: {str(technical_exc)[:500]}",
+                "hard_gates_unchanged": True, "execution_authorized": False,
+            }
+            _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_FAILED_OPEN", technical_contribution)
+    except Exception as exc:
+        _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
+        candidates = original_candidates
+
+    return candidates,market_snapshot_row,parallel_strategy_run,technical_contribution
+
+
+def open_learning_probes(params,portfolio,learning_portfolio,candidates,trades,exited_this_cycle,run_id,market_snapshot_row):
+    learning_decisions=[];learning_trades=[]
+    # v19.0.18: Learning guarantee. If an active theoretical portfolio
+    # received candidates but the ordinary production gates created no BUY,
+    # create a small number of explicitly marked learning-probe positions.
+    # This does not alter real trading, production thresholds or risk limits;
+    # it prevents a week of Autonomi runs from producing zero learning data.
+    normal_buys_this_cycle = [t for t in trades if t.get("action") == "BUY" and not t.get("learning_probe")]
+    if params.enable_learning_probe_buys and not normal_buys_this_cycle and candidates:
+        learning_ranked = sorted(
+            candidates,
+            key=lambda c: (_learning_tier(c) == "VALIDATION", _candidate_entry_score(c)),
+            reverse=True,
+        )
+        learning_count = 0
+        exploration_count = 0
+        growth_count = 0
+        for candidate in learning_ranked:
+            ticker = str(candidate.get("ticker") or "").upper()
+            if not ticker:
+                continue
+            cooldown_blocked, cooldown_reason = _reentry_cooldown(candidate, params)
+            if cooldown_blocked:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                                           "action": "OBSERVE", "reason": cooldown_reason,
+                                           "reason_code": "REENTRY_COOLDOWN", "learning_probe": True})
+                continue
+            learning_tier = _learning_tier(candidate)
+            strategy = _candidate_strategy(candidate)
+            market, benchmark_ticker = _learning_benchmark(candidate)
+            active_cohort_positions = sum(
+                1 for row in learning_portfolio["positions"].values()
+                if isinstance(row, Mapping) and str(row.get("learning_cohort") or "") == APP_VERSION
+            )
+            total_learning_positions = len(learning_portfolio["positions"])
+            if total_learning_positions >= LEARNING_TOTAL_SAFETY_CAP:
+                learning_decisions.append({
+                    "timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                    "action": "OBSERVE", "reason": f"Læringsporteføljen har nådd absolutt sikkerhetsgrense {LEARNING_TOTAL_SAFETY_CAP}",
+                    "reason_code": "LEARNING_TOTAL_SAFETY_CAP", "learning_probe": True,
+                    "learning_tier": learning_tier,
+                })
+                continue
+            if active_cohort_positions >= LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS:
+                learning_decisions.append({
+                    "timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                    "action": "OBSERVE",
+                    "reason": f"Aktiv AV-læringskohort har nådd grensen {LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS}",
+                    "reason_code": "LEARNING_ACTIVE_COHORT_CAP", "learning_probe": True,
+                    "learning_tier": learning_tier, "learning_cohort": APP_VERSION,
+                })
+                continue
+            if ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Finnes allerede i ordinær portefølje, læringsportefølje eller ble lukket i samme syklus", "learning_probe": True})
+                continue
+            if learning_count >= params.learning_probe_max_buys:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Maks {params.learning_probe_max_buys} nye læringsposisjoner per kjøring er nådd", "learning_probe": True})
+                continue
+            if learning_tier == "EXPLORATION" and exploration_count >= LEARNING_MAX_EXPLORATION_BUYS_PER_CYCLE:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Maks én ny utforskende observasjon per kjøring", "reason_code": "LEARNING_EXPLORATION_CAP", "learning_probe": True, "learning_tier": learning_tier})
+                continue
+            if str(strategy).upper() == "GROWTH" and growth_count >= LEARNING_MAX_GROWTH_BUYS_PER_CYCLE:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Maks én ny Growth-observasjon per kjøring", "reason_code": "LEARNING_GROWTH_CAP", "learning_probe": True, "learning_tier": learning_tier})
+                continue
+            base_score = _candidate_score(candidate)
+            score = _candidate_entry_score(candidate)
+            paper_signal = _paper_learning_signal(candidate)
+            paper_buy = paper_signal["paper_signal_action"] == "BUY"
+            if bool(candidate.get("technical_entry_wait")) and not paper_buy:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT", "reason": str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir VENT"), "score": score, "base_score": base_score, **_technical_contribution_metadata(candidate)})
+                continue
+            if score < params.learning_probe_minimum_score:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Under læringsgrense {score:.1f} < {params.learning_probe_minimum_score:.1f} (base {base_score:.1f})", "score": score, "base_score": base_score, **_technical_contribution_metadata(candidate)})
+                continue
+            price = _candidate_price(candidate)
+            if price <= 0:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Mangler gyldig pris for læringskjøp", "score": score})
+                continue
+            risk = _candidate_risk(candidate)
+            quality = _candidate_quality(candidate)
+            if candidate.get("valid_for_decision") is not True:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Markedsdata er ikke beslutningsgyldige for læringskjøp", "score": score, "risk": risk, "learning_probe": True, **paper_signal})
+                continue
+            if candidate.get("evidence_valid_for_decision") is not True:
+                learning_decisions.append({
+                    "timestamp": _now(), "run_id": run_id, "ticker": ticker,
+                    "action": "OBSERVE", "reason": "Evidensen er ikke beslutningsgyldig for ren AV-læring",
+                    "reason_code": "LEARNING_EVIDENCE_INVALID", "score": score, "risk": risk,
+                    "learning_probe": True, "learning_cohort": APP_VERSION, **paper_signal,
+                })
+                continue
+            if risk > params.learning_probe_maximum_risk_score:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Risiko {risk:.1f} over læringsgrense {params.learning_probe_maximum_risk_score:.1f}", "score": score, "risk": risk, "learning_probe": True, **paper_signal})
+                continue
+            production_blockers = _production_blockers_for_learning(candidate, params)
+            # A learning position is a shadow observation with fixed notional.
+            # It does not reserve or deduct ordinary portfolio cash.
+            value = params.learning_probe_notional_value
+            quantity = math.floor(value / price * 10000) / 10000 if price > 0 else 0
+            value = quantity * price
+            sector = str(candidate.get("sector") or "Unknown")
+            if quantity <= 0 or value < 100:
+                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Ugyldig notional for læringsposisjon", "score": score, "learning_probe": True})
+                continue
+            learning_portfolio["positions"][ticker] = {
+                "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
+                "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
+                "opened_at": _now(), "strategy": strategy,
+                "entry_score": score, "entry_base_score": base_score, "entry_risk_score": risk, "entry_data_quality": quality,
+                "source_run_id": run_id, **_candidate_snapshot_metadata(candidate, market_snapshot_row), **_technical_contribution_metadata(candidate), "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
+                "observation_horizon_days": params.learning_probe_horizon_days,
+                "entry_confidence": _f(candidate.get("confidence_score")),
+                "production_blockers_at_entry": production_blockers,
+                "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
+                "learning_tier": learning_tier,
+                "learning_cohort": APP_VERSION,
+                "program_version_at_entry": APP_VERSION,
+                "market": market,
+                "benchmark_ticker": benchmark_ticker,
+                "benchmark_entry_status": "PENDING_MARKET_SERIES",
+                "freshness_status": "FRESH",
+                "evaluation_dates": [], "observation_days": 0, "outcome_measurements": [],
+                **paper_signal,
+                "entry_components": {
+                    "discovery": _f(candidate.get("discovery_score")),
+                    "fundamental": _f(candidate.get("fundamental_score")),
+                    "research": _f(candidate.get("research_score")),
+                    "validation": _f(candidate.get("validation_score")),
+                    "portfolio_fit": _f(candidate.get("portfolio_fit_score")),
+                    "risk_adjustment": 100.0 - risk,
+                },
+            }
+            trade = {
+                "trade_id": f"LT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
+                "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
+                "value": round(value, 2), "pnl": 0.0,
+                "reason": f"Læringskjøp: ingen ordinære kjøp ble utløst. Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
+                "strategy": strategy, "mode": "LEARNING_ONLY", "learning_probe": True, "portfolio_type": "LEARNING",
+                **_candidate_snapshot_metadata(candidate, market_snapshot_row),
+                **_technical_contribution_metadata(candidate),
+                "entry_confidence": _f(candidate.get("confidence_score")),
+                "production_blockers_at_entry": production_blockers,
+                "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
+                "learning_tier": learning_tier,
+                "learning_cohort": APP_VERSION,
+                "program_version_at_entry": APP_VERSION,
+                "market": market,
+                "benchmark_ticker": benchmark_ticker,
+                "benchmark_entry_status": "PENDING_MARKET_SERIES",
+                **paper_signal,
+                "entry_components": {
+                    "discovery": _f(candidate.get("discovery_score")),
+                    "fundamental": _f(candidate.get("fundamental_score")),
+                    "research": _f(candidate.get("research_score")),
+                    "validation": _f(candidate.get("validation_score")),
+                    "portfolio_fit": _f(candidate.get("portfolio_fit_score")),
+                    "risk_adjustment": 100.0 - risk,
+                },
+            }
+            if params.notify_trades:
+                trade["notification"] = _notification(
+                    "LEARNING", f"AUTONOMY · SIMULERT LÆRINGSOBSERVASJON {ticker}",
+                    f"Ingen ordre eller ordinær handel. Simulert observasjon {quantity:g} @ {price:.2f}. {trade['reason']}", trade,
+                )
+            else:
+                trade["notification"] = {"status": "SKIPPED_POLICY", "detail": "Læringsvarsling deaktivert"}
+            _record_learning_trade(trade)
+            learning_trades.append(trade)
+            learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "risk": risk, "learning_probe": True, "learning_tier": learning_tier, "learning_cohort": APP_VERSION, "production_blockers_at_entry": production_blockers, "notification": dict(trade["notification"]), **paper_signal})
+            learning_portfolio["total_entry_notional"] = _f(learning_portfolio.get("total_entry_notional")) + value
+            learning_count += 1
+            exploration_count += int(learning_tier == "EXPLORATION")
+            growth_count += int(str(strategy).upper() == "GROWTH")
+
+    return learning_decisions,learning_trades
+
+
+def sync_learning_account(learning_portfolio,learning_trades,learning_decisions,run_id):
+    account_service=get_strategy_account_service()
+    execution_service=get_simulated_execution_service()
+    # The established learning portfolio has already applied exits, buys,
+    # persistence and notification exactly once above.  Synchronise that
+    # final state into the shared account and mirror its trades to the
+    # common order/fill ledger.  Running a second learning policy here used
+    # to create a contradictory SKIP decision for a ticker already filled
+    # by the established learning portfolio.
+    learning_account = account_service.sync_legacy_account(
+        "autonomy_learning", learning_portfolio,
+        strategy_family="autonomy", strategy_id="autonomy_learning",
+        strategy_version_id="autonomy_learning@2.0.0",
+        display_name="Autonomi læringskonto", role="LEARNING",
+        status=str(learning_portfolio.get("status") or "ACTIVE"), run_id=run_id,
+        metadata={
+            "source": "autonomous_portfolio", "canonical_learning_bridge": True,
+            "accounting_mode": "INDEPENDENT_NOTIONAL_OBSERVATIONS",
+            "entry_notional": round(sum(
+                _f(position.get("quantity")) * _f(position.get("average_price"))
+                for position in (learning_portfolio.get("positions") or {}).values()
+            ), 2),
+        },
+    )
+    learning_orders: list[dict[str, Any]] = []
+    learning_fills: list[dict[str, Any]] = []
+    for legacy_trade in learning_trades:
+        mirror = execution_service.mirror_legacy_trade(
+            account_id="autonomy_learning", trade=legacy_trade, run_id=run_id,
+        )
+        if isinstance(mirror.get("order"), Mapping):
+            learning_orders.append(dict(mirror["order"]))
+        if isinstance(mirror.get("fill"), Mapping):
+            fill = dict(mirror["fill"])
+            fill.update({
+                "action": str(legacy_trade.get("action") or fill.get("side") or "").upper(),
+                "price": legacy_trade.get("price", fill.get("fill_price")),
+                "quantity": legacy_trade.get("quantity", fill.get("quantity")),
+                "score": legacy_trade.get("autonomy_adjusted_investment_score", legacy_trade.get("score")),
+                "risk": legacy_trade.get("risk", legacy_trade.get("entry_risk_score")),
+                "data_quality": legacy_trade.get("data_quality", legacy_trade.get("entry_data_quality")),
+                "reason": legacy_trade.get("reason"),
+                "production_blockers_at_entry": list(legacy_trade.get("production_blockers_at_entry") or []),
+                "notification": dict(legacy_trade.get("notification") or {}),
+            })
+            learning_fills.append(fill)
+    learning_account_result = {
+        "run_id": run_id, "status": "SYNCED_FROM_CANONICAL_LEARNING_PORTFOLIO",
+        "policy": {"source": "established_learning_portfolio", "parameter_change_applied": False},
+        "decisions": [dict(row) for row in learning_decisions],
+        "orders": learning_orders, "fills": learning_fills,
+        "buy_count": sum(str(row.get("side") or row.get("action") or "").upper() == "BUY" for row in learning_fills),
+        "sell_count": sum(str(row.get("side") or row.get("action") or "").upper() == "SELL" for row in learning_fills),
+        "account_metrics": account_service.metrics("autonomy_learning"),
+        "parameter_change_applied": False,
+        "hard_production_gates_unchanged": True,
+        "service_version": "CANONICAL_LEARNING_BRIDGE_1.0",
+        "account": learning_account,
+    }
+
+    return learning_account_result
+
+
 def run_autonomous_cycle(
     candidates: Sequence[Mapping[str, Any]], run_id: str | None = None,
     *, progress_callback: Callable[[Mapping[str, Any]], None] | None = None, restart_context=None,
@@ -1817,6 +2162,10 @@ def run_autonomous_cycle(
     if restart_context is not None:
         from services.restart_trading import autonomy
         return autonomy(**restart_context, candidates=candidates, run_id=run_id)
+    if _SIMULATION.get() is None:
+        from services.production_routing import autonomy as route_autonomy
+        routed=route_autonomy(candidates,run_id)
+        if routed is not None:return routed
     simulation = _SIMULATION.get()
     params = simulation["parameters"] if simulation is not None else load_parameters().normalized()
     portfolio = deepcopy(simulation["portfolio"]) if simulation is not None else load_portfolio()
@@ -1859,89 +2208,8 @@ def run_autonomous_cycle(
     parallel_strategy_run: dict[str, Any] = {}
     technical_contribution: dict[str, Any] = {}
     if simulation is None:
-        try:
-            snapshot_service = get_market_snapshot_service()
-            market_snapshot = snapshot_service.build_market_snapshot(
-                original_candidates, run_id=run_id, source="autonomy_cycle",
-                metadata={"strategy_family": "autonomy", "candidate_count": len(original_candidates)},
-                progress_callback=lambda completed, total, ticker: emit_progress(
-                    0, progress_total,
-                    f"Bygger avgrenset markedssnapshot {completed}/{total}", ticker=ticker,
-                ),
-            )
-            market_snapshot_row = market_snapshot.to_dict()
-            emit_progress(0, progress_total, "Lagrer markedssnapshot separat uten å laste historikken")
-            snapshot_service.save(market_snapshot_row)
-            snapshots_by_ticker = {str(row.get("ticker") or "").upper(): row for row in market_snapshot_row.get("candidates", [])}
-            enriched_candidates = []
-            for candidate in original_candidates:
-                row = dict(candidate)
-                snapshot_row = snapshots_by_ticker.get(str(row.get("ticker") or "").upper(), {})
-                for key, value in _candidate_snapshot_metadata(snapshot_row, market_snapshot_row).items():
-                    if value:
-                        row.setdefault(key, value)
-                enriched_candidates.append(row)
-            candidates = enriched_candidates
-            emit_progress(1, progress_total, "Markedssnapshot er lagret")
-            try:
-                technical_portfolio = {}
-                try:
-                    from paper_trading import load_portfolio as load_paper_portfolio
-                    technical_portfolio = load_paper_portfolio() or {}
-                except Exception:
-                    technical_portfolio = {}
-                parallel_strategy_run = _evaluate_parallel_strategies_isolated(
-                    market_snapshot,
-                    run_id=run_id,
-                    autonomy_portfolio=portfolio,
-                    technical_portfolio=technical_portfolio,
-                    params=params,
-                )
-                _append_audit("PARALLEL_STRATEGY_CYCLE_COMPLETED", {
-                    "run_id": run_id,
-                    "strategy_run_id": parallel_strategy_run.get("strategy_run_id"),
-                    "strategies": parallel_strategy_run.get("strategy_count"),
-                    "decisions": parallel_strategy_run.get("decision_count"),
-                    "errors": parallel_strategy_run.get("error_count"),
-                    "execution_authorized": False,
-                })
-                emit_progress(2, progress_total, "Parallelle strategier er vurdert")
-            except Exception as parallel_exc:
-                # A benchmark/challenger failure must never stop Autonomi production.
-                _append_audit("PARALLEL_STRATEGY_CYCLE_FAILED", {
-                    "run_id": run_id, "error": f"{type(parallel_exc).__name__}: {str(parallel_exc)[:500]}",
-                    "timeout": isinstance(parallel_exc, ParallelStrategyTimeout),
-                    "failed_open": True,
-                    "execution_authorized": False,
-                })
-                emit_progress(2, progress_total, "Parallelle strategier ble hoppet over etter kontrollert feil/timeout")
-            try:
-                contribution_result = get_autonomy_technical_contribution_service().apply(
-                    candidates, parallel_strategy_run=parallel_strategy_run, run_id=run_id,
-                    minimum_investment_score=float(params.minimum_investment_score),
-                )
-                candidates = list(contribution_result.get("candidates") or candidates)
-                technical_contribution = dict(contribution_result.get("summary") or {})
-                _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_COMPLETED", {
-                    "run_id": run_id,
-                    "applied": technical_contribution.get("applied_count", 0),
-                    "wait": technical_contribution.get("wait_count", 0),
-                    "threshold_crossings": technical_contribution.get("threshold_crossings", 0),
-                    "hard_gates_unchanged": True,
-                    "execution_authorized": False,
-                })
-                emit_progress(3, progress_total, "Teknisk strategibidrag er kontrollert")
-            except Exception as technical_exc:
-                # Missing technical contribution must never stop the base Autonomi engine.
-                technical_contribution = {
-                    "run_id": run_id, "status": "FAILED_OPEN",
-                    "error": f"{type(technical_exc).__name__}: {str(technical_exc)[:500]}",
-                    "hard_gates_unchanged": True, "execution_authorized": False,
-                }
-                _append_audit("AUTONOMY_TECHNICAL_CONTRIBUTION_FAILED_OPEN", technical_contribution)
-        except Exception as exc:
-            _append_audit("MARKET_SNAPSHOT_FAILED", {"run_id": run_id, "error": str(exc)[:500]})
-            candidates = original_candidates
+        candidates,market_snapshot_row,parallel_strategy_run,technical_contribution=prepare_cycle_candidates(
+            original_candidates,portfolio,params,run_id,emit_progress)
     candidate_map = {str(c.get("ticker") or "").upper(): c for c in candidates if str(c.get("ticker") or "").strip()}
     owned_tickers = {str(ticker).upper() for ticker in (portfolio.get("positions") or {})}
     replacement_pool = [
@@ -2264,177 +2532,9 @@ def run_autonomous_cycle(
             pending_entries.pop(ticker, None)
             decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "BUY", "reason": trade["reason"], "price": price, "score": score, "base_score": base_score, "order_intent_created": True, "order_executed": True, "execution_stage": "EXECUTED_AFTER_DECISION_GATE", **_technical_contribution_metadata(candidate)})
 
-        # v19.0.18: Learning guarantee. If an active theoretical portfolio
-        # received candidates but the ordinary production gates created no BUY,
-        # create a small number of explicitly marked learning-probe positions.
-        # This does not alter real trading, production thresholds or risk limits;
-        # it prevents a week of Autonomi runs from producing zero learning data.
-        normal_buys_this_cycle = [t for t in trades if t.get("action") == "BUY" and not t.get("learning_probe")]
-        if params.enable_learning_probe_buys and not normal_buys_this_cycle and candidates:
-            learning_ranked = sorted(
-                candidates,
-                key=lambda c: (_learning_tier(c) == "VALIDATION", _candidate_entry_score(c)),
-                reverse=True,
-            )
-            learning_count = 0
-            exploration_count = 0
-            growth_count = 0
-            for candidate in learning_ranked:
-                ticker = str(candidate.get("ticker") or "").upper()
-                if not ticker:
-                    continue
-                cooldown_blocked, cooldown_reason = _reentry_cooldown(candidate, params)
-                if cooldown_blocked:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker,
-                                               "action": "OBSERVE", "reason": cooldown_reason,
-                                               "reason_code": "REENTRY_COOLDOWN", "learning_probe": True})
-                    continue
-                learning_tier = _learning_tier(candidate)
-                strategy = _candidate_strategy(candidate)
-                market, benchmark_ticker = _learning_benchmark(candidate)
-                active_cohort_positions = sum(
-                    1 for row in learning_portfolio["positions"].values()
-                    if isinstance(row, Mapping) and str(row.get("learning_cohort") or "") == APP_VERSION
-                )
-                total_learning_positions = len(learning_portfolio["positions"])
-                if total_learning_positions >= LEARNING_TOTAL_SAFETY_CAP:
-                    learning_decisions.append({
-                        "timestamp": _now(), "run_id": run_id, "ticker": ticker,
-                        "action": "OBSERVE", "reason": f"Læringsporteføljen har nådd absolutt sikkerhetsgrense {LEARNING_TOTAL_SAFETY_CAP}",
-                        "reason_code": "LEARNING_TOTAL_SAFETY_CAP", "learning_probe": True,
-                        "learning_tier": learning_tier,
-                    })
-                    continue
-                if active_cohort_positions >= LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS:
-                    learning_decisions.append({
-                        "timestamp": _now(), "run_id": run_id, "ticker": ticker,
-                        "action": "OBSERVE",
-                        "reason": f"Aktiv AV-læringskohort har nådd grensen {LEARNING_ACTIVE_COHORT_MAX_OPEN_POSITIONS}",
-                        "reason_code": "LEARNING_ACTIVE_COHORT_CAP", "learning_probe": True,
-                        "learning_tier": learning_tier, "learning_cohort": APP_VERSION,
-                    })
-                    continue
-                if ticker in portfolio["positions"] or ticker in learning_portfolio["positions"] or ticker in exited_this_cycle:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Finnes allerede i ordinær portefølje, læringsportefølje eller ble lukket i samme syklus", "learning_probe": True})
-                    continue
-                if learning_count >= params.learning_probe_max_buys:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Maks {params.learning_probe_max_buys} nye læringsposisjoner per kjøring er nådd", "learning_probe": True})
-                    continue
-                if learning_tier == "EXPLORATION" and exploration_count >= LEARNING_MAX_EXPLORATION_BUYS_PER_CYCLE:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Maks én ny utforskende observasjon per kjøring", "reason_code": "LEARNING_EXPLORATION_CAP", "learning_probe": True, "learning_tier": learning_tier})
-                    continue
-                if str(strategy).upper() == "GROWTH" and growth_count >= LEARNING_MAX_GROWTH_BUYS_PER_CYCLE:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Maks én ny Growth-observasjon per kjøring", "reason_code": "LEARNING_GROWTH_CAP", "learning_probe": True, "learning_tier": learning_tier})
-                    continue
-                base_score = _candidate_score(candidate)
-                score = _candidate_entry_score(candidate)
-                paper_signal = _paper_learning_signal(candidate)
-                paper_buy = paper_signal["paper_signal_action"] == "BUY"
-                if bool(candidate.get("technical_entry_wait")) and not paper_buy:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "WAIT", "reason": str(candidate.get("technical_entry_wait_reason") or "Teknisk timing gir VENT"), "score": score, "base_score": base_score, **_technical_contribution_metadata(candidate)})
-                    continue
-                if score < params.learning_probe_minimum_score:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Under læringsgrense {score:.1f} < {params.learning_probe_minimum_score:.1f} (base {base_score:.1f})", "score": score, "base_score": base_score, **_technical_contribution_metadata(candidate)})
-                    continue
-                price = _candidate_price(candidate)
-                if price <= 0:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Mangler gyldig pris for læringskjøp", "score": score})
-                    continue
-                risk = _candidate_risk(candidate)
-                quality = _candidate_quality(candidate)
-                if candidate.get("valid_for_decision") is not True:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Markedsdata er ikke beslutningsgyldige for læringskjøp", "score": score, "risk": risk, "learning_probe": True, **paper_signal})
-                    continue
-                if candidate.get("evidence_valid_for_decision") is not True:
-                    learning_decisions.append({
-                        "timestamp": _now(), "run_id": run_id, "ticker": ticker,
-                        "action": "OBSERVE", "reason": "Evidensen er ikke beslutningsgyldig for ren AV-læring",
-                        "reason_code": "LEARNING_EVIDENCE_INVALID", "score": score, "risk": risk,
-                        "learning_probe": True, "learning_cohort": APP_VERSION, **paper_signal,
-                    })
-                    continue
-                if risk > params.learning_probe_maximum_risk_score:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": f"Risiko {risk:.1f} over læringsgrense {params.learning_probe_maximum_risk_score:.1f}", "score": score, "risk": risk, "learning_probe": True, **paper_signal})
-                    continue
-                production_blockers = _production_blockers_for_learning(candidate, params)
-                # A learning position is a shadow observation with fixed notional.
-                # It does not reserve or deduct ordinary portfolio cash.
-                value = params.learning_probe_notional_value
-                quantity = math.floor(value / price * 10000) / 10000 if price > 0 else 0
-                value = quantity * price
-                sector = str(candidate.get("sector") or "Unknown")
-                if quantity <= 0 or value < 100:
-                    learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "OBSERVE", "reason": "Ugyldig notional for læringsposisjon", "score": score, "learning_probe": True})
-                    continue
-                learning_portfolio["positions"][ticker] = {
-                    "ticker": ticker, "name": candidate.get("name", ticker), "sector": sector,
-                    "quantity": quantity, "average_price": price, "last_price": price, "highest_price": price,
-                    "opened_at": _now(), "strategy": strategy,
-                    "entry_score": score, "entry_base_score": base_score, "entry_risk_score": risk, "entry_data_quality": quality,
-                    "source_run_id": run_id, **_candidate_snapshot_metadata(candidate, market_snapshot_row), **_technical_contribution_metadata(candidate), "learning_probe": True, "origin": "AUTONOMY_LEARNING_PROBE", "portfolio_type": "LEARNING",
-                    "observation_horizon_days": params.learning_probe_horizon_days,
-                    "entry_confidence": _f(candidate.get("confidence_score")),
-                    "production_blockers_at_entry": production_blockers,
-                    "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
-                    "learning_tier": learning_tier,
-                    "learning_cohort": APP_VERSION,
-                    "program_version_at_entry": APP_VERSION,
-                    "market": market,
-                    "benchmark_ticker": benchmark_ticker,
-                    "benchmark_entry_status": "PENDING_MARKET_SERIES",
-                    "freshness_status": "FRESH",
-                    "evaluation_dates": [], "observation_days": 0, "outcome_measurements": [],
-                    **paper_signal,
-                    "entry_components": {
-                        "discovery": _f(candidate.get("discovery_score")),
-                        "fundamental": _f(candidate.get("fundamental_score")),
-                        "research": _f(candidate.get("research_score")),
-                        "validation": _f(candidate.get("validation_score")),
-                        "portfolio_fit": _f(candidate.get("portfolio_fit_score")),
-                        "risk_adjustment": 100.0 - risk,
-                    },
-                }
-                trade = {
-                    "trade_id": f"LT-{_clock().strftime('%Y%m%d%H%M%S%f')}", "timestamp": _now(), "run_id": run_id,
-                    "action": "BUY", "ticker": ticker, "price": round(price, 4), "quantity": quantity,
-                    "value": round(value, 2), "pnl": 0.0,
-                    "reason": f"Læringskjøp: ingen ordinære kjøp ble utløst. Score {score:.1f}, risiko {risk:.1f}, datakvalitet {quality:.1f}",
-                    "strategy": strategy, "mode": "LEARNING_ONLY", "learning_probe": True, "portfolio_type": "LEARNING",
-                    **_candidate_snapshot_metadata(candidate, market_snapshot_row),
-                    **_technical_contribution_metadata(candidate),
-                    "entry_confidence": _f(candidate.get("confidence_score")),
-                    "production_blockers_at_entry": production_blockers,
-                    "evidence_valid_at_entry": candidate.get("evidence_valid_for_decision") is True,
-                    "learning_tier": learning_tier,
-                    "learning_cohort": APP_VERSION,
-                    "program_version_at_entry": APP_VERSION,
-                    "market": market,
-                    "benchmark_ticker": benchmark_ticker,
-                    "benchmark_entry_status": "PENDING_MARKET_SERIES",
-                    **paper_signal,
-                    "entry_components": {
-                        "discovery": _f(candidate.get("discovery_score")),
-                        "fundamental": _f(candidate.get("fundamental_score")),
-                        "research": _f(candidate.get("research_score")),
-                        "validation": _f(candidate.get("validation_score")),
-                        "portfolio_fit": _f(candidate.get("portfolio_fit_score")),
-                        "risk_adjustment": 100.0 - risk,
-                    },
-                }
-                if params.notify_trades:
-                    trade["notification"] = _notification(
-                        "LEARNING", f"AUTONOMY · SIMULERT LÆRINGSOBSERVASJON {ticker}",
-                        f"Ingen ordre eller ordinær handel. Simulert observasjon {quantity:g} @ {price:.2f}. {trade['reason']}", trade,
-                    )
-                else:
-                    trade["notification"] = {"status": "SKIPPED_POLICY", "detail": "Læringsvarsling deaktivert"}
-                _record_learning_trade(trade)
-                learning_trades.append(trade)
-                learning_decisions.append({"timestamp": _now(), "run_id": run_id, "ticker": ticker, "action": "ADD_OBSERVATION", "reason": trade["reason"], "price": price, "score": score, "risk": risk, "learning_probe": True, "learning_tier": learning_tier, "learning_cohort": APP_VERSION, "production_blockers_at_entry": production_blockers, "notification": dict(trade["notification"]), **paper_signal})
-                learning_portfolio["total_entry_notional"] = _f(learning_portfolio.get("total_entry_notional")) + value
-                learning_count += 1
-                exploration_count += int(learning_tier == "EXPLORATION")
-                growth_count += int(str(strategy).upper() == "GROWTH")
+        probe_decisions,probe_trades=open_learning_probes(params,portfolio,learning_portfolio,
+            candidates,trades,exited_this_cycle,run_id,market_snapshot_row)
+        learning_decisions.extend(probe_decisions);learning_trades.extend(probe_trades)
 
     emit_progress(6, progress_total, "Kjøps- og læringsbeslutninger er ferdige")
 
@@ -2550,62 +2650,7 @@ def run_autonomous_cycle(
             mirrored += int(bool(mirror.get("mirrored")))
         shared_account_sync = {"account_id": main_account.get("account_id"), "mirrored_trades": mirrored}
 
-        # The established learning portfolio has already applied exits, buys,
-        # persistence and notification exactly once above.  Synchronise that
-        # final state into the shared account and mirror its trades to the
-        # common order/fill ledger.  Running a second learning policy here used
-        # to create a contradictory SKIP decision for a ticker already filled
-        # by the established learning portfolio.
-        learning_account = account_service.sync_legacy_account(
-            "autonomy_learning", learning_portfolio,
-            strategy_family="autonomy", strategy_id="autonomy_learning",
-            strategy_version_id="autonomy_learning@2.0.0",
-            display_name="Autonomi læringskonto", role="LEARNING",
-            status=str(learning_portfolio.get("status") or "ACTIVE"), run_id=run_id,
-            metadata={
-                "source": "autonomous_portfolio", "canonical_learning_bridge": True,
-                "accounting_mode": "INDEPENDENT_NOTIONAL_OBSERVATIONS",
-                "entry_notional": round(sum(
-                    _f(position.get("quantity")) * _f(position.get("average_price"))
-                    for position in (learning_portfolio.get("positions") or {}).values()
-                ), 2),
-            },
-        )
-        learning_orders: list[dict[str, Any]] = []
-        learning_fills: list[dict[str, Any]] = []
-        for legacy_trade in learning_trades:
-            mirror = execution_service.mirror_legacy_trade(
-                account_id="autonomy_learning", trade=legacy_trade, run_id=run_id,
-            )
-            if isinstance(mirror.get("order"), Mapping):
-                learning_orders.append(dict(mirror["order"]))
-            if isinstance(mirror.get("fill"), Mapping):
-                fill = dict(mirror["fill"])
-                fill.update({
-                    "action": str(legacy_trade.get("action") or fill.get("side") or "").upper(),
-                    "price": legacy_trade.get("price", fill.get("fill_price")),
-                    "quantity": legacy_trade.get("quantity", fill.get("quantity")),
-                    "score": legacy_trade.get("autonomy_adjusted_investment_score", legacy_trade.get("score")),
-                    "risk": legacy_trade.get("risk", legacy_trade.get("entry_risk_score")),
-                    "data_quality": legacy_trade.get("data_quality", legacy_trade.get("entry_data_quality")),
-                    "reason": legacy_trade.get("reason"),
-                    "production_blockers_at_entry": list(legacy_trade.get("production_blockers_at_entry") or []),
-                    "notification": dict(legacy_trade.get("notification") or {}),
-                })
-                learning_fills.append(fill)
-        learning_account_result = {
-            "run_id": run_id, "status": "SYNCED_FROM_CANONICAL_LEARNING_PORTFOLIO",
-            "policy": {"source": "established_learning_portfolio", "parameter_change_applied": False},
-            "decisions": [dict(row) for row in learning_decisions],
-            "orders": learning_orders, "fills": learning_fills,
-            "buy_count": sum(str(row.get("side") or row.get("action") or "").upper() == "BUY" for row in learning_fills),
-            "sell_count": sum(str(row.get("side") or row.get("action") or "").upper() == "SELL" for row in learning_fills),
-            "account_metrics": account_service.metrics("autonomy_learning"),
-            "parameter_change_applied": False,
-            "hard_production_gates_unchanged": True,
-            "service_version": "CANONICAL_LEARNING_BRIDGE_1.0",
-            "account": learning_account,
-        }
+        learning_account_result=sync_learning_account(learning_portfolio,learning_trades,learning_decisions,run_id)
         analysis_rows = []
         for decision in list(decisions):
             ticker = str(decision.get("ticker") or "").upper()
@@ -2717,7 +2762,16 @@ def run_autonomous_cycle(
 
 def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
     portfolio = dict(portfolio or load_portfolio())
-    trades = _read(TRADES_PATH, [])
+    if portfolio.get('economic_period_id'):
+        from services.production_routing import metrics
+        result=metrics('autonomy')
+        sells=[t for t in portfolio['trades'] if t['action']=='SELL']
+        wins=[t for t in sells if t['pnl']>0];losses=[t for t in sells if t['pnl']<0]
+        gross_profit=sum(t['pnl'] for t in wins);gross_loss=abs(sum(t['pnl'] for t in losses))
+        return {**result,'updated_at':_now(),'closed_trades':len(sells),
+            'win_rate_pct':len(wins)/len(sells)*100 if sells else 0,
+            'profit_factor':gross_profit/gross_loss if gross_loss else (999.0 if gross_profit else 0)}
+    trades = portfolio['trades'] if portfolio.get('economic_period_id') else _read(TRADES_PATH, [])
     sells = [t for t in trades if t.get("action") in {"SELL", "SELL_PARTIAL"}] if isinstance(trades, list) else []
     wins = [t for t in sells if _f(t.get("pnl")) > 0]
     losses = [t for t in sells if _f(t.get("pnl")) < 0]
@@ -2728,8 +2782,8 @@ def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[st
     high = max(_f(portfolio.get("high_watermark"), equity), equity)
     from services.economic_accounting_audit import audit as economic_audit
     return {
-        "economic_verification": economic_audit(portfolio, trades if isinstance(trades, list) else []),
-        "return_basis": "LEGACY_LOCAL_PRICE_MODEL_GROSS_OF_UNBOOKED_COSTS",
+        "economic_verification": portfolio.get('economic_verification') or economic_audit(portfolio, trades if isinstance(trades, list) else []),
+        "return_basis": "DOCUMENTED_NOK_NET" if portfolio.get('economic_period_id') else "LEGACY_LOCAL_PRICE_MODEL_GROSS_OF_UNBOOKED_COSTS",
         "updated_at": _now(), "equity": round(equity, 2), "cash": round(_f(portfolio.get("cash")), 2),
         "total_return_pct": round((equity / initial - 1) * 100, 2) if initial else 0.0,
         "realized_pnl": round(_f(portfolio.get("realized_pnl")), 2),
@@ -3234,6 +3288,9 @@ def render_autonomous_portfolio(view: str = "autonomous") -> None:
     if str(view).lower() == "learning":
         render_learning_portfolio()
         return
+
+    from ui.simulation_restart import render_active
+    if render_active(st,'autonomy'):return
 
     st.markdown("#### 📈 Autonom portefølje")
     st.caption("Den ordinære, teoretiske porteføljen som styres av Autonomi. Bare kandidater som består ordinære kjøpsporter påvirker beholdning, kontanter, risiko og porteføljeavkastning. Læringsobservasjoner føres separat.")

@@ -18,6 +18,8 @@ def _terminal_job_needs_app_refresh(job, refreshed_run_id: str) -> bool:
 def render_super_portfolio(_legacy_context) -> None:
     from ui.legacy_context import bind_legacy_context
     bind_legacy_context(globals(), _legacy_context, preserve={"render_super_portfolio"})
+    from ui.simulation_restart import render_active
+    if render_active(st,'super_portfolio'):return
     import pandas as pd
     from super_portfolio import (
         build_pdf,

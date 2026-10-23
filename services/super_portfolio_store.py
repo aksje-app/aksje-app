@@ -60,6 +60,9 @@ evaluation snapshot. It creates a receipt only, not invented historical fills.
 
 def commit(state, *, operation_id="", trades=(), result=None, storage=None):
     storage = storage or get_storage_service()
+    from services.production_restart import selected
+    if selected('super_portfolio',storage=storage,require_running=False) is not None:
+        raise ValueError('Selected NOK account forbids parallel native balance/journal writes')
     proposed = deepcopy(state)
     expected = int(proposed.get("_revision", 0))
     proposed.pop("_pending_commit", None)

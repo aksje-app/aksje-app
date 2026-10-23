@@ -37,6 +37,9 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
             "autonomous_portfolio/portfolio.json",
             _autonomy_data_path("autonomous_portfolio", "portfolio.json"), {}
         ) or {}
+        from services.production_routing import view
+        _selected=view('autonomy')
+        if _selected is not None:_owned=_selected
         _positions = _owned.get("positions") if isinstance(_owned, dict) else {}
         _positions = _positions if isinstance(_positions, dict) else {}
         st.info(
