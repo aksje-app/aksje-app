@@ -79,8 +79,9 @@ Kostnader trekkes ikke fra to ganger.
 Periodens nettoresultat = NAV − åpnings-NAV.
 Nettoavkastning = NAV / åpnings-NAV − 1, uten eksterne kapitalstrømmer.
 Realisert + urealisert − medbrakt urealisert = periodens nettoresultat.
-Utbytte, splitt, kapitalinn-/utbetalinger og andre selskapsbegivenheter er ikke
-implementert som nye journaltyper. Slike hendelser må avklares før overgang;
+Oppfølgingen har implementert dokumentert utbytte, splitt og kapitalinn-/utbetalinger
+for de tre nye aksjekontoene; se [neste fase](../f3-avstemming-20261023/rapport.md).
+Andre selskapsbegivenheter er ikke generelt støttet. Slike hendelser må avklares før overgang;
 de skal ikke skjules som handelsgevinst eller oppdiktede handler.
 
 Aksjeutførelser krever kurs- og FX-bevis maksimalt 15 minutter gamle ved handel.

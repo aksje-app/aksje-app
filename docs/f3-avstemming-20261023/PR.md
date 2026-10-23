@@ -1,0 +1,7 @@
+F3 utvides med dokumenterte modellutbytter, splitt/reversert splitt og NOK-innskudd/uttak i samme atomiske journal som de nye kontoenes handler. Kapitalflyt skilles fra gevinst med dokumentert før-NAV og tidsvektet avkastningsmåling. Ufullstendige og ikke-støttede hendelser avvises. De nye regnskapsnedlastingene utføres uten app-rerun.
+
+Produksjonsavstemmingen er STOPPET for alle fire kontoer: originalarkivene og skrivebeskyttet Render/PostgreSQL-tilgang finnes ikke i dette miljøet. Tidligere sekundærnotater og syntetiske tester brukes ikke som erstatning. En ny skrivebeskyttet uttrekks- og avstemmingsbane håndhever kildegrunnlag, originaldata utenfor Git og stopp ved mangler. Ingen produksjonsdata, kontoaktivering, migrering, strategiendring, merge eller deploy er utført.
+
+Validert: 2440 tester + 4 deltester, ingen feil/hopp i isolert sluttkjøring; 120 regnskapstester, 15 kildekontrakter, 22 PostgreSQL-tester og 79 nettleserforløp. Alle tidligere 99 feiltilfeller består. 24 releasekontrakter, 70 låste avhengigheter, runtime og fem rapportdelingsforløp består. De to separat kjørte Yahoo-live-testene feiler fortsatt med proxy HTTP 403 og står som IKKE VERIFISERT.
+
+PR-en anbefales ikke godkjent som ferdig F3 før produksjonsdata er avstemt, en dokumentert produksjonskopi har bestått overgangsprøven, ordinær utførelseskilde er kontrollert og leverandørakseptansen er avklart. Full rapport: `docs/f3-avstemming-20261023/rapport.md`.

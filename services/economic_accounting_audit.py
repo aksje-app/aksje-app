@@ -44,6 +44,8 @@ def audit(portfolio, trades=(), *, at=None):
             errors.append('INVALID_OR_FUTURE_OPENING_TIME')
         if any(_time(t.get('timestamp')) is None or _time(t.get('timestamp')) > at for t in trades):
             errors.append('FUTURE_OR_UNDATED_TRADE_AT_VALUATION')
+        if any(_time(e.get('input',{}).get('at')) is None or _time(e['input']['at']) > at for e in portfolio.get('economic_events',[])):
+            errors.append('FUTURE_OR_UNDATED_ECONOMIC_EVENT')
         if portfolio.get('marked_at') and (_time(portfolio['marked_at']) is None or _time(portfolio['marked_at']) > at):
             errors.append('FUTURE_VALUATION_AT_REPORT_TIME')
         try:
@@ -89,16 +91,23 @@ def audit(portfolio, trades=(), *, at=None):
         if cost is None or cost<0 or trade.get('cost_currency')!=base:
             cost_errors.append(str(trade.get('trade_id') or 'UNKNOWN')+':UNVERIFIED_COST')
         else:total_cost+=cost
+    for event in portfolio.get('economic_events',[]):
+        fee=_number(event.get('fee'))
+        if fee is None or fee<0:cost_errors.append('INVALID_EVENT_COST')
+        else:total_cost+=fee
     complete=portfolio.get('history_complete') is True
     initial=_number(portfolio.get('initial_cash'))
     if initial is None or initial<=0:cost_errors.append('MISSING_INITIAL_CASH')
-    if portfolio.get('cash_flows'):cost_errors.append('EXTERNAL_CASH_FLOWS_REQUIRE_TIME_WEIGHTED_RETURN')
+    unitized=portfolio.get('return_method')=='UNITIZED_TWR_V1' and portfolio.get('accounting_schema')=='BASE_CURRENCY_SHARES_V1' and bool(portfolio.get('economic_events'))
+    units=_number(portfolio.get('performance_units')) if unitized else initial
+    if unitized and (units is None or units<=0):cost_errors.append('INVALID_PERFORMANCE_UNITS')
+    if portfolio.get('cash_flows') and not unitized:cost_errors.append('EXTERNAL_CASH_FLOWS_REQUIRE_TIME_WEIGHTED_RETURN')
     # External cash flows require a proper time-weighted return, not this
     # constant-capital formula. Do not quietly treat deposits as profits.
-    returns_verified=nav is not None and complete and not cost_errors and initial is not None and initial>0 and not portfolio.get('cash_flows')
+    returns_verified=nav is not None and complete and not cost_errors and initial is not None and initial>0 and (not portfolio.get('cash_flows') or unitized)
     return {'status':'BESTÅTT' if returns_verified else 'IKKE VERIFISERT',
             'base_currency':base or None,'verified_nav':nav,'converted_position_values':values,
-            'verified_net_return_pct':round((nav/initial-1)*100,6) if returns_verified else None,
+            'verified_net_return_pct':round((nav/units-1)*100,6) if returns_verified else None,
             'documented_costs':round(total_cost,6),'history_complete':complete,
             'issues':errors+cost_errors+([] if complete else ['INCOMPLETE_TRANSACTION_HISTORY']),
             'legacy_state_changed':False}

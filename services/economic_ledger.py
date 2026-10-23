@@ -93,6 +93,8 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
             if any(old.get(key) != value for key, value in request.items()):
                 raise ValueError('Trade ID reused with different economic input')
             return deepcopy(portfolio), deepcopy(old)
+    if stamp(at) < stamp(portfolio.get('last_economic_at',portfolio['created_at'])):
+        raise ValueError('Trade predates the last economic event')
     if stamp(at) < stamp(portfolio['created_at']):
         raise ValueError('Trade predates the opening balance')
     if portfolio.get('trades') and stamp(at) < stamp(portfolio['trades'][-1]['timestamp']):
@@ -139,6 +141,8 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
     result['fees_paid'] = number(result.get('fees_paid', 0))+costs
     result['realized_pnl'] = float(result.get('realized_pnl', 0))+pnl
     request['pnl'] = pnl
+    if 'economic_entries' in result:
+        result['economic_entries'].append({'kind':'FILL','id':trade_id})
     result.setdefault('trades', []).append(request)
     return result, deepcopy(request)
 
@@ -147,6 +151,9 @@ def reconcile(portfolio):
     """Prove cash and remaining shares from the complete, recorded opening balance."""
     if portfolio.get('accounting_schema') != SCHEMA:
         return ['UNVERIFIED_OPENING_BALANCE']
+    if portfolio.get('economic_events'):
+        from services.economic_events import reconcile_events
+        return reconcile_events(portfolio)
     opening = portfolio.get('opening_balance')
     if opening:
         from services.economic_opening import opening_account

@@ -26,17 +26,23 @@ def render(st, family):
             if verified['verified_nav'] is not None:
                 st.metric('Dokumentert NAV NOK',f"{verified['verified_nav']:,.2f}")
                 st.metric('Nettoresultat siden periodestart NOK',f"{period['period_net_pnl_nok']:,.2f}")
+                if verified['verified_net_return_pct'] is not None:
+                    st.metric('Nettoavkastning %',f"{verified['verified_net_return_pct']:,.4f}")
+                st.caption('Tidsvektet avkastning med dokumentert NAV ved kapitalbevegelser.' if period.get('return_method')=='UNITIZED_TWR_V1' else 'Avkastning siden dokumentert periodestart.')
+                st.write({'Netto innskudd/uttak NOK':period.get('external_net_flows_nok',0),
+                          'Netto utbytte NOK':period.get('dividend_income_nok',0),
+                          'Kildeskatt NOK':period.get('withholding_nok',0)})
                 st.write({'Realisert NOK':period['realized_pnl_nok'], 'Urealisert NOK':period['unrealized_pnl_nok'],
                           'Medbrakt urealisert ved åpning NOK':period['carried_opening_unrealized_nok'],
                           'Kontanter NOK':period['cash_nok'], 'Kostnader NOK':period['costs_nok']})
             if verified['issues']:st.write(verified['issues'])
         st.download_button('Last ned NOK-regnskap og journal (JSON)',
             json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False).encode(),
-            file_name=family+'_nok_regnskap.json', mime='application/json', key=family+'_nok_json')
+            file_name=family+'_nok_regnskap.json', mime='application/json', key=family+'_nok_json', on_click='ignore')
         if period:
             out=io.StringIO(); writer=csv.writer(out)
             writer.writerow(['Sekvens','Type','Forrige SHA256','SHA256','Dokumenterte opplysninger JSON'])
             for row in period['journal']:
                 writer.writerow([row['sequence'],row['kind'],row['previous_hash'],row['hash'],json.dumps(row['payload'],ensure_ascii=False)])
             st.download_button('Last ned full NOK-journal (CSV)',out.getvalue().encode('utf-8-sig'),
-                file_name=family+'_nok_journal.csv',mime='text/csv',key=family+'_nok_csv')
+                file_name=family+'_nok_journal.csv',mime='text/csv',key=family+'_nok_csv',on_click='ignore')

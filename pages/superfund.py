@@ -37,7 +37,7 @@ def _render_superfund(st):
         if native_accounting['issues']:st.write(native_accounting['issues'])
         st.download_button('Last ned Superfond NOK-avstemming (JSON)',
             json.dumps({'verification':native_accounting,'model':model},ensure_ascii=False,indent=2).encode(),
-            file_name='superfond_nok_avstemming.json',mime='application/json',key='sf_nok_json')
+            file_name='superfond_nok_avstemming.json',mime='application/json',key='sf_nok_json',on_click='ignore')
     from superfund_history_progress_view import render as render_fund_history
     render_fund_history(st,s)
     index=read('catalog_index.json',{})

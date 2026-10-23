@@ -69,6 +69,10 @@ def verify(doc):
             if approval is None:
                 raise ValueError('Unapproved fill')
             account, _ = execute(account, **payload)
+        elif event['kind'] == 'ECONOMIC_EVENT':
+            if approval is None:raise ValueError('Unapproved economic event')
+            from services.economic_events import book_event
+            account = book_event(account, payload)
         elif event['kind'] == 'MARK':
             if approval is None:
                 raise ValueError('Unapproved mark')
@@ -167,7 +171,7 @@ def settle(family, fill, *, storage=None):
 def _marks(account, *, marks, at):
     if set(marks) != set(account['positions']):
         raise ValueError('Complete marks for all open positions required')
-    if stamp(at) < max(stamp(account.get('marked_at',account['created_at'])),
+    if stamp(at) < max(stamp(account.get('last_economic_at',account['created_at'])),stamp(account.get('marked_at',account['created_at'])),
                        stamp(account['trades'][-1]['timestamp'] if account['trades'] else account['created_at'])):
         raise ValueError('Out-of-order valuation')
     result = deepcopy(account)
@@ -217,7 +221,8 @@ def report(family, *, storage=None, at=None):
     nav = checked['verified_nav']
     basis = sum(p['cost_basis_base'] for p in account['positions'].values())
     opening_basis = sum(p['cost_basis_base'] for p in account['opening_balance']['positions'].values())
-    costs = {k:sum(t['cost_components'][k] for t in account['trades'])
+    costs = {k:sum(t['cost_components'][k] for t in account['trades'])+
+               sum(e['input']['cost_components'][k] for e in account.get('economic_events',[]))
              for k in ('brokerage_nok','fx_cost_nok','other_nok')}
     result.update(status=doc['status'], missing_opening_evidence=[],
         new_period=dict(start_at=account['created_at'], opening_nav_nok=account['initial_cash'],
@@ -226,7 +231,26 @@ def report(family, *, storage=None, at=None):
             realized_pnl_nok=account['realized_pnl'],
             unrealized_pnl_nok=nav-account['cash']-basis if nav is not None else None,
             carried_opening_unrealized_nok=account['initial_cash']-account['opening_balance']['cash']-opening_basis,
-            period_net_pnl_nok=nav-account['initial_cash'] if nav is not None else None,
+            period_net_pnl_nok=nav-account['initial_cash']-sum(f['amount_nok'] for f in account.get('cash_flows',[])) if nav is not None else None,
+            external_net_flows_nok=sum(f['amount_nok'] for f in account.get('cash_flows',[])),
+            dividend_income_nok=account.get('dividend_income_nok',0), withholding_nok=account.get('withholding_nok',0),
+            return_method=account.get('return_method','CONSTANT_CAPITAL'), economic_events=account.get('economic_events',[]),
             costs_nok=costs, journal=doc['events'], trades=account['trades'],
             opening_document=account['opening_document']))
     return result
+
+
+def record_event(family, event, *, storage=None):
+    """One authoritative family journal for documented non-trade events."""
+    from services.economic_events import book_event
+    def mutation(current):
+        verify(current)
+        if not current or current['status']!='ACTIVE':raise ValueError('Approved active NOK period required')
+        _require_scope(current)
+        if stamp(event['at'])<stamp(current['approval']['approved_at']):raise ValueError('Event predates approval')
+        result=deepcopy(current)
+        result['account']=book_event(current['account'],event)
+        if result['account']!=current['account']:_append(result,'ECONOMIC_EVENT',event)
+        verify(result)
+        return result
+    return (storage or get_storage_service()).mutate_json(key(family),mutation)

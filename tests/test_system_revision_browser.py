@@ -276,6 +276,7 @@ def test_native_fund_accounting_download_preserves_model(app_server,width):
         page.goto(app_server+'/?aa_nav=superfund')
         panel=page.locator('[data-testid="stExpander"]').filter(has_text='NOK-regnskap – Superfonds eksisterende modell')
         panel.locator('summary').wait_for(timeout=45000);panel.locator('summary').click()
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=45000)
         with page.expect_download() as download:
             panel.get_by_role('button',name='Last ned Superfond NOK-avstemming (JSON)',exact=True).click()
         data=json.loads(Path(download.value.path()).read_bytes())
@@ -284,3 +285,44 @@ def test_native_fund_accounting_download_preserves_model(app_server,width):
         assert data['verification']['verified_nav_nok'] is None
         assert not page.locator('[data-testid="stException"]').count()
         browser.close()
+
+
+@pytest.mark.parametrize('width',[1280,375])
+def test_documented_model_dividend_and_cashflow_report(app_server,width):
+    """UI integration with synthetic isolated model evidence, not production."""
+    from playwright.sync_api import sync_playwright
+    from services.storage_service import StorageService
+    from services import portfolio_accounting as accounting
+    from test_economic_events import event,mark
+    from test_portfolio_accounting import AT,quote,opening
+    storage=StorageService(app_server.runtime_root/'data'/'services',database_url='',mode='local')
+    assert str(storage.base_dir).startswith('/tmp/aksje-browser-')
+    doc=storage.read_json(accounting.key('paper'))
+    if not doc:
+        doc=accounting.prepare('paper',opening(True),prepared_by='TEST ONLY isolated browser',storage=storage)
+    if doc['status']=='DRAFT':
+        accounting.approve('paper',dict(approved_by='TEST ONLY browser reviewer',approval_ref='TEST ONLY model test',
+            family='paper',opening_sha256=doc['opening_sha256'],start_at=doc['account']['created_at'],approved_at=AT,scope='test'),storage=storage)
+    accounting.record_event('paper',event('DIVIDEND','BROWSER-DIV',ticker='TEST',entitlement_at=AT,
+        entitlement_source_ref='TEST ONLY model entitlement',entitled_quantity=10,per_share_local=1,
+        currency='USD',fx_quote=quote(),withholding_nok=15),storage=storage)
+    accounting.record_event('paper',event('DEPOSIT','BROWSER-CAP',amount_nok=1000,
+        valuation_marks={'TEST':mark()}),storage=storage)
+    before=storage.read_json(accounting.key('paper'))
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
+        page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+        page.goto(app_server+'/?aa_nav=paper_trading')
+        panel=page.locator('[data-testid="stExpander"]').filter(has_text='NOK-regnskap – dokumentert periode og historikk')
+        panel.locator('summary').wait_for(timeout=45000);panel.locator('summary').click()
+        panel.get_by_text('Tidsvektet avkastning med dokumentert NAV ved kapitalbevegelser.',exact=True).wait_for()
+        with page.expect_download() as download:
+            panel.get_by_role('button',name='Last ned NOK-regnskap og journal (JSON)',exact=True).click()
+        result=json.loads(Path(download.value.path()).read_bytes())['new_period']
+        assert result['dividend_income_nok']==85
+        assert result['external_net_flows_nok']==1000
+        assert result['period_net_pnl_nok']==85
+        assert result['verification']['status']=='BESTÅTT'
+        assert not page.locator('[data-testid="stException"]').count()
+        browser.close()
+    assert storage.read_json(accounting.key('paper'))==before
