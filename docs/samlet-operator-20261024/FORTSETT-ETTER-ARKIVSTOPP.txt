@@ -104,9 +104,30 @@ def private_job(path):
     return work,plan
 
 
+def rollback_close(connection):
+    """A broken connection during cleanup must not replace the original error."""
+    failure_pending=sys.exc_info()[0] is not None
+    cleanup_error=None
+    try:
+        if not connection.closed:connection.rollback()
+    except Exception as error:cleanup_error=error
+    try:connection.close()
+    except Exception as error:
+        if cleanup_error is None:cleanup_error=error
+    if cleanup_error is not None and not failure_pending:raise cleanup_error
+
+
+class FingerprintChildError(RuntimeError):
+    def __init__(self,failure):
+        super().__init__('Read-only fingerprint child failed; original cause preserved')
+        self.fingerprint_failure=failure
+
+
 class OneRowCursor:
     """No thousand-row libpq batches; preserve the core canonical JSON algorithm."""
-    def __init__(self,cursor):
+    def __init__(self,cursor,progress):
+        self.progress=progress
+        self.progress.update(table_index=self.progress.get('table_index',0)+1,rows_fetched_this_table=0)
         self.cursor=cursor
         self.cursor.itersize=1
         self.cursor.arraysize=1
@@ -114,23 +135,36 @@ class OneRowCursor:
     def itersize(self):return 1
     @itersize.setter
     def itersize(self,value):self.cursor.itersize=1
-    def execute(self,*args,**kwargs):return self.cursor.execute(*args,**kwargs)
+    def execute(self,*args,**kwargs):
+        self.progress['phase']='EXECUTE_NAMED_CURSOR'
+        return self.cursor.execute(*args,**kwargs)
     def __enter__(self):
         self.cursor.__enter__()
         return self
-    def __exit__(self,*args):return self.cursor.__exit__(*args)
+    def __exit__(self,*args):
+        try:return self.cursor.__exit__(*args)
+        except Exception:
+            if args[0] is None:raise
+            return False
     def __iter__(self):
         while True:
+            self.progress['phase']='FETCH_ONE_ROW'
             row=self.cursor.fetchone()
             if row is None:return
+            self.progress['rows_fetched_this_table']+=1
+            self.progress['rows_fetched_total']=self.progress.get('rows_fetched_total',0)+1
+            self.progress['last_row_characters']=len(row[0])
+            self.progress['max_row_characters']=max(self.progress.get('max_row_characters',0),len(row[0]))
+            self.progress['phase']='CANONICALIZE_AND_HASH_ROW'
             yield row
 
 
 class OneRowConnection:
-    def __init__(self,connection):self.connection=connection
+    def __init__(self,connection,progress=None):
+        self.connection=connection;self.progress=progress if progress is not None else {}
     def cursor(self,*args,**kwargs):
         result=self.connection.cursor(*args,**kwargs)
-        return OneRowCursor(result) if kwargs.get('name') or (args and args[0]) else result
+        return OneRowCursor(result,self.progress) if kwargs.get('name') or (args and args[0]) else result
 
 
 def fingerprint_child(work):
@@ -145,16 +179,20 @@ def fingerprint_child(work):
     import psycopg2
     from services.simulation_archive import database_fingerprint
     connection=psycopg2.connect(**request['parameters'])
+    progress={'phase':'IMPORT_SNAPSHOT'}
     try:
         connection.set_session(readonly=True,isolation_level='REPEATABLE READ',autocommit=False)
         with connection.cursor() as cursor:
             cursor.execute('SET TRANSACTION SNAPSHOT %s',(snapshot,))
             cursor.execute('SHOW transaction_read_only')
             if cursor.fetchone()[0]!='on':raise ValueError('Fingerprint must remain read-only')
-        value=database_fingerprint(OneRowConnection(connection),ignore_period=request.get('ignore_period'))
-        print(json.dumps(dict(status='FINGERPRINT_VERIFIED',fingerprint=value,peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)))
+        value=database_fingerprint(OneRowConnection(connection,progress),ignore_period=request.get('ignore_period'))
+    except Exception as error:
+        error.operator_fingerprint_progress=dict(progress)
+        raise
     finally:
-        connection.rollback();connection.close()
+        rollback_close(connection)
+    print(json.dumps(dict(status='FINGERPRINT_VERIFIED',fingerprint=value,peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)))
 
 
 def install_bounded_fingerprints(archive,work):
@@ -174,7 +212,7 @@ def install_bounded_fingerprints(archive,work):
         try:reply=json.loads(result.stdout)
         except (ValueError,UnicodeDecodeError):raise RuntimeError('Fingerprint child failed without a valid result; no archive approval') from None
         if result.returncode or reply.get('status')!='FINGERPRINT_VERIFIED':
-            raise RuntimeError('Read-only fingerprint child stopped: '+json.dumps(reply,ensure_ascii=False))
+            raise FingerprintChildError(reply)
         print('Read-only fingerprint verified: tables='+str(len(reply['fingerprint']))+'; child peak RSS KiB='+str(reply['peak_rss_kib']),flush=True)
         return reply['fingerprint']
     archive.database_fingerprint=fingerprint
@@ -221,9 +259,13 @@ def sanitized_failure(error):
         except Exception:pass
     for value in sorted(set(redactions),key=len,reverse=True):text=text.replace(value,'[redacted]')
     text=re.sub(r'(?i)postgres(?:ql)?://[^\s]+','[redacted DSN]',text)
-    return dict(error_type=type(error).__name__,sqlstate=getattr(error,'pgcode',None),reason=text[:1800],
+    result=dict(error_type=type(error).__name__,sqlstate=getattr(error,'pgcode',None),reason=text[:1800],
                 frames=[dict(file=Path(frame.filename).name,function=frame.name,line=frame.lineno)
                         for frame in traceback.extract_tb(error.__traceback__)][-10:])
+    if hasattr(error,'operator_fingerprint_progress'):result['progress']=error.operator_fingerprint_progress
+    if isinstance(error,FingerprintChildError):result['original_failure']=error.fingerprint_failure
+    return result
+
 
 
 def main(args):
@@ -426,6 +468,10 @@ if __name__=='__main__':
             if not original.exists():save(original,result)
         except Exception:pass
         print(json.dumps(result,indent=2))
+        if args.action!='fingerprint-readonly':
+            primary=result.get('original_failure',result)
+            print('PRIMARY FAILURE: '+str(primary.get('error_type'))+'; SQLSTATE='+str(primary.get('sqlstate'))+'; '+str(primary.get('reason',''))[:700],flush=True)
+            if primary.get('progress'):print('READ-ONLY PROGRESS: '+json.dumps(primary['progress']),flush=True)
         print('STOPPED '+args.action+'; no automatic fallback.',file=sys.stderr)
         raise SystemExit(1)
 '@

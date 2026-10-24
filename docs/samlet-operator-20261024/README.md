@@ -1,6 +1,6 @@
 [Last ned hele ZIP-pakken](aksje-samlet-operator.zip) (velg Download raw file i GitHub).
 
-**Ved MemoryError i arkivets database_fingerprint:** Vent til den eldre kjøringen er avsluttet, og kopier hele [den oppdaterte fortsettelsesfilen](FORTSETT-ETTER-ARKIVSTOPP.txt) inn i samme PowerShell-vindu. Den inkluderer en minnebegrenset prosess med samme kontrollavtrykksalgoritme og samme eksporterte snapshot. Den bevarer tidligere mapper og installasjon; ny utpakking er ikke nødvendig. Ikke kjør to operatører parallelt.
+**Etter uforseglet arkivstopp:** Kopier hele [den oppdaterte fortsettelsesfilen](FORTSETT-ETTER-ARKIVSTOPP.txt) inn i samme PowerShell-vindu etter at forrige kjøring er avsluttet. Den bevarer opprinnelig feil ved brutt tilkobling, og viser hovedfeilen og lesefremdrift nederst i konsollen. Minnebegrenset snapshot-kontroll og alle arkiv-/aktiveringssperrer beholdes. Den underliggende produksjonsfeilen er ennå ikke dokumentert.
 
 Ved `Signed-By`-feil i PG18-installasjonen, bruk [installerfortsettelsen](FORTSETT-ETTER-PG18-FEIL.txt). Ved nettbrudd rett etter `Completed preflight`, bruk [forhåndskontrollfortsettelsen](FORTSETT-ETTER-FORHANDSKONTROLL.txt).
 
@@ -18,6 +18,26 @@ Ingen applikasjonskode, strategier eller læringsregler endres.
 3. Oppgi mappen der pakken ble pakket ut, og mappen med dine eksisterende
    `archive-certificate.pem`, `archive-key.pem` og `operator-certificate.pem`.
    Oppgi bare lokale stier i programmet; ikke send nøkkelinnhold i samtalen.
+
+## Opprinnelig feil skal overleve opprydding
+
+En `InterfaceError: connection already closed` under rollback kunne maskere feilen
+som først brøt lesingen. Operatørkoden bevarer nå den opprinnelige feilen gjennom
+feil ved rollback, cursor-lukking og tilkoblingslukking. En selvstendig
+oppryddingsfeil stopper fortsatt kontrollen. Ingen suksesskvittering sendes før
+oppryddingen er ferdig.
+
+Ved ny feil vises `PRIMARY FAILURE` nederst i konsollen, med SQLSTATE, maskert
+årsak og `READ-ONLY PROGRESS`: lesesteg, tabellnummer, antall hentede rader og
+største rad målt i tegn. Selve radinnholdet tas ikke med. Feilen i underprosessen
+beholdes som strukturert årsak, i stedet for en lang JSON-streng med escape-tegn.
+Dette er en retting av diagnostikk og opprydding; den underliggende årsaken til
+produksjonens brudd i underprosessen er fortsatt ikke dokumentert.
+
+Lokal PostgreSQL 16.2-test terminerte en egen testtilkobling med vilje og verifiserte
+at original `OperationalError` beholdes, at `InterfaceError` ikke erstatter den,
+og at en mislykket kontroll ikke skriver en suksessmelding. Normal kontroll gir
+fortsatt nøyaktig samme kanoniske kontrollavtrykk. Ingen produksjonstilgang ble brukt.
 
 ## Minnebegrenset kontrollavtrykk uten algoritmeendring
 
@@ -221,4 +241,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-ZIP SHA256: `1ad02f98d39131cdd3c9cc05b65128d9ce56780306c6bfb8ea7fc9784e7a2120`
+ZIP SHA256: `9fdd6ed075cb145b83c1faa57fb535890e5d0a51f15ac58cd80307cbad473e2a`
