@@ -195,11 +195,12 @@ function Get-AksjePublicSshKey([string]$SshKey) {
 }
 
 function Start-AksjeOperator {
-    param([string]$ResumeJob='', [switch]$ResumeInstaller, [string]$InstallerText='')
+    param([string]$ResumeJob='', [switch]$ResumeInstaller, [string]$InstallerText='', [switch]$ResumeArchive, [string]$WorkerText='')
     $ErrorActionPreference = 'Stop'
     Set-StrictMode -Version Latest
     $Utf8 = New-Object System.Text.UTF8Encoding($false)
     $IsResume = -not [string]::IsNullOrWhiteSpace($ResumeJob)
+    if ($ResumeArchive -and (-not $IsResume -or $ResumeInstaller -or [string]::IsNullOrWhiteSpace($WorkerText))) { throw 'Arkivfortsettelse krever eksisterende jobb og diagnostisert operatorkode' }
     if ($ResumeInstaller -and (-not $IsResume -or [string]::IsNullOrWhiteSpace($InstallerText))) { throw 'Installerfortsettelse krever eksisterende jobb og korrigert installer' }
     $JobId = 'nok-job-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
     if ($IsResume) { $JobId=$ResumeJob }
@@ -208,7 +209,7 @@ function Start-AksjeOperator {
     $RenderSsh = 'srv-d7obt5e47okc739susgg@ssh.ohio.render.com'
     $ResumeContext=$null
     if ($IsResume) {
-        $ResumeContext=Get-AksjeResumeContext (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') $JobId $RenderSsh -InstallerCheckpoint:$ResumeInstaller
+        $ResumeContext=Get-AksjeResumeContext (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') $JobId $RenderSsh -InstallerCheckpoint:($ResumeInstaller -or $ResumeArchive)
         Write-Host "Fortsetter samme jobb uten aktivering: $JobId"
     }
     $Package=(Get-Location).Path
@@ -346,6 +347,7 @@ function Start-AksjeOperator {
     $SensitivePhaseEntered=$false
     $RemoteStateUncertain=$false
     $ActiveStage='preflight'
+    $WorkerScript="$RemoteJob/render_batch.py"
     try {
         # Request wakefulness for this job only; do not change Windows power policies.
         if (-not ('AksjeNok.PowerState' -as [type])) {
@@ -354,10 +356,11 @@ function Start-AksjeOperator {
         [void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483649)
         if ($IsResume) {
             $Guard="test -s $RemoteJob/preflight-result.json"
-            foreach ($Name in @('archive-key.pem','archives','isolated-pg','config.json','archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json')) {
+            foreach ($Name in @('archive-key.pem','isolated-pg','restore','config.json','archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json','windows-copy-proof.json')) {
                 $Guard+=" && test ! -e $RemoteJob/$Name"
             }
-            if ($ResumeInstaller) { $Guard+=" && test -s $RemoteJob/source-attestation.json" }
+            if (-not $ResumeArchive) { $Guard+=" && test ! -e $RemoteJob/archives" }
+            if ($ResumeInstaller -or $ResumeArchive) { $Guard+=" && test -s $RemoteJob/source-attestation.json" }
             else { $Guard+=" && test ! -e $RemoteJob/source-attestation.json" }
             Remote $Guard
             Write-Host '[1/5] Henter fullfort forhandskontroll fra samme jobb. Ingen regnskapsfase gjentas.'
@@ -367,12 +370,19 @@ function Start-AksjeOperator {
             Write-Host '[1/5] Samlet forhandskontroll, ingen kontohandlinger'
             Remote "python $RemoteJob/render_batch.py preflight --work $RemoteJob"
         }
+        if (-not [string]::IsNullOrWhiteSpace($WorkerText)) {
+            $NewWorkerName='render-batch-corrected-'+[guid]::NewGuid().ToString('N')+'.py'
+            $NewWorker=Join-Path $LocalJob $NewWorkerName
+            Write-NewUtf8 $NewWorker ($WorkerText.Replace("`r`n","`n")+"`n")
+            Upload $NewWorker $NewWorkerName
+            $WorkerScript="$RemoteJob/$NewWorkerName"
+        }
         Download 'preflight-result.json'
         $Preflight = Get-Content "$LocalJob\preflight-result.json" -Raw | ConvertFrom-Json
         $Preflight | Format-List
         $Drive = Get-PSDrive -Name ([System.IO.Path]::GetPathRoot($LocalJob).Substring(0,1))
         if ($Drive.Free -lt (2 * [double]$Preflight.source_bytes)) { throw 'For lite ledig plass til uavhengig arkivkopi paa PC-en' }
-        if ($ResumeInstaller) {
+        if ($ResumeInstaller -or $ResumeArchive) {
             Download 'source-attestation.json'
             Test-AksjeSourceAttestation $LocalJob
             Write-Host 'Tidligere kildeattestasjon er kontrollert og bevart. Hold fortsatt scheduler og andre skrivere stanset.'
@@ -388,15 +398,21 @@ function Start-AksjeOperator {
             Write-NewUtf8 $FixedInstaller ($InstallerText.Replace("`r`n","`n")+"`n")
             Upload $FixedInstaller 'install_pg18.sh'
         }
-        Write-Host '[2/5] Installerer isolerte PG18-verktoy i arbeidsmappen, ingen ny betalt ressurs'
-        $ActiveStage='install'
-        Remote "NOK_WORK=$RemoteJob bash $RemoteJob/install_pg18.sh"
+        if ($ResumeArchive) {
+            Write-Host '[2/5] Kontrollerer mislykket, uforseglet arkivsteg. Gjenbruker installerte PG18-verktoy.'
+            $ActiveStage='archive-checkpoint'
+            Remote "python $WorkerScript archive-checkpoint --work $RemoteJob"
+        } else {
+            Write-Host '[2/5] Installerer isolerte PG18-verktoy i arbeidsmappen, ingen ny betalt ressurs'
+            $ActiveStage='install'
+            Remote "NOK_WORK=$RemoteJob bash $RemoteJob/install_pg18.sh"
+        }
         $SensitivePhaseEntered=$true
         Upload "$KeysFolder\archive-key.pem" 'archive-key.pem'
         Remote "chmod 600 $RemoteJob/archive-key.pem"
         Write-Host '[3/5] Komplett kryptert sluttarkiv'
         $ActiveStage='archive'
-        Remote "python $RemoteJob/render_batch.py archive --work $RemoteJob"
+        Remote "python $WorkerScript archive --work $RemoteJob"
         Download 'archive-receipt.json'
         $Receipt = Get-Content "$LocalJob\archive-receipt.json" -Raw | ConvertFrom-Json
         $ArchiveId = [string]$Receipt.archive_id
@@ -413,7 +429,7 @@ function Start-AksjeOperator {
         Upload "$LocalJob\windows-copy-proof.json" 'windows-copy-proof.json'
         Write-Host '[4/5] Fysisk restore paa eksisterende arbeidsplass og opprettelse av INAKTIVE DRAFT-kontoer'
         $ActiveStage='restore-drafts'
-        Remote "python $RemoteJob/render_batch.py restore-drafts --work $RemoteJob"
+        Remote "python $WorkerScript restore-drafts --work $RemoteJob"
         Write-Host '[5/5] Henter faktiske kvitteringer og samlet status'
         foreach ($Name in @('final-result.json','restore-result.json','prepared.json','account-settings-for-review.json','inventory.json','source-databases.json','config.json')) { Download $Name }
         $Result = Get-Content "$LocalJob\final-result.json" -Raw | ConvertFrom-Json
@@ -444,7 +460,7 @@ function Start-AksjeOperator {
         if ('AksjeNok.PowerState' -as [type]) { [void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483648) }
         if ($RemoteCreated -and $SensitivePhaseEntered -and -not $RemoteStateUncertain) {
             try {
-                Native 'ssh.exe' ($SshOptions+@($RenderSsh,"python $RemoteJob/render_batch.py cleanup --work $RemoteJob"))
+                Native 'ssh.exe' ($SshOptions+@($RenderSsh,"python $WorkerScript cleanup --work $RemoteJob"))
             } catch { Write-Warning 'Midlertidig arkivnokkel/restore-prosess maa kontrolleres i den private jobbmappen. Originalnokkelen paa PC-en bevares.' }
         }
         Write-Host "Jobbmappe: $LocalJob"
@@ -452,15 +468,16 @@ function Start-AksjeOperator {
     }
 }
 function Resume-AksjeOperator {
-    param([string]$JobId='', [switch]$ResumeInstaller, [string]$InstallerText='')
+    param([string]$JobId='', [switch]$ResumeInstaller, [string]$InstallerText='', [switch]$ResumeArchive, [string]$WorkerText='')
     if ([string]::IsNullOrWhiteSpace($JobId)) {
         $OperatorRoot=Join-Path $env:LOCALAPPDATA 'AksjeNokOperator'
         $Candidates=@(Get-ChildItem -LiteralPath $OperatorRoot -Directory -Filter 'nok-job-*' -ErrorAction Stop | Where-Object {
             $Folder=$_.FullName
             (Test-Path -LiteralPath (Join-Path $Folder 'job-location.json')) -and
             (Test-Path -LiteralPath (Join-Path $Folder 'plan.json')) -and
-            (($ResumeInstaller -and (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json'))) -or
-             (-not $ResumeInstaller -and -not (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json')))) -and
+            ((($ResumeInstaller -or $ResumeArchive) -and (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json'))) -or
+             (-not ($ResumeInstaller -or $ResumeArchive) -and -not (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json')))) -and
+            ((-not $ResumeArchive) -or (Test-Path -LiteralPath (Join-Path $Folder 'STOPPED-archive.json'))) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'archive-receipt.json')) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'preparation-attempt.json')) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'prepared.json')) -and
@@ -469,6 +486,6 @@ function Resume-AksjeOperator {
         if ($Candidates.Count -eq 1) { $JobId=$Candidates[0].Name }
         else { $JobId=Read-Host 'Jobb-ID fra feilmeldingen som skal fortsettes (nok-job-...)' }
     }
-    Start-AksjeOperator -ResumeJob $JobId.Trim() -ResumeInstaller:$ResumeInstaller -InstallerText $InstallerText
+    Start-AksjeOperator -ResumeJob $JobId.Trim() -ResumeInstaller:$ResumeInstaller -InstallerText $InstallerText -ResumeArchive:$ResumeArchive -WorkerText $WorkerText
 }
 Resume-AksjeOperator -InstallerText $script:AksjeCorrectedPg18Installer

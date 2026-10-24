@@ -1,8 +1,8 @@
 [Last ned hele ZIP-pakken](aksje-samlet-operator.zip) (velg Download raw file i GitHub).
 
-**Ved PG18-feilen `Conflicting values set for option Signed-By`:** Kopier hele [fortsettelsesfilen for installasjonsfeil](FORTSETT-ETTER-PG18-FEIL.txt) inn i samme PowerShell-vindu og trykk Enter. Den inkluderer korrigert installer og gjenbruker tidligere jobb og kildeattestasjon. Ingen ny utpakking er nødvendig. Ikke bruk den eldre fortsettelsen for forhåndskontroll i dette tilfellet.
+**Etter bestått installasjon og uforseglet arkivstopp:** Bruk [fortsettelsen etter arkivstopp](FORTSETT-ETTER-ARKIVSTOPP.txt). Den bevarer mislykkede mapper og kjører et nytt arkivforsøk bare hvis de er helt tomme og ingen senere steg har begynt. Ved ny feil vises en maskert SQL-diagnose. Dette er ikke en påstand om at en tidligere OperationalError er rettet.
 
-Hvis bare `Completed preflight` er vist og neste overføring feilet, bruk [fortsettelsen etter forhåndskontroll](FORTSETT-ETTER-FORHANDSKONTROLL.txt).
+Ved `Signed-By`-feil i PG18-installasjonen, bruk [installerfortsettelsen](FORTSETT-ETTER-PG18-FEIL.txt). Ved nettbrudd rett etter `Completed preflight`, bruk [forhåndskontrollfortsettelsen](FORTSETT-ETTER-FORHANDSKONTROLL.txt). Kopier hele den aktuelle filen inn i samme PowerShell-vindu og trykk Enter. Ingen ny utpakking er nødvendig.
 
 # Samlet operatørkjøring – arkiv, restore og inaktive kontoer
 
@@ -18,6 +18,27 @@ Ingen applikasjonskode, strategier eller læringsregler endres.
 3. Oppgi mappen der pakken ble pakket ut, og mappen med dine eksisterende
    `archive-certificate.pem`, `archive-key.pem` og `operator-certificate.pem`.
    Oppgi bare lokale stier i programmet; ikke send nøkkelinnhold i samtalen.
+
+## Fortsett etter uforseglet arkivstopp
+
+Etter bestått PG18-installasjon kan `FORTSETT-ETTER-ARKIVSTOPP.txt` brukes dersom
+arkivsteget stoppet og ingen arkivkvittering eller DRAFT finnes. Filen inkluderer
+oppdatert operatørkode, gjenbruker samme jobb, nøkkel og kildeattestasjon, og hopper
+over installasjonen. Ingen ny utpakking eller endring av deployet appkode kreves.
+
+En egen kontroll kjøres før arkivnøkkelen overføres: det må finnes en faktisk
+STOPPED-kvittering fra arkivsteget, nøyaktig kildeattestasjon og ingen senere
+arkiv-/restore-/kontoartefakter. Bare helt tomme mapper fra mislykkede arkivforsøk
+aksepteres og bevares. Enhver kryptert fil, kvittering, ukjent eller ikke-tom mappe
+stopper automatisk fortsettelse. Ingen eksisterende fil eller økonomisk historikk
+slettes for å tillate gjenforsøk.
+
+Deretter gjør den eksisterende arkivmotoren ett nytt arkivforsøk med nytt unikt
+arkiv-ID og ny skrivebeskyttet snapshot. Inventar og skriverstans kontrolleres av
+motoren på nytt. Dette er ikke en påstand om at årsaken til en tidligere skjult
+`OperationalError` er rettet. Ved ny feil vises SQLSTATE, maskert feilmelding og
+kildekodeplassering. Tidligere STOPPED-kvitteringer bevares, og nye får unik ID.
+Ingen produksjonsaktivering finnes i denne operatørkjøringen.
 
 ## Fortsett etter PG18-installasjonsfeil (Signed-By)
 
@@ -172,4 +193,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-ZIP SHA256: `966e202e7e1a6a7826e73eb203b0b37eaaf5764ce7da80725b014796cd9006a2`
+ZIP SHA256: `94e28f849d7d62875d5374d4d8e6600a1dea43368722dcd735eddd288011e9d2`
