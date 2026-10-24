@@ -1,5 +1,7 @@
 [Last ned hele ZIP-pakken](aksje-samlet-operator.zip) (velg Download raw file i GitHub).
 
+SSH-retting: Windows-filen gjenbruker den eksisterende jobbnøkkelen og avleder riktig offentlig nøkkel. Hvis du allerede har pakket ut forrige versjon, trenger du bare kopiere den oppdaterte [Windows-filen](KJOR-SAMLET-WINDOWS.txt); de andre operatørfilene er uendret.
+
 # Samlet operatørkjøring – arkiv, restore og inaktive kontoer
 
 Dette er én sammenhengende kjøring fra Windows-PC-en, ikke flere enkeltkommandoer
@@ -23,8 +25,11 @@ endring av strøm-/sikkerhetsinnstillinger. Ikke lukk konsollen eller slå av PC
 
 ## To nødvendige opplysninger i starten
 
-- Programmet oppretter en egen SSH-identitet lokalt, viser **bare den offentlige
-  SSH-nøkkelen**, og åpner Render Account Settings. Registrer den under **SSH Keys**
+- Programmet gjenbruker den siste egne SSH-identiteten fra tidligere kjøringer.
+  Bare hvis ingen finnes, opprettes en ny. Det avleder korrekt offentlig nøkkel
+  fra identiteten og prøver skrivebeskyttet SSH først. Fungerer tilgangen, hoppes
+  registreringen over. Ellers vises/kopieres **bare den offentlige SSH-nøkkelen**,
+  og Render Account Settings åpnes. Registrer den under **SSH Keys**
   og trykk Enter i PowerShell. Dette er nødvendig fordi Codex API-tilgang ikke
   gir Shell-tilgang. Privat SSH-nøkkel blir på PC-en. Vanlig SSH-vertskontroll
   beholdes; verifiser Render-serverens fingeravtrykk ved første tilkobling.
@@ -110,4 +115,4 @@ Codex. PostgreSQL 18-installasjon, SSH/SCP, kapasitet, locale/utvidelser og fakt
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-ZIP SHA-256: `9da805401584839f9d31e59efd1c32a295fe7d97e391f7d964e08c8d3d311120`.
+ZIP SHA-256: `5cceb2277e8c4b64d57097c1ec7d684554d34283e468ba939cf689543a244d1d`.

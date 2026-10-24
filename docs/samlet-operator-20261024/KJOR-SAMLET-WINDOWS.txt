@@ -1,5 +1,23 @@
 # Paste this entire file into a Windows PowerShell window.
 # No activation, deploy, paid resource creation or execution-policy change.
+function Get-AksjeExistingSshKey([string]$OperatorRoot) {
+    if (-not (Test-Path -LiteralPath $OperatorRoot)) { return $null }
+    $Candidate = Get-ChildItem -LiteralPath $OperatorRoot -Filter 'render-operator-ssh' -File -Recurse -ErrorAction Stop |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -eq $Candidate) { return $null }
+    return $Candidate.FullName
+}
+
+function Get-AksjePublicSshKey([string]$SshKey) {
+    $DerivedPublic = & ssh-keygen.exe -y -f $SshKey
+    if ($LASTEXITCODE -ne 0) { throw 'Kunne ikke lese den offentlige SSH-identiteten' }
+    $PublicFields = ([string]($DerivedPublic | Select-Object -First 1)).Trim() -split '\s+'
+    if ($PublicFields.Count -lt 2) { throw 'Ufullstendig offentlig SSH-nokkel' }
+    $PublicSsh = $PublicFields[0] + ' ' + $PublicFields[1] + ' aksje-nok-operator'
+    if ($PublicSsh -notmatch '^ssh-ed25519\s+[A-Za-z0-9+/=]+\s+aksje-nok-operator$') { throw 'Ugyldig offentlig SSH-nokkel; ingen registrering eller produksjonsjobb startet' }
+    return $PublicSsh
+}
+
 function Start-AksjeOperator {
     $ErrorActionPreference = 'Stop'
     Set-StrictMode -Version Latest
@@ -45,24 +63,41 @@ function Start-AksjeOperator {
     Native $OpenSSL @('pkey','-in',"$KeysFolder\archive-key.pem",'-passin','pass:','-pubout','-out',"$LocalJob\archive-public-from-key.pem")
     if ((Get-FileHash "$LocalJob\archive-public-from-cert.pem").Hash -ne (Get-FileHash "$LocalJob\archive-public-from-key.pem").Hash) { throw 'Arkivnokkel og sertifikat tilhorer ikke samme par' }
     Native $OpenSSL @('x509','-in',"$KeysFolder\operator-certificate.pem",'-noout')
-    # Dedicated SSH identity, kept only in this private Windows folder.
-    $SshKey = Join-Path $LocalJob 'render-operator-ssh'
-    $Info = New-Object System.Diagnostics.ProcessStartInfo
-    $Info.FileName = (Get-Command ssh-keygen.exe).Source
-    $Info.UseShellExecute = $false
-    $Info.Arguments = '-q -t ed25519 -N "" -f "' + $SshKey + '" -C "aksje-nok-operator"'
-    $Process = [System.Diagnostics.Process]::Start($Info)
-    $Process.WaitForExit()
-    if ($Process.ExitCode -ne 0) { throw 'Kunne ikke opprette egen lokal SSH-identitet' }
-    $PublicSsh = [System.IO.File]::ReadAllText($SshKey + '.pub')
-    Write-Host "`nNodvendig engangstilgang: legg denne OFFENTLIGE SSH-nokkelen i Render Account Settings > SSH Keys:"
-    Write-Host $PublicSsh
-    if (Get-Command Set-Clipboard -ErrorAction SilentlyContinue) { Set-Clipboard -Value $PublicSsh }
-    Write-Host 'Nokkelen er offentlig og kan kopieres. Den private SSH-filen skal ikke deles.'
-    Start-Process 'https://dashboard.render.com/u/settings'
-    [void](Read-Host 'Trykk Enter etter at den offentlige nokkelen er registrert i Render')
+    # Reuse the latest dedicated job identity instead of changing keys on retry.
+    $SshKey = Get-AksjeExistingSshKey (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator')
+    if (-not $SshKey) {
+        $SshKey = Join-Path $LocalJob 'render-operator-ssh'
+        $Info = New-Object System.Diagnostics.ProcessStartInfo
+        $Info.FileName = (Get-Command ssh-keygen.exe).Source
+        $Info.UseShellExecute = $false
+        $Info.Arguments = '-q -t ed25519 -N "" -f "' + $SshKey + '" -C "aksje-nok-operator"'
+        $Process = [System.Diagnostics.Process]::Start($Info)
+        $Process.WaitForExit()
+        if ($Process.ExitCode -ne 0) { throw 'Kunne ikke opprette egen lokal SSH-identitet' }
+    }
+    Write-Host "Bruker samme eksisterende SSH-identitet: $SshKey"
+    # Derive the public key from the actual SSH identity; never touch operator-key.pem.
+    $PublicSsh = Get-AksjePublicSshKey $SshKey
+    Write-NewUtf8 "$LocalJob\render-operator-used.pub" ($PublicSsh + "`n")
     $SshOptions = @('-i',$SshKey,'-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=ask','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no')
     $ScpOptions = @('-O','-i',$SshKey,'-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no')
+    $AuthSucceeded = $false
+    $SavedErrorPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $AuthOutput = & ssh.exe @SshOptions -o BatchMode=yes $RenderSsh true 2>&1
+        $AuthSucceeded = $LASTEXITCODE -eq 0
+    } catch { $AuthSucceeded = $false }
+    finally { $ErrorActionPreference = $SavedErrorPreference }
+    if (-not $AuthSucceeded) {
+        Write-Host "`nLegg denne OFFENTLIGE SSH-nokkelen i Render Account Settings > SSH Public Keys:"
+        Write-Host $PublicSsh
+        Native 'ssh-keygen.exe' @('-lf',"$LocalJob\render-operator-used.pub")
+        if (Get-Command Set-Clipboard -ErrorAction SilentlyContinue) { Set-Clipboard -Value $PublicSsh }
+        Write-Host 'Hele den offentlige nokkelen er kopiert hvis utklippstavlen er tilgjengelig. Ikke del privat nokkel.'
+        Start-Process 'https://dashboard.render.com/u/settings'
+        [void](Read-Host 'Trykk Enter etter at akkurat denne offentlige nokkelen er registrert i Render')
+    } else { Write-Host 'Eksisterende SSH-tilgang fungerer; ingen ny nokkelregistrering nodig.' }
     Write-Host 'Forste SSH-tilkobling krever normal kontroll av Render-serverens vertsnoekkel. Ikke godta ukjent/avvikende fingeravtrykk.'
     Native 'ssh.exe' ($SshOptions + @($RenderSsh,'true'))
     function Remote([string]$Text) { Native 'ssh.exe' ($SshOptions + @($RenderSsh,$Text)) }
