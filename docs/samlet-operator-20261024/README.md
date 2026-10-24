@@ -1,6 +1,6 @@
 [Last ned hele ZIP-pakken](aksje-samlet-operator.zip) (velg Download raw file i GitHub).
 
-SSH-retting: Windows-filen gjenbruker den eksisterende jobbnøkkelen og avleder riktig offentlig nøkkel. Hvis du allerede har pakket ut forrige versjon, trenger du bare kopiere den oppdaterte [Windows-filen](KJOR-SAMLET-WINDOWS.txt); de andre operatørfilene er uendret.
+Hvis `Completed preflight` allerede er vist og neste overføring feilet, kopier hele [fortsettelsesfilen](FORTSETT-ETTER-FORHANDSKONTROLL.txt) inn i samme PowerShell-vindu. Den gjenbruker eksisterende jobb, nøkkel og resultat; de tidligere utpakkede Python-/installasjonsfilene er uendret. Ikke start en ny jobb for dette nettbruddet.
 
 # Samlet operatørkjøring – arkiv, restore og inaktive kontoer
 
@@ -16,6 +16,38 @@ Ingen applikasjonskode, strategier eller læringsregler endres.
 3. Oppgi mappen der pakken ble pakket ut, og mappen med dine eksisterende
    `archive-certificate.pem`, `archive-key.pem` og `operator-certificate.pem`.
    Oppgi bare lokale stier i programmet; ikke send nøkkelinnhold i samtalen.
+
+## Fortsett etter nettbrudd rett etter fullført forhåndskontroll
+
+Hvis konsollen viste `Completed preflight`, men forbindelsen brøt da resultatet
+skulle lastes ned, bruk `FORTSETT-ETTER-FORHANDSKONTROLL.txt` i stedet for å starte
+en ny jobb. Kopier hele denne filen inn i samme PowerShell-vindu. Den finner den
+eneste avbrutte jobben automatisk; finnes flere, spør den etter jobb-ID-en fra
+feilmeldingen. Den bevarer samme lokale og eksterne jobbmappe og samme SSH-nøkkel.
+
+Koden kontrollerer at jobben faktisk bare har en ferdig forhåndskontroll, og at
+arkiv-/DRAFT-steg ikke har startet. Den henter det eksisterende resultatet og
+fortsetter videre. Den kjører ikke forhåndskontrollen på nytt. Pakkemappe og
+sertifikatmappe gjenbrukes fra lagret kontekst eller gjeldende mappe hvis de
+nødvendige filene finnes der. Usikker eller mer avansert fjernstatus gir stopp,
+ikke automatisk repetisjon av en mulig allerede utført handling.
+
+Overføringer bruker færre SSH-forbindelser og korte pauser mellom forbindelsene.
+Bare eksplisitte nettbrudd FØR nøkkelutveksling/innlogging forsøkes på nytt, med
+samme identitet og jobb. Autentiseringsfeil, endret vertsnoekkel, applikasjonsfeil
+og usikre brudd etter at en operasjon kan ha startet, gjentas ikke automatisk.
+Delvise nedlastinger blir ikke godkjente kvitteringer eller overskrevet som om
+de var komplette. Ingen oppryddingsadvarsel om en privat arkivnøkkel gis før
+steget der en slik midlertidig nøkkel faktisk kan ha blitt lastet opp.
+
+OpenSSH-varselet `client_global_hostkeys_prove_confirm` gjelder serverens forslag
+om EKSTRA vertsnoekler etter innlogging. Jobben setter `UpdateHostKeys=no` for
+denne forbindelsen, slik at slike forslag ikke automatisk legges til.
+`StrictHostKeyChecking=yes` beholdes for jobbens SSH/SCP-forbindelser; eksisterende
+known_hosts slettes eller endres ikke av skriptet. Bare en første, ukjent vert
+kan vises for personlig fingeravtrykkskontroll før noen fjernjobb starter.
+Dette slår ikke av verifikasjonen av den opprinnelig betrodde vertsnoekkelen.
+Se [OpenSSH UpdateHostKeys](https://man.openbsd.org/ssh_config#UpdateHostKeys).
 
 Kjøringen bruker Windows OpenSSH og OpenSSL. OpenSSL finnes ofte med Git for
 Windows eller PostgreSQL; manglende lokale komponenter rapporteres samlet før
@@ -115,4 +147,4 @@ Codex. PostgreSQL 18-installasjon, SSH/SCP, kapasitet, locale/utvidelser og fakt
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-ZIP SHA-256: `5cceb2277e8c4b64d57097c1ec7d684554d34283e468ba939cf689543a244d1d`.
+ZIP SHA256: `ba07df0ea7d3ed6c03de33d4476a84a837c27b7c1d31e84c1afd837616d9f6e1`

@@ -1,0 +1,325 @@
+# Paste this entire file into a Windows PowerShell window.
+# No activation, deploy, paid resource creation or execution-policy change.
+$script:AksjeLastTransportAt = [datetime]::MinValue
+function Invoke-AksjeNative {
+    param([string]$Program,[string[]]$NativeArguments,[string]$LogDirectory,
+          [switch]$Transport,[switch]$CaptureOutput,[int[]]$RetryDelays=@(8,16,32),[int]$MinimumGapMs=2000)
+    $null=Get-Command -Name $Program -CommandType Application -ErrorAction Stop
+    $Attempts = 1
+    if ($Transport) { $Attempts += $RetryDelays.Count }
+    for ($Attempt=0; $Attempt -lt $Attempts; $Attempt++) {
+        if ($Transport) {
+            $Gap = $MinimumGapMs - ([datetime]::UtcNow-$script:AksjeLastTransportAt).TotalMilliseconds
+            if ($Gap -gt 0) { Start-Sleep -Milliseconds ([int]$Gap) }
+        }
+        $Log = Join-Path $LogDirectory ('native-'+[guid]::NewGuid().ToString('N')+'.log')
+        $SavedPreference=$ErrorActionPreference; $ExitCode=255; $Output=@()
+        try {
+            $ErrorActionPreference='Continue'
+            if ($CaptureOutput) { $Output=@(& $Program @NativeArguments 2> $Log) }
+            else { & $Program @NativeArguments 2> $Log | Out-Host }
+            $ExitCode=$LASTEXITCODE
+        } finally {
+            $ErrorActionPreference=$SavedPreference
+            if ($Transport) { $script:AksjeLastTransportAt=[datetime]::UtcNow }
+        }
+        $ErrorText=''
+        if (Test-Path -LiteralPath $Log) { $ErrorText=[System.IO.File]::ReadAllText($Log) }
+        $Denied = $ErrorText -match '(?i)Permission denied|Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED'
+        # Retry only failures explicitly reported BEFORE SSH key exchange.
+        # Never repeat a remote operation after an ambiguous mid-session disconnect.
+        $BeforeLogin = $Transport -and -not $Denied -and ($ExitCode -in @(1,255)) -and
+            ($ErrorText -match '(?i)kex_exchange_identification:.*(?:Connection reset|Connection closed)' -or
+             $ErrorText -match '(?i)ssh: connect to host .* port [0-9]+: (?:Connection timed out|Connection refused|No route to host)')
+        if ($ExitCode -ne 0 -and $BeforeLogin -and $Attempt -lt ($Attempts-1)) {
+            $Delay=$RetryDelays[$Attempt]
+            Write-Host "SSH-forbindelsen ble brutt for innlogging. Venter $Delay sekunder og bruker samme nokkel og jobb."
+            if ($Delay -gt 0) { Start-Sleep -Seconds $Delay }
+            continue
+        }
+        return [pscustomobject]@{ExitCode=$ExitCode;Output=$Output;ErrorText=$ErrorText;Log=$Log;BeforeLogin=$BeforeLogin}
+    }
+}
+
+function Get-AksjeResumeContext([string]$OperatorRoot,[string]$JobId,[string]$ExpectedService) {
+    if ($JobId -cnotmatch '^nok-job-[0-9]{8}T[0-9]{6}Z$') { throw 'Ugyldig jobb-ID; ingen handling startet' }
+    $Folder=Join-Path $OperatorRoot $JobId
+    $Location=Get-Content -LiteralPath (Join-Path $Folder 'job-location.json') -Raw | ConvertFrom-Json
+    $Plan=Get-Content -LiteralPath (Join-Path $Folder 'plan.json') -Raw | ConvertFrom-Json
+    if ($Location.remote -cne ('/tmp/'+$JobId) -or $Location.service -cne $ExpectedService -or
+        [IO.Path]::GetFullPath($Location.local) -ne [IO.Path]::GetFullPath($Folder) -or
+        $Plan.job_id -cne $JobId -or $Plan.activation_authorized -isnot [bool] -or $Plan.activation_authorized -ne $false -or
+        $Plan.approval_A_already_granted -isnot [bool] -or $Plan.approval_A_already_granted -ne $true) {
+        throw 'Lagret jobbidentitet avviker; ingen automatisk gjenopptakelse'
+    }
+    foreach ($Name in @('source-attestation.json','archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json')) {
+        if (Test-Path -LiteralPath (Join-Path $Folder $Name)) { throw "Jobben er kommet lenger enn forhandskontroll ($Name). Ingen fase gjentas automatisk." }
+    }
+    return [pscustomobject]@{Folder=$Folder;Location=$Location;Plan=$Plan}
+}
+function Get-AksjeExistingSshKey([string]$OperatorRoot) {
+    if (-not (Test-Path -LiteralPath $OperatorRoot)) { return $null }
+    $Candidate = Get-ChildItem -LiteralPath $OperatorRoot -Filter 'render-operator-ssh' -File -Recurse -ErrorAction Stop |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -eq $Candidate) { return $null }
+    return $Candidate.FullName
+}
+
+function Get-AksjePublicSshKey([string]$SshKey) {
+    $DerivedPublic = & ssh-keygen.exe -y -f $SshKey
+    if ($LASTEXITCODE -ne 0) { throw 'Kunne ikke lese den offentlige SSH-identiteten' }
+    $PublicFields = ([string]($DerivedPublic | Select-Object -First 1)).Trim() -split '\s+'
+    if ($PublicFields.Count -lt 2) { throw 'Ufullstendig offentlig SSH-nokkel' }
+    $PublicSsh = $PublicFields[0] + ' ' + $PublicFields[1] + ' aksje-nok-operator'
+    if ($PublicSsh -notmatch '^ssh-ed25519\s+[A-Za-z0-9+/=]+\s+aksje-nok-operator$') { throw 'Ugyldig offentlig SSH-nokkel; ingen registrering eller produksjonsjobb startet' }
+    return $PublicSsh
+}
+
+function Start-AksjeOperator {
+    param([string]$ResumeJob='')
+    $ErrorActionPreference = 'Stop'
+    Set-StrictMode -Version Latest
+    $Utf8 = New-Object System.Text.UTF8Encoding($false)
+    $IsResume = -not [string]::IsNullOrWhiteSpace($ResumeJob)
+    $JobId = 'nok-job-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
+    if ($IsResume) { $JobId=$ResumeJob }
+    $LocalJob = Join-Path $env:LOCALAPPDATA ('AksjeNokOperator\' + $JobId)
+    $RemoteJob = '/tmp/' + $JobId
+    $RenderSsh = 'srv-d7obt5e47okc739susgg@ssh.ohio.render.com'
+    $ResumeContext=$null
+    if ($IsResume) {
+        $ResumeContext=Get-AksjeResumeContext (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') $JobId $RenderSsh
+        Write-Host "Fortsetter samme jobb etter fullfort forhandskontroll: $JobId"
+    }
+    $Package=(Get-Location).Path
+    if ($IsResume -and $ResumeContext.Location.PSObject.Properties['package']) { $Package=[string]$ResumeContext.Location.package }
+    if (-not ((Test-Path -LiteralPath (Join-Path $Package 'render_batch.py')) -and (Test-Path -LiteralPath (Join-Path $Package 'install_pg18.sh')) -and (Test-Path -LiteralPath (Join-Path $Package 'source-manifest.json')))) {
+        $Package = Read-Host 'Mappe der den samlede operatorpakken er pakket ut'
+    } else { Write-Host "Bruker pakkemappe: $Package" }
+    $KeysFolder=(Get-Location).Path
+    if ($IsResume -and $ResumeContext.Location.PSObject.Properties['keys_folder']) { $KeysFolder=[string]$ResumeContext.Location.keys_folder }
+    if (-not ((Test-Path -LiteralPath (Join-Path $KeysFolder 'archive-certificate.pem')) -and (Test-Path -LiteralPath (Join-Path $KeysFolder 'archive-key.pem')) -and (Test-Path -LiteralPath (Join-Path $KeysFolder 'operator-certificate.pem')))) {
+        $KeysFolder = Read-Host 'Lokal mappe med archive-certificate.pem, archive-key.pem og operator-certificate.pem (ikke lim inn filinnhold)'
+    } else { Write-Host "Bruker eksisterende lokal sertifikatmappe: $KeysFolder" }
+    $Required = @('render_batch.py','install_pg18.sh','source-manifest.json')
+    $Missing = New-Object System.Collections.Generic.List[string]
+    foreach ($Name in $Required) { if (-not (Test-Path -LiteralPath (Join-Path $Package $Name))) { $Missing.Add("Pakkefil: $Name") } }
+    foreach ($Name in @('archive-certificate.pem','archive-key.pem','operator-certificate.pem')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $KeysFolder $Name))) { $Missing.Add("Lokal fil: $Name") }
+    }
+    foreach ($Tool in @('ssh.exe','scp.exe','ssh-keygen.exe')) { if (-not (Get-Command $Tool -ErrorAction SilentlyContinue)) { $Missing.Add("Windows OpenSSH: $Tool") } }
+    $OpenSSL = $null
+    $OpenSSLCommand = Get-Command openssl.exe -ErrorAction SilentlyContinue
+    if ($OpenSSLCommand) { $OpenSSL = $OpenSSLCommand.Source }
+    if (-not $OpenSSL) {
+        foreach ($Candidate in @('C:\Program Files\Git\usr\bin\openssl.exe','C:\Program Files\PostgreSQL\18\bin\openssl.exe')) {
+            if (Test-Path -LiteralPath $Candidate) { $OpenSSL = $Candidate; break }
+        }
+    }
+    if (-not $OpenSSL) { $Missing.Add('Lokal OpenSSL') }
+    if ($Missing.Count) { throw ('Samlet forhandskontroll stoppet. Mangler: '+($Missing -join '; ')+'. Ingen produksjonsoperasjon startet. Ikke send private filer i chatten.') }
+    if (-not $IsResume) {
+        if (Test-Path -LiteralPath $LocalJob) { throw 'Jobbmappen finnes allerede; ingen automatisk overskriving eller ny start.' }
+        New-Item -ItemType Directory -Path $LocalJob | Out-Null
+    }
+    $Identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    if (-not $IsResume) {
+        & icacls.exe $LocalJob /inheritance:r /grant:r "${Identity}:(OI)(CI)F" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Kunne ikke opprette privat lokal jobbmappe' }
+    }
+    function Write-NewUtf8([string]$Path, [string]$Text) {
+        $Stream = [System.IO.File]::Open($Path,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
+        try { $Bytes=$Utf8.GetBytes($Text); $Stream.Write($Bytes,0,$Bytes.Length) } finally { $Stream.Dispose() }
+    }
+    function Native([string]$Program, [string[]]$NativeArguments) {
+        $IsTransport=[IO.Path]::GetFileName($Program) -in @('ssh.exe','scp.exe')
+        $Result=Invoke-AksjeNative -Program $Program -NativeArguments $NativeArguments -LogDirectory $LocalJob -Transport:$IsTransport
+        if ($Result.ExitCode -ne 0) {
+            $Failure=New-Object System.Exception("Operasjonen stoppet: $Program (exit $($Result.ExitCode)). Privat diagnostikk: $($Result.Log)")
+            $Failure.Data['AksjeBeforeLogin']=$Result.BeforeLogin
+            $Failure.Data['AksjeConnectionUncertain']=([IO.Path]::GetFileName($Program) -eq 'ssh.exe') -and -not $Result.BeforeLogin -and $Result.ExitCode -eq 255
+            throw $Failure
+        }
+    }
+    # Validate the existing archive key locally. Never read operator-key.pem.
+    $VerifyId=[guid]::NewGuid().ToString('N')
+    $CertCheck=Join-Path $LocalJob ("archive-public-from-cert-$VerifyId.pem")
+    $KeyCheck=Join-Path $LocalJob ("archive-public-from-key-$VerifyId.pem")
+    Native $OpenSSL @('x509','-in',"$KeysFolder\archive-certificate.pem",'-pubkey','-noout','-out',$CertCheck)
+    Native $OpenSSL @('pkey','-in',"$KeysFolder\archive-key.pem",'-passin','pass:','-pubout','-out',$KeyCheck)
+    if ((Get-FileHash $CertCheck).Hash -ne (Get-FileHash $KeyCheck).Hash) { throw 'Arkivnokkel og sertifikat tilhorer ikke samme par' }
+    Native $OpenSSL @('x509','-in',"$KeysFolder\operator-certificate.pem",'-noout')
+    # Reuse the latest dedicated job identity instead of changing keys on retry.
+    $SshKey = Get-AksjeExistingSshKey (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator')
+    if ($IsResume -and $ResumeContext.Location.PSObject.Properties['ssh_identity']) { $SshKey=[string]$ResumeContext.Location.ssh_identity }
+    if ($IsResume -and (-not $SshKey -or -not (Test-Path -LiteralPath $SshKey))) { throw 'Den eksisterende SSH-identiteten mangler; ingen ny nokkel lages ved fortsettelse' }
+    if (-not $SshKey) {
+        $SshKey = Join-Path $LocalJob 'render-operator-ssh'
+        $Info = New-Object System.Diagnostics.ProcessStartInfo
+        $Info.FileName = (Get-Command ssh-keygen.exe).Source
+        $Info.UseShellExecute = $false
+        $Info.Arguments = '-q -t ed25519 -N "" -f "' + $SshKey + '" -C "aksje-nok-operator"'
+        $Process = [System.Diagnostics.Process]::Start($Info)
+        $Process.WaitForExit()
+        if ($Process.ExitCode -ne 0) { throw 'Kunne ikke opprette egen lokal SSH-identitet' }
+    }
+    Write-Host "Bruker samme eksisterende SSH-identitet: $SshKey"
+    # Derive the public key from the actual SSH identity; never touch operator-key.pem.
+    $PublicSsh = Get-AksjePublicSshKey $SshKey
+    $UsedPublic=Join-Path $LocalJob 'render-operator-used.pub'
+    if (Test-Path -LiteralPath $UsedPublic) {
+        if ([IO.File]::ReadAllText($UsedPublic).Trim() -ne $PublicSsh) { throw 'SSH-identiteten avviker fra den lagrede jobben; ingen automatisk bytting' }
+    } else { Write-NewUtf8 $UsedPublic ($PublicSsh + "`n") }
+    # Disable only automatic learning of EXTRA hostkeys; trusted-host checking stays on.
+    $SshOptions = @('-i',$SshKey,'-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','UpdateHostKeys=no','-o','ConnectTimeout=20','-o','ServerAliveInterval=30','-o','ServerAliveCountMax=3','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no')
+    $ScpOptions = @('-O','-i',$SshKey,'-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','UpdateHostKeys=no','-o','ConnectTimeout=20','-o','ServerAliveInterval=30','-o','ServerAliveCountMax=3','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no')
+    $AuthSucceeded = $false
+    $Auth=Invoke-AksjeNative -Program 'ssh.exe' -NativeArguments ($SshOptions+@('-o','BatchMode=yes',$RenderSsh,'true')) -LogDirectory $LocalJob -Transport -CaptureOutput
+    if ($Auth.ErrorText -match '(?i)REMOTE HOST IDENTIFICATION HAS CHANGED') { throw 'Serverens betrodde vertsnoekkel har endret seg; ingen automatisk aksept' }
+    if ($Auth.ExitCode -ne 0 -and $Auth.ErrorText -match '(?i)Host key verification failed') {
+        Write-Host 'Forste tilkobling: verifiser Render-serverens fingeravtrykk. Dette gjores synlig, uten automatisk aksept.'
+        $InitialOptions=@($SshOptions | ForEach-Object {if($_ -eq 'StrictHostKeyChecking=yes'){'StrictHostKeyChecking=ask'}else{$_}})
+        $SavedPreference=$ErrorActionPreference
+        try { $ErrorActionPreference='Continue'; & ssh.exe @InitialOptions $RenderSsh true }
+        finally { $ErrorActionPreference=$SavedPreference }
+        $Auth=Invoke-AksjeNative -Program 'ssh.exe' -NativeArguments ($SshOptions+@('-o','BatchMode=yes',$RenderSsh,'true')) -LogDirectory $LocalJob -Transport -CaptureOutput
+        if ($Auth.ErrorText -match '(?i)Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED') { throw 'Vertsnoekkel er ikke bekreftet; ingen automatisk fortsettelse' }
+    }
+    $AuthSucceeded=$Auth.ExitCode -eq 0
+    if (-not $AuthSucceeded -and $Auth.ErrorText -notmatch '(?i)Permission denied \(publickey\)|Host key verification failed' ) {
+        throw "SSH-forbindelsen er ikke tilgjengelig. Samme nokkel beholdes. Privat diagnostikk: $($Auth.Log)"
+    }
+    if ($Auth.ErrorText -match '(?i)REMOTE HOST IDENTIFICATION HAS CHANGED') { throw 'Serverens betrodde vertsnoekkel har endret seg; ingen automatisk aksept' }
+    if (-not $AuthSucceeded) {
+        Write-Host "`nLegg denne OFFENTLIGE SSH-nokkelen i Render Account Settings > SSH Public Keys:"
+        Write-Host $PublicSsh
+        Native 'ssh-keygen.exe' @('-lf',"$LocalJob\render-operator-used.pub")
+        if (Get-Command Set-Clipboard -ErrorAction SilentlyContinue) { Set-Clipboard -Value $PublicSsh }
+        Write-Host 'Hele den offentlige nokkelen er kopiert hvis utklippstavlen er tilgjengelig. Ikke del privat nokkel.'
+        Start-Process 'https://dashboard.render.com/u/settings'
+        [void](Read-Host 'Trykk Enter etter at akkurat denne offentlige nokkelen er registrert i Render')
+    } else { Write-Host 'Eksisterende SSH-tilgang fungerer; ingen ny nokkelregistrering nodig.' }
+    Write-Host 'Forste SSH-tilkobling krever normal kontroll av Render-serverens vertsnoekkel. Ikke godta ukjent/avvikende fingeravtrykk.'
+    if (-not $AuthSucceeded) { Native 'ssh.exe' ($SshOptions + @($RenderSsh,'true')) }
+    function Remote([string]$Text) { Native 'ssh.exe' ($SshOptions + @($RenderSsh,$Text)) }
+    function Upload([string]$Source,[string]$Name) { Native 'scp.exe' ($ScpOptions + @($Source,"${RenderSsh}:$RemoteJob/$Name")) }
+    function Download([string]$Name) {
+        $Destination = Join-Path $LocalJob $Name
+        $Temporary=Join-Path $LocalJob ('.download-'+[guid]::NewGuid().ToString('N')+'-'+$Name)
+        Native 'scp.exe' ($ScpOptions + @("${RenderSsh}:$RemoteJob/$Name",$Temporary))
+        if (-not (Test-Path -LiteralPath $Temporary) -or (Get-Item -LiteralPath $Temporary -Force).Length -eq 0) { throw "Tom kvittering: $Name" }
+        if (Test-Path -LiteralPath $Destination) {
+            if ((Get-FileHash -LiteralPath $Destination).Hash -eq (Get-FileHash -LiteralPath $Temporary).Hash) { Remove-Item -LiteralPath $Temporary -Force; return }
+            if ((Get-Item -LiteralPath $Destination -Force).Length -ne 0) { throw "Eksisterende kvittering avviker: $Name. Begge filer bevares." }
+            Move-Item -LiteralPath $Destination -Destination ($Destination+'.incomplete-'+[guid]::NewGuid().ToString('N'))
+        }
+        Move-Item -LiteralPath $Temporary -Destination $Destination
+    }
+    $Plan = @{actor=$Identity;approval_A_already_granted=$true;activation_authorized=$false;job_id=$JobId}
+    if (-not $IsResume) {
+        Write-NewUtf8 "$LocalJob\plan.json" ($Plan | ConvertTo-Json -Depth 10)
+        Write-NewUtf8 "$LocalJob\job-location.json" (@{remote=$RemoteJob;service=$RenderSsh;local=$LocalJob;package=$Package;keys_folder=$KeysFolder;ssh_identity=$SshKey} | ConvertTo-Json)
+        Remote "umask 077 && mkdir -m 700 $RemoteJob"
+    }
+    $RemoteCreated = $true
+    $SensitivePhaseEntered=$false
+    $RemoteStateUncertain=$false
+    $ActiveStage='preflight'
+    try {
+        # Request wakefulness for this job only; do not change Windows power policies.
+        if (-not ('AksjeNok.PowerState' -as [type])) {
+            Add-Type -Namespace AksjeNok -Name PowerState -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);'
+        }
+        [void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483649)
+        if ($IsResume) {
+            Remote "test -s $RemoteJob/preflight-result.json && test ! -e $RemoteJob/source-attestation.json && test ! -e $RemoteJob/archive-receipt.json && test ! -e $RemoteJob/preparation-attempt.json && test ! -e $RemoteJob/prepared.json"
+            Write-Host '[1/5] Henter fullfort forhandskontroll fra samme jobb. Ingen fase kjorer paa nytt.'
+        } else {
+            $InitialFiles=@($Required | ForEach-Object {Join-Path $Package $_})+@("$LocalJob\plan.json","$KeysFolder\archive-certificate.pem","$KeysFolder\operator-certificate.pem")
+            Native 'scp.exe' ($ScpOptions+$InitialFiles+@("${RenderSsh}:$RemoteJob/"))
+            Write-Host '[1/5] Samlet forhandskontroll, ingen kontohandlinger'
+            Remote "python $RemoteJob/render_batch.py preflight --work $RemoteJob"
+        }
+        Download 'preflight-result.json'
+        $Preflight = Get-Content "$LocalJob\preflight-result.json" -Raw | ConvertFrom-Json
+        $Preflight | Format-List
+        $Drive = Get-PSDrive -Name ([System.IO.Path]::GetPathRoot($LocalJob).Substring(0,1))
+        if ($Drive.Free -lt (2 * [double]$Preflight.source_bytes)) { throw 'For lite ledig plass til uavhengig arkivkopi paa PC-en' }
+        Write-Host 'Kontroller at alle relevante tjenester, gamle/eksterne lagre er inkludert, cron er suspendert og alle skrivere er stanset. Hold app-faner lukket. Ikke bekreft hvis dette er ukjent.'
+        $Ack = Read-Host 'Skriv KILDENE ER KOMPLETTE OG SKRIVERNE STANSET'
+        if ($Ack -ne 'KILDENE ER KOMPLETTE OG SKRIVERNE STANSET') { throw 'Ingen arkivering uten bekreftet kildedekning og skriverstans' }
+        Write-NewUtf8 "$LocalJob\source-attestation.json" (@{inventory_sha256=$Preflight.inventory_sha256;all_sources_reviewed_and_writers_stopped=$true;actor=$Identity;at=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json)
+        Upload "$LocalJob\source-attestation.json" 'source-attestation.json'
+        Write-Host '[2/5] Installerer isolerte PG18-verktoy i arbeidsmappen, ingen ny betalt ressurs'
+        Remote "NOK_WORK=$RemoteJob bash $RemoteJob/install_pg18.sh"
+        $SensitivePhaseEntered=$true
+        Upload "$KeysFolder\archive-key.pem" 'archive-key.pem'
+        Remote "chmod 600 $RemoteJob/archive-key.pem"
+        Write-Host '[3/5] Komplett kryptert sluttarkiv'
+        $ActiveStage='archive'
+        Remote "python $RemoteJob/render_batch.py archive --work $RemoteJob"
+        Download 'archive-receipt.json'
+        $Receipt = Get-Content "$LocalJob\archive-receipt.json" -Raw | ConvertFrom-Json
+        $ArchiveId = [string]$Receipt.archive_id
+        if ($ArchiveId -notmatch '^[A-Za-z0-9-]+$') { throw 'Ugyldig arkiv-ID' }
+        $Archives = Join-Path $LocalJob 'independent-archives'
+        New-Item -ItemType Directory $Archives | Out-Null
+        Native 'scp.exe' ($ScpOptions + @('-r',"${RenderSsh}:$RemoteJob/archives/$ArchiveId",$Archives))
+        $Cipher = Join-Path $Archives "$ArchiveId\archive.cms"
+        $CipherHash = (Get-FileHash $Cipher -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($CipherHash -ne $Receipt.cipher_sha256) { throw 'Uavhengig Windows-kopi har feil kontrollsum' }
+        Native $OpenSSL @('cms','-decrypt','-binary','-inform','DER','-in',$Cipher,'-recip',"$KeysFolder\archive-certificate.pem",'-inkey',"$KeysFolder\archive-key.pem",'-out','NUL')
+        $CopyProof = @{archive_id=$ArchiveId;cipher_sha256=$CipherHash;verified_windows_copy=$true;local_decryption_verified=$true;copy_kind='WINDOWS_OFFSITE_VERIFIED_SCP_COPY';verified_at=[DateTime]::UtcNow.ToString('o')}
+        Write-NewUtf8 "$LocalJob\windows-copy-proof.json" ($CopyProof | ConvertTo-Json)
+        Upload "$LocalJob\windows-copy-proof.json" 'windows-copy-proof.json'
+        Write-Host '[4/5] Fysisk restore paa eksisterende arbeidsplass og opprettelse av INAKTIVE DRAFT-kontoer'
+        $ActiveStage='restore-drafts'
+        Remote "python $RemoteJob/render_batch.py restore-drafts --work $RemoteJob"
+        Write-Host '[5/5] Henter faktiske kvitteringer og samlet status'
+        foreach ($Name in @('final-result.json','restore-result.json','prepared.json','account-settings-for-review.json','inventory.json','source-databases.json','config.json')) { Download $Name }
+        $Result = Get-Content "$LocalJob\final-result.json" -Raw | ConvertFrom-Json
+        $Result | Format-List
+        Write-Host "Ferdig med denne avgrensede kjoringen. Privat arkiv og kvitteringer: $LocalJob"
+        Write-Host 'Ingen konto er aktivert. B er ikke klar: faktiske kostnader, livebevis og signerte grants maa dokumenteres.'
+        Write-Host 'Del bare final-result.json som status, ikke arkivet, private nokler eller hele produksjonskonfigurasjonen.'
+    }
+    catch {
+        $Failure = $_
+        $RemoteStateUncertain=$Failure.Exception.Data.Contains('AksjeConnectionUncertain') -and [bool]$Failure.Exception.Data['AksjeConnectionUncertain']
+        $BeforeLoginFailure=$Failure.Exception.Data.Contains('AksjeBeforeLogin') -and [bool]$Failure.Exception.Data['AksjeBeforeLogin']
+        if (-not $BeforeLoginFailure -and -not $RemoteStateUncertain) {
+            try { Download "STOPPED-$ActiveStage.json" } catch { }
+        }
+        if ($RemoteStateUncertain) { Write-Warning 'Tilkoblingen ble brutt etter at fjernoperasjonen kan ha startet. Fjernstatus er ukjent; ingen automatisk gjentakelse eller opprydding.' }
+        Write-Host "Jobben er stoppet uten aktivering. Eventuelle private STOPPED-kvitteringer ligger i $LocalJob"
+        throw $Failure
+    }
+    finally {
+        if ('AksjeNok.PowerState' -as [type]) { [void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483648) }
+        if ($RemoteCreated -and $SensitivePhaseEntered -and -not $RemoteStateUncertain) {
+            try {
+                Native 'ssh.exe' ($SshOptions+@($RenderSsh,"python $RemoteJob/render_batch.py cleanup --work $RemoteJob"))
+            } catch { Write-Warning 'Midlertidig arkivnokkel/restore-prosess maa kontrolleres i den private jobbmappen. Originalnokkelen paa PC-en bevares.' }
+        }
+        Write-Host "Jobbmappe: $LocalJob"
+        Write-Host 'Ingen automatisk ny start, sletting av historikk eller overgang til annen periode.'
+    }
+}
+function Resume-AksjeOperator([string]$JobId='') {
+    if ([string]::IsNullOrWhiteSpace($JobId)) {
+        $OperatorRoot=Join-Path $env:LOCALAPPDATA 'AksjeNokOperator'
+        $Candidates=@(Get-ChildItem -LiteralPath $OperatorRoot -Directory -Filter 'nok-job-*' -ErrorAction Stop | Where-Object {
+            $Folder=$_.FullName
+            (Test-Path -LiteralPath (Join-Path $Folder 'job-location.json')) -and
+            (Test-Path -LiteralPath (Join-Path $Folder 'plan.json')) -and
+            -not (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json')) -and
+            -not (Test-Path -LiteralPath (Join-Path $Folder 'archive-receipt.json')) -and
+            -not (Test-Path -LiteralPath (Join-Path $Folder 'prepared.json')) -and
+            -not (Test-Path -LiteralPath (Join-Path $Folder 'final-result.json'))
+        })
+        if ($Candidates.Count -eq 1) { $JobId=$Candidates[0].Name }
+        else { $JobId=Read-Host 'Jobb-ID fra feilmeldingen som skal fortsettes (nok-job-...)' }
+    }
+    Start-AksjeOperator -ResumeJob $JobId.Trim()
+}
+Resume-AksjeOperator
