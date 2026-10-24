@@ -1,0 +1,299 @@
+# LOCAL RESTORED COPY ONLY: 127.0.0.1:5433 / aksje_restore_test.
+# No Render connection, production scan, account action, archive or activation.
+$script:AksjeLocalNativeSource = @'
+"""Read-only native-column fingerprint prototype. Local restored copy only.
+
+Same canonical JSON/multiset SHA256 as simulation_archive.database_fingerprint;
+large TEXT values are escaped incrementally by the client, never row_to_json on
+those complete production-style rows. No archive, restart or activation action.
+"""
+from datetime import datetime, timezone
+from decimal import Decimal
+import argparse
+import getpass
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import time
+import uuid
+
+TEXT_OID = 25
+CHUNK_CHARACTERS = 16384
+MODULUS = 1 << 256
+
+
+def canonical_chunks(value):
+    if isinstance(value, str):
+        yield b'"'
+        for start in range(0, len(value), CHUNK_CHARACTERS):
+            yield json.dumps(value[start:start + CHUNK_CHARACTERS], ensure_ascii=True)[1:-1].encode('ascii')
+        yield b'"'
+    elif isinstance(value, dict):
+        yield b'{'
+        for index, key in enumerate(sorted(value)):
+            if index:
+                yield b','
+            yield json.dumps(key, ensure_ascii=True).encode('ascii')
+            yield b':'
+            yield from canonical_chunks(value[key])
+        yield b'}'
+    elif isinstance(value, list):
+        yield b'['
+        for index, item in enumerate(value):
+            if index:
+                yield b','
+            yield from canonical_chunks(item)
+        yield b']'
+    else:
+        yield json.dumps(value, sort_keys=True, separators=(',', ':'), default=str, ensure_ascii=True).encode('ascii')
+
+
+def row_hash(value):
+    digest = hashlib.sha256()
+    for block in canonical_chunks(value):
+        digest.update(block)
+    return digest.digest()
+
+
+def decoded_row(columns, values):
+    return {name: (raw if type_oid == TEXT_OID or raw is None else json.loads(raw, parse_float=Decimal))
+            for (name, type_oid, _), raw in zip(columns, values, strict=True)}
+
+
+def emit(value):
+    print(json.dumps(value, ensure_ascii=True, allow_nan=False), flush=True)
+
+
+def available_memory():
+    if os.name != 'nt':
+        return None
+    import ctypes
+    class MemoryStatus(ctypes.Structure):
+        _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong),
+                    ('total_phys', ctypes.c_ulonglong), ('avail_phys', ctypes.c_ulonglong),
+                    ('total_page', ctypes.c_ulonglong), ('avail_page', ctypes.c_ulonglong),
+                    ('total_virtual', ctypes.c_ulonglong), ('avail_virtual', ctypes.c_ulonglong),
+                    ('avail_extended', ctypes.c_ulonglong)]
+    status = MemoryStatus()
+    status.length = ctypes.sizeof(status)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        raise RuntimeError('Cannot verify local available memory; no large-value scan')
+    return status.avail_phys
+
+
+def scan_database(connection, *, ignore_period=None, progress=emit):
+    from psycopg2 import sql
+    started = time.monotonic()
+    result = {}
+    sizes = {}
+    samples = 0
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL TIME ZONE 'UTC'")
+        cursor.execute("SHOW transaction_read_only")
+        if cursor.fetchone()[0] != 'on':
+            raise ValueError('READ ONLY transaction required')
+        cursor.execute("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
+        tables = cursor.fetchall()
+    for table_index, (schema, table) in enumerate(tables, 1):
+        relation = sql.Identifier(schema, table)
+        label = schema + '.' + table
+        progress(dict(kind='TABLE_START', table_index=table_index, table=label))
+        with connection.cursor() as cursor:
+            cursor.execute('''SELECT a.attname,a.atttypid,a.attlen FROM pg_attribute a
+                JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname=%s AND c.relname=%s AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum''', (schema, table))
+            columns = cursor.fetchall()
+            if not columns:
+                raise ValueError('No visible columns; refuse silent omission')
+            text_columns = [name for name, oid, _ in columns if oid == TEXT_OID]
+            if text_columns:
+                expressions = [sql.SQL('max(octet_length({}))').format(sql.Identifier(name)) for name in text_columns]
+                cursor.execute(sql.SQL('SELECT {} FROM {}').format(sql.SQL(',').join(expressions), relation))
+                text_sizes = dict(zip(text_columns, cursor.fetchone(), strict=True))
+            else:
+                text_sizes = {}
+            max_text_row = sum(length or 0 for length in text_sizes.values())
+            sizes[label] = text_sizes
+            free = available_memory()
+            progress(dict(kind='NATIVE_READ_PLAN', table=label, max_text_column_octets=text_sizes,
+                          available_pc_memory_bytes=free, fetch_rows=1))
+            if free is not None and max(512 * 1024**2, max_text_row * 8) > free // 2:
+                raise MemoryError('Local copy scan exceeds conservative available-memory budget')
+            expressions = [sql.SQL('t.{}').format(sql.Identifier(name)) if oid == TEXT_OID else
+                           sql.SQL('to_json(t.{})::text').format(sql.Identifier(name)) for name, oid, _ in columns]
+            selected = sql.SQL(',').join(expressions)
+            # Only bounded small samples use the original row_to_json oracle.
+            # This entire program is constrained to the local restored copy.
+            limits = [sql.SQL('coalesce(octet_length(t.{}),0)<=8192').format(sql.Identifier(name)) if oid == TEXT_OID else
+                      sql.SQL('coalesce(pg_column_size(t.{}),0)<=4096').format(sql.Identifier(name)) for name, oid, _ in columns]
+            query = sql.SQL('SELECT {},row_to_json(t)::text FROM {} t WHERE {} LIMIT 3').format(selected, relation, sql.SQL(' AND ').join(limits))
+            cursor.execute(query)
+            for sample in cursor.fetchall():
+                expected = json.loads(sample[-1], parse_float=Decimal)
+                actual = decoded_row(columns, sample[:-1])
+                original_hash = hashlib.sha256(json.dumps(expected, sort_keys=True, separators=(',', ':'), default=str).encode()).digest()
+                if row_hash(actual) != original_hash:
+                    raise ValueError('Canonical checksum mismatch in local bounded sample: ' + label)
+                samples += 1
+        # Native TEXT columns never pass through PostgreSQL JSON serialization.
+        query = sql.SQL('SELECT {} FROM {} t').format(selected, relation)
+        count = total = 0
+        last_progress = time.monotonic()
+        with connection.cursor(name='native_' + uuid.uuid4().hex) as rows:
+            rows.itersize = 1
+            rows.arraysize = 1
+            rows.execute(query)
+            while True:
+                raw = rows.fetchone()
+                if raw is None:
+                    break
+                value = decoded_row(columns, raw)
+                if table == 'app_kv_store' and ignore_period:
+                    key = value.get('name', '')
+                    if key == 'simulation_restarts/' + ignore_period + '/bundle.json':
+                        continue
+                    if key.startswith('simulation_restarts/routes/'):
+                        payload = value.get('payload')
+                        payload = json.loads(payload) if isinstance(payload, str) else payload
+                        if payload.get('period_id') == ignore_period:
+                            continue
+                total = (total + int.from_bytes(row_hash(value), 'big')) % MODULUS
+                count += 1
+                del value, raw
+                if time.monotonic() - last_progress >= 5:
+                    progress(dict(kind='READ_PROGRESS', table=label, rows=count, elapsed_seconds=round(time.monotonic() - started)))
+                    last_progress = time.monotonic()
+        result[label] = dict(rows=count, multiset_sha256_sum=f'{total:064x}')
+        progress(dict(kind='TABLE_DONE', table=label, rows=count, max_text_column_octets=text_sizes))
+    return dict(fingerprints=result, max_text_column_octets=sizes, bounded_oracle_samples=samples,
+                elapsed_seconds=round(time.monotonic() - started))
+
+
+def connect_local_copy():
+    import psycopg2
+    params = dict(host='127.0.0.1', hostaddr='127.0.0.1', port=5433,
+                  dbname='aksje_restore_test', user='postgres', connect_timeout=10,
+                  sslmode='prefer', application_name='aksje_local_readonly_fingerprint',
+                  options='-c default_transaction_read_only=on -c client_encoding=UTF8 -c statement_timeout=300000')
+    try:
+        return psycopg2.connect(**params)
+    except psycopg2.OperationalError as error:
+        if 'no password supplied' not in str(error) and 'password authentication failed' not in str(error):
+            raise RuntimeError('Local PostgreSQL connection unavailable on 127.0.0.1:5433; no Render connection attempted') from None
+    print('Skriv lokalt PostgreSQL-passord nedenfor. Det vises ikke og lagres ikke.', flush=True)
+    password = getpass.getpass('')
+    try:
+        return psycopg2.connect(**params, password=password)
+    finally:
+        password = None
+
+
+def main(output):
+    import psycopg2
+    emit(dict(kind='LOCAL_TOOL_VERSION', python=sys.version.split()[0], driver=psycopg2.__version__.split()[0]))
+    destination = Path(output)
+    if destination.exists():
+        raise ValueError('Result already exists; no overwrite')
+    connection = connect_local_copy()
+    try:
+        connection.set_session(readonly=True, isolation_level='REPEATABLE READ', autocommit=False)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_database(),host(inet_server_addr()),inet_server_port(),current_setting('server_version_num')::int,current_setting('transaction_read_only')")
+            database, address, port, version, readonly = cursor.fetchone()
+            if (database, address, port, readonly) != ('aksje_restore_test', '127.0.0.1', 5433, 'on') or not 180000 <= version < 190000:
+                raise ValueError('Wrong local copy, endpoint, version or transaction mode; scan refused')
+        emit(dict(kind='LOCAL_COPY_VERIFIED', database=database, address=address, port=port, version=version, read_only=True))
+        report = scan_database(connection)
+    except BaseException:
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        connection.close()
+        raise
+    else:
+        connection.rollback()
+        connection.close()
+    report.update(status='LOCAL_COPY_FINGERPRINT_SCAN_COMPLETE', scope='LOCAL_RESTORE_COPY_ONLY',
+                  at=datetime.now(timezone.utc).isoformat(), database='aksje_restore_test',
+                  accounts_activated=False, portfolio_rows_modified=False, production_ready=False)
+    with destination.open('x', encoding='utf-8') as stream:
+        json.dump(report, stream, ensure_ascii=True, indent=2, allow_nan=False)
+    emit(dict(kind='COMPLETE', status=report['status'], scope=report['scope'], tables=len(report['fingerprints']),
+              bounded_oracle_samples=report['bounded_oracle_samples'], elapsed_seconds=report['elapsed_seconds'],
+              accounts_activated=False, portfolio_rows_modified=False, production_ready=False))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output', required=True)
+    args = parser.parse_args()
+    try:
+        main(args.output)
+    except Exception as error:
+        # No row values, connection strings, passwords or exception locals in output.
+        emit(dict(kind='STOPPED', error_type=type(error).__name__,
+                  reason=str(error)[:500] if type(error) in (ValueError, RuntimeError, MemoryError) else 'Local read-only scan failed; no production operation or account action occurred',
+                  sqlstate=getattr(error, 'pgcode', None), accounts_activated=False))
+        raise SystemExit(1)
+'@
+function Test-AksjeLocalNativeFingerprint {
+    $ErrorActionPreference='Stop'
+    if (-not [Environment]::Is64BitOperatingSystem) {throw '64-bit Windows kreves; ingen databaseforbindelse startet'}
+    $Id='local-native-check-'+[datetime]::UtcNow.ToString('yyyyMMddTHHmmssZ')+'-'+[guid]::NewGuid().ToString('N').Substring(0,8)
+    $Job=Join-Path $env:LOCALAPPDATA ('AksjeNokOperator\'+$Id)
+    if (Test-Path -LiteralPath $Job) {throw 'Jobbmappe finnes; ingen overskriving'}
+    New-Item -ItemType Directory $Job|Out-Null
+    $Identity=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $Job /inheritance:r /grant:r "${Identity}:(OI)(CI)F"|Out-Null
+    if ($LASTEXITCODE -ne 0) {throw 'Kunne ikke sikre privat lokal kontrollmappe'}
+    $SavedProtocol=[Net.ServicePointManager]::SecurityProtocol
+    $SavedProgress=$ProgressPreference
+    $SavedEnvironment=@{}
+    $Names=@('PGHOST','PGHOSTADDR','PGPORT','PGDATABASE','PGUSER','PGSERVICE','PGSERVICEFILE','PGOPTIONS','PGCLIENTENCODING')
+    foreach($Name in $Names) {$SavedEnvironment[$Name]=[Environment]::GetEnvironmentVariable($Name,'Process');[Environment]::SetEnvironmentVariable($Name,$null,'Process')}
+    function Get-VerifiedLocalTool([string]$Uri,[string]$Hash,[string]$Path) {
+        Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Path
+        if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Hash) {throw 'Nedlastet verktoy har feil SHA256; ingenting kjores'}
+    }
+    try {
+        [Net.ServicePointManager]::SecurityProtocol=$SavedProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $ProgressPreference='SilentlyContinue'
+        Write-Host '[1/3] Klargjorer private, hashkontrollerte lokale verktoy. Ingen global installasjon.'
+        $PythonZip=Join-Path $Job 'python.zip'
+        Get-VerifiedLocalTool 'https://api.nuget.org/v3-flatcontainer/python/3.13.17/python.3.13.17.nupkg' 'dce409744b088f94c6e37ba41f8100c384c27e029e843237364c602d30d475e5' $PythonZip
+        $Runtime=Join-Path $Job 'runtime'
+        Expand-Archive -LiteralPath $PythonZip -DestinationPath $Runtime
+        $WheelZip=Join-Path $Job 'driver.zip'
+        Get-VerifiedLocalTool 'https://files.pythonhosted.org/packages/87/c2/0e0ffb4caeb651631cbc6c8ead83e2a16457750b1d2eb7f5ef111c1f4d36/psycopg2_binary-2.9.13-cp313-cp313-win_amd64.whl' '691da68ae5dd7c3ac77514357d35ece7b1ba8b5f3e6c92735198aa6159c355c8' $WheelZip
+        Expand-Archive -LiteralPath $WheelZip -DestinationPath (Join-Path $Runtime 'tools\Lib\site-packages') -Force
+        $Python=Join-Path $Runtime 'tools\python.exe'
+        if ((Get-FileHash -LiteralPath $Python -Algorithm SHA256).Hash.ToLowerInvariant() -ne '7c2fc2b303a4ee3cc14cc17b47bc6e8bca98c78792edd123b846a560da44b203') {throw 'Python-binaren samsvarer ikke med kontrollert pakke'}
+        $ScriptPath=Join-Path $Job 'local_copy_fingerprint.py'
+        [IO.File]::WriteAllText($ScriptPath,$script:AksjeLocalNativeSource.Replace("`r`n","`n")+"`n",(New-Object System.Text.UTF8Encoding($false)))
+        if ((Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'e18da68694af56638c5ff0e0769b80c42bd634adafc81d233a1781e3d77dbb1c') {throw 'Kontrollkoden er ufullstendig eller endret; ingen databaseforbindelse'}
+        $ResultPath=Join-Path $Job 'local-native-result.json'
+        $LogPath=Join-Path $Job 'local-native-progress.log'
+        Write-Host '[2/3] Leser bare aksje_restore_test paa 127.0.0.1:5433. Fremdrift vises underveis.'
+        Write-Host 'La vinduet staa aapent. Ingen Render-forbindelse eller kontoaktivering.'
+        $Preference=$ErrorActionPreference
+        try {
+            $ErrorActionPreference='Continue'
+            & $Python -I $ScriptPath --output $ResultPath 2>&1 | ForEach-Object {$_.ToString()} | Tee-Object -FilePath $LogPath
+            $ExitCode=$LASTEXITCODE
+        } finally {$ErrorActionPreference=$Preference}
+        if ($ExitCode -ne 0) {throw "Lokal kopikontroll stoppet (exit $ExitCode). Ingen produksjonsoperasjon utfort. Logg: $LogPath"}
+        $Result=Get-Content -LiteralPath $ResultPath -Raw -Encoding UTF8|ConvertFrom-Json
+        if ($Result.status -ne 'LOCAL_COPY_FINGERPRINT_SCAN_COMPLETE' -or $Result.scope -ne 'LOCAL_RESTORE_COPY_ONLY' -or $Result.database -ne 'aksje_restore_test' -or $Result.accounts_activated -ne $false -or $Result.portfolio_rows_modified -ne $false) {throw 'Manglende gyldig lokal sluttkvittering'}
+        Write-Host '[3/3] Lokal kopikontroll fullfort. Dette er ikke produksjonsgodkjenning.'
+        Write-Host "Kontrollavtrykk og metadata: $ResultPath"
+        Write-Host "Fremdriftslogg: $LogPath"
+    } finally {
+        foreach($Name in $Names) {[Environment]::SetEnvironmentVariable($Name,$SavedEnvironment[$Name],'Process')}
+        [Net.ServicePointManager]::SecurityProtocol=$SavedProtocol
+        $ProgressPreference=$SavedProgress
+    }
+}
+Test-AksjeLocalNativeFingerprint

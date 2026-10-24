@@ -26,7 +26,47 @@ minnebruk ved svært store produksjonsrader. De skal ikke brukes som klarsignal
 for et nytt produksjonsforsøk. Ingen produksjonslogger, databasedata eller nøkler
 er inkludert her.
 
-## Eneste nye kjøreinstruks: skrivebeskyttet lokal kopikontroll
+## Neste kontroll: direkte kolonnelesing på lokal kopi
+
+Kopier hele [KJOR-LOKAL-FINGERAVTRYKK-WINDOWS.txt](KJOR-LOKAL-FINGERAVTRYKK-WINDOWS.txt)
+inn i Windows PowerShell og trykk Enter. Den er selvstendig; ny ZIP-utpakking er ikke
+nødvendig. Databasen er låst til `aksje_restore_test` på `127.0.0.1:5433`, PostgreSQL
+18, i REPEATABLE READ / READ ONLY. Feil mål, versjon eller skrivbar transaksjon
+stopper før tabellkontrollen. Eventuell lokal autentisering skjer i terminalen,
+uten passord i kode, kommandolinje, rapport eller chat.
+
+Full gjennomgang leser TEXT-kolonner direkte. De store tekstene JSON-escapes i
+små biter på klienten før hashing, i stedet for PostgreSQL `row_to_json` av hele
+raden. Ikke-TEXT-felt bruker PostgreSQLs JSON-representasjon per felt, slik at
+numerikk, datoer, bytea og øvrige typer beholder eksisterende kanonisering.
+Små, størrelsesfiltrerte eksempler sammenlignes med original `row_to_json`-algoritme
+på **kopien** før tabellen leses. Dataverdier vises ikke. Kontrollformat og
+multisett-SHA256 er uendret; ingen data, tap eller tidligere perioder utelates.
+
+Kontrollen laster ved behov egne verktøy til kontrollmappen, ikke globalt:
+CPython 3.13.17 fra Python Software Foundations NuGet-pakke og psycopg2-binary
+2.9.13 fra PyPI. Pakker, Python-binær og innlimt kontrollkode har fast SHA256.
+Ingen pip-kommando, administratorinstallasjon eller endring av ExecutionPolicy.
+Både fremdrift og lokal sluttkvittering ligger under `%LOCALAPPDATA%\AksjeNokOperator`.
+Kontrollen endrer ingen porteføljedata og kontakter ikke Render. Store tekstfelts
+logiske størrelser og tilgjengelig PC-minne kontrolleres før lesing.
+
+Send bare `local-native-result.json` som resultat. Den inneholder tabellvise
+radantall, kontrollavtrykk, størrelser og teststatus, ikke handler eller payload.
+Det er et resultat fra den lokale testkopien, ikke et nytt produksjonsarkiv eller
+bevis på at kopien og dagens produksjon har identisk innhold. Kontoene aktiveres
+ikke, og produksjonssperren oppheves ikke automatisk.
+
+Ny lokal PostgreSQL 16.2-fixturetest viser identiske kontrollavtrykk mot uendret
+kjernemotor for TEXT, desimaler/flyttall, boolske verdier, dato/tid, bytea, arrays,
+JSON/JSONB, char/varchar, NULL, uvanlige identifikatorer, tomme tabeller og ekskludering
+av en eksplisitt ny periode. En 32 MiB tekstverdi med mye Unicode/escaping ga også
+nøyaktig samme hash. Encoderens enkeltbiter er begrenset i størrelse. Feil lokal
+vert, database, port, versjon eller transaksjonsmodus avvises uten tabellskann eller
+sluttkvittering. PowerShell-parser og innebygd kodehash er kontrollert. Faktisk
+Windows/PostgreSQL 18-kjøring av denne nye gjennomgangen gjenstår.
+
+## Innledende skrivebeskyttet metadatakontroll av lokal kopi
 
 Bruk [KONTROLLER-LOKAL-KOPI-WINDOWS.txt](KONTROLLER-LOKAL-KOPI-WINDOWS.txt) på
 Windows-PC-en. Kopier hele filen inn i PowerShell og trykk Enter. Den bruker
@@ -293,4 +333,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `a45260327bd1b818423fe83b8550619c136b79934549bd4db3beff18d8b340ba`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `ca61f9ef407ecfd2cc768dd0c11bf7fbbb8edd65f5d265cc2d935b0b7870a44f`
