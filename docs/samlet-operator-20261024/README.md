@@ -1,4 +1,74 @@
-# KJØRING SPERRET – produksjonens arkivkontroll må ikke gjentas
+# Samlet fortsettelse med direkte kolonnelesing
+
+Bruk **[FORTSETT-MED-NATIVE-ARKIV-WINDOWS.txt](FORTSETT-MED-NATIVE-ARKIV-WINDOWS.txt)**.
+Kopier hele filen til samme Windows PowerShell-vindu og trykk Enter.
+Den fortsetter kun `nok-job-20261024T165039Z`, med eksisterende lokal sertifikatmappe,
+SSH-identitet, kildeattestasjon og installerte PostgreSQL-18-verktøy. Ny ZIP-utpakking,
+nøkkelregistrering, tjenestestart og betalt ressurs er ikke nødvendig. Hold app-faner
+lukket og scheduler/andre skrivere stanset slik tidligere bekreftet.
+
+Filen kjører gjennom kryptert fullarkiv, uavhengig Windows-kopi med faktisk lokal
+dekryptering, fysisk restore på egen privat Unix-socket på eksisterende web-arbeidsplass,
+og opprettelse/avstemming av tre INAKTIVE DRAFT-kontoer. Tidligere saldoer, historikk,
+læring og strategier bevares. Kontoene aktiveres ikke, ingen route velges og B er ikke klar.
+Før en eventuell senere aktivering må også dens kildeverifikasjon bruke den validerte
+native-adapteren. Deployet gammel `row_to_json` må fortsatt ikke kjøres på disse dataene.
+Bare en midlertidig kopi av arkivnøkkelen overføres; originalen på PC-en beholdes og
+operatørsigneringsnøkkelen leses ikke. Del bare sluttstatus `final-result.json`.
+
+`Start-AksjeNativeArchive` og `render_native_batch.py` er separate, kontrollerte
+innganger. Alle eldre start-/fortsettelsesfiler og `render_batch.py` beholder sperrene.
+Startfunksjonen krever akkurat denne eksisterende jobben og innebygd worker med riktig
+SHA256. Uforseglede, tomme feilkataloger bevares; forseglet arkiv eller senere/ukjent
+kontostatus gir stopp fremfor repetisjon. Ved avbrudd må status avklares før ny kjøring.
+
+Den nye workerens fingeravtrykk bruker samme eksporterte snapshot som pg_dump og samme
+kanoniske JSON-/multisetthash som originalkoden. TEXT hentes direkte som UTF-8-bytes,
+JSON-escapes inkrementelt i små biter på klienten og bygges aldri til komplett
+`row_to_json` på kildeserveren. En enkelt astral Unicode-verdi utløser dermed heller
+ikke en ekstra komplett UCS4-streng i klientminnet. Både kilde-, restore- og endelig
+kildekontroll bruker den samme adapteren. Ingen `row_to_json`-orakelprøver utføres på
+produksjonen. Snapshot erstattes ikke med en senere tilkobling ved feil.
+
+Ferske katalog-/lengdemetadata, PG18/UTF8, alle deklarerte databasekilder og fravær av
+andre aktive/åpne transaksjoner kontrolleres før arkivering. Hver tabell må fortsatt
+passe innenfor grensen på 160 MiB samlet innfødt radstørrelse; ukjente ikke-TEXT-varlena
+med verdier avvises. Bare deklarerte kildeendepunkter eller denne jobbens private
+`nok_restore_<nummer>`-socket tillates; andre kilder og endrede TLS-parametere avvises.
+Web-containerens minnegrense må være minst 2 GB og anslått tilgjengelig ramme minst
+1280 MiB, inkludert rapportert inaktiv filcache som kan gjenvinnes. Fingeravtrykksbarnet
+har 768 MiB adressegrense; øvrig worker og isolert restore arver 1152 MiB.
+Dette er konservative kontroller, ikke en måling eller garanti for produksjonens topp-RSS.
+Kjøringen skriver en livstegnmelding hvert 30. sekund mens et steg arbeider.
+
+Verifikasjon utført før publisering:
+
+- Brukerens PG18.6-kopi på PC: 12 tabeller, 22 avgrensede originalkodeprøver,
+  68 sekunder. Største TEXT-verdi 162212873 byte. Dette var den tidligere native
+  strengvarianten; den nye bytevarianten er i tillegg prøvd isolert nedenfor.
+- Brukerens PG18.4-kilde: kapasitetsmetadata bestod, shared_buffers 268435456 byte,
+  øvre radstørrelse 162213017 byte, null andre aktive/åpne transaksjoner og null
+  ukjente variable kolonner. Lengdelikhet alene dokumenterer ikke likt innhold.
+- Isolert PG16.2: nøyaktig originalhash for datatyper/NULL/Unicode/duplikater,
+  chunkgrenser og utelatelse av kun egen nye periode. Opprinnelig eksportert snapshot
+  beholdes også ved en senere, samtidig innsatt testrad.
+- Isolert PG16.2: én 160 MiB TEXT-verdi med anførselstegn, bakstrek, kontrolltegn og
+  astral Unicode. Kilde-lesing og full custom pg_dump bestod med 256 MiB shared_buffers
+  og arvet 1 GiB server-adressegrense. Byte-klienten bestod under 768 MiB adressegrense,
+  med omtrent 500 MiB målt topp-RSS. PostgreSQL-backendens RSS ble ikke målt.
+- Den store fixture-restoren feilet kontrollert ved 1 GiB adressegrense. Med
+  restore-konfigurasjonens 32 MiB shared_buffers og 1152 MiB arvet adressegrense bestod
+  fysisk restore og nøyaktig byte-fingeravtrykk. Ingen server-SIGKILL i sluttesten.
+- Separat isolert kryptering/dekryptering, fysisk restore til privat socket, uendrede
+  runtime-filer og full kildeverifikasjon bestod gjennom de eksisterende core-funksjonene.
+- Offisiell PowerShell-parser, faktisk kjøring av innebygd SHA256-kontroll og avvisning av
+  feil/manglende jobb før fil-/SSH-handlinger bestod. Alle åtte core-kilder er uendret.
+
+Ingen produksjonsarkivering eller DRAFT-opprettelse er utført fra Codex ved publisering.
+Faktisk Windows/Render-kjøring av den nye samlede filen gjenstår. PG16-fixtures erstatter
+ikke produksjonsbevis fra PG18. Scheduler er bekreftet suspendert via Render API.
+
+## Bakgrunn og sperrer i eldre verktøy
 
 PostgreSQL-logg har bekreftet at databaseprosesser ble drept med SIGKILL mens
 arkivets navngitte cursor ble lest, etterfulgt av full reinitialisering og recovery.
@@ -54,8 +124,8 @@ Bare metadata lagres i `%LOCALAPPDATA%\AksjeNokOperator\source-header-check-...\
 Ingen produksjonsdata, nøkler eller slike resultatfiler legges i GitHub.
 Katalog-/lengde-SQL er testet i isolert PostgreSQL 16.2 med en stor TEXT-verdi;
 innhold ble ikke hentet eller endret. Innebygd kode, hash, PowerShell-parser og
-matching av eksisterende SSH-identitet er kontrollert. Faktisk Render-kjøring og
-postgreSQL-18-kapasitetsresultat gjenstår.
+matching av eksisterende SSH-identitet er kontrollert. Brukeren har senere bekreftet at Render-kontrollen på PG18 bestod;
+resultatet gir alene ikke godkjenning for arkiv eller kontoaktivering.
 
 ## Neste kontroll: direkte kolonnelesing på lokal kopi
 
@@ -364,4 +434,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `145a1600cc540e0bb98e06235d7b5513a0ce5bbe2eda690585873887466755c5`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `13151e7527d5f094683f48c98c4a82bfec93668dfdbb8a2ebb33200a6cba4f7a`
