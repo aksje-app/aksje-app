@@ -167,6 +167,18 @@ class OneRowConnection:
         return OneRowCursor(result,self.progress) if kwargs.get('name') or (args and args[0]) else result
 
 
+def require_isolated_fingerprint(parameters,work):
+    """Production row_to_json scans caused server SIGKILL; never retry them."""
+    socket=Path(work).resolve()/'pgsocket'
+    host=parameters.get('host','')
+    if (parameters.get('hostaddr') or not host or not Path(host).is_absolute()
+        or socket.is_symlink() or Path(host).resolve()!=socket
+        or not socket.is_dir() or socket.stat().st_mode & 0o077
+        or socket.stat().st_uid!=os.geteuid()
+        or not re.fullmatch(r'nok_restore_[0-9]+',parameters.get('dbname',''))):
+        raise ValueError('SOURCE FINGERPRINT SUSPENDED: PostgreSQL SIGKILL during archive FETCH; only the private isolated restore target may be scanned')
+
+
 def fingerprint_child(work):
     """Lightweight read-only child, attached to the caller's exact snapshot."""
     if os.getenv('APP_ENVIRONMENT')!='production':raise ValueError('Actual production environment required')
@@ -174,6 +186,7 @@ def fingerprint_child(work):
     if hashlib.sha256((ROOT/'services/simulation_archive.py').read_bytes()).hexdigest()!=expected:
         raise ValueError('Core fingerprint implementation differs')
     request=json.load(sys.stdin)
+    require_isolated_fingerprint(request['parameters'],work)
     snapshot=request['snapshot']
     if not re.fullmatch(r'[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+',snapshot):raise ValueError('Invalid exported snapshot')
     import psycopg2
@@ -197,6 +210,7 @@ def fingerprint_child(work):
 
 def install_bounded_fingerprints(archive,work):
     def fingerprint(connection,*,ignore_period=None):
+        require_isolated_fingerprint(connection.get_dsn_parameters(),work)
         # Export within the original open transaction. pg_dump and the child
         # see identical data; no snapshot is guessed or replaced with live data.
         with connection.cursor() as cursor:
@@ -272,6 +286,8 @@ def main(args):
     os.chdir(ROOT)
     work,plan=private_job(args.work)
     if ROOT==work or ROOT in work.parents:raise ValueError('Operator files must stay outside repository')
+    if args.action in {'archive','archive-checkpoint'}:
+        raise ValueError('PRODUCTION ARCHIVE SUSPENDED after repeated PostgreSQL SIGKILL during archive FETCH. No source scan, archive key upload or account preparation is authorized by this worker.')
     if args.action=='fingerprint-readonly':
         if plan.get('approval_A_already_granted') is not True:raise ValueError('Existing approval A required')
         fingerprint_child(work)
@@ -567,6 +583,7 @@ function Get-AksjePublicSshKey([string]$SshKey) {
 
 function Start-AksjeOperator {
     param([string]$ResumeJob='', [switch]$ResumeInstaller, [string]$InstallerText='', [switch]$ResumeArchive, [string]$WorkerText='')
+    throw 'KJORING SPERRET: Arkiv-FETCH ble drept med SIGKILL og PostgreSQL startet paa nytt. Ikke bruk tidligere fortsettelsesfiler. Videre kontroll maa skje paa separat gjenopprettet kopi.'
     $ErrorActionPreference = 'Stop'
     Set-StrictMode -Version Latest
     $Utf8 = New-Object System.Text.UTF8Encoding($false)

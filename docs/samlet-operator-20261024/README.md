@@ -1,8 +1,60 @@
-[Last ned hele ZIP-pakken](aksje-samlet-operator.zip) (velg Download raw file i GitHub).
+# KJØRING SPERRET – produksjonens arkivkontroll må ikke gjentas
 
-**Etter uforseglet arkivstopp:** Kopier hele [den oppdaterte fortsettelsesfilen](FORTSETT-ETTER-ARKIVSTOPP.txt) inn i samme PowerShell-vindu etter at forrige kjøring er avsluttet. Den bevarer opprinnelig feil ved brutt tilkobling, og viser hovedfeilen og lesefremdrift nederst i konsollen. Minnebegrenset snapshot-kontroll og alle arkiv-/aktiveringssperrer beholdes. Den underliggende produksjonsfeilen er ennå ikke dokumentert.
+PostgreSQL-logg har bekreftet at databaseprosesser ble drept med SIGKILL mens
+arkivets navngitte cursor ble lest, etterfulgt av full reinitialisering og recovery.
+Det skjedde også med `FETCH FORWARD 1`. Loggen dokumenterer prosessavslutning og
+recovery; selve OOM-/kernelårsaken er ikke bekreftet i denne pakken.
 
-Ved `Signed-By`-feil i PG18-installasjonen, bruk [installerfortsettelsen](FORTSETT-ETTER-PG18-FEIL.txt). Ved nettbrudd rett etter `Completed preflight`, bruk [forhåndskontrollfortsettelsen](FORTSETT-ETTER-FORHANDSKONTROLL.txt).
+**Ikke kjør eldre versjoner av Windows-/fortsettelsesfilene eller kildeavtrykket
+manuelt i produksjon.** Nåværende Windows-startfunksjon stopper før SSH eller
+lokale/eksterne jobbsteg. Python-workerens `archive` og `archive-checkpoint` er
+også sperret før applikasjonsimport, kildetilkobling og nye arkivartefakter.
+Det finnes ingen miljøvariabel eller `APP_ENVIRONMENT=test`-omgåelse.
+
+Fingeravtrykksadapteren avviser produksjonskilden før eksport av snapshot. Bare
+konto-uavhengige `nok_restore_<nummer>`-databaser på jobbens egen private Unix-
+socket er tillatt. Hostaddr/TCP, andre databasenavn og lenkede/åpne socketmapper
+avvises. Deployet applikasjon og dens strategier er ikke endret av denne sperren.
+
+Videre validering skal skje mot en separat, gjenopprettet kopi. Eksisterende
+porteføljer, læring og Superfond skal bevares. Ingen ny konto er aktivert eller
+godkjenning B klargjort. Pakken er ikke en ferdig produksjonsoppstart.
+
+De tidligere testene med 512 MiB samlede testdata og små enkeltrader dokumenterte
+klientens minnebruk og hashkompatibilitet. De dokumenterte ikke serverens
+minnebruk ved svært store produksjonsrader. De skal ikke brukes som klarsignal
+for et nytt produksjonsforsøk. Ingen produksjonslogger, databasedata eller nøkler
+er inkludert her.
+
+## Eneste nye kjøreinstruks: skrivebeskyttet lokal kopikontroll
+
+Bruk [KONTROLLER-LOKAL-KOPI-WINDOWS.txt](KONTROLLER-LOKAL-KOPI-WINDOWS.txt) på
+Windows-PC-en. Kopier hele filen inn i PowerShell og trykk Enter. Den bruker
+`127.0.0.1:5432`, bruker `postgres` og den eksplisitte kopien `aksje_restore_test`.
+Ingen Render-, SSH-, arkiv-, konto- eller strategioperasjon finnes i denne filen.
+Eventuell autentisering håndteres bare av den lokale PostgreSQL-klienten.
+
+Den starter en READ ONLY-transaksjon med tidsgrenser og krever riktig database,
+loopback-server og PostgreSQL 18 før tabellmetadata hentes. Psql-startfiler er
+slått av, og arvede PG-rutingvariabler ryddes midlertidig og gjenopprettes.
+Tabellnummer fire undersøkes med systemmetadata og `pg_column_size`, uten
+`row_to_json` eller serialisering av porteføljer, rapporter og modellpayload.
+
+Kun metadata lagres i en privat kontrollmappe under `%LOCALAPPDATA%`, som
+`local-copy-status.jsonl`. Ingen nøkkel-/sertifikatfil leses. PowerShell krever
+både korrekt endepunkt og eksplisitt fullførtstatus før den melder suksess.
+Porteføljer, historikk og læring endres ikke.
+
+Parser er kontrollert med offisiell PowerShell. SQL-logikken er testet med lokale
+PostgreSQL 16.2-fixtures; produksjonens PG18-versjonssperre avviser 16 før tabell-
+lesing. For normal SQL-gren ble kun forventet majorversjon tilpasset i testkopien.
+Feil databasenavn avvises, radverdier vises ikke, og fixtureinnhold forble uendret.
+Windows/PostgreSQL 18-kjøring på den faktiske lokale kopien er ikke verifisert ennå.
+
+Resten av dokumentet er historisk operatørbeskrivelse, **ikke en kjøreinstruks
+for produksjon**. Den er beholdt for sporbarhet.
+
+---
 
 # Samlet operatørkjøring – arkiv, restore og inaktive kontoer
 
@@ -241,4 +293,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-ZIP SHA256: `9fdd6ed075cb145b83c1faa57fb535890e5d0a51f15ac58cd80307cbad473e2a`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `3f8a8b19351a85984b343270585884bdb55ad505aac6b9c061c30dc33df07bb4`

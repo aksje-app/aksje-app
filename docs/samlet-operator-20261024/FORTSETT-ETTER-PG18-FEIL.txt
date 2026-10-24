@@ -196,6 +196,7 @@ function Get-AksjePublicSshKey([string]$SshKey) {
 
 function Start-AksjeOperator {
     param([string]$ResumeJob='', [switch]$ResumeInstaller, [string]$InstallerText='', [switch]$ResumeArchive, [string]$WorkerText='')
+    throw 'KJORING SPERRET: Arkiv-FETCH ble drept med SIGKILL og PostgreSQL startet paa nytt. Ikke bruk tidligere fortsettelsesfiler. Videre kontroll maa skje paa separat gjenopprettet kopi.'
     $ErrorActionPreference = 'Stop'
     Set-StrictMode -Version Latest
     $Utf8 = New-Object System.Text.UTF8Encoding($false)

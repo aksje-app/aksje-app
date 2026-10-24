@@ -1,0 +1,110 @@
+# LOCAL READ-ONLY COPY ONLY. No Render, archive retry, account action or reset.
+function Test-AksjeLocalRestoreCopy {
+    $ErrorActionPreference='Stop'
+    $Psql=$null
+    $Command=Get-Command psql.exe -ErrorAction SilentlyContinue
+    if ($Command) {$Psql=$Command.Source}
+    if (-not $Psql -and (Test-Path -LiteralPath 'C:\Program Files\PostgreSQL\18\bin\psql.exe')) {
+        $Psql='C:\Program Files\PostgreSQL\18\bin\psql.exe'
+    }
+    if (-not $Psql) {throw 'PostgreSQL 18 psql.exe mangler paa PC-en. Ingen forbindelse startet.'}
+    $Job=Join-Path $env:LOCALAPPDATA ('AksjeNokOperator\local-copy-check-'+[datetime]::UtcNow.ToString('yyyyMMddTHHmmssZ'))
+    if (Test-Path -LiteralPath $Job) {throw 'Lokal kontrollmappe finnes; ingen overskriving'}
+    New-Item -ItemType Directory $Job|Out-Null
+    $Identity=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $Job /inheritance:r /grant:r "${Identity}:(OI)(CI)F"|Out-Null
+    if ($LASTEXITCODE -ne 0) {throw 'Kunne ikke sikre lokal kontrollmappe'}
+    $SqlPath=Join-Path $Job 'readonly-metadata.sql'
+    $OutputPath=Join-Path $Job 'local-copy-status.jsonl'
+    $Sql=@'
+\set ON_ERROR_STOP on
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '30s';
+SET LOCAL lock_timeout = '3s';
+SET LOCAL timezone = 'UTC';
+SELECT COALESCE(current_database()='aksje_restore_test'
+    AND inet_server_addr() = '127.0.0.1'::inet
+    AND current_setting('server_version_num')::int BETWEEN 180000 AND 189999
+    AND current_setting('transaction_read_only')='on',false) AS local_copy_guard \gset
+\if :local_copy_guard
+SELECT json_build_object('check','LOCAL_RESTORE_COPY','database',current_database(),
+    'server_version',current_setting('server_version'),'server_address',host(inet_server_addr()),
+    'server_port',inet_server_port(),'transaction_read_only',current_setting('transaction_read_only'),
+    'database_size_bytes',pg_database_size(current_database()));
+SELECT json_build_object('check','SERVER_SETTINGS','shared_buffers',current_setting('shared_buffers'),
+    'work_mem',current_setting('work_mem'),'statement_timeout',current_setting('statement_timeout'),
+    'idle_in_transaction_session_timeout',current_setting('idle_in_transaction_session_timeout'));
+WITH ordered AS (
+    SELECT row_number() OVER(ORDER BY schemaname,tablename) AS table_index,schemaname,tablename
+    FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')
+)
+SELECT json_build_object('check','TABLE_METADATA','table_index',o.table_index,'schema',o.schemaname,
+    'table',o.tablename,'estimated_rows',c.reltuples::bigint,'table_bytes',pg_table_size(c.oid),
+    'total_relation_bytes',pg_total_relation_size(c.oid))
+FROM ordered o JOIN pg_namespace n ON n.nspname=o.schemaname
+JOIN pg_class c ON c.relnamespace=n.oid AND c.relname=o.tablename ORDER BY o.table_index;
+WITH target AS (
+    SELECT schemaname,tablename FROM pg_tables
+    WHERE schemaname NOT IN ('pg_catalog','information_schema')
+    ORDER BY schemaname,tablename OFFSET 3 LIMIT 1
+)
+SELECT json_build_object('check','FOURTH_TABLE_COLUMN','column',a.attname,'type',format_type(a.atttypid,a.atttypmod),
+    'storage',a.attstorage::text,'estimated_average_width',s.avg_width)
+FROM target t JOIN pg_namespace n ON n.nspname=t.schemaname
+JOIN pg_class c ON c.relnamespace=n.oid AND c.relname=t.tablename
+JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+LEFT JOIN pg_stats s ON s.schemaname=t.schemaname AND s.tablename=t.tablename AND s.attname=a.attname
+ORDER BY a.attnum;
+-- pg_column_size reads storage size; no row_to_json, JSON serialization or values.
+WITH target AS (
+    SELECT schemaname,tablename FROM pg_tables
+    WHERE schemaname NOT IN ('pg_catalog','information_schema')
+    ORDER BY schemaname,tablename OFFSET 3 LIMIT 1
+)
+SELECT format('SELECT json_build_object(''check'',''FOURTH_TABLE_STORED_SIZE'',''column'',%L,''max_stored_bytes'',max(pg_column_size(%I))) FROM %I.%I',
+    a.attname,a.attname,t.schemaname,t.tablename)
+FROM target t JOIN pg_namespace n ON n.nspname=t.schemaname
+JOIN pg_class c ON c.relnamespace=n.oid AND c.relname=t.tablename
+JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+WHERE a.atttypid IN ('jsonb'::regtype,'json'::regtype,'text'::regtype,'bytea'::regtype)
+ORDER BY a.attnum \gexec
+SELECT json_build_object('check','COMPLETED','read_only',true,'portfolio_rows_modified',false);
+\else
+\echo WRONG_TARGET_OR_VERSION: expected aksje_restore_test on 127.0.0.1 PostgreSQL 18 in READ ONLY transaction
+\quit
+\endif
+ROLLBACK;
+'@
+    [IO.File]::WriteAllText($SqlPath,$Sql.Replace("`r`n","`n")+"`n",(New-Object System.Text.UTF8Encoding($false)))
+    $Saved=@{}
+    $Variables=@('PGHOSTADDR','PGSERVICE','PGSERVICEFILE','PGHOST','PGPORT','PGDATABASE','PGUSER','PGOPTIONS','PGCLIENTENCODING')
+    foreach($Name in $Variables) {$Saved[$Name]=[Environment]::GetEnvironmentVariable($Name,'Process');[Environment]::SetEnvironmentVariable($Name,$null,'Process')}
+    try {
+        $env:PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=30000'
+        $env:PGCLIENTENCODING='UTF8'
+        Write-Host 'Kun lokal kopi: 127.0.0.1:5432 / aksje_restore_test / PostgreSQL 18. Ingen Render-forbindelse.'
+        $Arguments=@('-X','-h','127.0.0.1','-p','5432','-U','postgres','-d','aksje_restore_test','-v','ON_ERROR_STOP=1','-q','-A','-t','-P','pager=off','-f',('"'+$SqlPath+'"'))
+        $Process=Start-Process -FilePath $Psql -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $OutputPath
+        if (Test-Path -LiteralPath $OutputPath) {Get-Content -LiteralPath $OutputPath -Encoding UTF8|Out-Host}
+        if ($Process.ExitCode -ne 0) {throw "Lokal kontroll stoppet (psql exit $($Process.ExitCode)). Ingen produksjonsoperasjon startet. Privat mappe: $Job"}
+        $EndpointVerified=$false;$Completed=$false
+        foreach($Line in (Get-Content -LiteralPath $OutputPath -Encoding UTF8)) {
+            try {$Record=$Line|ConvertFrom-Json} catch {continue}
+            if ($Record.check -eq 'LOCAL_RESTORE_COPY' -and $Record.database -eq 'aksje_restore_test' -and
+                $Record.server_address -eq '127.0.0.1' -and $Record.transaction_read_only -eq 'on' -and
+                $Record.server_version -match '^18[.]') {$EndpointVerified=$true}
+            if ($Record.check -eq 'COMPLETED' -and $Record.read_only -eq $true -and $Record.portfolio_rows_modified -eq $false) {$Completed=$true}
+        }
+        if (-not $EndpointVerified -or -not $Completed) {throw 'Lokal kopi/versjon eller fullfort skrivebeskyttet kontroll er ikke bekreftet. Ingen videre handling.'}
+        if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+            try {
+                $Os=Get-CimInstance -ClassName Win32_OperatingSystem
+                Write-Host ('PC_MINNE_MIB total='+[math]::Round($Os.TotalVisibleMemorySize/1024)+' ledig='+[math]::Round($Os.FreePhysicalMemory/1024))
+            } catch {Write-Host 'PC-minne ikke hentet; databasekontrollen er separat.'}
+        }
+        Write-Host "Skrivebeskyttet kopikontroll ferdig. Bare metadata: $OutputPath"
+    } finally {
+        foreach($Name in $Variables) {[Environment]::SetEnvironmentVariable($Name,$Saved[$Name],'Process')}
+    }
+}
+Test-AksjeLocalRestoreCopy
