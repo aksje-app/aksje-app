@@ -26,6 +26,37 @@ minnebruk ved svært store produksjonsrader. De skal ikke brukes som klarsignal
 for et nytt produksjonsforsøk. Ingen produksjonslogger, databasedata eller nøkler
 er inkludert her.
 
+## Etter lokal gjennomgang: bare produksjonens lengde- og kapasitetsmetadata
+
+Bruk [KONTROLLER-RENDER-KAPASITET-WINDOWS.txt](KONTROLLER-RENDER-KAPASITET-WINDOWS.txt)
+for en avgrenset, skrivebeskyttet kontroll via eksisterende Render-SSH-identitet.
+Kopier hele filen inn i samme Windows PowerShell-vindu og trykk Enter. Den finner
+forrige private jobb og avleder den offentlige nøkkelen fra den tilhørende egne
+SSH-identiteten. Ingen ny nøkkel, registrering, konto eller fjernjobb opprettes. Den gamle
+`Start-AksjeOperator`-funksjonen sperres også i den aktuelle PowerShell-økten.
+Vertsverifikasjon beholdes. Ingen arkiv-/operatørsigneringsnøkkel overføres.
+
+Kontrollen leser kun PostgreSQL-kataloger, `octet_length(TEXT)` og `pg_column_size`.
+TOAST-lengde-/lagringsmetadata brukes uten å hente modellverdier eller bygge store
+JSON-rader. Transaksjonen er READ ONLY / REPEATABLE READ med tidsgrenser,
+parallelle lesearbeidere og JIT deaktivert kun for denne sesjonen. Ingen global
+innstilling, portefølje, historikk, læring, strategi eller scheduler endres.
+Aktuelle databasekilder må alle finnes i forrige gjennomgåtte inventar.
+
+Resultatet viser logiske feltstørrelser, delt bufferstørrelse, øvrige åpne/aktive
+transaksjoner og en konservativ, uttrykkelig foreløpig minnescreening. Regelen
+bruker en konservativ nominell ramme for tidligere oppgitt Basic-1GB, ikke en
+måling av faktisk ledig serverminne eller topp-RSS. Ukjente variable ikke-TEXT-typer,
+store rader og overskredet budsjett flagges. Et positivt screeningresultat er heller
+ikke en produksjonsgodkjenning. Arkiv- og aktiveringssperrene oppheves ikke.
+
+Bare metadata lagres i `%LOCALAPPDATA%\AksjeNokOperator\source-header-check-...\source-header-result.json`.
+Ingen produksjonsdata, nøkler eller slike resultatfiler legges i GitHub.
+Katalog-/lengde-SQL er testet i isolert PostgreSQL 16.2 med en stor TEXT-verdi;
+innhold ble ikke hentet eller endret. Innebygd kode, hash, PowerShell-parser og
+matching av eksisterende SSH-identitet er kontrollert. Faktisk Render-kjøring og
+postgreSQL-18-kapasitetsresultat gjenstår.
+
 ## Neste kontroll: direkte kolonnelesing på lokal kopi
 
 Kopier hele [KJOR-LOKAL-FINGERAVTRYKK-WINDOWS.txt](KJOR-LOKAL-FINGERAVTRYKK-WINDOWS.txt)
@@ -333,4 +364,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `ca61f9ef407ecfd2cc768dd0c11bf7fbbb8edd65f5d265cc2d935b0b7870a44f`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `145a1600cc540e0bb98e06235d7b5513a0ce5bbe2eda690585873887466755c5`
