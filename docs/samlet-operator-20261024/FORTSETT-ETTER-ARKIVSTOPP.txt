@@ -104,6 +104,82 @@ def private_job(path):
     return work,plan
 
 
+class OneRowCursor:
+    """No thousand-row libpq batches; preserve the core canonical JSON algorithm."""
+    def __init__(self,cursor):
+        self.cursor=cursor
+        self.cursor.itersize=1
+        self.cursor.arraysize=1
+    @property
+    def itersize(self):return 1
+    @itersize.setter
+    def itersize(self,value):self.cursor.itersize=1
+    def execute(self,*args,**kwargs):return self.cursor.execute(*args,**kwargs)
+    def __enter__(self):
+        self.cursor.__enter__()
+        return self
+    def __exit__(self,*args):return self.cursor.__exit__(*args)
+    def __iter__(self):
+        while True:
+            row=self.cursor.fetchone()
+            if row is None:return
+            yield row
+
+
+class OneRowConnection:
+    def __init__(self,connection):self.connection=connection
+    def cursor(self,*args,**kwargs):
+        result=self.connection.cursor(*args,**kwargs)
+        return OneRowCursor(result) if kwargs.get('name') or (args and args[0]) else result
+
+
+def fingerprint_child(work):
+    """Lightweight read-only child, attached to the caller's exact snapshot."""
+    if os.getenv('APP_ENVIRONMENT')!='production':raise ValueError('Actual production environment required')
+    expected=load(work/'source-manifest.json')['core_sources']['services/simulation_archive.py']
+    if hashlib.sha256((ROOT/'services/simulation_archive.py').read_bytes()).hexdigest()!=expected:
+        raise ValueError('Core fingerprint implementation differs')
+    request=json.load(sys.stdin)
+    snapshot=request['snapshot']
+    if not re.fullmatch(r'[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+',snapshot):raise ValueError('Invalid exported snapshot')
+    import psycopg2
+    from services.simulation_archive import database_fingerprint
+    connection=psycopg2.connect(**request['parameters'])
+    try:
+        connection.set_session(readonly=True,isolation_level='REPEATABLE READ',autocommit=False)
+        with connection.cursor() as cursor:
+            cursor.execute('SET TRANSACTION SNAPSHOT %s',(snapshot,))
+            cursor.execute('SHOW transaction_read_only')
+            if cursor.fetchone()[0]!='on':raise ValueError('Fingerprint must remain read-only')
+        value=database_fingerprint(OneRowConnection(connection),ignore_period=request.get('ignore_period'))
+        print(json.dumps(dict(status='FINGERPRINT_VERIFIED',fingerprint=value,peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)))
+    finally:
+        connection.rollback();connection.close()
+
+
+def install_bounded_fingerprints(archive,work):
+    def fingerprint(connection,*,ignore_period=None):
+        # Export within the original open transaction. pg_dump and the child
+        # see identical data; no snapshot is guessed or replaced with live data.
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_export_snapshot()')
+            snapshot=cursor.fetchone()[0]
+        parameters=dict(connection.get_dsn_parameters())
+        parameters['connect_timeout']='15'
+        if connection.info.password:parameters['password']=connection.info.password
+        request=dict(snapshot=snapshot,parameters=parameters,ignore_period=ignore_period)
+        # Credentials are passed only through the child's private stdin pipe.
+        result=subprocess.run([sys.executable,str(Path(__file__).resolve()),'fingerprint-readonly','--work',str(work)],
+            input=json.dumps(request).encode(),capture_output=True,timeout=1800)
+        try:reply=json.loads(result.stdout)
+        except (ValueError,UnicodeDecodeError):raise RuntimeError('Fingerprint child failed without a valid result; no archive approval') from None
+        if result.returncode or reply.get('status')!='FINGERPRINT_VERIFIED':
+            raise RuntimeError('Read-only fingerprint child stopped: '+json.dumps(reply,ensure_ascii=False))
+        print('Read-only fingerprint verified: tables='+str(len(reply['fingerprint']))+'; child peak RSS KiB='+str(reply['peak_rss_kib']),flush=True)
+        return reply['fingerprint']
+    archive.database_fingerprint=fingerprint
+
+
 def validate_archive_retry(work):
     """Permit only the documented unsealed archive failure, never replay DRAFTs."""
     failed=load(work/'STOPPED-archive.json')
@@ -154,6 +230,10 @@ def main(args):
     os.chdir(ROOT)
     work,plan=private_job(args.work)
     if ROOT==work or ROOT in work.parents:raise ValueError('Operator files must stay outside repository')
+    if args.action=='fingerprint-readonly':
+        if plan.get('approval_A_already_granted') is not True:raise ValueError('Existing approval A required')
+        fingerprint_child(work)
+        return
     if args.action=='archive-checkpoint':
         if plan.get('approval_A_already_granted') is not True or os.getenv('APP_ENVIRONMENT')!='production':
             raise ValueError('Existing approval A and actual production environment required')
@@ -183,6 +263,7 @@ def main(args):
         if hashlib.sha256((ROOT/relative).read_bytes()).hexdigest()!=expected:
             raise ValueError('Deployed accounting source differs: '+relative)
     install_environment(work)
+    install_bounded_fingerprints(archive,work)
     if args.action=='preflight':
         bootstrap=load('/tmp/aksje-nok-start/bootstrap.json')
         inventory=discover(extra_roots=bootstrap.get('extra_roots'))
@@ -327,13 +408,14 @@ def main(args):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['preflight','archive','restore-drafts','cleanup','archive-checkpoint'])
+    parser.add_argument('action',choices=['preflight','archive','restore-drafts','cleanup','archive-checkpoint','fingerprint-readonly'])
     parser.add_argument('--work',required=True);args=parser.parse_args()
     # Bound operator memory on the existing web plan; never exhaust the whole pod.
-    resource.setrlimit(resource.RLIMIT_AS,(1152*1024**2,1152*1024**2))
+    memory_mib=768 if args.action=='fingerprint-readonly' else 1152
+    resource.setrlimit(resource.RLIMIT_AS,(memory_mib*1024**2,memory_mib*1024**2))
     try:
         main(args)
-        print('Completed '+args.action+'; no activation performed.')
+        if args.action!='fingerprint-readonly':print('Completed '+args.action+'; no activation performed.')
     except Exception as error:
         result=dict(status='STOPPED',stage=args.action,accounts_activated=False,**sanitized_failure(error))
         try:

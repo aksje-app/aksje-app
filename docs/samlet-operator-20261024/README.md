@@ -1,8 +1,8 @@
 [Last ned hele ZIP-pakken](aksje-samlet-operator.zip) (velg Download raw file i GitHub).
 
-**Etter bestått installasjon og uforseglet arkivstopp:** Bruk [fortsettelsen etter arkivstopp](FORTSETT-ETTER-ARKIVSTOPP.txt). Den bevarer mislykkede mapper og kjører et nytt arkivforsøk bare hvis de er helt tomme og ingen senere steg har begynt. Ved ny feil vises en maskert SQL-diagnose. Dette er ikke en påstand om at en tidligere OperationalError er rettet.
+**Ved MemoryError i arkivets database_fingerprint:** Vent til den eldre kjøringen er avsluttet, og kopier hele [den oppdaterte fortsettelsesfilen](FORTSETT-ETTER-ARKIVSTOPP.txt) inn i samme PowerShell-vindu. Den inkluderer en minnebegrenset prosess med samme kontrollavtrykksalgoritme og samme eksporterte snapshot. Den bevarer tidligere mapper og installasjon; ny utpakking er ikke nødvendig. Ikke kjør to operatører parallelt.
 
-Ved `Signed-By`-feil i PG18-installasjonen, bruk [installerfortsettelsen](FORTSETT-ETTER-PG18-FEIL.txt). Ved nettbrudd rett etter `Completed preflight`, bruk [forhåndskontrollfortsettelsen](FORTSETT-ETTER-FORHANDSKONTROLL.txt). Kopier hele den aktuelle filen inn i samme PowerShell-vindu og trykk Enter. Ingen ny utpakking er nødvendig.
+Ved `Signed-By`-feil i PG18-installasjonen, bruk [installerfortsettelsen](FORTSETT-ETTER-PG18-FEIL.txt). Ved nettbrudd rett etter `Completed preflight`, bruk [forhåndskontrollfortsettelsen](FORTSETT-ETTER-FORHANDSKONTROLL.txt).
 
 # Samlet operatørkjøring – arkiv, restore og inaktive kontoer
 
@@ -18,6 +18,34 @@ Ingen applikasjonskode, strategier eller læringsregler endres.
 3. Oppgi mappen der pakken ble pakket ut, og mappen med dine eksisterende
    `archive-certificate.pem`, `archive-key.pem` og `operator-certificate.pem`.
    Oppgi bare lokale stier i programmet; ikke send nøkkelinnhold i samtalen.
+
+## Minnebegrenset kontrollavtrykk uten algoritmeendring
+
+Ved `MemoryError` under `database_fingerprint` brukes den oppdaterte
+`FORTSETT-ETTER-ARKIVSTOPP.txt`. Vent til en pågående eldre kjøring er avsluttet;
+ikke kjør to operatører parallelt. Filen inkluderer rettet operatørkode og trenger
+verken ny utpakking, ny nøkkel eller reinstallasjon av PostgreSQL-verktøyene.
+
+Den uendrede kontrollavtrykksalgoritmen kjøres nå i en lett separat Python-prosess
+med maksimalt 768 MiB adresseplass. Den leser én rad per databasehenting, i stedet
+for å samle 1000 store JSON-rader i libpq. Forelderens åpne transaksjon eksporterer
+snapshot; barnet importerer nøyaktig dette før lesing i REPEATABLE READ / READ ONLY.
+Utgått/ugyldig snapshot eller feil gir stopp, aldri en ny skjult live-snapshot.
+Kanonisering, hashsummer, radtelling og unntaket for den nye perioden er uendret.
+Tilkoblingsdata går bare gjennom barnets stdin-rør, aldri kommandolinje eller rapport.
+
+Adapteren brukes i operatørprosessen både ved arkivering, fysisk restore og
+etterkontroll av uendret kilde. Deployet applikasjonskode, strategier og læring endres
+ikke. Arkivformatet og kontrollavtrykkene er kompatible med eksisterende motor.
+
+Avgrenset lokal PostgreSQL 16.2-test: gamle 1000-raders batch feilet med
+`out of memory for query result` under 256 MiB adressegrense. Ny prosess kontrollerte
+512 MiB testdata med omtrent 25–28 MiB topp-RSS og nøyaktig uavhengig forventet hash.
+Testen verifiserte også Unicode/desimaler/duplikater/periodeunntak, eksportert
+snapshot, kryptert arkiv, fysisk restore, alle radkontrollavtrykk, runtime-filer og
+uendret kilde. Dette var isolerte testdata, ikke produksjonsdata eller en fullført
+produksjonskjøring på PostgreSQL 18. Produksjonsresultatet må fortsatt hentes fra
+faktisk operatørkjøring. Ingen gammel applikasjonstestpakke ble kjørt på nytt.
 
 ## Fortsett etter uforseglet arkivstopp
 
@@ -35,8 +63,8 @@ slettes for å tillate gjenforsøk.
 
 Deretter gjør den eksisterende arkivmotoren ett nytt arkivforsøk med nytt unikt
 arkiv-ID og ny skrivebeskyttet snapshot. Inventar og skriverstans kontrolleres av
-motoren på nytt. Dette er ikke en påstand om at årsaken til en tidligere skjult
-`OperationalError` er rettet. Ved ny feil vises SQLSTATE, maskert feilmelding og
+motoren på nytt. En tidligere skjult `OperationalError` er ikke alene en diagnose; den konkrete
+`MemoryError` håndteres med den minnebegrensede adapteren beskrevet over. Ved ny feil vises SQLSTATE, maskert feilmelding og
 kildekodeplassering. Tidligere STOPPED-kvitteringer bevares, og nye får unik ID.
 Ingen produksjonsaktivering finnes i denne operatørkjøringen.
 
@@ -193,4 +221,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-ZIP SHA256: `94e28f849d7d62875d5374d4d8e6600a1dea43368722dcd735eddd288011e9d2`
+ZIP SHA256: `1ad02f98d39131cdd3c9cc05b65128d9ce56780306c6bfb8ea7fc9784e7a2120`
