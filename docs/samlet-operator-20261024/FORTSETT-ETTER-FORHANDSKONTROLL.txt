@@ -1,3 +1,109 @@
+$script:AksjeCorrectedPg18Installer = @'
+#!/usr/bin/env bash
+# Private PostgreSQL 18 client/server for an isolated restore; no paid Render resource, no sudo.
+set -euo pipefail
+umask 077
+: "${NOK_WORK:?Set NOK_WORK to the private operator directory first}"
+pg_tools="$NOK_WORK/pg18-tools"
+mkdir -p -m 700 "$pg_tools"
+exec > >(tee -a "$NOK_WORK/pg18-install.log") 2>&1
+printf "PG18 private installer attempt: %s\n" "$(date -u +%FT%TZ)"
+for tool in curl gpg apt-get apt-cache dpkg-deb ldd; do command -v "$tool" >/dev/null; done
+pg_codename=$(python -c 'import platform; print(platform.freedesktop_os_release()["VERSION_CODENAME"])')
+pg_arch=$(dpkg --print-architecture)
+mkdir -p "$pg_tools/lists/partial" "$pg_tools/cache/archives/partial" "$pg_tools/packages" "$pg_tools/root" "$pg_tools/lib" "$pg_tools/gnupg"
+curl --fail --silent --show-error --proto '=https' --tlsv1.2 https://www.postgresql.org/media/keys/ACCC4CF8.asc -o "$pg_tools/pgdg.asc"
+pg_fingerprint=$(gpg --homedir "$pg_tools/gnupg" --batch --show-keys --with-colons "$pg_tools/pgdg.asc" 2>/dev/null | awk -F: '$1=="fpr" {print $10;exit}')
+test "$pg_fingerprint" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+gpg --homedir "$pg_tools/gnupg" --batch --yes --dearmor --output "$pg_tools/pgdg.gpg" "$pg_tools/pgdg.asc"
+echo "deb [arch=$pg_arch signed-by=$pg_tools/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $pg_codename-pgdg main" > "$pg_tools/pgdg.list"
+pg_options=(-o "Dir::Etc::sourcelist=$pg_tools/pgdg.list" -o 'Dir::Etc::sourceparts=-' -o "Dir::State::lists=$pg_tools/lists" -o "Dir::Cache::archives=$pg_tools/cache/archives" -o 'Dir::State::status=/var/lib/dpkg/status')
+# The PGDG repository supplies libpq/client; retain the system's signed sources
+# for resolving ordinary Debian/Ubuntu runtime dependencies.
+pg_sources="$pg_tools/system-sources"
+mkdir -p "$pg_sources"
+# Never copy the host's PGDG entry alongside our pinned PGDG entry. Work only
+# on private copies; retain ordinary OS repositories and their signature rules.
+python - "$pg_sources" <<'PY_SOURCES'
+from pathlib import Path
+import re,sys
+out=Path(sys.argv[1])
+host=re.compile(r'https?://apt\.postgresql\.org(?=[:/\s]|$)',re.I)
+def filtered(path):
+    text=path.read_text()
+    if path.suffix=='.list':
+        return ''.join(line for line in text.splitlines(keepends=True)
+                       if not host.search(line.split('#',1)[0]))
+    blocks=[]
+    for block in re.split(r'\n[ \t]*\n',text):
+        fields={};key=None
+        for line in block.splitlines():
+            if not line.strip() or line.lstrip().startswith('#'): continue
+            if line[:1].isspace() and key:
+                fields[key]+=' '+line.strip()
+            elif ':' in line:
+                key,value=line.split(':',1);key=key.lower();fields[key]=value.strip()
+        uris=fields.get('uris','').split()
+        pg=[bool(host.search(uri)) for uri in uris]
+        if any(pg):
+            if not all(pg):raise SystemExit('Mixed PGDG/OS URIs need explicit source review; no signature bypass')
+            continue
+        blocks.append(block)
+    return '\n\n'.join(blocks)
+paths=[Path('/etc/apt/sources.list')]
+paths+=sorted(Path('/etc/apt/sources.list.d').glob('*.list'))
+paths+=sorted(Path('/etc/apt/sources.list.d').glob('*.sources'))
+# Replace only our generated copies, including stale copies from a failed run.
+for old in out.iterdir():
+    if old.suffix in {'.list','.sources'}:
+        if old.is_symlink() or not old.is_file():raise SystemExit('Unexpected private source entry')
+        old.unlink()
+for number,path in enumerate(paths):
+    if path.is_file():
+        text=filtered(path)
+        if text.strip():(out/(f'os-{number}'+path.suffix)).write_text(text)
+PY_SOURCES
+pg_options[3]="Dir::Etc::sourceparts=$pg_sources"
+apt-get "${pg_options[@]}" -o APT::Update::Error-Mode=any update
+pg_targets=(postgresql-18 postgresql-client-18 libpq5 locales-all)
+if python - "$NOK_WORK/preflight-result.json" <<'PY_VECTOR'
+import json,sys
+p=json.load(open(sys.argv[1]))
+raise SystemExit(0 if any('vector' in extensions for extensions in p['extensions'].values()) else 1)
+PY_VECTOR
+then pg_targets+=(postgresql-18-pgvector); fi
+apt-cache "${pg_options[@]}" depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances "${pg_targets[@]}" |
+  awk '/^[a-zA-Z0-9][a-zA-Z0-9+.:_-]*$/ {print $1}' | sort -u > "$pg_tools/package-names.txt"
+test -s "$pg_tools/package-names.txt"
+pg_downloads=$(mktemp -d "$pg_tools/packages/attempt-XXXXXX")
+cd "$pg_downloads"
+while IFS= read -r pg_package; do
+  pg_candidate=$(apt-cache "${pg_options[@]}" policy "$pg_package" | awk '/Candidate:/ {print $2;exit}')
+  if test -n "$pg_candidate" && test "$pg_candidate" != '(none)'; then
+    apt-get "${pg_options[@]}" download "$pg_package"
+  fi
+done < "$pg_tools/package-names.txt"
+for pg_package in ./*.deb; do dpkg-deb --extract "$pg_package" "$pg_tools/root"; done
+# Use packaged client libraries, but retain the running OS's libc and loader.
+python - "$pg_tools" <<'PY'
+from pathlib import Path
+import shutil,sys
+r=Path(sys.argv[1])
+excluded=('libc.so','libpthread.so','libdl.so','librt.so','libm.so','libresolv.so','libutil.so','libanl.so','ld-linux','libnss_','libBrokenLocale.so','libthread_db.so')
+for p in (r/'root').rglob('*.so*'):
+    if p.is_file() and not p.name.startswith(excluded):
+        target=r/'lib'/p.name
+        shutil.copyfile(p.resolve(),target)
+PY
+export LD_LIBRARY_PATH="$pg_tools/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="$pg_tools/root/usr/lib/postgresql/18/bin:$PATH"
+ldd "$pg_tools/root/usr/lib/postgresql/18/bin/pg_dump" > "$pg_tools/ldd.txt"
+if grep -q 'not found' "$pg_tools/ldd.txt"; then echo 'Missing client libraries; stop before production maintenance.' >&2; exit 1; fi
+pg_dump --version
+pg_restore --version
+printf 'export PATH=%q:$PATH\nexport LD_LIBRARY_PATH=%q${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\n' "$pg_tools/root/usr/lib/postgresql/18/bin" "$pg_tools/lib" > "$pg_tools/use.sh"
+echo 'Isolated PostgreSQL tools installed privately. Source "$NOK_WORK/pg18-tools/use.sh" in each new shell.'
+'@
 # Paste this entire file into a Windows PowerShell window.
 # No activation, deploy, paid resource creation or execution-policy change.
 $script:AksjeLastTransportAt = [datetime]::MinValue
@@ -41,7 +147,7 @@ function Invoke-AksjeNative {
     }
 }
 
-function Get-AksjeResumeContext([string]$OperatorRoot,[string]$JobId,[string]$ExpectedService) {
+function Get-AksjeResumeContext([string]$OperatorRoot,[string]$JobId,[string]$ExpectedService,[switch]$InstallerCheckpoint) {
     if ($JobId -cnotmatch '^nok-job-[0-9]{8}T[0-9]{6}Z$') { throw 'Ugyldig jobb-ID; ingen handling startet' }
     $Folder=Join-Path $OperatorRoot $JobId
     $Location=Get-Content -LiteralPath (Join-Path $Folder 'job-location.json') -Raw | ConvertFrom-Json
@@ -52,10 +158,23 @@ function Get-AksjeResumeContext([string]$OperatorRoot,[string]$JobId,[string]$Ex
         $Plan.approval_A_already_granted -isnot [bool] -or $Plan.approval_A_already_granted -ne $true) {
         throw 'Lagret jobbidentitet avviker; ingen automatisk gjenopptakelse'
     }
-    foreach ($Name in @('source-attestation.json','archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json')) {
+    $Forbidden=@('archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json','config.json','archive-key.pem','independent-archives','isolated-pg','archives')
+    if (-not $InstallerCheckpoint) { $Forbidden+=@('source-attestation.json') }
+    foreach ($Name in $Forbidden) {
         if (Test-Path -LiteralPath (Join-Path $Folder $Name)) { throw "Jobben er kommet lenger enn forhandskontroll ($Name). Ingen fase gjentas automatisk." }
     }
+    if ($InstallerCheckpoint) { Test-AksjeSourceAttestation $Folder }
     return [pscustomobject]@{Folder=$Folder;Location=$Location;Plan=$Plan}
+}
+function Test-AksjeSourceAttestation([string]$Folder) {
+    $Attestation=Get-Content -LiteralPath (Join-Path $Folder 'source-attestation.json') -Raw | ConvertFrom-Json
+    $Preflight=Get-Content -LiteralPath (Join-Path $Folder 'preflight-result.json') -Raw | ConvertFrom-Json
+    if ($Attestation.all_sources_reviewed_and_writers_stopped -isnot [bool] -or
+        $Attestation.all_sources_reviewed_and_writers_stopped -ne $true -or
+        [string]$Attestation.inventory_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+        $Attestation.inventory_sha256 -cne $Preflight.inventory_sha256) {
+        throw 'Tidligere kildeattestasjon er ugyldig eller tilhorer et annet inventar; ingen fortsettelse'
+    }
 }
 function Get-AksjeExistingSshKey([string]$OperatorRoot) {
     if (-not (Test-Path -LiteralPath $OperatorRoot)) { return $null }
@@ -76,11 +195,12 @@ function Get-AksjePublicSshKey([string]$SshKey) {
 }
 
 function Start-AksjeOperator {
-    param([string]$ResumeJob='')
+    param([string]$ResumeJob='', [switch]$ResumeInstaller, [string]$InstallerText='')
     $ErrorActionPreference = 'Stop'
     Set-StrictMode -Version Latest
     $Utf8 = New-Object System.Text.UTF8Encoding($false)
     $IsResume = -not [string]::IsNullOrWhiteSpace($ResumeJob)
+    if ($ResumeInstaller -and (-not $IsResume -or [string]::IsNullOrWhiteSpace($InstallerText))) { throw 'Installerfortsettelse krever eksisterende jobb og korrigert installer' }
     $JobId = 'nok-job-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
     if ($IsResume) { $JobId=$ResumeJob }
     $LocalJob = Join-Path $env:LOCALAPPDATA ('AksjeNokOperator\' + $JobId)
@@ -88,8 +208,8 @@ function Start-AksjeOperator {
     $RenderSsh = 'srv-d7obt5e47okc739susgg@ssh.ohio.render.com'
     $ResumeContext=$null
     if ($IsResume) {
-        $ResumeContext=Get-AksjeResumeContext (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') $JobId $RenderSsh
-        Write-Host "Fortsetter samme jobb etter fullfort forhandskontroll: $JobId"
+        $ResumeContext=Get-AksjeResumeContext (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') $JobId $RenderSsh -InstallerCheckpoint:$ResumeInstaller
+        Write-Host "Fortsetter samme jobb uten aktivering: $JobId"
     }
     $Package=(Get-Location).Path
     if ($IsResume -and $ResumeContext.Location.PSObject.Properties['package']) { $Package=[string]$ResumeContext.Location.package }
@@ -203,8 +323,9 @@ function Start-AksjeOperator {
     if (-not $AuthSucceeded) { Native 'ssh.exe' ($SshOptions + @($RenderSsh,'true')) }
     function Remote([string]$Text) { Native 'ssh.exe' ($SshOptions + @($RenderSsh,$Text)) }
     function Upload([string]$Source,[string]$Name) { Native 'scp.exe' ($ScpOptions + @($Source,"${RenderSsh}:$RemoteJob/$Name")) }
-    function Download([string]$Name) {
-        $Destination = Join-Path $LocalJob $Name
+    function Download([string]$Name,[string]$LocalName='') {
+        if ([string]::IsNullOrWhiteSpace($LocalName)) { $LocalName=$Name }
+        $Destination = Join-Path $LocalJob $LocalName
         $Temporary=Join-Path $LocalJob ('.download-'+[guid]::NewGuid().ToString('N')+'-'+$Name)
         Native 'scp.exe' ($ScpOptions + @("${RenderSsh}:$RemoteJob/$Name",$Temporary))
         if (-not (Test-Path -LiteralPath $Temporary) -or (Get-Item -LiteralPath $Temporary -Force).Length -eq 0) { throw "Tom kvittering: $Name" }
@@ -232,8 +353,14 @@ function Start-AksjeOperator {
         }
         [void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483649)
         if ($IsResume) {
-            Remote "test -s $RemoteJob/preflight-result.json && test ! -e $RemoteJob/source-attestation.json && test ! -e $RemoteJob/archive-receipt.json && test ! -e $RemoteJob/preparation-attempt.json && test ! -e $RemoteJob/prepared.json"
-            Write-Host '[1/5] Henter fullfort forhandskontroll fra samme jobb. Ingen fase kjorer paa nytt.'
+            $Guard="test -s $RemoteJob/preflight-result.json"
+            foreach ($Name in @('archive-key.pem','archives','isolated-pg','config.json','archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json')) {
+                $Guard+=" && test ! -e $RemoteJob/$Name"
+            }
+            if ($ResumeInstaller) { $Guard+=" && test -s $RemoteJob/source-attestation.json" }
+            else { $Guard+=" && test ! -e $RemoteJob/source-attestation.json" }
+            Remote $Guard
+            Write-Host '[1/5] Henter fullfort forhandskontroll fra samme jobb. Ingen regnskapsfase gjentas.'
         } else {
             $InitialFiles=@($Required | ForEach-Object {Join-Path $Package $_})+@("$LocalJob\plan.json","$KeysFolder\archive-certificate.pem","$KeysFolder\operator-certificate.pem")
             Native 'scp.exe' ($ScpOptions+$InitialFiles+@("${RenderSsh}:$RemoteJob/"))
@@ -245,12 +372,24 @@ function Start-AksjeOperator {
         $Preflight | Format-List
         $Drive = Get-PSDrive -Name ([System.IO.Path]::GetPathRoot($LocalJob).Substring(0,1))
         if ($Drive.Free -lt (2 * [double]$Preflight.source_bytes)) { throw 'For lite ledig plass til uavhengig arkivkopi paa PC-en' }
-        Write-Host 'Kontroller at alle relevante tjenester, gamle/eksterne lagre er inkludert, cron er suspendert og alle skrivere er stanset. Hold app-faner lukket. Ikke bekreft hvis dette er ukjent.'
-        $Ack = Read-Host 'Skriv KILDENE ER KOMPLETTE OG SKRIVERNE STANSET'
-        if ($Ack -ne 'KILDENE ER KOMPLETTE OG SKRIVERNE STANSET') { throw 'Ingen arkivering uten bekreftet kildedekning og skriverstans' }
-        Write-NewUtf8 "$LocalJob\source-attestation.json" (@{inventory_sha256=$Preflight.inventory_sha256;all_sources_reviewed_and_writers_stopped=$true;actor=$Identity;at=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json)
-        Upload "$LocalJob\source-attestation.json" 'source-attestation.json'
+        if ($ResumeInstaller) {
+            Download 'source-attestation.json'
+            Test-AksjeSourceAttestation $LocalJob
+            Write-Host 'Tidligere kildeattestasjon er kontrollert og bevart. Hold fortsatt scheduler og andre skrivere stanset.'
+        } else {
+            Write-Host 'Kontroller at alle relevante tjenester, gamle/eksterne lagre er inkludert, cron er suspendert og alle skrivere er stanset. Hold app-faner lukket. Ikke bekreft hvis dette er ukjent.'
+            $Ack = Read-Host 'Skriv KILDENE ER KOMPLETTE OG SKRIVERNE STANSET'
+            if ($Ack -ne 'KILDENE ER KOMPLETTE OG SKRIVERNE STANSET') { throw 'Ingen arkivering uten bekreftet kildedekning og skriverstans' }
+            Write-NewUtf8 "$LocalJob\source-attestation.json" (@{inventory_sha256=$Preflight.inventory_sha256;all_sources_reviewed_and_writers_stopped=$true;actor=$Identity;at=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json)
+            Upload "$LocalJob\source-attestation.json" 'source-attestation.json'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($InstallerText)) {
+            $FixedInstaller=Join-Path $LocalJob ('install-pg18-corrected-'+[guid]::NewGuid().ToString('N')+'.sh')
+            Write-NewUtf8 $FixedInstaller ($InstallerText.Replace("`r`n","`n")+"`n")
+            Upload $FixedInstaller 'install_pg18.sh'
+        }
         Write-Host '[2/5] Installerer isolerte PG18-verktoy i arbeidsmappen, ingen ny betalt ressurs'
+        $ActiveStage='install'
         Remote "NOK_WORK=$RemoteJob bash $RemoteJob/install_pg18.sh"
         $SensitivePhaseEntered=$true
         Upload "$KeysFolder\archive-key.pem" 'archive-key.pem'
@@ -288,7 +427,14 @@ function Start-AksjeOperator {
         $RemoteStateUncertain=$Failure.Exception.Data.Contains('AksjeConnectionUncertain') -and [bool]$Failure.Exception.Data['AksjeConnectionUncertain']
         $BeforeLoginFailure=$Failure.Exception.Data.Contains('AksjeBeforeLogin') -and [bool]$Failure.Exception.Data['AksjeBeforeLogin']
         if (-not $BeforeLoginFailure -and -not $RemoteStateUncertain) {
-            try { Download "STOPPED-$ActiveStage.json" } catch { }
+            if ($ActiveStage -eq 'install') {
+                $InstallLogName='pg18-install-'+[guid]::NewGuid().ToString('N')+'.log'
+                try { Download 'pg18-install.log' $InstallLogName } catch { }
+                if (Test-Path -LiteralPath (Join-Path $LocalJob $InstallLogName)) {
+                    Write-Host 'Siste linjer fra den faktiske installasjonsloggen:'
+                    Get-Content -LiteralPath (Join-Path $LocalJob $InstallLogName) -Tail 35 | Out-Host
+                }
+            } else { try { Download "STOPPED-$ActiveStage.json" } catch { } }
         }
         if ($RemoteStateUncertain) { Write-Warning 'Tilkoblingen ble brutt etter at fjernoperasjonen kan ha startet. Fjernstatus er ukjent; ingen automatisk gjentakelse eller opprydding.' }
         Write-Host "Jobben er stoppet uten aktivering. Eventuelle private STOPPED-kvitteringer ligger i $LocalJob"
@@ -305,21 +451,24 @@ function Start-AksjeOperator {
         Write-Host 'Ingen automatisk ny start, sletting av historikk eller overgang til annen periode.'
     }
 }
-function Resume-AksjeOperator([string]$JobId='') {
+function Resume-AksjeOperator {
+    param([string]$JobId='', [switch]$ResumeInstaller, [string]$InstallerText='')
     if ([string]::IsNullOrWhiteSpace($JobId)) {
         $OperatorRoot=Join-Path $env:LOCALAPPDATA 'AksjeNokOperator'
         $Candidates=@(Get-ChildItem -LiteralPath $OperatorRoot -Directory -Filter 'nok-job-*' -ErrorAction Stop | Where-Object {
             $Folder=$_.FullName
             (Test-Path -LiteralPath (Join-Path $Folder 'job-location.json')) -and
             (Test-Path -LiteralPath (Join-Path $Folder 'plan.json')) -and
-            -not (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json')) -and
+            (($ResumeInstaller -and (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json'))) -or
+             (-not $ResumeInstaller -and -not (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json')))) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'archive-receipt.json')) -and
+            -not (Test-Path -LiteralPath (Join-Path $Folder 'preparation-attempt.json')) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'prepared.json')) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'final-result.json'))
         })
         if ($Candidates.Count -eq 1) { $JobId=$Candidates[0].Name }
         else { $JobId=Read-Host 'Jobb-ID fra feilmeldingen som skal fortsettes (nok-job-...)' }
     }
-    Start-AksjeOperator -ResumeJob $JobId.Trim()
+    Start-AksjeOperator -ResumeJob $JobId.Trim() -ResumeInstaller:$ResumeInstaller -InstallerText $InstallerText
 }
-Resume-AksjeOperator
+Resume-AksjeOperator -InstallerText $script:AksjeCorrectedPg18Installer

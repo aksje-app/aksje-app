@@ -41,7 +41,7 @@ function Invoke-AksjeNative {
     }
 }
 
-function Get-AksjeResumeContext([string]$OperatorRoot,[string]$JobId,[string]$ExpectedService) {
+function Get-AksjeResumeContext([string]$OperatorRoot,[string]$JobId,[string]$ExpectedService,[switch]$InstallerCheckpoint) {
     if ($JobId -cnotmatch '^nok-job-[0-9]{8}T[0-9]{6}Z$') { throw 'Ugyldig jobb-ID; ingen handling startet' }
     $Folder=Join-Path $OperatorRoot $JobId
     $Location=Get-Content -LiteralPath (Join-Path $Folder 'job-location.json') -Raw | ConvertFrom-Json
@@ -52,10 +52,23 @@ function Get-AksjeResumeContext([string]$OperatorRoot,[string]$JobId,[string]$Ex
         $Plan.approval_A_already_granted -isnot [bool] -or $Plan.approval_A_already_granted -ne $true) {
         throw 'Lagret jobbidentitet avviker; ingen automatisk gjenopptakelse'
     }
-    foreach ($Name in @('source-attestation.json','archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json')) {
+    $Forbidden=@('archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json','config.json','archive-key.pem','independent-archives','isolated-pg','archives')
+    if (-not $InstallerCheckpoint) { $Forbidden+=@('source-attestation.json') }
+    foreach ($Name in $Forbidden) {
         if (Test-Path -LiteralPath (Join-Path $Folder $Name)) { throw "Jobben er kommet lenger enn forhandskontroll ($Name). Ingen fase gjentas automatisk." }
     }
+    if ($InstallerCheckpoint) { Test-AksjeSourceAttestation $Folder }
     return [pscustomobject]@{Folder=$Folder;Location=$Location;Plan=$Plan}
+}
+function Test-AksjeSourceAttestation([string]$Folder) {
+    $Attestation=Get-Content -LiteralPath (Join-Path $Folder 'source-attestation.json') -Raw | ConvertFrom-Json
+    $Preflight=Get-Content -LiteralPath (Join-Path $Folder 'preflight-result.json') -Raw | ConvertFrom-Json
+    if ($Attestation.all_sources_reviewed_and_writers_stopped -isnot [bool] -or
+        $Attestation.all_sources_reviewed_and_writers_stopped -ne $true -or
+        [string]$Attestation.inventory_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+        $Attestation.inventory_sha256 -cne $Preflight.inventory_sha256) {
+        throw 'Tidligere kildeattestasjon er ugyldig eller tilhorer et annet inventar; ingen fortsettelse'
+    }
 }
 function Get-AksjeExistingSshKey([string]$OperatorRoot) {
     if (-not (Test-Path -LiteralPath $OperatorRoot)) { return $null }
@@ -76,11 +89,12 @@ function Get-AksjePublicSshKey([string]$SshKey) {
 }
 
 function Start-AksjeOperator {
-    param([string]$ResumeJob='')
+    param([string]$ResumeJob='', [switch]$ResumeInstaller, [string]$InstallerText='')
     $ErrorActionPreference = 'Stop'
     Set-StrictMode -Version Latest
     $Utf8 = New-Object System.Text.UTF8Encoding($false)
     $IsResume = -not [string]::IsNullOrWhiteSpace($ResumeJob)
+    if ($ResumeInstaller -and (-not $IsResume -or [string]::IsNullOrWhiteSpace($InstallerText))) { throw 'Installerfortsettelse krever eksisterende jobb og korrigert installer' }
     $JobId = 'nok-job-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
     if ($IsResume) { $JobId=$ResumeJob }
     $LocalJob = Join-Path $env:LOCALAPPDATA ('AksjeNokOperator\' + $JobId)
@@ -88,8 +102,8 @@ function Start-AksjeOperator {
     $RenderSsh = 'srv-d7obt5e47okc739susgg@ssh.ohio.render.com'
     $ResumeContext=$null
     if ($IsResume) {
-        $ResumeContext=Get-AksjeResumeContext (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') $JobId $RenderSsh
-        Write-Host "Fortsetter samme jobb etter fullfort forhandskontroll: $JobId"
+        $ResumeContext=Get-AksjeResumeContext (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') $JobId $RenderSsh -InstallerCheckpoint:$ResumeInstaller
+        Write-Host "Fortsetter samme jobb uten aktivering: $JobId"
     }
     $Package=(Get-Location).Path
     if ($IsResume -and $ResumeContext.Location.PSObject.Properties['package']) { $Package=[string]$ResumeContext.Location.package }
@@ -203,8 +217,9 @@ function Start-AksjeOperator {
     if (-not $AuthSucceeded) { Native 'ssh.exe' ($SshOptions + @($RenderSsh,'true')) }
     function Remote([string]$Text) { Native 'ssh.exe' ($SshOptions + @($RenderSsh,$Text)) }
     function Upload([string]$Source,[string]$Name) { Native 'scp.exe' ($ScpOptions + @($Source,"${RenderSsh}:$RemoteJob/$Name")) }
-    function Download([string]$Name) {
-        $Destination = Join-Path $LocalJob $Name
+    function Download([string]$Name,[string]$LocalName='') {
+        if ([string]::IsNullOrWhiteSpace($LocalName)) { $LocalName=$Name }
+        $Destination = Join-Path $LocalJob $LocalName
         $Temporary=Join-Path $LocalJob ('.download-'+[guid]::NewGuid().ToString('N')+'-'+$Name)
         Native 'scp.exe' ($ScpOptions + @("${RenderSsh}:$RemoteJob/$Name",$Temporary))
         if (-not (Test-Path -LiteralPath $Temporary) -or (Get-Item -LiteralPath $Temporary -Force).Length -eq 0) { throw "Tom kvittering: $Name" }
@@ -232,8 +247,14 @@ function Start-AksjeOperator {
         }
         [void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483649)
         if ($IsResume) {
-            Remote "test -s $RemoteJob/preflight-result.json && test ! -e $RemoteJob/source-attestation.json && test ! -e $RemoteJob/archive-receipt.json && test ! -e $RemoteJob/preparation-attempt.json && test ! -e $RemoteJob/prepared.json"
-            Write-Host '[1/5] Henter fullfort forhandskontroll fra samme jobb. Ingen fase kjorer paa nytt.'
+            $Guard="test -s $RemoteJob/preflight-result.json"
+            foreach ($Name in @('archive-key.pem','archives','isolated-pg','config.json','archive-receipt.json','preparation-attempt.json','prepared.json','final-result.json')) {
+                $Guard+=" && test ! -e $RemoteJob/$Name"
+            }
+            if ($ResumeInstaller) { $Guard+=" && test -s $RemoteJob/source-attestation.json" }
+            else { $Guard+=" && test ! -e $RemoteJob/source-attestation.json" }
+            Remote $Guard
+            Write-Host '[1/5] Henter fullfort forhandskontroll fra samme jobb. Ingen regnskapsfase gjentas.'
         } else {
             $InitialFiles=@($Required | ForEach-Object {Join-Path $Package $_})+@("$LocalJob\plan.json","$KeysFolder\archive-certificate.pem","$KeysFolder\operator-certificate.pem")
             Native 'scp.exe' ($ScpOptions+$InitialFiles+@("${RenderSsh}:$RemoteJob/"))
@@ -245,12 +266,24 @@ function Start-AksjeOperator {
         $Preflight | Format-List
         $Drive = Get-PSDrive -Name ([System.IO.Path]::GetPathRoot($LocalJob).Substring(0,1))
         if ($Drive.Free -lt (2 * [double]$Preflight.source_bytes)) { throw 'For lite ledig plass til uavhengig arkivkopi paa PC-en' }
-        Write-Host 'Kontroller at alle relevante tjenester, gamle/eksterne lagre er inkludert, cron er suspendert og alle skrivere er stanset. Hold app-faner lukket. Ikke bekreft hvis dette er ukjent.'
-        $Ack = Read-Host 'Skriv KILDENE ER KOMPLETTE OG SKRIVERNE STANSET'
-        if ($Ack -ne 'KILDENE ER KOMPLETTE OG SKRIVERNE STANSET') { throw 'Ingen arkivering uten bekreftet kildedekning og skriverstans' }
-        Write-NewUtf8 "$LocalJob\source-attestation.json" (@{inventory_sha256=$Preflight.inventory_sha256;all_sources_reviewed_and_writers_stopped=$true;actor=$Identity;at=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json)
-        Upload "$LocalJob\source-attestation.json" 'source-attestation.json'
+        if ($ResumeInstaller) {
+            Download 'source-attestation.json'
+            Test-AksjeSourceAttestation $LocalJob
+            Write-Host 'Tidligere kildeattestasjon er kontrollert og bevart. Hold fortsatt scheduler og andre skrivere stanset.'
+        } else {
+            Write-Host 'Kontroller at alle relevante tjenester, gamle/eksterne lagre er inkludert, cron er suspendert og alle skrivere er stanset. Hold app-faner lukket. Ikke bekreft hvis dette er ukjent.'
+            $Ack = Read-Host 'Skriv KILDENE ER KOMPLETTE OG SKRIVERNE STANSET'
+            if ($Ack -ne 'KILDENE ER KOMPLETTE OG SKRIVERNE STANSET') { throw 'Ingen arkivering uten bekreftet kildedekning og skriverstans' }
+            Write-NewUtf8 "$LocalJob\source-attestation.json" (@{inventory_sha256=$Preflight.inventory_sha256;all_sources_reviewed_and_writers_stopped=$true;actor=$Identity;at=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json)
+            Upload "$LocalJob\source-attestation.json" 'source-attestation.json'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($InstallerText)) {
+            $FixedInstaller=Join-Path $LocalJob ('install-pg18-corrected-'+[guid]::NewGuid().ToString('N')+'.sh')
+            Write-NewUtf8 $FixedInstaller ($InstallerText.Replace("`r`n","`n")+"`n")
+            Upload $FixedInstaller 'install_pg18.sh'
+        }
         Write-Host '[2/5] Installerer isolerte PG18-verktoy i arbeidsmappen, ingen ny betalt ressurs'
+        $ActiveStage='install'
         Remote "NOK_WORK=$RemoteJob bash $RemoteJob/install_pg18.sh"
         $SensitivePhaseEntered=$true
         Upload "$KeysFolder\archive-key.pem" 'archive-key.pem'
@@ -288,7 +321,14 @@ function Start-AksjeOperator {
         $RemoteStateUncertain=$Failure.Exception.Data.Contains('AksjeConnectionUncertain') -and [bool]$Failure.Exception.Data['AksjeConnectionUncertain']
         $BeforeLoginFailure=$Failure.Exception.Data.Contains('AksjeBeforeLogin') -and [bool]$Failure.Exception.Data['AksjeBeforeLogin']
         if (-not $BeforeLoginFailure -and -not $RemoteStateUncertain) {
-            try { Download "STOPPED-$ActiveStage.json" } catch { }
+            if ($ActiveStage -eq 'install') {
+                $InstallLogName='pg18-install-'+[guid]::NewGuid().ToString('N')+'.log'
+                try { Download 'pg18-install.log' $InstallLogName } catch { }
+                if (Test-Path -LiteralPath (Join-Path $LocalJob $InstallLogName)) {
+                    Write-Host 'Siste linjer fra den faktiske installasjonsloggen:'
+                    Get-Content -LiteralPath (Join-Path $LocalJob $InstallLogName) -Tail 35 | Out-Host
+                }
+            } else { try { Download "STOPPED-$ActiveStage.json" } catch { } }
         }
         if ($RemoteStateUncertain) { Write-Warning 'Tilkoblingen ble brutt etter at fjernoperasjonen kan ha startet. Fjernstatus er ukjent; ingen automatisk gjentakelse eller opprydding.' }
         Write-Host "Jobben er stoppet uten aktivering. Eventuelle private STOPPED-kvitteringer ligger i $LocalJob"
@@ -305,21 +345,24 @@ function Start-AksjeOperator {
         Write-Host 'Ingen automatisk ny start, sletting av historikk eller overgang til annen periode.'
     }
 }
-function Resume-AksjeOperator([string]$JobId='') {
+function Resume-AksjeOperator {
+    param([string]$JobId='', [switch]$ResumeInstaller, [string]$InstallerText='')
     if ([string]::IsNullOrWhiteSpace($JobId)) {
         $OperatorRoot=Join-Path $env:LOCALAPPDATA 'AksjeNokOperator'
         $Candidates=@(Get-ChildItem -LiteralPath $OperatorRoot -Directory -Filter 'nok-job-*' -ErrorAction Stop | Where-Object {
             $Folder=$_.FullName
             (Test-Path -LiteralPath (Join-Path $Folder 'job-location.json')) -and
             (Test-Path -LiteralPath (Join-Path $Folder 'plan.json')) -and
-            -not (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json')) -and
+            (($ResumeInstaller -and (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json'))) -or
+             (-not $ResumeInstaller -and -not (Test-Path -LiteralPath (Join-Path $Folder 'source-attestation.json')))) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'archive-receipt.json')) -and
+            -not (Test-Path -LiteralPath (Join-Path $Folder 'preparation-attempt.json')) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'prepared.json')) -and
             -not (Test-Path -LiteralPath (Join-Path $Folder 'final-result.json'))
         })
         if ($Candidates.Count -eq 1) { $JobId=$Candidates[0].Name }
         else { $JobId=Read-Host 'Jobb-ID fra feilmeldingen som skal fortsettes (nok-job-...)' }
     }
-    Start-AksjeOperator -ResumeJob $JobId.Trim()
+    Start-AksjeOperator -ResumeJob $JobId.Trim() -ResumeInstaller:$ResumeInstaller -InstallerText $InstallerText
 }
 Start-AksjeOperator

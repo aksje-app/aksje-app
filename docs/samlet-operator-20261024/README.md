@@ -1,6 +1,8 @@
 [Last ned hele ZIP-pakken](aksje-samlet-operator.zip) (velg Download raw file i GitHub).
 
-Hvis `Completed preflight` allerede er vist og neste overføring feilet, kopier hele [fortsettelsesfilen](FORTSETT-ETTER-FORHANDSKONTROLL.txt) inn i samme PowerShell-vindu. Den gjenbruker eksisterende jobb, nøkkel og resultat; de tidligere utpakkede Python-/installasjonsfilene er uendret. Ikke start en ny jobb for dette nettbruddet.
+**Ved PG18-feilen `Conflicting values set for option Signed-By`:** Kopier hele [fortsettelsesfilen for installasjonsfeil](FORTSETT-ETTER-PG18-FEIL.txt) inn i samme PowerShell-vindu og trykk Enter. Den inkluderer korrigert installer og gjenbruker tidligere jobb og kildeattestasjon. Ingen ny utpakking er nødvendig. Ikke bruk den eldre fortsettelsen for forhåndskontroll i dette tilfellet.
+
+Hvis bare `Completed preflight` er vist og neste overføring feilet, bruk [fortsettelsen etter forhåndskontroll](FORTSETT-ETTER-FORHANDSKONTROLL.txt).
 
 # Samlet operatørkjøring – arkiv, restore og inaktive kontoer
 
@@ -16,6 +18,29 @@ Ingen applikasjonskode, strategier eller læringsregler endres.
 3. Oppgi mappen der pakken ble pakket ut, og mappen med dine eksisterende
    `archive-certificate.pem`, `archive-key.pem` og `operator-certificate.pem`.
    Oppgi bare lokale stier i programmet; ikke send nøkkelinnhold i samtalen.
+
+## Fortsett etter PG18-installasjonsfeil (Signed-By)
+
+Hvis installasjonen stoppet med `Conflicting values set for option Signed-By`,
+bruk `FORTSETT-ETTER-PG18-FEIL.txt`. Kopier hele filen inn i samme PowerShell-vindu
+og trykk Enter. Den inneholder den korrigerte installasjonskoden; du trenger ikke
+pakke ut ZIP-filen på nytt eller redigere Render-oppsettet.
+
+Fortsettelsen gjenbruker jobb, SSH-identitet, forhåndskontroll og den faktiske
+kildeattestasjonen. Lokal og ekstern jobb må fortsatt være før arkivering: ingen
+arkivnøkkel, arkivmappe, bekreftet regnskapskonfigurasjon, restore-server, DRAFT-
+forsøk eller sluttkvittering. Et senere eller usikkert steg gir stopp. Den tidligere
+attestasjonen må være boolsk sann og vise til nøyaktig samme inventar. Hold fortsatt
+scheduler og øvrige skrivere stanset; arkivmotoren kontrollerer transaksjoner på nytt.
+
+Årsaken er at systemets PGDG-kilde og jobbens egen PGDG-kilde kan angi ulike
+`Signed-By`. Rettelsen tar bare med én PGDG-kilde i jobbens private APT-oppsett.
+Vanlige OS-kilder beholdes, både `.list` og deb822 `.sources` støttes, og kildene i
+`/etc/apt` endres ikke. PGDG-nøkkelens fastsatte fingeravtrykk og APTs signatur-
+kontroller beholdes. Uavklarte blandede URI-er gir stopp. Installerens private
+kataloger kan gjenbrukes etter avbruddet, og begge utstrømmer lagres i
+`pg18-install.log`. Ved ny feil forsøker Windows-filen å hente og vise loggen.
+Ingen finansielle handlinger gjentas som del av installasjonsrettingen.
 
 ## Fortsett etter nettbrudd rett etter fullført forhåndskontroll
 
@@ -142,9 +167,9 @@ opprettelsen. STOPPED-filer skal gjennomgås før eventuelt gjenforsøk.
 
 Python-/Bash-syntaks, offisiell PowerShell-parser og avgrensede oppryddings-/
 scope-kontroller er kjørt i Codex. Ingen tidligere applikasjonstestpakke er gjentatt.
-Windows/Render-kjøringen er **ikke gjennomført eller ende-til-ende-verifisert** av
-Codex. PostgreSQL 18-installasjon, SSH/SCP, kapasitet, locale/utvidelser og faktiske
+Full Windows/Render-kjøring er **ikke ende-til-ende-verifisert** av Codex.
+Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kildekonflikt. PostgreSQL 18-installasjon, SSH/SCP, kapasitet, locale/utvidelser og faktiske
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-ZIP SHA256: `ba07df0ea7d3ed6c03de33d4476a84a837c27b7c1d31e84c1afd837616d9f6e1`
+ZIP SHA256: `966e202e7e1a6a7826e73eb203b0b37eaaf5764ce7da80725b014796cd9006a2`
