@@ -30,7 +30,7 @@ er inkludert her.
 
 Bruk [KONTROLLER-LOKAL-KOPI-WINDOWS.txt](KONTROLLER-LOKAL-KOPI-WINDOWS.txt) på
 Windows-PC-en. Kopier hele filen inn i PowerShell og trykk Enter. Den bruker
-`127.0.0.1:5432`, bruker `postgres` og den eksplisitte kopien `aksje_restore_test`.
+`127.0.0.1:5433`, bruker `postgres` og den eksplisitte kopien `aksje_restore_test`.
 Ingen Render-, SSH-, arkiv-, konto- eller strategioperasjon finnes i denne filen.
 Eventuell autentisering håndteres bare av den lokale PostgreSQL-klienten.
 
@@ -293,4 +293,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `3f8a8b19351a85984b343270585884bdb55ad505aac6b9c061c30dc33df07bb4`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `a45260327bd1b818423fe83b8550619c136b79934549bd4db3beff18d8b340ba`

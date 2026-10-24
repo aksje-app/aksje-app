@@ -82,8 +82,8 @@ ROLLBACK;
     try {
         $env:PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=30000'
         $env:PGCLIENTENCODING='UTF8'
-        Write-Host 'Kun lokal kopi: 127.0.0.1:5432 / aksje_restore_test / PostgreSQL 18. Ingen Render-forbindelse.'
-        $Arguments=@('-X','-h','127.0.0.1','-p','5432','-U','postgres','-d','aksje_restore_test','-v','ON_ERROR_STOP=1','-q','-A','-t','-P','pager=off','-f',('"'+$SqlPath+'"'))
+        Write-Host 'Kun lokal kopi: 127.0.0.1:5433 / aksje_restore_test / PostgreSQL 18. Ingen Render-forbindelse.'
+        $Arguments=@('-X','-h','127.0.0.1','-p','5433','-U','postgres','-d','aksje_restore_test','-v','ON_ERROR_STOP=1','-q','-A','-t','-P','pager=off','-f',('"'+$SqlPath+'"'))
         $Process=Start-Process -FilePath $Psql -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $OutputPath
         if (Test-Path -LiteralPath $OutputPath) {Get-Content -LiteralPath $OutputPath -Encoding UTF8|Out-Host}
         if ($Process.ExitCode -ne 0) {throw "Lokal kontroll stoppet (psql exit $($Process.ExitCode)). Ingen produksjonsoperasjon startet. Privat mappe: $Job"}
