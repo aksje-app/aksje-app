@@ -1,0 +1,69 @@
+# Paste the complete file into the same Windows PowerShell window.
+# Read-only diagnosis only: no archive retry, source write, restore or activation.
+$AksjeProbe = @'
+import json,os,re,sys
+from pathlib import Path
+import psycopg2
+from psycopg2.extensions import parse_dsn
+work=Path(sys.argv[1])
+if work.parent!=Path('/tmp') or not re.fullmatch(r'nok-job-[0-9]{8}T[0-9]{6}Z',work.name):raise SystemExit('Invalid operator job')
+report={'purpose':'READ_ONLY_ARCHIVE_DIAGNOSIS','accounts_activated':False,'checks':[]}
+variables={'DATABASE_URL'}
+config=work/'config-unconfirmed.json'
+if config.is_file():
+    variables.update(json.loads(config.read_text())['database_environment_variables'].values())
+redactions=[]
+for variable in variables:
+    dsn=os.getenv(variable,'')
+    if dsn:
+        redactions.append(dsn)
+        try:redactions.extend(str(v) for k,v in parse_dsn(dsn).items() if k not in {'port','connect_timeout'} and v)
+        except Exception:pass
+
+def safe_error(error):
+    text=str(error)
+    for value in sorted(set(redactions),key=len,reverse=True):text=text.replace(value,'[redacted]')
+    text=re.sub(r'(?i)postgres(?:ql)?://[^\s]+','[redacted DSN]',text)
+    # Connection-only queries; never include any database rows or query results.
+    return {'error_type':type(error).__name__,'sqlstate':getattr(error,'pgcode',None),'message':text[:1800]}
+
+report['checkpoint']={name:(work/name).exists() for name in ('source-attestation.json','archive-receipt.json','config.json','preparation-attempt.json','prepared.json','isolated-pg','final-result.json','archive-key.pem')}
+archive_root=work/'archives'
+report['archive_files']={'sealed_receipts':len(list(archive_root.glob('*/receipt.json'))) if archive_root.is_dir() else 0,'cipher_files':len(list(archive_root.glob('*/archive.cms'))) if archive_root.is_dir() else 0,'directories':sum(p.is_dir() for p in archive_root.iterdir()) if archive_root.is_dir() else 0}
+for variable in sorted(variables):
+    item={'source_variable':variable,'stage':'CONNECT','ok':False};connection=None
+    try:
+        connection=psycopg2.connect(os.environ[variable],connect_timeout=15,options='-c default_transaction_read_only=on -c statement_timeout=15000')
+        item['stage']='READ_ONLY_SNAPSHOT'
+        connection.set_session(readonly=True,isolation_level='REPEATABLE READ',autocommit=False)
+        with connection.cursor() as cursor:
+            cursor.execute('SHOW transaction_read_only')
+            if cursor.fetchone()[0]!='on':raise ValueError('Read-only transaction required')
+            cursor.execute('SELECT pg_export_snapshot()');cursor.fetchone()
+            cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND state IN ('active','idle in transaction','idle in transaction (aborted)')")
+            item['other_active_or_open_transactions']=cursor.fetchone()[0]
+        item['ok']=True
+    except Exception as error:item.update(safe_error(error))
+    finally:
+        if connection is not None:
+            try:connection.rollback()
+            except Exception:pass
+            connection.close()
+    report['checks'].append(item)
+print(json.dumps(report,indent=2))
+'@
+$AksjeProbeBytes=[System.Text.Encoding]::UTF8.GetBytes($AksjeProbe.Replace("`r`n","`n"))
+$AksjeProbePayload=[Convert]::ToBase64String($AksjeProbeBytes)
+$AksjeProbeIdentity=Get-AksjeExistingSshKey (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator')
+if (-not $AksjeProbeIdentity) { throw 'Eksisterende SSH-identitet mangler; ingen ny nokkel lages' }
+$AksjeFailedJobs=@(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'AksjeNokOperator') -Directory -Filter 'nok-job-*' | Where-Object {
+    (Test-Path -LiteralPath (Join-Path $_.FullName 'STOPPED-archive.json')) -and
+    (Test-Path -LiteralPath (Join-Path $_.FullName 'source-attestation.json')) -and
+    -not (Test-Path -LiteralPath (Join-Path $_.FullName 'final-result.json'))
+})
+if ($AksjeFailedJobs.Count -eq 1) { $AksjeProbeJobId=$AksjeFailedJobs[0].Name }
+else { $AksjeProbeJobId=(Read-Host 'Jobb-ID fra arkivfeilmeldingen').Trim() }
+if ($AksjeProbeJobId -cnotmatch '^nok-job-[0-9]{8}T[0-9]{6}Z$') { throw 'Ugyldig jobb-ID; ingen fjernhandling' }
+$AksjeProbeRemote='printf %s '+$AksjeProbePayload+' | base64 -d | python - /tmp/'+$AksjeProbeJobId
+ssh.exe -i $AksjeProbeIdentity -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no -o ConnectTimeout=20 srv-d7obt5e47okc739susgg@ssh.ohio.render.com $AksjeProbeRemote
+Write-Host "Diagnose SSH-returkode: $LASTEXITCODE"
