@@ -1,3 +1,60 @@
+# Fortsett fra ferdig arkiv etter dekrypteringsstopp
+
+Bruk **[FORTSETT-FRA-FERDIG-ARKIV-WINDOWS.txt](FORTSETT-FRA-FERDIG-ARKIV-WINDOWS.txt)**.
+Kopier hele filen til samme Windows PowerShell-vindu og trykk Enter.
+Denne fortsettelsen bruker bare det allerede forseglede arkivet fra
+`nok-job-20261024T165039Z`. Ikke gjenta tidligere arkiv-/fortsettelsesfiler.
+
+Brukerens siste kjøring fullførte 12-tabellers kildefingeravtrykk og kryptert arkiv.
+Windows-kopien hadde riktig ciphertext-SHA256 og ble faktisk dekryptert lokalt til
+`NUL` før restore-kallet. Kjøringen stoppet i Render-OpenSSL under første
+`verify_archive`, før utpakking/restore-destinasjon og før kontoer ble opprettet.
+Midlertidig fjernnøkkel og isolert prosess ble ryddet av forrige worker.
+
+Den generiske feilmeldingen beholdt ikke OpenSSL-stderr; årsaken til fjernfeilen er
+ikke fastslått. Minnebruk er en mulig forklaring, men dette er ikke diagnostisert.
+Windows-kontrollen er derfor ikke grunnlag for å bytte nøkler. Den nye fortsettelsen
+bruker den samme standard OpenSSL-dekrypteringen på PC-en til en ny midlertidig privat
+fil. Den opprinnelige arkivnøkkelen blir på PC-en. Den dekrypterte filen overføres
+midlertidig gjennom kryptert SSH til den private Render-jobben; den er ikke offentlig.
+Det krypterte arkivet og den uavhengige Windows-kopien endres ikke.
+
+`render_windows_payload_resume.py` tillater kun kontrollert restore-fortsettelse,
+private fingeravtrykksbarn og opprydding. Ingen arkiveringshandling finnes i CLI-en.
+Kontrollen krever nøyaktig den tidligere dekrypteringsfeilen, forseglede kvitteringer,
+korrekt ciphertext, verifisert Windows-kopi, ingen senere restore-/kontokvitteringer,
+ingen restore-destinasjon og bekreftet stoppet privat PostgreSQL-prosess.
+Eksisterende private `isolated-pg` og `pgsocket` omdøpes og bevares; ny fysisk restore
+bruker nye mapper. Jobbens kildeattestasjon, ferske kapasitets-/skriverkontroller og
+alle core-kildehashkontroller beholdes. Gamle arkivinnganger sperres i PowerShell.
+
+En snever `_openssl`-adapter gjenbruker bare den Windows-dekrypterte filen for akkurat
+dette arkivet og dette sertifikatet, inne i samme private jobb. Den sammenligner
+SHA256 mens filen kopieres i 1 MiB-biter til hver nye verifikasjonsdestinasjon.
+Den implementerer ingen ny kryptografi og godtar ikke andre OpenSSL-handlinger,
+andre arkiv-/sertifikatstier eller utdata utenfor jobben. De uendrede core-rutinene
+kontrollerer deretter manifest-SHA256, alle filstørrelser og alle filhashsummer,
+fysisk restore og identiske native databasefingeravtrykk. Kilden kontrolleres igjen
+før og etter opprettelse av tre INAKTIVE DRAFT-kontoer. Ingen konto aktiveres.
+
+Midlertidig dekryptert overføringsfil slettes på PC-en ved avslutning og på Render
+ved bekreftet opprydding; selve private restore-destinasjonen og historikk bevares.
+Ved SSH-brudd etter mulig start gjentas ingen fjernhandling eller fjernopprydding
+uten avklart status. Tidligere stopper og diagnostikk beholdes. Fullført status er
+`final-result.json`; bare denne filen skal deles som status.
+
+Ny verifikasjon: Offisiell PowerShell-parser, faktisk innebygd SHA256-kontroll,
+normalisering av eksisterende offentlige SSH-identitet og sperring av gammel
+arkivinngang bestod. Isolert PG16.2-test brukte ekte standard OpenSSL-kryptering og
+-dekryptering, bevarte gammel stoppet cluster og avviste senere/ukjent kontostatus.
+Feil plaintext-SHA256 og utdata utenfor jobben ble avvist før restore. Uendrede core-
+rutiner fullførte manifest-/filkontroll, fysisk restore til privat socket, native
+fingeravtrykk og kildeverifikasjon uten fjernkopi av arkivnøkkelen eller nytt arkiv.
+Faktisk Windows/Render-kjøring av denne nye fortsettelsen gjenstår. Ingen PG18- eller
+produksjonsbevis er erstattet med PG16-fixture-resultater.
+
+## Forrige kjøring og bakgrunn
+
 # Samlet fortsettelse med direkte kolonnelesing
 
 Bruk **[FORTSETT-MED-NATIVE-ARKIV-WINDOWS.txt](FORTSETT-MED-NATIVE-ARKIV-WINDOWS.txt)**.
@@ -434,4 +491,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `13151e7527d5f094683f48c98c4a82bfec93668dfdbb8a2ebb33200a6cba4f7a`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `4f2ddda00b02cdea65e8f241fe27df4aeb66a618cc09bd31945950e60ad04960`
