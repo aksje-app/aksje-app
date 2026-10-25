@@ -55,7 +55,7 @@ def main():
         result=discover(extra_roots=config.get('extra_roots'))
     elif args.action=='account-config':
         from services.production_routing import strategy_settings
-        result={family:dict(capital_nok=capital,settings=strategy_settings(family),cost_policy=None) for family,capital in restart.CAPITALS.items()}
+        result={family:dict(capital_nok=capital,settings=strategy_settings(family,require_stored=True),cost_policy=None) for family,capital in restart.CAPITALS.items()}
     elif args.action=='archive':
         check_inventory(config)
         import psycopg2

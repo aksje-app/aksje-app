@@ -238,6 +238,7 @@ def restore_drill(root,archive_id,*,certificate,private_key,destination,database
         if result.returncode:raise ValueError('Physical PostgreSQL restore failed; activation remains blocked')
         connection=psycopg2.connect(dsn,connect_timeout=10)
         try:
+            connection.set_session(readonly=True,isolation_level='REPEATABLE READ',autocommit=False)
             with connection.cursor() as cur:
                 cur.execute("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
                 tables=cur.fetchall();counts={}
@@ -282,31 +283,8 @@ def database_fingerprint(connection,*,ignore_period=None):
     remain protected.
     Called inside pg_dump's exported repeatable-read snapshot.
     """
-    from psycopg2 import sql
-    result={}
-    with connection.cursor() as cur:
-        cur.execute("SET LOCAL TIME ZONE 'UTC'")
-        cur.execute("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
-        tables=cur.fetchall()
-    for schema,table in tables:
-        query=sql.SQL('SELECT row_to_json(t)::text FROM {}.{} AS t').format(sql.Identifier(schema),sql.Identifier(table))
-        count=0;total=0
-        with connection.cursor(name='archive_'+uuid.uuid4().hex) as rows:
-            rows.itersize=1000;rows.execute(query)
-            for (raw,) in rows:
-                # Canonical JSON removes representation differences on restore.
-                from decimal import Decimal
-                value=json.loads(raw,parse_float=Decimal)
-                if table=='app_kv_store' and ignore_period:
-                    key=value.get('name','')
-                    if key=='simulation_restarts/'+ignore_period+'/bundle.json':continue
-                    if key.startswith('simulation_restarts/routes/'):
-                        payload=value.get('payload');payload=json.loads(payload) if isinstance(payload,str) else payload
-                        if payload.get('period_id')==ignore_period:continue
-                content=json.dumps(value,sort_keys=True,separators=(',',':'),default=str).encode()
-                total=(total+int.from_bytes(hashlib.sha256(content).digest(),'big'))%(1<<256);count+=1
-        result[schema+'.'+table]=dict(rows=count,multiset_sha256_sum=f'{total:064x}')
-    return result
+    from services.native_archive_fingerprint import database_fingerprint as native
+    return native(connection, ignore_period=ignore_period)
 
 
 def verify_live_sources(reviewed,*,databases,ignore_period=None):
