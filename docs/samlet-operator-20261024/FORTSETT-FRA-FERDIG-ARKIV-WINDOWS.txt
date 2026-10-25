@@ -757,7 +757,7 @@ function Resume-AksjeSealedArchive {
         $Result=Invoke-AksjeNative -Program $Program -NativeArguments $Arguments -LogDirectory $Private -Transport:$Transport
         if($Result.ExitCode -ne 0){
             $Failure=New-Object Exception("Fortsettelse stoppet: $Program (exit $($Result.ExitCode)). Privat diagnostikk: $($Result.Log)")
-            $Failure.Data['ConnectionUncertain']=($Program -eq 'ssh.exe' -and $Result.ExitCode -eq 255 -and -not $Result.BeforeLogin)
+            $Failure.Data['ConnectionUncertain']=($Program -eq 'ssh.exe' -and $Result.ExitCode -notin @(0,1) -and -not $Result.BeforeLogin)
             if(-not $Transport -and (Test-Path -LiteralPath $Result.Log)){Get-Content -LiteralPath $Result.Log -Tail 12|Out-Host}
             throw $Failure
         }

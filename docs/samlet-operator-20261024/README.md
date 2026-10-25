@@ -1,5 +1,13 @@
 # Fortsett fra ferdig arkiv etter dekrypteringsstopp
 
+> **Siste observerte status:** Fortsettelsen nådde fysisk restore, men Windows SSH
+> avsluttet med status `-1`. Fjernjobbens og kontofasens status er ukjent. Ikke kjør
+> fortsettelsesfilen på nytt før privat SSH-logg og fjernstatus er avklart. Den
+> tidligere feilhåndteringen behandlet bare `255` som usikkert brudd og forsøkte
+> derfor opprydding også ved `-1`; den oppryddingen feilet. Nå behandles også `-1`
+> og andre uventede SSH-statuser som usikre, uten automatisk fjernopprydding.
+> Dette er en kontrollflytrettelse, ikke en diagnose av selve forbindelsesbruddet.
+
 Bruk **[FORTSETT-FRA-FERDIG-ARKIV-WINDOWS.txt](FORTSETT-FRA-FERDIG-ARKIV-WINDOWS.txt)**.
 Kopier hele filen til samme Windows PowerShell-vindu og trykk Enter.
 Denne fortsettelsen bruker bare det allerede forseglede arkivet fra
@@ -491,4 +499,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `4f2ddda00b02cdea65e8f241fe27df4aeb66a618cc09bd31945950e60ad04960`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `a46b713d2d1f6b002730b797d94c0720154cc285ae8594cb894c9eb04e436a08`
