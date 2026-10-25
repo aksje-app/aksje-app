@@ -246,7 +246,7 @@ def legacy_history(family,*,storage=None):
     return result
 
 
-def strategy_settings(family,*,storage=None):
+def strategy_settings(family,*,storage=None,require_stored=False):
     """Snapshot the existing configured strategy; never invent restart settings."""
     from dataclasses import asdict
     storage=storage or control.get_storage_service()
@@ -269,6 +269,8 @@ def strategy_settings(family,*,storage=None):
                         if row:value=json.loads(row[0]) if isinstance(row[0],str) else row[0]
             finally:connection.close()
         if not value:value=storage.read_json(STORAGE_KEY,None)
+        if require_stored and (not isinstance(value,dict) or not set(value).intersection(DEFAULT_RULES)):
+            raise ValueError('Stored Paper strategy settings required; no restart defaults')
         if value is None:
             approved=approved_fallback()
             if approved is not None:return approved
@@ -278,6 +280,8 @@ def strategy_settings(family,*,storage=None):
     if family=='autonomy':
         from autonomous_portfolio import AutonomousParameters,_read,PARAMETERS_PATH
         raw=storage.read_json('autonomous_portfolio/parameters.json',None)
+        if require_stored and (not isinstance(raw,dict) or not set(raw).intersection(AutonomousParameters.__dataclass_fields__)):
+            raise ValueError('Stored Autonomy strategy settings required; no restart defaults')
         if raw is None:
             approved=approved_fallback()
             if approved is not None:return approved
@@ -286,6 +290,9 @@ def strategy_settings(family,*,storage=None):
         return asdict(AutonomousParameters(**{k:v for k,v in raw.items() if k in AutonomousParameters.__dataclass_fields__}).normalized())
     import super_portfolio as engine
     value=storage.read_json(engine.STATE_KEY,None)
+    if require_stored and (not isinstance(value,dict) or not isinstance(value.get('config'),dict)
+                          or not set(value['config']).intersection(engine.SuperPortfolioConfig.__dataclass_fields__)):
+        raise ValueError('Stored Super Portfolio strategy settings required; no restart defaults')
     if value is None:
         approved=approved_fallback()
         if approved is not None:return approved
@@ -305,7 +312,7 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
     from services.storage_service import get_storage_service
     storage=storage or get_storage_service();bundle=storage.read_json(restart._key(period_id))
     restart.verify_bundle(bundle);doc=bundle['accounts'][family]
-    settings=strategy_settings(family,storage=storage)
+    settings=strategy_settings(family,storage=storage,require_stored=True)
     from services.trading_costs import validate_family
     validate_family(cost_policy,family,settings)
     rows=strategy_input.get('candidates',[]) if family=='super_portfolio' else strategy_input

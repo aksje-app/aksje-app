@@ -1,0 +1,75 @@
+{
+  "status": "PROPOSED_NOT_PERSONAL_APPROVAL_B",
+  "installation": "aksje-app-production-nok-v1",
+  "period_id": "nok-20261025T012118Z",
+  "note": "New FX assumption for all three accounts, never inferred to be an existing stock-account policy. Existing Superfond is only a documented model reference and remains unchanged.",
+  "policies": {
+    "paper": {
+      "status": "PROPOSED_NOT_APPROVED_OR_INSTALLED",
+      "base_model_rate_bps": 5,
+      "fx_additional_bps_for_non_nok": 25,
+      "aggregate_includes_fx": false,
+      "model_cost_breakdown": "UNALLOCATED_MODEL_COST_NOT_A_BROKER_STATEMENT",
+      "policy": {
+        "schema": "NOK_COST_POLICY_V2",
+        "source_ref": "docs/nok-produksjonsstart-20261025/RESULTAT.md#kostnadsforslag",
+        "components": {
+          "model_transaction_cost_nok": {
+            "rate_bps": 5,
+            "source_ref": "https://github.com/aksje-app/aksje-app/blob/de2dc61716726647013e341c9bcac1024c894aaf/backtesting_engine.py#L32"
+          },
+          "fx_cost_nok": {
+            "rate_bps": 25,
+            "source_ref": "https://github.com/aksje-app/aksje-app/blob/de2dc61716726647013e341c9bcac1024c894aaf/superfund_engine.py#L243"
+          }
+        },
+        "slippage": {
+          "rate_bps": 10,
+          "source_ref": "https://github.com/aksje-app/aksje-app/blob/de2dc61716726647013e341c9bcac1024c894aaf/backtesting_engine.py#L33"
+        }
+      }
+    },
+    "autonomy": {
+      "status": "PROPOSED_NOT_APPROVED_OR_INSTALLED",
+      "base_model_rate_bps": 20,
+      "fx_additional_bps_for_non_nok": 25,
+      "aggregate_includes_fx": false,
+      "model_cost_breakdown": "UNALLOCATED_MODEL_COST_NOT_A_BROKER_STATEMENT",
+      "policy": {
+        "schema": "NOK_COST_POLICY_V2",
+        "source_ref": "docs/nok-produksjonsstart-20261025/RESULTAT.md#kostnadsforslag",
+        "components": {
+          "model_transaction_cost_nok": {
+            "rate_bps": 20,
+            "source_ref": "https://github.com/aksje-app/aksje-app/blob/de2dc61716726647013e341c9bcac1024c894aaf/learning_runtime.py#L178"
+          },
+          "fx_cost_nok": {
+            "rate_bps": 25,
+            "source_ref": "https://github.com/aksje-app/aksje-app/blob/de2dc61716726647013e341c9bcac1024c894aaf/superfund_engine.py#L243"
+          }
+        }
+      }
+    },
+    "super_portfolio": {
+      "status": "PROPOSED_NOT_APPROVED_OR_INSTALLED",
+      "base_model_rate_bps": 10,
+      "fx_additional_bps_for_non_nok": 25,
+      "aggregate_includes_fx": false,
+      "model_cost_breakdown": "UNALLOCATED_MODEL_COST_NOT_A_BROKER_STATEMENT",
+      "policy": {
+        "schema": "NOK_COST_POLICY_V2",
+        "source_ref": "docs/nok-produksjonsstart-20261025/RESULTAT.md#kostnadsforslag",
+        "components": {
+          "model_transaction_cost_nok": {
+            "rate_bps": 10,
+            "source_ref": "https://github.com/aksje-app/aksje-app/blob/de2dc61716726647013e341c9bcac1024c894aaf/super_portfolio.py#L381"
+          },
+          "fx_cost_nok": {
+            "rate_bps": 25,
+            "source_ref": "https://github.com/aksje-app/aksje-app/blob/de2dc61716726647013e341c9bcac1024c894aaf/superfund_engine.py#L243"
+          }
+        }
+      }
+    }
+  }
+}

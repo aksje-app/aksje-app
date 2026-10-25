@@ -88,7 +88,7 @@ def request(period,family,*,actor,approval_ref,at,restore_review,settings,cost_p
     restart.verify_bundle(bundle);doc=bundle['accounts'][family]
     if not actor or not approval_ref:raise ValueError('Named operator and approval reference required')
     from services.production_routing import strategy_settings
-    if digest(settings)!=digest(strategy_settings(family,storage=storage)):raise ValueError('Use the existing configured strategy settings unchanged')
+    if digest(settings)!=digest(strategy_settings(family,storage=storage,require_stored=True)):raise ValueError('Use the existing configured strategy settings unchanged')
     stamp(at)
     if restore_review.get('status')!='RESTORED_AND_VERIFIED' or restore_review['archive']!=bundle['archive']:
         raise ValueError('Matching successful physical restore drill required')

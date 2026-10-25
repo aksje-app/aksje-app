@@ -33,6 +33,11 @@ def ready(pg,sources,certificate,tmp_path,monkeypatch):
     pg.write_json('learning/observations.json',{'observations':81,'loss':-25000})
     for name in ('paper_trading/portfolio.json','autonomous_portfolio/portfolio.json','super_portfolio/state.json'):
         pg.write_json(name,{'cash':123,'positions':{'OLD':{'quantity':7}},'realized_pnl':-25000})
+    # The approval path must have a real stored config, never an empty/default one.
+    from services.production_routing import strategy_settings
+    settings['super_portfolio']=strategy_settings('super_portfolio',storage=pg)
+    pg.write_json('super_portfolio/state.json',{'cash':123,'positions':{'OLD':{'quantity':7}},
+        'realized_pnl':-25000,'config':settings['super_portfolio']})
     root=tmp_path/'archives';root.mkdir(mode=0o700)
     if shutil.which('pg_dump') and shutil.which('pg_restore'):
         dump=[shutil.which('pg_dump')];restore=[shutil.which('pg_restore')]
@@ -119,6 +124,24 @@ def direct(ready,family,run,at,inputs,ev=None):
 
 
 def doc(r,family):return restart.AccountStorage(r['bundle']['period_id']).read_json(ledger.key(family))
+
+
+@pytest.mark.parametrize('family,key', [
+    ('paper','settings/trading_rules.json'),
+    ('autonomy','autonomous_portfolio/parameters.json'),
+    ('super_portfolio','super_portfolio/state.json'),
+])
+def test_request_and_preview_require_stored_settings_without_touching_drafts(ready,family,key,monkeypatch):
+    r=ready
+    r['pg'].write_json(key,{})
+    before=r['pg'].read_json(restart._key(r['bundle']['period_id']))
+    monkeypatch.setattr(routing,'market_evidence',lambda *a,**kw:pytest.fail('No provider call before stored settings are verified'))
+    with pytest.raises(ValueError,match='Stored .* settings required'):
+        control.request(r['bundle']['period_id'],family,actor='ISOLATED operator',approval_ref='ISOLATED review',
+            at=datetime.now(timezone.utc).isoformat(),restore_review=r['review'],settings=r['settings'][family],cost_policy=r['costs'][family])
+    with pytest.raises(ValueError,match='Stored .* settings required'):
+        routing.live_preview(r['bundle']['period_id'],family,strategy_input=[],cost_policy=r['costs'][family],storage=r['pg'])
+    assert r['pg'].read_json(restart._key(r['bundle']['period_id']))==before
 
 
 @pytest.mark.parametrize('family',list(restart.CAPITALS))
