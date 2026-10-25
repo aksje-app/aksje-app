@@ -1,3 +1,85 @@
+# Fortsett kun overføring etter verifisert fysisk PC-restore
+
+Bruk **[FORTSETT-KUN-OVERFORING-WINDOWS.txt](FORTSETT-KUN-OVERFORING-WINDOWS.txt)**:
+kopier hele filen inn i samme Windows PowerShell-vindu og trykk Enter.
+Denne filen gjenbruker den allerede fullførte fysiske PC-restoren. Den oppretter
+ikke nye lokale databaser, kjører ikke pg_restore og krever ikke lokalt
+PostgreSQL-passord. Tidligere restore-/arkivinnganger skal ikke kjøres på nytt.
+
+Siste faktiske bevis fra brukeren: Windows rapporterte
+`WINDOWS_ARCHIVE_PHYSICALLY_RESTORED_AND_VERIFIED` for det opprinnelige arkivet,
+én database og alle12 tabeller. Render fullførte kontroll av rekonstruert kontekst
+og nåværende kildeinventar. SSH stoppet i overføringsfasen før kontoklargjøringssteget.
+Etterpå viste READ ONLY-status at jobbmappen finnes, ingen jobbprosess kjører,
+`windows-decryption-proof.json` finnes, overførings-TAR mangler, alle senere
+restore-/forberedelses-/sluttkvitteringer mangler og databasen har ingen NOK-perioder
+eller routes. Ingen fysisk restore skal gjentas fra dette kontrollpunktet.
+
+Det foreliggende SSH-loggutdraget fastslår ikke årsaken til bruddet eller om det
+skjedde før autentisering. Færre innlogginger, lengre mellomrom og detaljert
+håndtrykkslogg er robusthetsendringer, ikke en påstått årsaksdiagnose. Verts- og
+identitetskontroll beholdes; samme eksisterende SSH-nøkkel gjenbrukes.
+
+Fortsettelsen velger en fullført privat `pc-restore-*`-kvittering som peker på samme
+opprinnelige arkiv. Den eksisterende `prepare-from-pc-<uuid>.py` må ha eksakt SHA256
+for den allerede gjennomgåtte sluttworkeren; ingen ny sluttworker eller ny fysisk
+restore introduseres. På Render bekreftes den samme lokale restore-/payload-hashen,
+ikke-aktiv plan A, ingen levende jobbprosess og ingen senere/ukjent forberedelse.
+Den eksisterende sluttworkeren kjører fersk kilde-/kapasitets-/inventarkontroll.
+
+Ferdige fjernkopier med korrekt kontrollsum gjenbrukes. Bare manglende komplette
+kopier overføres. Ved behov dekrypterer PC-en det SAMME arkivet én gang til en
+midlertidig TAR for overføring; hash må være identisk med TAR-en som allerede
+bestod fysisk restore. Dette er ikke en ny database-restore eller arkivering.
+Arkivnøkkelen blir på PC-en. Alle nødvendige filer sendes samlet med én SCP-
+tilkobling til en ny privat stagingmappe. Tidligere ufullstendige kopier overskrives
+ikke: de bevares ved omdøping i samme private foreldremappe før ny kopi plasseres.
+En ufullstendig arkivmappe med uventede filer gir stopp fremfor automatisk endring.
+
+SCP- og SSH-innlogginger får minst10 sekunders mellomrom. Ved feil prøves det bare
+på nytt når før-innlogging-feil er dokumentert av kex-/tilkoblingsfeil, eller av
+verbose lokal SSH-bannerlogg og brudd FØR fjernbanner. En logg som viser
+`Authenticated to` eller `Sending command:` hindrer alltid slik automatisk
+repetisjon. Autentiserings-/vertsfeil, tvetydige brudd og programfeil repeteres ikke.
+Ventetidene er15/30/45/60 sekunder, maksimalt fire ekstra forsøk; ingen uendelig løkke.
+Verbose logger lagres bare i den nye private Windows-mappen.
+
+Én videre SSH-forbindelse verifiserer overføringshashene, beskytter sluttsteget med
+en atomisk claim, og kjører den tidligere sluttworkerens kildekontroll, private
+filverifikasjon og opprettelse av tre INAKTIVE DRAFT-kontoer. Claim eller senere
+status hindrer ny automatisk kontooppstilling. Ingen PostgreSQL-testserver startes
+på Render, ingen strategi eller historikk endres, ingen route velges og B forblir
+ikke klar. De faktiske strategiinnstillingene skal dokumenteres med avgrensede
+lesinger før B; de endres ikke av DRAFT-forberedelsen.
+
+Etter vellykket klargjøring pakkes seks faktiske statuskvitteringer i en liten ZIP.
+Kvitteringene hentes samlet med én SCP-tilkobling. Midlertidig fjernpayload og kun
+stagingkopier ryddes i den samme vellykkede sluttforbindelsen; ved ukjent brudd
+startes ingen ny fjernopprydding. Kryptert arkiv, lokale databaser, lokale tidligere
+restore-kvitteringer og bevarte ufullstendige kopier beholdes. Del bare
+`final-result.json` som status. Hele program-/dataarkivet og private nøkler skal
+ikke deles i chat.
+
+Nye kontroller før publisering: Offisiell PowerShell-parser, faktisk innebygd
+kildehash og konservativ Windows-kommandolengde bestod. Ekte subprocess-fixtures
+bekreftet repetisjon ved bevist brudd før banner/kex, og ingen repetisjon ved
+verts-/autentiseringsfeil, brudd etter innlogging, fjernprogramfeil eller tvetydige
+brudd. Forsøk med forfalsket kex-tekst ETTER autentisering ble heller ikke repetert.
+Ventetider var satt til0 bare i fixture-testene.
+
+En isolert PostgreSQL16-test gjenbrukte en fysisk restore og kjørte den nye
+kontrolleren gjennom resten av kjeden: korrupt overføring ble avvist uten å endre
+tidligere ufullstendig kopi, gyldige filer ble kontrollert/plassert, gammel kopi ble
+bevart, og tre faktiske DRAFT-hovedbøker ble opprettet med korrekt kontant/NAV og
+null PnL. Gamle tap/modeller var uendret, ingen routes ble valgt, claim/repetisjon
+ble avvist og seks riktige kvitteringer ble samlet i ZIP. Ingen lokal restore ble
+repetert av kontrolleren, og ingen PostgreSQL-prosess/privat arkivnøkkel ble laget
+på sluttverten. Windows/PG18-markører og kapasitets-/inventarportene var fixtures
+i denne siste testen. Faktisk Windows/Render-kjøring av denne overføringsfortsettelsen
+gjenstår; brukerens allerede fullførte fysiske Windows/PG18-restore er separat bevis.
+
+## Tidligere kjøringer og bakgrunn – ikke gjenta fysisk restore
+
 # Fullfør fra Windows-arkivet når Render-jobben er borte
 
 Bruk **[FULLFOR-FRA-WINDOWS-ARKIV.txt](FULLFOR-FRA-WINDOWS-ARKIV.txt)**: kopier hele filen
@@ -631,4 +713,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `30aa14e85219ca8f1e3cdc3089efda1b2b36578d3995e39e3eb768e102326b90`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `c88c35c7b8a3d2205b8dc4063ced5b73fb3a311ba387937461365436107183c5`

@@ -1,0 +1,339 @@
+# Resume transfer only; existing physical PC restore must not be replayed.
+$script:TransferControllerCode = @'
+"""Resume only transfer/finalization after a genuine completed Windows restore."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import resource
+import runpy
+import sys
+import threading
+import uuid
+import zipfile
+
+os.umask(0o077)
+WORK=Path('/tmp/nok-job-20261024T165039Z')
+ACTIVE_WORKER=None
+
+
+def load(path):
+    if path.is_symlink() or path.stat().st_size>4*1024**2:raise ValueError('Unexpected private metadata')
+    return json.loads(path.read_text(encoding='utf-8-sig'))
+
+
+def sha(path):
+    h=hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda:stream.read(1024**2),b''):h.update(chunk)
+    return h.hexdigest()
+
+
+def no_running_job(work):
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit() or int(entry.name)==os.getpid():continue
+        try:
+            if entry.stat().st_uid!=os.geteuid():continue
+            args=(entry/'cmdline').read_bytes().split(b'\0')
+            if any(a==str(work).encode() or a.startswith((str(work)+'/').encode()) for a in args):
+                raise ValueError('Another private job process may be running; no replay')
+        except (FileNotFoundError,ProcessLookupError):continue
+
+
+def private_directory(path):
+    if not path.is_dir() or path.is_symlink() or path.stat().st_uid!=os.geteuid() or path.stat().st_mode & 0o077:
+        raise ValueError('Expected private operator directory')
+
+
+def target_valid(target,receipt):
+    if not target.is_dir() or target.is_symlink():return False
+    if set(p.name for p in target.iterdir())!={'archive.cms','receipt.json'}:return False
+    cipher=target/'archive.cms';proof=target/'receipt.json'
+    return (not cipher.is_symlink() and not proof.is_symlink() and load(proof)==receipt
+            and sha(cipher)==receipt['cipher_sha256'])
+
+
+def payload_valid(path,expected):
+    return path.is_file() and not path.is_symlink() and sha(path)==expected
+
+
+def promote(staging,work,receipt,payload_sha):
+    """Reuse exact copies; preserve incomplete previous transfers, never overwrite."""
+    private_directory(staging)
+    allowed={'archive.cms','windows-decrypted-payload.tar','archive-receipt.json'}
+    if not set(p.name for p in staging.iterdir())<=allowed:raise ValueError('Unexpected staged file; preserve for review')
+    for path in staging.iterdir():
+        if not path.is_file() or path.is_symlink() or path.stat().st_uid!=os.geteuid():raise ValueError('Private regular staged files required')
+        path.chmod(0o600)
+    if load(staging/'archive-receipt.json')!=receipt:raise ValueError('Staged receipt differs from original archive')
+    root=work/'archives'
+    if root.exists():private_directory(root)
+    else:root.mkdir(mode=0o700)
+    target=root/receipt['archive_id']
+    if not target_valid(target,receipt):
+        source=staging/'archive.cms'
+        if not source.is_file() or sha(source)!=receipt['cipher_sha256']:raise ValueError('Complete verified ciphertext transfer required')
+        if target.exists():
+            if target.is_symlink() or not target.is_dir() or target.stat().st_uid!=os.geteuid():raise ValueError('Unexpected archive destination')
+            if not set(p.name for p in target.iterdir())<={'archive.cms','receipt.json'}:raise ValueError('Unreviewed archive directory; do not move it')
+            target.rename(root/('preserved-incomplete-transfer-'+uuid.uuid4().hex))
+        target.mkdir(mode=0o700)
+        source.rename(target/'archive.cms')
+        (staging/'archive-receipt.json').rename(target/'receipt.json')
+        for p in target.iterdir():p.chmod(0o400)
+        target.chmod(0o500)
+    cache=work/'windows-decrypted-payload.tar'
+    if not payload_valid(cache,payload_sha):
+        source=staging/'windows-decrypted-payload.tar'
+        if not source.is_file() or sha(source)!=payload_sha:raise ValueError('Complete verified plaintext transfer required')
+        if cache.exists() or cache.is_symlink():
+            if not cache.is_file() or cache.is_symlink() or cache.stat().st_uid!=os.geteuid():raise ValueError('Unexpected previous plaintext transfer')
+            cache.rename(work/('preserved-incomplete-payload-'+uuid.uuid4().hex+'.tar'))
+        source.rename(cache)
+    cache.chmod(0o600)
+
+
+def main(args):
+    global ACTIVE_WORKER
+    work=Path(args.work)
+    if work!=WORK:raise ValueError('Only original bounded operator job accepted')
+    private_directory(work);no_running_job(work)
+    if not re.fullmatch(r'prepare-from-pc-[a-f0-9]{32}\.py',args.worker):raise ValueError('Expected existing PC-restore worker')
+    if not re.fullmatch(r'resume-transfer-[a-f0-9]{32}',args.stage):raise ValueError('Dedicated transfer staging directory required')
+    for value in (args.worker_sha,args.review_sha,args.payload_sha):
+        if not re.fullmatch(r'[a-f0-9]{64}',value):raise ValueError('Invalid expected checksum')
+    worker=work/args.worker
+    if worker.is_symlink() or sha(worker)!=args.worker_sha:raise ValueError('Existing final worker does not match reviewed source')
+    receipt=load(work/'archive-receipt.json');review=load(work/'local-restore-review.json');proof=load(work/'windows-decryption-proof.json')
+    if (review.get('review_sha256')!=args.review_sha or proof.get('payload_tar_sha256')!=args.payload_sha
+        or proof.get('archive_id')!=receipt.get('archive_id') or proof.get('cipher_sha256')!=receipt.get('cipher_sha256')
+        or not re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[a-f0-9]{32}',receipt.get('archive_id',''))):raise ValueError('Original Windows restore context changed')
+    for name in ('restore','restore-result.json','preparation-attempt.json','prepared.json','final-result.json','transfer-final-claim.json'):
+        if (work/name).exists() or (work/name).is_symlink():raise ValueError('Later or claimed preparation state exists; never replay')
+    module=runpy.run_path(str(worker),run_name='verified_transfer_worker')
+    ACTIVE_WORKER=module
+    module['main'](argparse.Namespace(action='check-context',work=str(work)))
+    staging=work/args.stage
+    if args.mode=='stage':
+        staging.mkdir(mode=0o700)  # exclusive: never overwrite an uncertain transfer
+        result=dict(status='VERIFIED_RESTORE_TRANSFER_READY',cipher_copy_verified=target_valid(work/'archives'/receipt['archive_id'],receipt),
+                    payload_copy_verified=payload_valid(work/'windows-decrypted-payload.tar',args.payload_sha),accounts_activated=False)
+        print(json.dumps(result),flush=True);return
+    promote(staging,work,receipt,args.payload_sha)
+    # Atomic claim prevents concurrent finalization and any later blind rerun.
+    with (work/'transfer-final-claim.json').open('x',encoding='utf-8') as f:
+        json.dump(dict(stage=args.stage,review_sha256=args.review_sha),f)
+    module['main'](argparse.Namespace(action='prepare',work=str(work)))
+    names=('final-result.json','restore-result.json','prepared.json','account-settings-for-review.json','inventory.json','config.json')
+    bundle=work/(args.stage+'-receipts.zip')
+    with zipfile.ZipFile(bundle,'x',compression=zipfile.ZIP_STORED) as z:
+        for name in names:
+            path=work/name
+            if path.is_symlink() or not path.is_file() or path.stat().st_size>4*1024**2:raise ValueError('Unexpected final receipt')
+            z.write(path,arcname=name)
+    module['main'](argparse.Namespace(action='cleanup-transfer',work=str(work)))
+    for p in staging.iterdir():p.unlink()  # only our validated transfer cache, never a sealed archive
+    staging.rmdir()
+    print(json.dumps(dict(status='THREE_INACTIVE_DRAFTS_PREPARED_RECEIPTS_READY',receipt_bundle=bundle.name,accounts_activated=False)),flush=True)
+
+
+if __name__=='__main__':
+    parser=argparse.ArgumentParser(description=__doc__)
+    for name in ('mode','work','worker','stage','worker-sha','review-sha','payload-sha'):parser.add_argument('--'+name,required=True)
+    args=parser.parse_args()
+    if args.mode not in ('stage','finalize'):raise SystemExit('Invalid transfer mode')
+    resource.setrlimit(resource.RLIMIT_AS,(1152*1024**2,)*2)
+    stop=threading.Event()
+    def heartbeat():
+        while not stop.wait(30):print('Arbeider fortsatt med verifisering/klargjoring; ikke start en ny kjoring.',flush=True)
+    threading.Thread(target=heartbeat,daemon=True).start()
+    try:main(args);stop.set()
+    except Exception as error:
+        stop.set()
+        details=(ACTIVE_WORKER['sanitized_failure'](error) if ACTIVE_WORKER else dict(error_type=type(error).__name__,
+            reason=str(error) if type(error) is ValueError else 'Transfer/finalization stopped; inspect private status before any replay'))
+        result=dict(status='TRANSFER_RESUME_STOPPED',mode=args.mode,accounts_activated=False,**details)
+        try:
+            if WORK.is_dir():
+                private_directory(WORK)
+                with (WORK/('STOPPED-transfer-resume-'+uuid.uuid4().hex+'.json')).open('x') as f:json.dump(result,f)
+        except Exception:pass
+        print(json.dumps(result),flush=True);raise SystemExit(1)
+'@
+$script:TransferControllerNormalized=$script:TransferControllerCode.Replace("`r`n","`n").TrimEnd([char[]]"`r`n")+"`n"
+$controllerDigest=[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($script:TransferControllerNormalized))).Replace('-','').ToLowerInvariant()
+if($controllerDigest -cne '060f2599bd803e86469108a7490f8a3572dc227a676094195704ba148b7cd0c3'){throw 'Feil kontrollsum i overforingskontrollen; ingen forbindelse startet'}
+$script:ExpectedExistingPrepareSha='682f269435bdf8494b45107b5ecfc852dbdc43ff64b29a11b62481d804a99d46'
+$script:AksjeLastTransportAt = [datetime]::MinValue
+function Invoke-AksjeNative {
+    param([string]$Program,[string[]]$NativeArguments,[string]$LogDirectory,
+          [switch]$Transport,[switch]$CaptureOutput,[int[]]$RetryDelays=@(15,30,45,60),[int]$MinimumGapMs=10000)
+    $null=Get-Command -Name $Program -CommandType Application -ErrorAction Stop
+    $Attempts = 1
+    if ($Transport) { $Attempts += $RetryDelays.Count }
+    for ($Attempt=0; $Attempt -lt $Attempts; $Attempt++) {
+        if ($Transport) {
+            $Gap = $MinimumGapMs - ([datetime]::UtcNow-$script:AksjeLastTransportAt).TotalMilliseconds
+            if ($Gap -gt 0) { Start-Sleep -Milliseconds ([int]$Gap) }
+        }
+        $Log = Join-Path $LogDirectory ('native-'+[guid]::NewGuid().ToString('N')+'.log')
+        $SavedPreference=$ErrorActionPreference; $ExitCode=255; $Output=@()
+        try {
+            $ErrorActionPreference='Continue'
+            if ($CaptureOutput) { $Output=@(& $Program @NativeArguments 2> $Log) }
+            else { & $Program @NativeArguments 2> $Log | Out-Host }
+            $ExitCode=$LASTEXITCODE
+        } finally {
+            $ErrorActionPreference=$SavedPreference
+            if ($Transport) { $script:AksjeLastTransportAt=[datetime]::UtcNow }
+        }
+        $ErrorText=''
+        if (Test-Path -LiteralPath $Log) { $ErrorText=[System.IO.File]::ReadAllText($Log) }
+        $Denied = $ErrorText -match '(?i)Permission denied|Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED'
+        # Retry only failures explicitly reported BEFORE SSH key exchange.
+        # Never repeat a remote operation after an ambiguous mid-session disconnect.
+        $AuthenticatedTrace=$ErrorText -match '(?i)Authenticated to |Sending command:'
+        $ClosedBeforeRemoteBanner=($ErrorText -match '(?i)Local version string SSH-') -and
+            ($ErrorText -notmatch '(?i)Remote protocol version') -and
+            ($ErrorText -match '(?i)Connection closed|Connection reset')
+        $BeforeLogin = $Transport -and -not $Denied -and -not $AuthenticatedTrace -and ($ExitCode -in @(-1,1,255)) -and
+            ($ErrorText -match '(?i)kex_exchange_identification:.*(?:Connection reset|Connection closed)' -or
+             $ErrorText -match '(?i)ssh: connect to host .* port [0-9]+: (?:Connection timed out|Connection refused|No route to host)' -or $ClosedBeforeRemoteBanner)
+        if ($ExitCode -ne 0 -and $BeforeLogin -and $Attempt -lt ($Attempts-1)) {
+            $Delay=$RetryDelays[$Attempt]
+            Write-Host "SSH-forbindelsen ble brutt for innlogging. Venter $Delay sekunder og bruker samme nokkel og jobb."
+            if ($Delay -gt 0) { Start-Sleep -Seconds $Delay }
+            continue
+        }
+        return [pscustomobject]@{ExitCode=$ExitCode;Output=$Output;ErrorText=$ErrorText;Log=$Log;BeforeLogin=$BeforeLogin}
+    }
+}
+
+function Get-AksjeExistingSshKey([string]$OperatorRoot) {
+    if (-not (Test-Path -LiteralPath $OperatorRoot)) { return $null }
+    $Candidate = Get-ChildItem -LiteralPath $OperatorRoot -Filter 'render-operator-ssh' -File -Recurse -ErrorAction Stop |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -eq $Candidate) { return $null }
+    return $Candidate.FullName
+}
+
+function Get-AksjePublicSshKey([string]$SshKey) {
+    $DerivedPublic = & ssh-keygen.exe -y -f $SshKey
+    if ($LASTEXITCODE -ne 0) { throw 'Kunne ikke lese den offentlige SSH-identiteten' }
+    $PublicFields = ([string]($DerivedPublic | Select-Object -First 1)).Trim() -split '\s+'
+    if ($PublicFields.Count -lt 2) { throw 'Ufullstendig offentlig SSH-nokkel' }
+    $PublicSsh = $PublicFields[0] + ' ' + $PublicFields[1] + ' aksje-nok-operator'
+    if ($PublicSsh -notmatch '^ssh-ed25519\s+[A-Za-z0-9+/=]+\s+aksje-nok-operator$') { throw 'Ugyldig offentlig SSH-nokkel; ingen registrering eller produksjonsjobb startet' }
+    return $PublicSsh
+}
+
+function Resume-AksjeVerifiedPcTransfer {
+    $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+    $Utf8=New-Object Text.UTF8Encoding($false)
+    $Root=Join-Path $env:LOCALAPPDATA 'AksjeNokOperator';$JobId='nok-job-20261024T165039Z';$Job=Join-Path $Root $JobId;$RemoteJob='/tmp/'+$JobId
+    $Service='srv-d7obt5e47okc739susgg@ssh.ohio.render.com'
+    $Location=Get-Content -LiteralPath (Join-Path $Job 'job-location.json') -Raw|ConvertFrom-Json
+    $Plan=Get-Content -LiteralPath (Join-Path $Job 'plan.json') -Raw|ConvertFrom-Json
+    if($Location.remote -cne $RemoteJob -or $Location.service -cne $Service -or $Plan.job_id -cne $JobId -or
+       $Plan.activation_authorized -isnot [bool] -or $Plan.activation_authorized -ne $false -or
+       $Plan.approval_A_already_granted -isnot [bool] -or $Plan.approval_A_already_granted -ne $true){throw 'Eksisterende jobb/godkjenning avviker'}
+    foreach($Name in @('prepared.json','final-result.json','preparation-attempt.json')){if(Test-Path -LiteralPath (Join-Path $Job $Name)){throw "Senere kontostatus finnes: $Name. Ingen gjentakelse."}}
+    $Receipt=Get-Content -LiteralPath (Join-Path $Job 'archive-receipt.json') -Raw|ConvertFrom-Json
+    $ArchiveId=[string]$Receipt.archive_id
+    if($ArchiveId -cnotmatch '^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{32}$'){throw 'Ugyldig eksisterende arkiv-ID'}
+    $Pc=$null;$Review=$null;$Proof=$null
+    foreach($Directory in @(Get-ChildItem -LiteralPath $Job -Directory -Filter 'pc-restore-*'|Sort-Object LastWriteTime -Descending)){
+        $ReviewFile=Join-Path $Directory.FullName 'local-restore-review.json';$ProofFile=Join-Path $Directory.FullName 'windows-decryption-proof.json'
+        if(-not((Test-Path -LiteralPath $ReviewFile)-and(Test-Path -LiteralPath $ProofFile))){continue}
+        $Candidate=Get-Content -LiteralPath $ReviewFile -Raw|ConvertFrom-Json
+        $CandidateProof=Get-Content -LiteralPath $ProofFile -Raw|ConvertFrom-Json
+        if($Candidate.status -ceq 'RESTORED_AND_VERIFIED' -and $Candidate.restore_execution_host -ceq 'WINDOWS_LOCAL_POSTGRESQL_18' -and
+           $Candidate.archive.archive_id -ceq $ArchiveId -and $Candidate.archive.cipher_sha256 -ceq $Receipt.cipher_sha256 -and
+           $CandidateProof.archive_id -ceq $ArchiveId -and $CandidateProof.cipher_sha256 -ceq $Receipt.cipher_sha256){$Pc=$Directory.FullName;$Review=$Candidate;$Proof=$CandidateProof;break}
+    }
+    if(-not $Pc){throw 'Ingen fullfort, verifisert fysisk PC-restore funnet. Ingen ny restore startes av denne filen.'}
+    foreach($Hash in @([string]$Review.review_sha256,[string]$Proof.payload_tar_sha256)){if($Hash -cnotmatch '^[a-f0-9]{64}$'){throw 'Ugyldig eksisterende restore-kontrollsum'}}
+    $Worker=$null
+    foreach($Candidate in @(Get-ChildItem -LiteralPath $Pc -File -Filter 'prepare-from-pc-*.py')){
+        if((Get-FileHash -LiteralPath $Candidate.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $script:ExpectedExistingPrepareSha){$Worker=$Candidate;break}
+    }
+    if(-not $Worker -or $Worker.Name -cnotmatch '^prepare-from-pc-[a-f0-9]{32}\.py$'){throw 'Den allerede kontrollerte sluttworkeren mangler; ingen ny kode eller konto klargjores'}
+    $Cipher=Join-Path $Job ('independent-archives\'+$ArchiveId+'\archive.cms')
+    if((Get-FileHash -LiteralPath $Cipher -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Receipt.cipher_sha256){throw 'Eksisterende Windows-arkiv avviker'}
+    $Keys=(Get-Location).Path;if($Location.PSObject.Properties['keys_folder']){$Keys=[string]$Location.keys_folder}
+    $SshKey=Get-AksjeExistingSshKey $Root;if($Location.PSObject.Properties['ssh_identity']){$SshKey=[string]$Location.ssh_identity}
+    if([string]::IsNullOrWhiteSpace($SshKey) -or -not(Test-Path -LiteralPath $SshKey)){throw 'Eksisterende SSH-identitet mangler'}
+    $Used=[IO.File]::ReadAllText((Join-Path $Job 'render-operator-used.pub')).Trim();$Public=Get-AksjePublicSshKey $SshKey
+    if(($Used -split '\s+')[0..1] -join ' ' -cne (($Public -split '\s+')[0..1] -join ' ')){throw 'SSH-identiteten avviker'}
+    $OpenSSL=$null;$Installed=Get-Command openssl.exe -ErrorAction SilentlyContinue;if($Installed){$OpenSSL=$Installed.Source}
+    if(-not $OpenSSL){foreach($Candidate in @('C:\Program Files\Git\usr\bin\openssl.exe','C:\Program Files\PostgreSQL\18\bin\openssl.exe')){if(Test-Path -LiteralPath $Candidate){$OpenSSL=$Candidate;break}}}
+    if(-not $OpenSSL){throw 'Eksisterende lokale OpenSSL mangler'}
+    $Stage='resume-transfer-'+[guid]::NewGuid().ToString('N');$Attempt=Join-Path $Pc $Stage
+    New-Item -ItemType Directory -Path $Attempt|Out-Null
+    $Identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $Attempt /inheritance:r /grant:r "${Identity}:(OI)(CI)F"|Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Kunne ikke sikre privat midlertidig overforingsmappe'}
+    $Options=@('-v','-i',$SshKey,'-o','IdentitiesOnly=yes','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','UpdateHostKeys=no','-o','ConnectTimeout=20','-o','ServerAliveInterval=30','-o','ServerAliveCountMax=3','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no')
+    $ScpOptions=@('-O')+$Options
+    $Payload=Join-Path $Attempt 'windows-decrypted-payload.tar';$FinalInvoked=$false;$Uncertain=$false
+    function Transport([string]$Program,[string[]]$Arguments,[switch]$Capture){
+        $Network=[IO.Path]::GetFileName($Program) -in @('ssh.exe','scp.exe')
+        $Result=Invoke-AksjeNative -Program $Program -NativeArguments $Arguments -LogDirectory $Attempt -Transport:$Network -CaptureOutput:$Capture
+        if($Result.ExitCode -ne 0){
+            $Failure=New-Object Exception("Overforingsfortsettelse stoppet: $Program (exit $($Result.ExitCode)). Privat logg: $($Result.Log)")
+            $Failure.Data['ConnectionUncertain']=($Program -eq 'ssh.exe' -and $Result.ExitCode -notin @(0,1) -and -not $Result.BeforeLogin)
+            throw $Failure
+        }
+        return $Result
+    }
+    $Encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:TransferControllerNormalized))
+    function Controller([string]$Mode){return ('printf %s '+$Encoded+' | base64 -d | python - --mode '+$Mode+' --work '+$RemoteJob+' --worker '+$Worker.Name+' --stage '+$Stage+' --worker-sha '+$script:ExpectedExistingPrepareSha+' --review-sha '+$Review.review_sha256+' --payload-sha '+$Proof.payload_tar_sha256)}
+    try{
+        if(-not('AksjeNok.PowerState' -as [type])){Add-Type -Namespace AksjeNok -Name PowerState -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);'}
+        [void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483649)
+        Write-Host '[1/4] Gjenbruker fysisk verifisert PC-restore. Kontrollerer bare resterende overforing og fjernstatus.'
+        $State=Transport 'ssh.exe' ($Options+@($Service,(Controller 'stage'))) -Capture
+        $Last=@($State.Output|Where-Object{$_ -match '^\{'}|Select-Object -Last 1)
+        if(-not $Last.Count){throw 'Ingen entydig overforingsstatus fra Render'}
+        $RemoteState=$Last[0]|ConvertFrom-Json
+        if($RemoteState.status -cne 'VERIFIED_RESTORE_TRANSFER_READY'){throw 'Resterende overforing er ikke bekreftet'}
+        $Sources=New-Object System.Collections.Generic.List[string]
+        $Sources.Add((Join-Path $Job 'archive-receipt.json'))
+        if(-not $RemoteState.cipher_copy_verified){$Sources.Add($Cipher)}
+        if(-not $RemoteState.payload_copy_verified){
+            Write-Host '[2/4] Lager kun midlertidig overforings-TAR fra samme arkiv. Ingen ny database eller restore.'
+            $null=Transport $OpenSSL @('cms','-decrypt','-binary','-inform','DER','-in',$Cipher,'-recip',(Join-Path $Keys 'archive-certificate.pem'),'-inkey',(Join-Path $Keys 'archive-key.pem'),'-out',$Payload)
+            if((Get-FileHash -LiteralPath $Payload -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Proof.payload_tar_sha256){throw 'Dekryptert overforingsfil avviker fra den allerede verifiserte PC-restoren'}
+            $Sources.Add($Payload)
+        }else{Write-Host '[2/4] Eksisterende dekryptert fjernkopi har riktig kontrollsum og gjenbrukes.'}
+        Write-Host '[3/4] Samler de manglende filene i EN SCP-tilkobling. Kontooppretting er ikke startet.'
+        $null=Transport 'scp.exe' ($ScpOptions+$Sources.ToArray()+@("${Service}:$RemoteJob/$Stage/"))
+        Write-Host '[4/4] Verifiserer kopiene og klargjor tre INAKTIVE kontoer. Samme SSH-forbindelse handterer hele sluttsteget.'
+        $FinalInvoked=$true
+        $null=Transport 'ssh.exe' ($Options+@($Service,(Controller 'finalize')))
+        $BundleName=$Stage+'-receipts.zip';$Bundle=Join-Path $Attempt $BundleName
+        $null=Transport 'scp.exe' ($ScpOptions+@("${Service}:$RemoteJob/$BundleName",$Bundle))
+        $Receipts=Join-Path $Attempt 'receipts';Expand-Archive -LiteralPath $Bundle -DestinationPath $Receipts
+        foreach($Name in @('final-result.json','restore-result.json','prepared.json','account-settings-for-review.json','inventory.json','config.json')){
+            $Source=Join-Path $Receipts $Name;$Destination=Join-Path $Job $Name
+            if(Test-Path -LiteralPath $Destination){if((Get-FileHash -LiteralPath $Source).Hash -ne (Get-FileHash -LiteralPath $Destination).Hash){throw "Kvittering avviker; begge bevares: $Name"}}
+            else{Copy-Item -LiteralPath $Source -Destination $Destination}
+        }
+        Get-Content -LiteralPath (Join-Path $Job 'final-result.json') -Raw|ConvertFrom-Json|Format-List
+        Write-Host 'Tre INAKTIVE DRAFT-kontoer er klargjort. Ingen konto aktivert. Del bare final-result.json.'
+    }catch{
+        $Failure=$_;$Uncertain=$Failure.Exception.Data.Contains('ConnectionUncertain') -and [bool]$Failure.Exception.Data['ConnectionUncertain']
+        if($Uncertain){Write-Warning 'Ukjent fjernstatus etter brudd. Ingen automatisk gjentakelse eller fjernopprydding.'}
+        if(-not $FinalInvoked){Write-Host 'Denne fortsettelsen kom ikke til kontooppstillingen; PC-restoren er bevart.'}
+        throw $Failure
+    }finally{
+        if('AksjeNok.PowerState' -as [type]){[void][AksjeNok.PowerState]::SetThreadExecutionState([uint32]2147483648)}
+        if(Test-Path -LiteralPath $Payload){Remove-Item -LiteralPath $Payload -Force}
+        Write-Host "Privat fortsettelsesmappe: $Attempt. Ingen lokal database, originalnokkel eller kryptert sikkerhetskopi er slettet."
+    }
+}
+function Complete-AksjeArchiveOnPc {throw 'PC-restoren er allerede verifisert. Bruk bare fortsettelsen av overforingen.'}
+function Resume-AksjeSealedArchive {throw 'Eldre restore er sperret; PC-restoren skal ikke gjentas.'}
+Resume-AksjeVerifiedPcTransfer
