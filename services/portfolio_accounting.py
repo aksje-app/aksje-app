@@ -236,9 +236,10 @@ def report(family, *, storage=None, at=None):
     nav = checked['verified_nav']
     basis = sum(p['cost_basis_base'] for p in account['positions'].values())
     opening_basis = sum(p['cost_basis_base'] for p in account['opening_balance']['positions'].values())
-    costs = {k:sum(t['cost_components'][k] for t in account['trades'])+
-               sum(e['input']['cost_components'][k] for e in account.get('economic_events',[]))
-             for k in ('brokerage_nok','fx_cost_nok','other_nok')}
+    cost_rows = [t['cost_components'] for t in account['trades']]+[
+        e['input']['cost_components'] for e in account.get('economic_events',[])]
+    cost_keys = set().union(*(row.keys() for row in cost_rows)) if cost_rows else {'brokerage_nok','fx_cost_nok','other_nok'}
+    costs = {k:sum(row.get(k,0) for row in cost_rows) for k in sorted(cost_keys)}
     result.update(status=doc['status'], missing_opening_evidence=[],
         new_period=dict(start_at=account['created_at'], opening_nav_nok=account['initial_cash'],
             opening_sha256=doc['opening_sha256'], approval=doc['approval'],
@@ -250,7 +251,7 @@ def report(family, *, storage=None, at=None):
             external_net_flows_nok=sum(f['amount_nok'] for f in account.get('cash_flows',[])),
             dividend_income_nok=account.get('dividend_income_nok',0), withholding_nok=account.get('withholding_nok',0),
             return_method=account.get('return_method','CONSTANT_CAPITAL'), economic_events=account.get('economic_events',[]),
-            costs_nok=costs, journal=doc['events'], trades=account['trades'],
+            costs_nok=costs, cost_breakdown_complete='model_transaction_cost_nok' not in cost_keys, journal=doc['events'], trades=account['trades'],
             opening_document=account['opening_document']))
     return result
 

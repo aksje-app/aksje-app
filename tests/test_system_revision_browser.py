@@ -288,8 +288,11 @@ def test_native_fund_accounting_download_preserves_model(app_server,width):
 
 
 @pytest.mark.parametrize('width',[1280,375])
-def test_documented_model_dividend_and_cashflow_report(app_server,width):
+def test_documented_model_dividend_and_cashflow_report(app_server,width,monkeypatch):
     """UI integration with synthetic isolated model evidence, not production."""
+    # Model setup must opt into test scope; an unset environment safely defaults
+    # to production and must continue to reject unsigned activation there.
+    monkeypatch.setenv('APP_ENVIRONMENT','test')
     from playwright.sync_api import sync_playwright
     from services.storage_service import StorageService
     from services import portfolio_accounting as accounting
@@ -297,6 +300,7 @@ def test_documented_model_dividend_and_cashflow_report(app_server,width):
     from test_portfolio_accounting import AT,quote,opening
     storage=StorageService(app_server.runtime_root/'data'/'services',database_url='',mode='local')
     assert str(storage.base_dir).startswith('/tmp/aksje-browser-')
+    assert not storage.using_postgres()
     doc=storage.read_json(accounting.key('paper'))
     if not doc:
         doc=accounting.prepare('paper',opening(True),prepared_by='TEST ONLY isolated browser',storage=storage)
@@ -390,11 +394,14 @@ def test_documented_restart_metrics_charts_and_all_downloads(app_server,width,ro
         panel.locator('summary').first.click()
         panel.get_by_label('Periode-ID for innsyn i klargjort ny konto').fill(period_id)
         panel.get_by_label('Periode-ID for innsyn i klargjort ny konto').press('Enter')
-        page.wait_for_timeout(300)
+        metric=panel.get_by_text('Nettoavkastning etter kostnader %',exact=True)
+        # The old page can still be idle immediately after Enter. Wait for the
+        # requested report before inspecting the expander that rerender replaces.
+        metric.wait_for(state='attached',timeout=30000)
         page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=30000)
         if not panel.locator('details').first.evaluate('(element) => element.open'):
             panel.locator('summary').first.click()
-        panel.get_by_text('Nettoavkastning etter kostnader %',exact=True).wait_for(timeout=30000)
+        metric.wait_for(state='visible',timeout=30000)
         page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=30000)
         assert not page.locator('[data-testid="stException"]').count()
         assert panel.get_by_text('Realisert resultat NOK',exact=True).is_visible()

@@ -60,7 +60,7 @@ def new_account(initial_cash, *, base_currency, at):
 
 def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
             observed_at, source, at, fee, cost_currency, fx_quote=None, cost_components=None,
-            cost_source_ref=None):
+            cost_source_ref=None, cost_calculation=None):
     """Book a documented simulated fill, including proportional cost on partial exits."""
     if portfolio.get('accounting_schema') != SCHEMA:
         raise ValueError('Explicit reconciled base-currency opening balance required')
@@ -70,8 +70,10 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
     p = number(price, positive=True)
     costs = number(fee)
     if cost_components is not None:
-        if set(cost_components) != {'brokerage_nok', 'fx_cost_nok', 'other_nok'}:
-            raise ValueError('Explicit brokerage, FX and other cost components required')
+        from services.trading_costs import component_names
+        component_names(cost_components)
+        if 'model_transaction_cost_nok' in cost_components and cost_calculation is None:
+            raise ValueError('Aggregate model cost requires reproducible calculation evidence')
         if not cost_source_ref or abs(sum(number(v) for v in cost_components.values())-costs) > 1e-8:
             raise ValueError('Cost components must reconcile to documented base-currency fee')
     if not source or not timedelta(0) <= stamp(at)-stamp(observed_at) <= timedelta(minutes=15):
@@ -81,6 +83,11 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
         raise ValueError('Costs must be documented in the base currency')
     rate = fx_rate(currency, base, fx_quote, at=at)
     gross = number(q*p*rate, positive=True)
+    if cost_calculation is not None:
+        if base != 'NOK':raise ValueError('NOK cost policy requires a NOK ledger')
+        from services.trading_costs import verify_calculation
+        verify_calculation(cost_calculation, quantity=q, price=p, side=side, currency=currency,
+            nok_rate=rate, cost_components=cost_components, cost_source_ref=cost_source_ref, fee=costs)
     request = dict(trade_id=trade_id, ticker=ticker, action=side, quantity=q, price=p,
                    currency=currency, price_observed_at=observed_at, price_source=source,
                    timestamp=at, fx_quote=deepcopy(fx_quote), fx_rate=rate,
@@ -88,6 +95,8 @@ def execute(portfolio, *, trade_id, ticker, side, quantity, price, currency,
                    cost_currency=base, accounting_schema=SCHEMA)
     if cost_components is not None:
         request.update(cost_components=deepcopy(cost_components), cost_source_ref=cost_source_ref)
+    if cost_calculation is not None:
+        request['cost_calculation'] = deepcopy(cost_calculation)
     for old in portfolio.get('trades', []):
         if old.get('trade_id') == trade_id:
             if any(old.get(key) != value for key, value in request.items()):
@@ -198,6 +207,15 @@ def reconcile(portfolio):
         if 'cost_components' in trade and (not trade.get('cost_source_ref') or
                 abs(sum(number(v) for v in trade['cost_components'].values())-fee) > 1e-8):
             issues.append('COST_COMPONENTS_DO_NOT_RECONCILE')
+        if 'model_transaction_cost_nok' in trade.get('cost_components',{}) and 'cost_calculation' not in trade:
+            issues.append('MISSING_MODEL_COST_CALCULATION')
+        if 'cost_calculation' in trade:
+            from services.trading_costs import verify_calculation
+            try:
+                verify_calculation(trade['cost_calculation'],quantity=q,price=trade['price'],
+                    side=trade['action'],currency=trade['currency'],nok_rate=rate,
+                    cost_components=trade.get('cost_components'),cost_source_ref=trade.get('cost_source_ref'),fee=fee)
+            except (ValueError,TypeError,KeyError):issues.append('COST_POLICY_DOES_NOT_RECONCILE')
         fees += fee
         if direction == 1:
             bases[ticker] = bases.get(ticker, 0)+gross+fee
