@@ -150,6 +150,8 @@ kostnadsgodkjenning tillater scheduler-gjenopptak eller kontoaktivering.
 - Ekstra faktisk PostgreSQL-kontroll for alle tre familier: 3 bestått;
   manglende lagrede innstillinger stopper både request og preview før
   markedsoppslag, med DRAFT-bundle uendret.
+- Etter eksplisitt kontroll av også serverens UTF-8-koding: 26 native-,
+  innstillings- og policytester bestått mot isolert PostgreSQL.
 - `compileall` for endrede Python-filer og `git diff --check` bestått.
 
 Testgruppene overlapper og skal ikke summeres. Dette er isolerte tester,

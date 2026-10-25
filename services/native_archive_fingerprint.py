@@ -95,6 +95,9 @@ def database_fingerprint(connection, *, ignore_period=None):
         cursor.execute('SHOW transaction_read_only')
         if cursor.fetchone()[0] != 'on':
             raise ValueError('READ ONLY transaction required for archive fingerprint')
+        cursor.execute('SHOW server_encoding')
+        if cursor.fetchone()[0] != 'UTF8':
+            raise ValueError('Native archive verification requires UTF8 source encoding')
         cursor.execute("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
         tables = cursor.fetchall()
     for schema, table in tables:
