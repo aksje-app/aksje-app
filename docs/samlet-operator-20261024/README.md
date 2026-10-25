@@ -1,3 +1,38 @@
+# Avklar fjernstatus etter lukket SSH-forbindelse
+
+Kjør bare **[KONTROLLER-STATUS-ETTER-SSH-BRUDD.txt](KONTROLLER-STATUS-ETTER-SSH-BRUDD.txt)**
+nå: kopier hele filen til samme Windows PowerShell-vindu og trykk Enter. Send
+statusutskriften. Ikke gjenta arkiv-/restore-fortsettelsene før fjernstatus er avklart.
+
+Den siste private SSH-loggen viser `Connection to ssh.ohio.render.com closed by remote host`.
+Dette forklarer transportbruddet, men fastslår ikke årsak, om fjernjobben lever videre,
+om containeren ble erstattet, eller om noen kontoer ble klargjort før bruddet.
+Ingen slik konto-/prosessstatus skal utledes av transportfeilen alene.
+
+Den selvstendige kontrollen gjenbruker samme SSH-identitet med streng vertsverifikasjon.
+På Render leser den bare prosesser som tilhører akkurat denne private jobben,
+eksisterende kontrollpunkter og avgrensede statusfelt. Containerens nåværende
+minnetellere rapporteres som kumulative tellere for nåværende container; de beviser
+ikke årsaken til det tidligere bruddet. PostgreSQL-logg gjennomgås kun for faste
+feilflagg; rå COPY-kontekst eller modellverdier skrives ikke ut.
+
+Bare dersom jobbprosesser ikke finnes og prosessgjennomgangen er fullstendig,
+leses avgrenset NOK-periode-/routestatus via en eksplisitt READ ONLY-tilkobling med
+tidsgrenser. Bare navn/status for inntil 20 nye NOK-perioder og tre konto-routes
+rapporteres. Feltstørrelser begrenses før payload leses; modell-/læringsverdier,
+saldoer, handelsdetaljer, passord og DSN-er vises ikke. Ingen gjenoppretting,
+start/stopp av prosess, opprydding, aktivering eller annen skriveoperasjon utføres.
+Tidligere muterende PowerShell-innganger sperres også i den aktuelle økten.
+
+Lokalt er faktisk prosessdeteksjon, avståelse fra DB-spørring mens en jobb lever,
+manglende fjernmappe, kontrollpunktstatus og loggflagg uten verdiutskrift testet.
+En isolert PostgreSQL-fixture bekreftet READ ONLY, begrenset kontostatus, deteksjon
+av routes, utelatelse av stor legacy-payload og uendrede kilder. Offisiell
+PowerShell-parser, eksakt innebygd kildehash, kommandostørrelse og sperring av gamle
+muterende funksjoner bestod. Faktisk Windows/Render-statuskontroll gjenstår.
+
+## Tidligere fortsettelse – avvent statusavklaring
+
 # Fortsett fra ferdig arkiv etter dekrypteringsstopp
 
 > **Siste observerte status:** Fortsettelsen nådde fysisk restore, men Windows SSH
@@ -499,4 +534,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `a46b713d2d1f6b002730b797d94c0720154cc285ae8594cb894c9eb04e436a08`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `8285a7ebecbaa0001feea783d24b0598d9f3cbba9e8f9c89c3302da2eace1d0e`
