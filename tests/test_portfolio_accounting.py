@@ -153,9 +153,13 @@ def test_approval_must_bind_exact_opening(local,field,value):
     assert local.read_json(accounting.key('paper'))==doc
 
 
-def test_production_activation_defaults_to_blocked(local,monkeypatch):
+@pytest.mark.parametrize('environment',['production',None])
+def test_production_activation_defaults_to_blocked(local,monkeypatch,environment):
     doc=accounting.prepare('paper',opening(),prepared_by='test',storage=local)
-    monkeypatch.setenv('APP_ENVIRONMENT','production')
+    if environment is None:
+        monkeypatch.delenv('APP_ENVIRONMENT',raising=False)
+    else:
+        monkeypatch.setenv('APP_ENVIRONMENT',environment)
     monkeypatch.delenv('ECONOMIC_PRODUCTION_ACTIVATION_ENABLED',raising=False)
     with pytest.raises(ValueError,match='Production activation'):accounting.approve('paper',{},storage=local)
     assert local.read_json(accounting.key('paper'))==doc

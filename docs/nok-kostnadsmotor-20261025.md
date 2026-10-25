@@ -159,3 +159,34 @@ for store produksjonsrader. Den deployede gamle `row_to_json`-banen er ikke
 produksjonsgodkjent av disse små, isolerte regnskapstestene. Denne PR-en retter
 kostnads-/oppgjørsbanen og innfører ingen ny arkiv-/restoreprosedyre eller
 produksjonsaktivering.
+
+## Rettelse av nettlesertestens miljø i PR #168
+
+Release gate-run `40155049112`, jobb `121054533700`, feilet i begge størrelser
+av `test_documented_model_dividend_and_cashflow_report`. Testens syntetiske,
+lokale modelloppsett brukte `scope='test'`, men manglet eksplisitt testmiljø.
+Når `APP_ENVIRONMENT` mangler, skal aktiveringssperren behandle miljøet som
+produksjon. Sperren var allerede slik i basecommiten og er ikke endret av PR-en.
+
+Feilen ble reprodusert lokalt i begge tilfeller før retting. Testen setter nå
+`APP_ENVIRONMENT='test'` med funksjonsavgrenset `monkeypatch`, som automatisk
+restaurerer miljøet etter testen. Lagringen må fortsatt være lokal i den isolerte
+`/tmp/aksje-browser-*`-mappen; ingen produksjonssignatur eller testunntak i
+produksjonskoden er lagt til. Nettlesertesten for restart-rapporter bruker allerede samme uttrykkelige testmiljø.
+
+Begge tidligere feiltilfeller bestod i ekte Chromium (1280/375). Regnskaps- og
+oppstartstestene bestod: **59 tester mot lokal PostgreSQL, ingen hoppet over**.
+Negativkontrollen omfatter nå både eksplisitt produksjonsmiljø og manglende
+miljøvariabel; begge må avvise usignert aktivering uten å endre kontoen.
+Full nettleserkjøring avdekket også en separat ventefeil: 81 bestod, mens
+Superporteføljens desktop-rapport fantes i DOM-en, men var skjult i ekspanderen
+etter Streamlit-rerender. Testen ventet tidligere 300 ms og kunne lese den gamle
+sidens idle-/åpen-status. Den venter nå på at den forespurte rapporten faktisk er
+lagt i DOM-en før panelet kontrolleres og åpnes; kravene til synlig innhold,
+verifisert regnskap og alle nedlastinger er uendret.
+
+Etter denne synkroniseringsrettingen bestod **alle 8 målrettede nettlesertilfeller**
+(utbytte/kapitalflyt og restart-rapporter for alle familier, begge bredder),
+uten hoppede tester. Ingen retry eller økt timeout er lagt til. Hele
+Release gate-steget kjøres på nytt ved push til den eksisterende PR-grenen;
+resultatet fra denne CI-kjøringen må fortsatt avventes før merge/deploy.
