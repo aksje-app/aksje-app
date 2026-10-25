@@ -16,12 +16,41 @@ API-konfigurasjonen oppgir `APP_ENVIRONMENT=production`, `STORAGE_MODE=postgres`
 og en konfigurert `DATABASE_URL`. Scheduleren er fortsatt `suspended`.
 Dette er direkte API-observasjoner, ikke antakelser fra lokal kode.
 
-**Lagrede produksjonsoverstyringer og nåværende DRAFT-status er ennå ikke lest
-på nytt fra databasen i denne revisjonen.** Databaseverten er intern og kan ikke
-navneoppløses fra Codex-arbeidsmiljøet. Ingen alternativ database er brukt.
-Den medfølgende, avgrensede READ ONLY-kontrollen bruker eksisterende Render-SSH
-fra Windows-PC-en. Resultatet må foreligge før kolonnen «lagret verdi» kan fylles
-ut eller nåværende produksjonsstatus bekreftes uavhengig av sluttkvitteringen.
+**Faktisk READ ONLY-produksjonskontroll er nå fullført.** Brukeren kjørte den
+publiserte kontrollen fra sin eksisterende Windows-/Render-tilgang. Den opplastede
+`cost-and-draft-evidence.json` viser kontrolltid **25. oktober 2026 kl. 02:57:57
+norsk tid (01:57:57 UTC)**, miljø `production`, backend `postgres`, tjeneste
+`srv-d7obt5e47okc739susgg`, installasjon `aksje-app-production-nok-v1`, database
+`aksje_paper_db`, PostgreSQL 18.4 og `transaction_read_only=on`.
+Alle 24 deployede kildefilhashene stemte med den gjennomgåtte produksjonsversjonen.
+
+Filens kanoniske `evidence_sha256` er kontrollert på nytt etter opplasting:
+`b853945a5ff7f90f160cee29bdef1df36e610b3cc4224fddee4c6251aed4dac3`.
+Den opplastede filens byte-SHA256 er
+`3366dad5ee893a906c76d18fd3d390a6b02bf02bb7a4728d3655f9d64714d331`.
+Hashene viser konsistens med den returnerte kvitteringen; dette er ikke en ekstern
+meglerattest eller en digitalt signert tillatelse til aktivering.
+
+## Faktiske lagrede produksjonsverdier og journalbevis
+
+| Konto | Lagrede kostnadsinnstillinger | Faktisk undersøkt journal | Konklusjon |
+| --- | --- | --- | --- |
+| Paper | Verken `trading_rules:id=1` eller `settings/trading_rules.json` inneholder de undersøkte kostnadsfeltene. Ingen legacy-regelfil ble funnet | 247 handler: 239 uten `evidence_metadata`, 8 med metadata men uten eksplisitt gebyr/kostnadsbeløp | Ingen dokumentert kurtasje-/FX-sats i disse kildene; ikke dokumentert nullkostnad |
+| Autonomi | Parametere og portefølje finnes i PostgreSQL; ingen av de undersøkte kostnadsfeltene er lagret | 77 handler; alle mangler eksplisitt gebyr/kostnadsbeløp | 0,20 % er ikke påvist som kontanttrekk; kodefallbacken for erstatningsbeslutning står, og læringsreplayets 20 bp er en separat sensitivitet |
+| Superporteføljen | **`config.transaction_cost_bps=10.0`** | Én tilgjengelig native journalrad: **10 bp**, kostnad **144,146144**, enhet merket **NOK** | Satsen er faktisk lagret og brukt i den tilgjengelige oppgjørsjournalen; kostnaden er ikke bare et rapportestimat |
+
+Superporteføljens siste `turnover_costs` viser 0 omsatt verdi / 0 estimert kostnad,
+og `last_portfolio_transaction_cost=0`. Dette er et annet tids-/hendelsesgrunnlag
+enn den bevarte historiske journalraden på 144,146144. Null i siste oppdatering
+opphever ikke den historiske kostnaden. Den ene journalraden må heller ikke
+presenteres som full rekonstruert livstidshistorikk eller bevis for ekte aksje-
+eller valutaregnskap i eldre `MODEL_PRICE_RATIO_UNITS`.
+
+Ingen av de undersøkte journalene har en eksplisitt separat `fx_cost_nok` eller
+slippage-verdi. Superporteføljens kostnad er ikke fordelt mellom
+`brokerage_nok`, `fx_cost_nok` og `other_nok`; disse feltene er **null/mangler**
+i beviset, ikke dokumenterte 0. Full parameter-/modellhistorikk er ikke
+omskrevet eller deserialisert for å produsere disse opplysningene.
 
 ## Hvilken kode brukes til hva?
 
@@ -103,9 +132,9 @@ Historiske enheter kan være `MODEL_PRICE_RATIO_UNITS`; et felt kalt «NOK» ell
 `base_currency` gjør ikke gamle vektbaserte enheter til dokumenterte aksjer eller
 bevis for at FX tidligere var riktig bokført.
 
-**Lagret konfigurasjon og faktiske journalrater går foran kodefallback.** Den nye
-kontrollen leser `super_portfolio/state.json` og hele den tilgjengelige native
-`super_portfolio/transactions.jsonl` med avgrenset minnebruk. Den rapporterer
+**Lagret konfigurasjon og faktiske journalrater går foran kodefallback.** Den utførte
+kontrollen leste `super_portfolio/state.json` og hele den tilgjengelige native
+`super_portfolio/transactions.jsonl` med avgrenset minnebruk. Den rapporterte
 lagrede satser, kostnadssummer per dokumentert enhet og manglende kostnadsfelt.
 En manglende sats blir ikke automatisk «10 bp brukt i alle historiske handler».
 
@@ -137,11 +166,11 @@ eller en tillatelse til å kopiere 25 bp til de tre aksjekontoene.
 
 | Konto | Videreførbart grunnlag | Korrekt forslag nå | Mangler før en full policy kan signeres |
 | --- | --- | --- | --- |
-| Paper, 100 000 NOK | Historisk oppgjør uten særskilt gebyrmodell; 5 bp/10 bp finnes bare i backtesting | Ingen numerisk kurtasje-/FX-policy fastsettes fra backteststandardene. Dersom en slik ny modell ønskes, er det et konkret nytt modellvalg | Dokumentert regnskapskostnad og FX-behandling, eventuelt uttrykkelig valgt ny simulering; databasekontrollen først |
-| Autonomi, 500 000 NOK | Ordinær kontantbane brutto; 20 bp læringssensitivitet og beslutningsterskel | Behold 20 bp som dokumentert lærings-/beslutningsforutsetning, ikke omdøp til bokført kurtasje | Dokumentert kostnad per utførelse og FX; ny bruk av 20 bp i kontantregnskap er et modellvalg, ikke uendret videreføring |
-| Superporteføljen, 1 000 000 NOK | Lagret `transaction_cost_bps`, kodefallback 10 bp, samt faktiske journalrater | Viderefør den faktisk gjeldende satsen som **samlet simulert transaksjonskostnad på handelsverdien i NOK**. Hvis lagret sats er 10, betyr det 0,001 × brutto NOK per kjøp/salg | Bekreft lagret sats; dokumenter eventuell kostnadsdeling/FX. Ikke legg til 25 bp fra Superfond eller dobbelt trekk fra turnover-rapporten |
+| Paper, 100 000 NOK | Faktisk gjennomgåtte innstillinger/journal har ingen kostnadspolicy. Backtesting dokumenterer 5 bp kurtasje og 10 bp slippage | Et konkret alternativ er **5 bp kurtasje og 10 bp simulert slippage**, eksplisitt merket som innføring av eksisterende backtestforutsetninger i en ny Paper-modell. Dette er ikke eksisterende produksjonskostnader | Krever særskilt godkjenning av modellendringen og korrekt fill-implementasjon; FX er fortsatt udokumentert, ikke 0 |
+| Autonomi, 500 000 NOK | 77 handler uten gebyrbeløp; kode dokumenterer 20 bp læringssensitivitet og beslutningsterskel | Behold disse forutsetningene der de allerede brukes. Et konkret alternativ for ny kostnadsført simulering er **20 bp samlet modellkostnad av omsatt brutto NOK**, med kilde til læringsmodellen, ikke kalt faktisk kurtasje | Nytt kontanttrekk krever særskilt godkjenning. Fordeling på kurtasje/FX og om 20 bp skal dekke FX er ikke dokumentert; ingen dobbelt belastning eller antatt null |
+| Superporteføljen, 1 000 000 NOK | Bekreftet lagret og journalført **10 bp** | Viderefør **10 bp = 0,001 × brutto NOK per kjøp/salg**, merket samlet simulert transaksjonskostnad | Prosentberegning må støttes riktig i NOK-rutingen. Kostnadsdeling/FX er fortsatt udokumentert; ikke legg til Superfonds 25 bp eller et ekstra turnover-trekk |
 
-Eksempel bare på enheten i Superporteføljens kodefallback: en dokumentert
+Eksempel på enheten i Superporteføljens bekreftede lagrede sats: en dokumentert
 handel på NOK 10 000 gir NOK 10 ved 10 bp; NOK 20 000 gir NOK 20. Dette er en
 forklaring av formelen, ikke testbeløp som skal importeres eller en godkjent policy.
 
@@ -184,27 +213,85 @@ Den rapporterer:
   `approval_B_ready=false`, `old_positions_transferred=false`,
   `learning_reset=false`, `strategies_changed=false`.
 
-Dette bekrefter **hva sluttkjøringen kvitterte for**. Filen alene inneholder ikke
-alle rå arkiv-/restorebilag, signatur over miljøidentitet eller en fersk
-produksjonsforespørsel. Jeg hevder derfor ikke at filen alene er uavhengig bevis
-for at alle kontoer fortsatt står uendret nå.
+Den senere, faktiske READ ONLY-kvitteringen er nå avstemt mot denne sluttfilen:
+`final_receipt_sha256` er nøyaktig samme filhash. Periode, arkiv-ID og
+restore-reviewhash er også identiske mellom begge opplastede kvitteringer.
 
-Den medfølgende kontrollen vil avstemme det eksisterende forseglede arkivets
-SHA256 på både PC og Render, opprinnelig arkivkvittering, Windows-kopi-/dekrypteringsbevis,
-selve restore-reviewens kanoniske hash, alle bevarte restore-filers hashverdier,
-manifestets hash og samtlige lagrede database-/tabellfingeravtrykk mot det manifestet,
-arkivreferansene i det faktiske lagrede
-kontobundlet og Render-sluttkvitteringen. Den uendrede core-rutinen
-`verify_bundle` spiller regnskapsgrunnlaget og journalen mot hverandre. Deretter
-kreves DRAFT, ingen godkjenning, ingen handler/posisjoner, eksakte startbeløp,
-ingen production-controls og ingen valgt route for hver av de tre familiene.
-Feil miljø, kildehash, bilag eller status gir stopp, ikke opprettelse av en ny konto.
-Dette er en kontroll av den allerede utførte restoren, ikke en ny restore.
+**Arkiv og restore, bekreftet av den utførte produksjonskontrollen:**
 
-## Én skrivebeskyttet kontroll fra eksisterende Windows-vindu
+- Eksisterende forseglet arkiv fikk SHA256 kontrollert på nytt:
+  `5e98f9c9d7f43ed477099f17f459ea7680ec61fb04d49f9f504191694b4ce158`.
+  Windows-kontrollen sammenlignet samtidig PC-kopiens hash med dette resultatet
+  før den viste vellykket fullføring. Det separate lokale Windows-kvitteringsvedlegget
+  er ikke lastet opp; sammenligningen følger av den publiserte runnerens sjekk og
+  brukerens viste vellykkede kjøring.
+- Manifest-SHA256:
+  `7295361bf2743bdf6f61e9c742d0932489d6b18dadfba15ee28f45637cf0e28c`.
+- `retained_restore_files_sha256_rechecked=true`: bevarte materialiserte filer
+  stemte med den opprinnelige restore-reviewen.
+- `restore_review_digest_rechecked=true`, `physical_restore_status=RESTORED_AND_VERIFIED`,
+  `restore_execution_host=WINDOWS_LOCAL_POSTGRESQL_18`.
+- Én databasekilde `db_database_url`, **12 tabeller**, modellfingeravtrykk
+  `5b235eb8a1cc31ff1d0157407bd7b8111748b25f6446e7b580460e681c2fdb94`.
+  Restore-reviewens tabelltellinger og fingerprintdigest stemte med manifestet.
+- Windows-kopi-/dekrypteringskvitteringer forelå og bestod kontrollen.
 
-Åpne [KONTROLLER-KOSTNADER-OG-DRAFT.txt](KONTROLLER-KOSTNADER-OG-DRAFT.txt), kopier
-hele innholdet til det eksisterende PowerShell-vinduet og trykk Enter.
+Dette bekrefter den tidligere fullførte fysiske restoren og de bevarte bilagene;
+kontrollen kjørte **ikke** en ny fysisk restore eller en ny full dataskanning av
+Windows-restore-databasen. Eksisterende bevis ble kontrollert, ikke erstattet.
+
+**Kontoer, direkte fra produksjonsdatabasen ved 02:57:57 norsk tid:**
+
+| Familie | Status | Kontanter / åpnings-NAV | Posisjoner / handler | Godkjenning | Valgt route |
+| --- | --- | --- | --- | --- | --- |
+| Paper | DRAFT | 100 000 NOK / 100 000 NOK | 0 / 0 | Ingen (`null`) | Ingen |
+| Autonomi | DRAFT | 500 000 NOK / 500 000 NOK | 0 / 0 | Ingen (`null`) | Ingen |
+| Superportefølje | DRAFT | 1 000 000 NOK / 1 000 000 NOK | 0 / 0 | Ingen (`null`) | Ingen |
+
+Alle har `fees_paid_nok=0` fordi de nye kontoene ennå har **null handler**.
+Dette er en avstemt startsaldo, ikke et valg om fremtidige nullkostnader.
+`verify_bundle` bestod for det faktiske databasedokumentet, uten godkjenninger,
+produksjonskontroller eller valgte ruter. Åpningshashene er:
+
+- Paper: `5ef8139799bfb339fcb792c25608610e8da2c918e53b2f598a202672915f14f2`.
+- Autonomi: `e4856a6bcceee45d81729e9380de898f2b42c5155e1836261a05d9cf1aea395c`.
+- Superportefølje: `356033c2efa49ad9800dcbd54b2987ae78468fc32845a09629254a2054c1402c`.
+
+Kvitteringen angir `production_actions_performed=false`, `accounts_activated=false`,
+`histories_changed=false`, `learning_changed=false`, `approval_B_ready=false`.
+Superfond ble ikke endret eller undersøkt for migrering. Antall observerte
+Superfond-nøkler er begrenset til 50 og er ikke oppgitt som totalt antall nøkler.
+Ingen rå private bilag, modellpayloads eller nøkler publiseres i Git.
+
+## Hva gjenstår før B?
+
+Kostnadsrevisjonen og den etterspurte verifikasjonen av arkiv, restore og faktiske
+DRAFT-kontoer er fullført. **Ingen ny operatørkontroll eller restore er nødvendig
+for å fullføre denne rapporten.**
+
+Gjenstående modellvalg er konkrete: om Paper skal innføre de dokumenterte
+backtestforutsetningene, og om Autonomiens dokumenterte læringssensitivitet skal
+bli et nytt kontanttrekk. Disse er ikke uendret videreføring og må ikke
+iverksettes uten særskilt godkjenning. Superporteføljens gjeldende 10 bp trenger
+ikke gjettes eller bekreftes av brukeren på nytt.
+
+Separat må valutakostnader og kostnadsdeling ha et dokumentert grunnlag.
+Dagens undersøkte data gir ikke en sats eller en tillatelse til å anta 0.
+Det er derfor ikke utarbeidet signérbare policies med oppdiktede FX-beløp.
+Den deployede faste-NOK-kontrakten må dessuten avklares mot prosentbaserte
+modeller før korrekte grants kan utformes.
+
+Før faktisk B kreves i tillegg fullstendige strategiinnstillingssnapshots for
+alle familier, faktiske fullførte strategiinput og ferske pris-/FX-bevis, korrekt
+verifikasjonsadapter for store rader og eksakt privat signering. Kostnadsbeviset
+inneholder Superporteføljens valgte konfigurasjonsfelt, men ikke komplette
+Paper-/Autonomi-strategisnapshots. Kvitteringen er **ikke godkjenning B**.
+
+## Utført kontroll – bevart kilde, ikke behov for ny kjøring
+
+Den fullførte kjøringen brukte
+[KONTROLLER-KOSTNADER-OG-DRAFT.txt](KONTROLLER-KOSTNADER-OG-DRAFT.txt).
+Filen er bevart for sporbarhet; den skal ikke kjøres igjen bare for denne rapporten.
 Ingen opplysninger om modellverdier eller filer må finnes frem manuelt.
 Eksisterende SSH-identitet og vertsverifikasjon beholdes; ingen nøkler registreres.
 
@@ -219,8 +306,8 @@ aggregeres med eksplisitt skille mellom manglende og dokumentert null kostnad.
 
 Kun en ny privat bevismappe på PC-en opprettes. Ingen filer skrives på Render,
 og ingen arkivering, restore, prepare, aktivering eller opprydding startes.
-Resultatfilen heter `cost-and-draft-evidence.json`; terminalen viser nøyaktig sti.
-Del bare den filen. Originalarkiv, DB, nøkler og historikk bevares.
+Resultatfilen `cost-and-draft-evidence.json` er mottatt og kontrollert.
+Originalarkiv, DB, nøkler og historikk bevares.
 
 ## Verifikasjon av den nye kontrollen
 
@@ -241,6 +328,6 @@ dekoding bestod (kommandoen er under 24 000 tegn). Minneprøvens topp-RSS
 var 329 016 KiB; dette er målt i isolert test, ikke produksjon. Tidligere verifisert konservativ SSH-
 transport gjenbrukes; den gjentar bare dokumenterte feil før innlogging.
 
-Ferskt faktisk database-/bilagsresultat fra den nye kontrollen gjenstår. Det
-føres inn i rapporten når resultatfilen foreligger. Ingen personlig godkjenning
-bes om før de gjenstående modellvalgene kan presenteres konkret.
+Faktisk produksjonskjøring er nå dokumentert separat ovenfor. Testfixtures
+brukes ikke som erstatning for brukerens virkelige kvitteringer. Rapportoppdateringen
+endrer bare dokumentasjon; ingen policy er innført, signert eller aktivert.
