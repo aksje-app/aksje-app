@@ -68,12 +68,16 @@ def ready(pg,sources,certificate,tmp_path,monkeypatch):
         import time
         time.sleep(max(0,(datetime.fromisoformat(start)-datetime.now(timezone.utc)).total_seconds()))
         cost=dict(components_per_fill={'brokerage_nok':6,'fx_cost_nok':4,'other_nok':0},source_ref='ISOLATED documented simulation policy')
+        from services.trading_costs import super_portfolio_proposal
+        costs={f:deepcopy(cost) for f in restart.CAPITALS}
+        costs['super_portfolio']=super_portfolio_proposal(settings['super_portfolio'],source_ref='ISOLATED existing 10bps',
+            fx_component={'fixed_nok':4,'source_ref':'ISOLATED documented FX charge'})
         def isolated_prepare(chosen,run_id,candidates,*,storage=None):
             value=dict(candidates=deepcopy(candidates),settings=deepcopy(settings['autonomy']),market_snapshot={},parallel_strategy_run={},technical_contribution={},portfolio_before={})
             return pg.write_json_immutable(companion.preparation_key(chosen,run_id),value)
         monkeypatch.setattr(companion,'prepare',isolated_prepare)
         monkeypatch.setattr(companion,'complete',lambda *a,**kw:{'learning_trades':[],'learning_decisions':[]})
-        yield dict(pg=pg,bundle=bundle,review=review,root=root,cert=cert,key=key,destination=destination,settings=settings,cost=cost,
+        yield dict(pg=pg,bundle=bundle,review=review,root=root,cert=cert,key=key,destination=destination,settings=settings,cost=cost,costs=costs,
             sources=sources,source_files=archive._inventory(sources),target=target,restore_program=programs[1])
     finally:
         with admin.cursor() as cur:
@@ -81,10 +85,19 @@ def ready(pg,sources,certificate,tmp_path,monkeypatch):
         admin.close()
 
 
+def bound_cost_evidence(row,policy):
+    row=deepcopy(row)
+    row['cost_source_ref']=policy['source_ref']
+    if 'schema' in policy:
+        row.pop('cost_components',None);row['cost_policy']=deepcopy(policy)
+    else:row.setdefault('cost_components',deepcopy(policy['components_per_fill']))
+    return row
+
+
 def grant(ready,family='paper'):
     r=ready
     payload=control.request(r['bundle']['period_id'],family,actor='ISOLATED operator',approval_ref='ISOLATED exact approval',
-        at=datetime.now(timezone.utc).isoformat(),restore_review=r['review'],settings=r['settings'][family],cost_policy=r['cost'])
+        at=datetime.now(timezone.utc).isoformat(),restore_review=r['review'],settings=r['settings'][family],cost_policy=r['costs'][family])
     return control.sign(payload,r['key'])
 
 
@@ -98,7 +111,7 @@ def direct(ready,family,run,at,inputs,ev=None):
     r=ready;period=r['bundle']['period_id']
     common=dict(period_id=period,run_id=run,at=at,evidence=ev or evidence(at),
         account_ref=trading.account_reference(period,family),storage=r['pg'])
-    for row in common['evidence'].values():row['cost_source_ref']=r['cost']['source_ref']
+    common['evidence']={ticker:bound_cost_evidence(row,r['costs'][family]) for ticker,row in common['evidence'].items()}
     if family=='paper':return trading.paper(**common,rules=r['settings'][family],signals=inputs)
     if family=='autonomy':return trading.autonomy(**common,parameters=r['settings'][family],candidates=inputs)
     pipeline=dict(run_id=run,created_at=at,candidates=inputs,market_activation_levels={'USA':'PRODUCTION'},regime_fit_score=70)
@@ -202,7 +215,7 @@ def test_dry_run_production_draft_does_not_activate_or_persist(ready,family):
 def test_ordinary_scheduler_entrypoints_route_selected_account(ready,family,monkeypatch):
     r=ready;activate(r,family)
     def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
-        row=evidence(at)['TEST'];row['cost_source_ref']=cost_policy['source_ref'];return row
+        return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     if family=='paper':
         import trading_engine as engine
@@ -243,7 +256,7 @@ def test_ordinary_retries_use_receipt_during_provider_outage(ready,monkeypatch):
     r=ready
     for family in restart.CAPITALS:activate(r,family)
     def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
-        row=evidence(at)['TEST'];row['cost_source_ref']=cost_policy['source_ref'];return row
+        return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     import trading_engine as paper
     import autonomous_portfolio as autonomy
@@ -274,7 +287,7 @@ def test_superportfolio_risk_surveillance_books_only_authoritative_journal(ready
     direct(r,family,'buy',second.isoformat(),[candidate(second.isoformat())])
     assert doc(r,family)['account']['positions']
     def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
-        row=evidence(at,80)['TEST'];row['cost_source_ref']=cost_policy['source_ref'];return row
+        return bound_cost_evidence(evidence(at,80)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     import super_portfolio as sp
     old=r['pg'].read_json('super_portfolio/state.json')
@@ -329,7 +342,7 @@ def test_archive_restore_rejects_existing_target_and_keeps_original_files(ready)
 def test_live_dry_run_uses_actual_adapter_and_never_persists(ready,monkeypatch):
     r=ready;calls=[]
     def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
-        calls.append(ticker);row=evidence(at)['TEST'];row['cost_source_ref']=cost_policy['source_ref'];return row
+        calls.append(ticker);return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     before=doc(r,'paper')
     result=routing.live_preview(r['bundle']['period_id'],'paper',strategy_input=[dict(ticker='TEST',operation='BUY',amount_nok=10010,confidence=90)],cost_policy=r['cost'],storage=r['pg'])
@@ -439,7 +452,7 @@ def test_canonical_governed_parameter_updates_are_not_frozen(ready,monkeypatch):
     r=ready;activate(r)
     r['pg'].write_json('settings/trading_rules.json',{**r['settings']['paper'],'min_buy_confidence':95})
     def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
-        row=evidence(at)['TEST'];row['cost_source_ref']=cost_policy['source_ref'];return row
+        return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     import trading_engine as engine
     ok,message=engine.paper_buy('TEST',100,90,amount_override=10010,trade_context={'run_id':'updated-configuration'})
@@ -571,3 +584,62 @@ def test_active_production_never_uses_a_fallback_enabled_backend(ready,monkeypat
             confirmation=digest(dict(period_id=period,family='paper',event=event,actor='operator',deployment_id=control.installation()))
             control.economic_event(period,'paper',event,actor='operator',confirmation=confirmation)
     assert r['pg'].read_json(restart._key(period))==before
+
+
+@pytest.mark.parametrize('family',['paper','autonomy'])
+def test_signed_variable_policy_is_bound_to_production_execution_and_refuses_tamper(ready,family):
+    from test_trading_costs import policy
+    r=ready;r['costs'][family]=policy(10)
+    activate(r,family)
+    now=datetime.now(timezone.utc)
+    first=(now+timedelta(days=(7-now.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    second=first+timedelta(days=3)
+    if family=='paper':direct(r,family,'variable-buy',first.isoformat(),[dict(ticker='TEST',operation='BUY',amount_nok=10000,confidence=90)])
+    else:
+        direct(r,family,'search',first.isoformat(),[candidate(first.isoformat())])
+        direct(r,family,'buy',second.isoformat(),[candidate(second.isoformat())])
+    actual=doc(r,family);assert actual['account']['trades']
+    assert all(t['cost_calculation']['policy']==r['costs'][family] for t in actual['account']['trades'])
+    ev={k:bound_cost_evidence(v,r['costs'][family]) for k,v in evidence(second.isoformat()).items()}
+    ev['TEST']['cost_policy']['components']['fx_cost_nok']['rate_bps']=999
+    common=dict(period_id=r['bundle']['period_id'],family=family,run_id='tamper',at=second.isoformat(),evidence=ev,
+                settings=r['settings'][family],strategy_input={},account_ref=trading.account_reference(r['bundle']['period_id'],family),storage=r['pg'])
+    with pytest.raises(ValueError,match='Unapproved'):trading.run(**common,operation=lambda s:{})
+    assert doc(r,family)==actual
+
+
+def test_superportfolio_signed_variable_cost_is_exactly_once_and_unknown_fx_refuses_request(ready):
+    r=ready;family='super_portfolio'
+    before=deepcopy(r['pg'].read_json(restart._key(r['bundle']['period_id'])))
+    proposed=deepcopy(r['costs'][family]);proposed['components']['fx_cost_nok']=None
+    with pytest.raises(ValueError):control.request(r['bundle']['period_id'],family,actor='test',approval_ref='test',
+        at=datetime.now(timezone.utc).isoformat(),restore_review=r['review'],settings=r['settings'][family],cost_policy=proposed)
+    assert r['pg'].read_json(restart._key(r['bundle']['period_id']))==before
+    assert all(a['status']=='DRAFT' for a in before['accounts'].values())
+    activate(r,family)
+    now=datetime.now(timezone.utc)
+    first=(now+timedelta(days=(7-now.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    second=first+timedelta(days=3)
+    direct(r,family,'search',first.isoformat(),[candidate(first.isoformat())])
+    direct(r,family,'buy',second.isoformat(),[candidate(second.isoformat())])
+    account=doc(r,family)['account'];assert account['trades']
+    for t in account['trades']:
+        assert t['cost_components']['model_transaction_cost_nok']==pytest.approx(t['gross_value']*.001)
+        assert t['cost_components']['fx_cost_nok']==4  # explicitly documented synthetic fixture only
+        assert t['fee']==pytest.approx(t['gross_value']*.001+4)
+    assert reconcile(account)==[]
+
+
+def test_v2_concurrent_delivery_commits_one_policy_calculation(ready):
+    from test_trading_costs import policy
+    r=ready;r['costs']['paper']=policy(10);activate(r)
+    at=datetime.now(timezone.utc).isoformat();ev={k:bound_cost_evidence(v,r['costs']['paper']) for k,v in evidence(at).items()}
+    args=dict(period_id=r['bundle']['period_id'],family='paper',run_id='v2-concurrent',at=at,evidence=ev,
+        settings=r['settings']['paper'],strategy_input={},account_ref=trading.account_reference(r['bundle']['period_id'],'paper'),storage=r['pg'])
+    def operation(s):s.fill('TEST','BUY',1,100,'SYNTHETIC duplicate delivery');return {'ok':True}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        answers=list(pool.map(lambda _:trading.run(**args,operation=operation),range(2)))
+    assert answers==[{'ok':True},{'ok':True}]
+    account=doc(r,'paper')['account'];assert len(account['trades'])==1
+    assert account['cash']==pytest.approx(100000-1001-(1001*.0033+3))
+    assert reconcile(account)==[]

@@ -7,7 +7,6 @@ rules remain in their ordinary engines. Only the journal supplies balances.
 from contextvars import ContextVar
 from copy import deepcopy
 from datetime import timedelta
-import math
 import os
 from services import portfolio_accounting as ledger
 from services import simulation_restart as restart
@@ -57,6 +56,7 @@ class Session:
                 if pos.get(field) is not None: pos[field]/=factor
         self.decisions, self.actions = [], {}
         self.validate_evidence()
+        self._bound_cost_policies = {ticker:self.cost_policy(ticker) for ticker in self.evidence}
 
     def doc(self): return self.storage.read_json(ledger.key(self.family))
     def account(self): return self.doc()['account']
@@ -66,17 +66,26 @@ class Session:
     def rate(self, ticker):
         row = self.quote(ticker)
         return fx_rate(row['currency'], 'NOK', row.get('fx_quote'), at=self.at)
-    def fee(self, ticker):
-        return sum(number(v) for v in self.quote(ticker)['cost_components'].values())
+    def cost_policy(self, ticker):
+        from services.trading_costs import validate
+        row = self.quote(ticker)
+        if 'cost_policy' in row:
+            policy = validate(row['cost_policy'])
+            if 'cost_components' in row or row.get('cost_source_ref') != policy['source_ref']:
+                raise ValueError('Ambiguous or mismatched cost policy evidence')
+        else:
+            policy = validate(dict(components_per_fill=row.get('cost_components'),source_ref=row.get('cost_source_ref')))
+        bound = getattr(self,'_bound_cost_policies',None)
+        if bound is not None and policy != bound[ticker]:
+            raise ValueError('Strategy cannot change the approved cost policy during execution')
+        return policy
     def validate_evidence(self):
         for ticker, row in self.evidence.items():
             if not ticker or ticker != ticker.upper(): raise ValueError('Canonical instrument ID required')
             number(row['price'], positive=True)
             if not row.get('source') or not timedelta(0) <= stamp(self.at)-stamp(row['observed_at']) <= timedelta(minutes=15):
                 raise ValueError('Fresh sourced execution price required')
-            if set(row.get('cost_components', {})) != {'brokerage_nok','fx_cost_nok','other_nok'} or not row.get('cost_source_ref'):
-                raise ValueError('Explicit simulation cost assumption required, including zero costs')
-            self.rate(ticker); self.fee(ticker)
+            self.cost_policy(ticker); self.rate(ticker)
         if not set(self.account()['positions']) <= set(self.evidence):
             raise ValueError('Complete fresh evidence for held instruments required')
         for ticker,pos in self.account()['positions'].items():
@@ -93,20 +102,31 @@ class Session:
     def market_value(self, ticker, quantity, price): return quantity*price*self.rate(ticker)
     def size_buy(self, ticker, budget):
         row = self.quote(ticker)
-        return math.floor(max(0, budget-self.fee(ticker))/(row['price']*self.rate(ticker))*10000)/10000
+        from services.trading_costs import affordable_quantity
+        return affordable_quantity(self.cost_policy(ticker),budget_nok=budget,reference_price=row['price'],
+                                   currency=row['currency'],nok_rate=self.rate(ticker))
     def fill(self, ticker, side, quantity, price, reason):
         row = self.quote(ticker)
         if abs(number(price, positive=True)-row['price']) > 1e-8:
             raise ValueError('Strategy price differs from documented execution')
         if ticker in self.actions:
             raise ValueError('Repeated instrument action in the same strategy job')
+        from services.trading_costs import calculate
+        policy = self.cost_policy(ticker)
+        costs = calculate(policy,quantity=quantity,reference_price=price,side=side,
+                          currency=row['currency'],nok_rate=self.rate(ticker))
         fill = dict(trade_id=digest(dict(period=self.period_id,family=self.family,run=self.run_id,ticker=ticker,side=side)),
-            ticker=ticker,side=side,quantity=quantity,price=price,currency=row['currency'],
-            observed_at=row['observed_at'],source=row['source'],at=self.at,fee=self.fee(ticker),
-            cost_currency='NOK',fx_quote=row.get('fx_quote'),cost_components=row['cost_components'],
-            cost_source_ref=row['cost_source_ref'])
+            ticker=ticker,side=side,quantity=quantity,price=costs['price'],currency=row['currency'],
+            observed_at=row['observed_at'],source=row['source'],at=self.at,fee=costs['fee_nok'],
+            cost_currency='NOK',fx_quote=row.get('fx_quote'),cost_components=costs['cost_components'],
+            cost_source_ref=costs['cost_source_ref'])
+        if 'schema' in policy: fill['cost_calculation'] = costs['cost_calculation']
         old = self.account()['positions'].get(ticker,{})
         doc = ledger.settle(self.family, fill, storage=self.storage)
+        if costs['price'] != row['price']:
+            # Value held shares at the unadjusted market observation: slippage
+            # is already paid in execution and must affect NAV immediately.
+            self.mark()
         self.actions[ticker] = side
         self.decisions.append(dict(ticker=ticker,side=side,reason=reason,trade_id=fill['trade_id'],
             entry_price=old.get('average_price'),pnl_pct=(price/old['average_price']-1)*100 if old.get('average_price') else 0))
@@ -177,7 +197,7 @@ class Session:
             price = change.get('execution_price')
             if price is None: price = self.quote(ticker)['price']
             trade = self.fill(ticker,side,quantity,price,change.get('reason','Super Portfolio target'))
-            trades.append({**change,**trade,'strategy_action':action,'quantity_unit':'ACTUAL_SHARES','execution_price':price,
+            trades.append({**change,**trade,'strategy_action':action,'quantity_unit':'ACTUAL_SHARES','execution_price':trade['price'],
                            'cash_after':self.account()['cash']})
         self.state['positions'] = deepcopy(positions)
         projection=self.projection();self.save_strategy(projection)
@@ -259,9 +279,17 @@ def run(*, period_id, family, run_id, at, evidence, settings, operation, strateg
             grant=control._check_record(bundle,family,running=True)
             from services.production_routing import strategy_settings
             if digest(settings)!=digest(strategy_settings(family,storage=backend)):raise ValueError('Production strategy settings differ from canonical governance')
+            from services.trading_costs import validate_family
+            validate_family(grant['cost_policy'],family,settings)
             for row in evidence.values():
-                if (row.get('cost_components')!=grant['cost_policy']['components_per_fill'] or
-                    row.get('cost_source_ref')!=grant['cost_policy']['source_ref']):raise ValueError('Unapproved simulation cost assumptions')
+                policy=grant['cost_policy']
+                if 'schema' in policy:
+                    if row.get('cost_policy')!=policy or 'cost_components' in row:
+                        raise ValueError('Unapproved simulation cost assumptions')
+                elif row.get('cost_components')!=policy['components_per_fill'] or 'cost_policy' in row:
+                    raise ValueError('Unapproved simulation cost assumptions')
+                if row.get('cost_source_ref')!=policy['source_ref']:
+                    raise ValueError('Unapproved simulation cost assumptions')
         with control.permission(period_id,family):return mutation(bundle)
     if production and not _PREVIEW.get():
         from services.production_restart import require_backend

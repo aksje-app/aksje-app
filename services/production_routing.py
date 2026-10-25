@@ -21,6 +21,8 @@ def completed(chosen,run_id,source_input):
 
 
 def market_evidence(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
+    from services.trading_costs import validate
+    validate(cost_policy)
     import yfinance as yf
     from scanner_fresh_quote import fresh_paper_buy_quote,validate_execution_quote
     quote=deepcopy(quote or {})
@@ -41,8 +43,9 @@ def market_evidence(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_poli
             fxq,error=fresh_paper_buy_quote(currency+'NOK=X',now=datetime.fromisoformat(at))
             if not fxq:raise ValueError('Missing documented FX: '+currency+'; '+error)
             fx=dict(currency=currency,base_currency='NOK',rate=fxq['price'],observed_at=fxq['market_data_at'],source=fxq['source']+':'+currency+'NOK=X')
+    costs = dict(cost_policy=deepcopy(cost_policy)) if 'schema' in cost_policy else dict(cost_components=deepcopy(cost_policy['components_per_fill']))
     return dict(price=quote['price'],currency=currency,observed_at=quote['market_data_at'],source=quote['source'],
-        fx_quote=fx,cost_components=deepcopy(cost_policy['components_per_fill']),cost_source_ref=cost_policy['source_ref'])
+        fx_quote=fx,cost_source_ref=cost_policy['source_ref'],**costs)
 
 
 def context(family,run_id,rows,*,storage=None,at=None):
@@ -302,13 +305,16 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
     from services.storage_service import get_storage_service
     storage=storage or get_storage_service();bundle=storage.read_json(restart._key(period_id))
     restart.verify_bundle(bundle);doc=bundle['accounts'][family]
+    settings=strategy_settings(family,storage=storage)
+    from services.trading_costs import validate_family
+    validate_family(cost_policy,family,settings)
     rows=strategy_input.get('candidates',[]) if family=='super_portfolio' else strategy_input
     rows={r['ticker']:r for r in rows};at=datetime.now(timezone.utc).isoformat();evidence={}
     for ticker in set(rows)|set(doc['account']['positions']):
         row=rows.get(ticker,{});held=doc['account']['positions'].get(ticker,{})
         evidence[ticker]=market_evidence(ticker,currency=held.get('currency') or row.get('currency'),quote=row.get('execution_quote'),
             fx_quote=held.get('fx_quote') or row.get('fx_quote'),at=at,cost_policy=cost_policy)
-    return trading.preview(period_id=period_id,family=family,at=at,evidence=evidence,settings=strategy_settings(family,storage=storage),
+    return trading.preview(period_id=period_id,family=family,at=at,evidence=evidence,settings=settings,
         strategy_input=strategy_input,storage=storage)
 
 

@@ -92,11 +92,8 @@ def request(period,family,*,actor,approval_ref,at,restore_review,settings,cost_p
     stamp(at)
     if restore_review.get('status')!='RESTORED_AND_VERIFIED' or restore_review['archive']!=bundle['archive']:
         raise ValueError('Matching successful physical restore drill required')
-    # Explicit per-execution NOK fees, including documented zero assumptions.
-    if set(cost_policy.get('components_per_fill',{}))!={'brokerage_nok','fx_cost_nok','other_nok'} or not cost_policy.get('source_ref'):
-        raise ValueError('Documented model-cost policy required')
-    from services.economic_ledger import number
-    for value in cost_policy['components_per_fill'].values():number(value)
+    from services.trading_costs import validate_family
+    validate_family(cost_policy,family,settings)
     return dict(schema='NOK_PRODUCTION_GRANT_V1',environment='production',deployment_id=installation(),
         period_id=period,family=family,capital_nok=restart.CAPITALS[family],opening_sha256=doc['opening_sha256'],
         start_at=bundle['start_at'],approved_at=at,approved_by=actor,approval_ref=approval_ref,
@@ -138,6 +135,8 @@ def activate(grant,*,confirmation,archive_root,certificate,private_key,restore_d
     storage=storage or get_storage_service()
     require_backend(storage)
     p=verify_grant(grant)
+    from services.trading_costs import validate_family
+    validate_family(p['cost_policy'],p['family'],p['settings'])
     if confirmation!=digest(p):raise ValueError('Confirm the exact reviewed request fingerprint')
     reviewed=verify_archive(archive_root,p['archive']['archive_id'],certificate=certificate,private_key=private_key)
     if {k:reviewed[k] for k in p['archive']}!=p['archive']:raise ValueError('Archive differs from approved evidence')

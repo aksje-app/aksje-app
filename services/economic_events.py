@@ -121,6 +121,7 @@ def reconcile_events(account):
                 price=t['price'],currency=t['currency'],observed_at=t['price_observed_at'],source=t['price_source'],
                 at=t['timestamp'],fee=t['fee'],cost_currency=t['cost_currency'],fx_quote=t.get('fx_quote'))
             if 'cost_components' in t:args.update(cost_components=t['cost_components'],cost_source_ref=t['cost_source_ref'])
+            if 'cost_calculation' in t:args['cost_calculation']=t['cost_calculation']
             baseline,_=execute(baseline,**args)
         elif entry['kind']=='EVENT':baseline=book_event(baseline,events[entry['id']]['input'])
         else:raise ValueError('Unknown economic entry')
