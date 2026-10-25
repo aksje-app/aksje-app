@@ -1,3 +1,100 @@
+# Fullfør fra Windows-arkivet når Render-jobben er borte
+
+Bruk **[FULLFOR-FRA-WINDOWS-ARKIV.txt](FULLFOR-FRA-WINDOWS-ARKIV.txt)**: kopier hele filen
+inn i samme Windows PowerShell-vindu og trykk Enter. Oppgi lokalt PostgreSQL-passord
+bare i terminalen dersom det etterspørres. Hold app-faner lukket og eksisterende
+scheduler/skrivere stanset. Ingen ny nøkkelregistrering, deploy, tjenesteomstart
+eller betalt ressurs inngår. Arkivet lages ikke på nytt.
+
+Siste faktiske status fra brukeren: den gamle `/tmp/nok-job-20261024T165039Z` finnes
+ikke, ingen tilhørende prosess kjører, prosessgjennomgangen var fullstendig, og
+aktuell DATABASE_URL viste ingen NOK-perioder eller konto-routes. Nåværende
+container har 2 GiB minnegrense og rapporterte null OOM-kill-tellere. Dette beviser
+ikke hva som lukket den tidligere forbindelsen eller fjernet den tidligere jobben.
+
+Den nye samlede kjøringen bruker den uavhengige Windows-kopien av det allerede
+forseglede arkivet. Den gjør fysisk PostgreSQL-restore på PC-en og bruker Render
+bare til fil-/kildeverifikasjon og klargjøring av tre INAKTIVE DRAFT-kontoer.
+Ingen PostgreSQL-testserver startes på Render. Det endrer hvor fysisk restore
+utføres; modellenes eller den økonomiske hovedbokens regler endres ikke.
+
+På PC-en dekrypteres arkivet med standard OpenSSL i en ny privat mappe. Alle
+medlemsnavn, manifestets opprinnelige byte-SHA256, alle filstørrelser og filhashsummer
+kontrolleres. Runtime-filer verifiseres direkte i TAR-en og trekkes ikke ut på
+Windows; deres Linux-filnavn bevares. Fullstendige database-dumper trekkes ut og
+restores bare i nye, tilfeldig navngitte `nok_restore_<uuid>_<nummer>`-databaser på
+`127.0.0.1:5433`, bruker postgres, PostgreSQL18. Endpoint, versjon og READ ONLY
+verifiseres før nye databaser kan opprettes. `aksje_restore_test` og alle andre
+allerede eksisterende databaser bevares. Nye lokale databaser slettes ikke.
+
+Etter restore leses alle tabeller i READ ONLY / REPEATABLE READ med samme native
+UTF8-byte-fingeravtrykk som det opprinnelige arkivet. Samtlige radtellinger og
+kanoniske multisetthasher må stemme før en lokal restore-kvittering skrives. Den
+lokale testdatabasen bruker plattformuavhengig builtin `C.UTF-8`-locale; kvitteringen
+angir dette uttrykkelig. Like datafingeravtrykk er ikke et løfte om identisk
+plattform-/collationadferd eller produksjonsgodkjenning. Ekte Windows/PG18-kjøring
+av dette nye programmet gjenstår frem til brukeren utfører det.
+
+Private Python-/driverpakker fra den tidligere lokale kontrollen gjenbrukes når
+fast SHA256 stemmer; ellers hentes de samme offisielle, pinnede pakkene. De pakkes
+ut på nytt privat og Python-binær og begge innebygde programkilder SHA256-kontrolleres.
+Ingen global installasjon eller endring av PowerShell execution policy gjøres.
+PC-en må ha minst 4 GiB tilgjengelig minne og nok disk til de nye kopiene.
+
+Deretter gjenopprettes kun den tapte private operatørmappen på Render med eksklusiv
+opprettelse; en eksisterende mappe overskrives ikke. Original plan/godkjenning A,
+kildeattestasjon og preflight fra PC-en beholdes. Konfigurasjonen rekonstrueres fra
+verifisert originalmanifest og preflight; alle arkiverte databasealiaser må mappes
+til sine opprinnelige miljøvariabler. Ferskt inventar må fortsatt ha den opprinnelig
+bekreftede hashverdien. Ingen ny kildebekreftelse konstrueres eller godkjenning utvides.
+
+Render kontrollerer den genuine lokale restore-kvitteringen, alle åtte uendrede
+core-kilder, kildedekning, kapasitet, fravær av andre skrivere og fravær av allerede
+opprettede/valgte NOK-perioder. Så overføres eksisterende kryptert arkiv og en
+midlertidig dekryptert TAR gjennom kryptert SSH. Arkivnøkkelen blir på PC-en.
+De uendrede core-rutinene verifiserer alle arkivfiler på nytt med bounded filkopiering,
+og materialiserer privat restore-filinnhold på Render uten ny database-restore.
+`verify_restore_destination` bekrefter disse filene mot Windows-restore-kvitteringen.
+
+Før tre kontoer klargjøres, må ALLE levende databasefingeravtrykk og runtime-filer
+fortsatt være identiske med arkivet. Endrede eller tapte produksjonsfiler gir stopp;
+ingen produksjonskilde gjenopprettes eller overskrives automatisk. Deretter brukes
+uendret `simulation_restart.prepare` og økonomisk avstemming: paper100000NOK,
+autonomy500000NOK og super_portfolio1000000NOK, ingen posisjoner, ingen handler,
+null realisert/urealisert resultat. Sluttkontrollen utelater kun sin egen nye
+periode. Kilder og gammel læring/historikk beskyttes videre.
+
+Strategiinnstillinger endres ikke. En ny, full innlesing av potensielt stor legacy-
+strategistate er ikke nødvendig for å opprette DRAFT-hovedbøkene og gjøres derfor
+ikke her. `account-settings-for-review.json` angir `settings=None` og uttrykkelig
+`settings_pending_before_B=True`; dette er ikke godkjente eller gjettede innstillinger.
+De faktiske innstillingene er bevart i arkivet og må dokumenteres med avgrensede
+lesinger sammen med faktiske kostnader, livebevis og signerte grants før B.
+B er fortsatt ikke klar og ingen konto aktiveres eller velges.
+
+Midlertidig overførings-TAR fjernes fra PC-en ved avslutning og fra Render bare ved
+avklart status. Kryptert Windows-arkiv, lokale databaser, full restore-kvittering og
+private logger beholdes. SSH-avslutning med -1/255 eller annen uventet status gir
+ukjent fjernstatus uten automatisk gjentakelse/fjernopprydding. Del bare
+`final-result.json` som sluttstatus; ikke databaser, dumpfiler, nøkler eller TAR.
+
+Verifikasjon før publisering: Offisiell PowerShell-parser og faktisk kjøring av
+begge innebygde kildehashkontroller bestod. Lokale endpoint-/versjon-/readonly-
+sperrer og Windows-only mutasjonsinngang ble prøvd uten Windows-mutasjoner.
+TAR-prøver bekreftet opprinnelige manifestbytes og samtlige filhashsummer, samt
+avvisning av endret dump, dupliserte medlemmer og path traversal.
+En isolert PG16.2-test utførte fysisk restore til en separat database, ekte standard
+OpenSSL-kryptering/dekryptering, native fingeravtrykk, uendrede core-arkiv-/filkontroller
+og den nye sluttworkerens faktiske opprettelse av tre DRAFT-hovedbøker med korrekt
+NAV og null PnL i PostgreSQL. Gammel tapshistorikk/læring var uendret; ingen route
+ble publisert, ingen PostgreSQL-prosess eller privat arkivnøkkel ble laget på
+sluttworker-verten, og endret proof/repetisjon ble avvist. PG18-/Windows-markører og
+inventar-/kapasitetsporten var isolerte fixtures i denne siste testen; testen skal
+ikke omtales som faktisk Windows/PG18/Render-kjøring. Tidligere store native
+160MiB-tester og brukerens PG18-kopikontroll er beskrevet i bakgrunnen nedenfor.
+
+## Tidligere status og forsøk – ikke kjør eldre fortsettelsesfiler
+
 # Avklar fjernstatus etter lukket SSH-forbindelse
 
 Kjør bare **[KONTROLLER-STATUS-ETTER-SSH-BRUDD.txt](KONTROLLER-STATUS-ETTER-SSH-BRUDD.txt)**
@@ -534,4 +631,4 @@ Brukerens konsoll viser bestått forhåndskontroll og senere stopp ved APT-kilde
 produksjonsdata kontrolleres først ved denne operatørkjøringen; et miljøavvik gir
 stopp, ikke et fabrikkert bestått-resultat. Produksjonsoppstarten er ikke fullført.
 
-Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `8285a7ebecbaa0001feea783d24b0598d9f3cbba9e8f9c89c3302da2eace1d0e`
+Pakkens ZIP SHA256 (kun kildekode og dokumentasjon): `30aa14e85219ca8f1e3cdc3089efda1b2b36578d3995e39e3eb768e102326b90`
