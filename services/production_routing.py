@@ -317,12 +317,37 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
     validate_family(cost_policy,family,settings)
     rows=strategy_input.get('candidates',[]) if family=='super_portfolio' else strategy_input
     rows={r['ticker']:r for r in rows};at=datetime.now(timezone.utc).isoformat();evidence={}
-    for ticker in set(rows)|set(doc['account']['positions']):
+    blocked=[]
+    for ticker in sorted(set(rows)|set(doc['account']['positions'])):
         row=rows.get(ticker,{});held=doc['account']['positions'].get(ticker,{})
-        evidence[ticker]=market_evidence(ticker,currency=held.get('currency') or row.get('currency'),quote=row.get('execution_quote'),
-            fx_quote=held.get('fx_quote') or row.get('fx_quote'),at=at,cost_policy=cost_policy)
-    return trading.preview(period_id=period_id,family=family,at=at,evidence=evidence,settings=settings,
-        strategy_input=strategy_input,storage=storage)
+        try:
+            evidence[ticker]=market_evidence(ticker,currency=held.get('currency') or row.get('currency'),quote=row.get('execution_quote'),
+                fx_quote=held.get('fx_quote') or row.get('fx_quote'),at=at,cost_policy=cost_policy)
+        except ValueError as exc:
+            # This is preflight only. Live autonomy/super-portfolio routing already
+            # excludes non-held candidates without fresh execution evidence.
+            # Never skip held positions (NAV) or Paper's ordinary signals.
+            if family=='paper' or ticker in doc['account']['positions']:
+                raise
+            blocked.append(dict(ticker=ticker,action='NO_EXECUTION',reason=str(exc)[:200]))
+    if blocked and (len(blocked)>5 or len(blocked)*10>len(rows)):
+        raise ValueError('Too many candidates lack fresh execution evidence; no startup preview')
+    if not evidence or (rows and not set(rows).intersection(evidence)):
+        raise ValueError('No actual candidate execution evidence; cannot preview')
+    if blocked:
+        if family=='super_portfolio':
+            selected=deepcopy(strategy_input)
+            selected['candidates']=[r for r in strategy_input['candidates'] if r['ticker'] in evidence]
+            selected['execution_evidence_blocks']=blocked
+        else:
+            selected=[r for r in strategy_input if r['ticker'] in evidence]
+    else:
+        selected=strategy_input
+    receipt=trading.preview(period_id=period_id,family=family,at=at,evidence=evidence,settings=settings,
+        strategy_input=selected,storage=storage)
+    receipt['preflight_excluded_candidates']=blocked
+    receipt['original_strategy_input_sha256']=digest(strategy_input)
+    return receipt
 
 
 def metrics(family,*,storage=None):
