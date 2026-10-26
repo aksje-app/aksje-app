@@ -51,7 +51,7 @@ def fresh_paper_buy_quote(ticker: str, *, history_provider: Callable[[str], Any]
                 "age_minutes": round(age, 1)}, ""
 
     attempts = (("5m", lambda: history_provider(ticker)),) if history_provider is not None else (
-        ("5m", lambda: _intraday_history(ticker, "5m")),
+        ("5m", lambda: _intraday_history(ticker)),
         ("1m", lambda: _intraday_history(ticker, "1m")),
     )
     error = "Ingen tidsstemplet intradagkurs tilgjengelig"
