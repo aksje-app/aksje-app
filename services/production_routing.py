@@ -330,8 +330,11 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
             if family=='paper' or ticker in doc['account']['positions']:
                 raise
             blocked.append(dict(ticker=ticker,action='NO_EXECUTION',reason=str(exc)[:200]))
-    if blocked and (len(blocked)>5 or len(blocked)*10>len(rows)):
-        raise ValueError('Too many candidates lack fresh execution evidence; no startup preview')
+    # Startup is not an order: full candidate-universe quote coverage is not
+    # required. Missing quotes are recorded as NO_EXECUTION, independent of
+    # how many markets are closed or providers are delayed. Actual held
+    # positions and Paper execution inputs still fail closed above.
+    # A genuine preview with at least one verified candidate remains mandatory.
     if not evidence or (rows and not set(rows).intersection(evidence)):
         raise ValueError('No actual candidate execution evidence; cannot preview')
     if blocked:

@@ -80,7 +80,22 @@ def test_many_missing_candidates_do_not_produce_empty_preview(monkeypatch,stub):
     monkeypatch.setattr(routing, "market_evidence",
                         lambda ticker, **kw: (_ for _ in ()).throw(ValueError("stale")))
     rows = [{"ticker": f"BAD{i}.OL", "currency": "NOK"} for i in range(11)]
-    with pytest.raises(ValueError, match="Too many candidates"):
+    with pytest.raises(ValueError, match="No actual candidate execution evidence"):
         routing.live_preview("p", "autonomy", strategy_input=rows, cost_policy={},
                              storage=FakeStore())
     assert stub == []
+
+
+def test_general_market_closure_does_not_block_evidenced_subset(monkeypatch,stub):
+    rows = [{"ticker": f"OLD{i}.OL", "currency": "NOK"} for i in range(99)] + [
+        {"ticker": "FRESH", "currency": "USD"}]
+    def evidence(ticker, **kw):
+        if ticker != "FRESH":
+            raise ValueError("Stale quote")
+        return {"price": 100, "currency": "USD", "observed_at": kw["at"], "source": "documented"}
+    monkeypatch.setattr(routing, "market_evidence", evidence)
+    result = routing.live_preview("p", "autonomy", strategy_input=rows,
+                                  cost_policy={}, storage=FakeStore())
+    assert len(result["preflight_excluded_candidates"]) == 99
+    assert [row["ticker"] for row in stub[0]["strategy_input"]] == ["FRESH"]
+    assert list(stub[0]["evidence"]) == ["FRESH"]
