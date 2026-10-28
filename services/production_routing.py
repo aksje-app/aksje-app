@@ -346,8 +346,25 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
             selected=[r for r in strategy_input if r['ticker'] in evidence]
     else:
         selected=strategy_input
+    # Archived, independently produced SP pipelines may predate the explicit
+    # frozen-levels field. For this *in-memory preview only*, snapshot the
+    # currently governed canonical activation map; never elevate any market
+    # beyond the actual production policy or rewrite persisted source input.
+    policy_snapshot=None
+    if family=='super_portfolio':
+        from market_universe import MARKET_ACTIVATION_LEVELS
+        policy_snapshot=deepcopy(MARKET_ACTIVATION_LEVELS)
+        selected=deepcopy(selected)
+        frozen=selected.get('market_activation_levels')
+        if frozen is None:
+            selected['market_activation_levels']=deepcopy(policy_snapshot)
+        elif not isinstance(frozen,dict) or {str(k).upper():v for k,v in frozen.items()} != {str(k).upper():v for k,v in policy_snapshot.items()}:
+            raise ValueError('Frozen market activation levels differ from governed production policy')
     receipt=trading.preview(period_id=period_id,family=family,at=at,evidence=evidence,settings=settings,
         strategy_input=selected,storage=storage)
+    if policy_snapshot is not None:
+        receipt['preflight_market_activation_policy']=policy_snapshot
+        receipt['preflight_market_activation_policy_sha256']=digest(policy_snapshot)
     receipt['preflight_excluded_candidates']=blocked
     receipt['original_strategy_input_sha256']=digest(strategy_input)
     return receipt
