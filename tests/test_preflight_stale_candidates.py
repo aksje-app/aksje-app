@@ -99,3 +99,28 @@ def test_general_market_closure_does_not_block_evidenced_subset(monkeypatch,stub
     assert len(result["preflight_excluded_candidates"]) == 99
     assert [row["ticker"] for row in stub[0]["strategy_input"]] == ["FRESH"]
     assert list(stub[0]["evidence"]) == ["FRESH"]
+
+
+def test_legacy_super_pipeline_snapshots_existing_governed_policy(monkeypatch,stub):
+    from market_universe import MARKET_ACTIVATION_LEVELS
+    pipeline={"run_id":"legacy", "candidates":[{"ticker":"GOOD.OL","currency":"NOK",
+              "source":"Super Portfolio independent market universe"}]}
+    monkeypatch.setattr(routing,"market_evidence",lambda ticker,**kw:{
+        "price":100,"currency":"NOK","observed_at":kw["at"],"source":"documented"})
+    result=routing.live_preview("p","super_portfolio",strategy_input=pipeline,
+                               cost_policy={},storage=FakeStore())
+    assert "market_activation_levels" not in pipeline
+    assert stub[0]["strategy_input"]["market_activation_levels"]==MARKET_ACTIVATION_LEVELS
+    assert result["preflight_market_activation_policy"]==MARKET_ACTIVATION_LEVELS
+
+
+def test_mismatched_market_promotion_cannot_pass_preview(monkeypatch,stub):
+    pipeline={"run_id":"changed","market_activation_levels":{"Finland":"PRODUCTION"},
+              "candidates":[{"ticker":"GOOD.OL","currency":"NOK",
+              "source":"Super Portfolio independent market universe"}]}
+    monkeypatch.setattr(routing,"market_evidence",lambda ticker,**kw:{
+        "price":100,"currency":"NOK","observed_at":kw["at"],"source":"documented"})
+    with pytest.raises(ValueError,match="differ from governed"):
+        routing.live_preview("p","super_portfolio",strategy_input=pipeline,
+                             cost_policy={},storage=FakeStore())
+    assert stub==[]
