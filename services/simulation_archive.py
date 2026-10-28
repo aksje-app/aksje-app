@@ -287,13 +287,44 @@ def database_fingerprint(connection,*,ignore_period=None):
     return native(connection, ignore_period=ignore_period)
 
 
-def verify_live_sources(reviewed,*,databases,ignore_period=None):
+def runtime_source_evidence(reviewed, restored_payload):
+    """Explicit proof for live roots or absent post-deploy roots kept in the archive.
+
+    Never repopulate a live runtime, mask a changed root, or skip database checks.
+    The absent-root case is valid only for authoritative PostgreSQL/no-fallback.
+    """
+    from services.economic_opening import digest
+    manifest=reviewed['manifest'];result={}
+    for name,path in manifest['source_roots'].items():
+        if Path(path).is_symlink():raise ValueError('Runtime root must not become a symlink')
+        if Path(path).exists():
+            inventory=_inventory(path);state='LIVE_SOURCE_VERIFIED'
+        else:
+            if (os.getenv('STORAGE_MODE')!='postgres' or
+                os.getenv('ALLOW_LOCAL_STORAGE_FALLBACK','').lower() not in {'false','0','no'}):
+                raise ValueError('Missing runtime requires explicit authoritative PostgreSQL without fallback')
+            if restored_payload is None:raise ValueError('Missing runtime requires verified archived files')
+            # The manifest uses runtime/<source-id>/<relative-path> for every root.
+            if not name or not name.replace('_','').isalnum():raise ValueError('Unsafe runtime source ID')
+            preserved=Path(restored_payload)/'runtime'/name
+            inventory={} if not manifest['source_inventory'][name] and not preserved.exists() else _inventory(preserved)
+            state='ABSENT_SOURCE_ARCHIVED_FILES_VERIFIED'
+        if inventory!=manifest['source_inventory'][name]:
+            raise ValueError('Runtime changed after archive; stop activation')
+        result[name]=dict(state=state,original_path=str(path),inventory_sha256=digest(inventory))
+    return result
+
+
+def verify_live_sources(reviewed,*,databases,ignore_period=None,restored_payload=None,runtime_evidence=None):
     """Activation barrier: archive still matches quiesced legacy/model sources."""
     manifest=reviewed['manifest']
     if not manifest.get('source_roots') or set(manifest.get('database_model_fingerprints',{}))!=set(databases):
         raise ValueError('Archive lacks full live-source fingerprint coverage')
-    for name,path in manifest['source_roots'].items():
-        if _inventory(path)!=manifest['source_inventory'][name]:raise ValueError('Runtime changed after archive; stop activation')
+    if runtime_evidence is None:
+        for name,path in manifest['source_roots'].items():
+            if _inventory(path)!=manifest['source_inventory'][name]:raise ValueError('Runtime changed after archive; stop activation')
+    elif runtime_source_evidence(reviewed,restored_payload)!=runtime_evidence:
+        raise ValueError('Signed runtime preservation evidence changed')
     for name,connection in databases.items():
         connection.set_session(readonly=True,isolation_level='REPEATABLE READ',autocommit=False)
         try:
