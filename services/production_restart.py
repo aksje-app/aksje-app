@@ -82,7 +82,7 @@ def verify_grant(grant):
     return p
 
 
-def request(period,family,*,actor,approval_ref,at,restore_review,settings,cost_policy,storage=None):
+def request(period,family,*,actor,approval_ref,at,restore_review,settings,cost_policy,storage=None,activation_preflight=None):
     from services import simulation_restart as restart
     storage=storage or get_storage_service();bundle=storage.read_json(restart._key(period))
     restart.verify_bundle(bundle);doc=bundle['accounts'][family]
@@ -94,12 +94,19 @@ def request(period,family,*,actor,approval_ref,at,restore_review,settings,cost_p
         raise ValueError('Matching successful physical restore drill required')
     from services.trading_costs import validate_family
     validate_family(cost_policy,family,settings)
-    return dict(schema='NOK_PRODUCTION_GRANT_V1',environment='production',deployment_id=installation(),
+    if activation_preflight is not None:
+        from services.activation_preflight import validate
+        validate(activation_preflight,period,family,settings=settings,cost_policy=cost_policy,restore_review=restore_review,storage=storage)
+    payload=dict(schema='NOK_PRODUCTION_GRANT_V1',environment='production',deployment_id=installation(),
         period_id=period,family=family,capital_nok=restart.CAPITALS[family],opening_sha256=doc['opening_sha256'],
         start_at=bundle['start_at'],approved_at=at,approved_by=actor,approval_ref=approval_ref,
         archive=deepcopy(bundle['archive']),restore_review=deepcopy(restore_review),
         strategy_policy='EXISTING_CANONICAL_CONFIGURATION_AND_GOVERNANCE',
         settings=deepcopy(settings),cost_policy=deepcopy(cost_policy))
+    if activation_preflight is not None:
+        payload['schema']='NOK_PRODUCTION_GRANT_V2'
+        payload['activation_preflight']=deepcopy(activation_preflight)
+    return payload
 
 
 def _check_record(bundle,family,*,running=False):
@@ -138,6 +145,12 @@ def activate(grant,*,confirmation,archive_root,certificate,private_key,restore_d
     from services.trading_costs import validate_family
     validate_family(p['cost_policy'],p['family'],p['settings'])
     if confirmation!=digest(p):raise ValueError('Confirm the exact reviewed request fingerprint')
+    if p.get('schema')=='NOK_PRODUCTION_GRANT_V2':
+        from services.activation_preflight import validate
+        validate(p.get('activation_preflight'),p['period_id'],p['family'],settings=p['settings'],
+            cost_policy=p['cost_policy'],restore_review=p['restore_review'],storage=storage)
+    elif p.get('schema')!='NOK_PRODUCTION_GRANT_V1' or 'activation_preflight' in p:
+        raise ValueError('Unknown production grant contract')
     reviewed=verify_archive(archive_root,p['archive']['archive_id'],certificate=certificate,private_key=private_key)
     if {k:reviewed[k] for k in p['archive']}!=p['archive']:raise ValueError('Archive differs from approved evidence')
     verify_restore_destination(restore_destination,p['restore_review'])
@@ -150,7 +163,10 @@ def activate(grant,*,confirmation,archive_root,certificate,private_key,restore_d
         else:
             import psycopg2
             connections={name:psycopg2.connect(dsn,connect_timeout=10) for name,dsn in database_dsns.items()}
-        verify_live_sources(reviewed,databases=connections,ignore_period=p['period_id'])
+        runtime_evidence=(p.get('activation_preflight') or {}).get('runtime_evidence')
+        verify_live_sources(reviewed,databases=connections,ignore_period=p['period_id'],
+            restored_payload=Path(restore_destination)/'payload' if runtime_evidence else None,
+            runtime_evidence=runtime_evidence)
     finally:
         for connection in connections.values():connection.close()
     family=p['family'];period=p['period_id'];key=restart._key(period)

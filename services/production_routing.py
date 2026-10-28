@@ -148,6 +148,15 @@ def super_portfolio(pipeline,policy,*,scheduled=False):
         from dataclasses import fields
         cfg=engine.SuperPortfolioConfig(**{k:v for k,v in strategy_settings('super_portfolio').items() if k in {f.name for f in fields(engine.SuperPortfolioConfig)}})
         pipeline=engine.get_or_build_super_portfolio_market_pipeline(cfg=cfg,force_refresh=engine._rebalance_due(view('super_portfolio'),datetime.now(timezone.utc),cfg,policy))
+    from services.activation_preflight import frozen_market_policy
+    pipeline=deepcopy(pipeline)
+    frozen=frozen_market_policy(pipeline)
+    signed=(chosen['approval'].get('activation_preflight') or {}).get('market_activation_levels')
+    if signed is not None:
+        signed=frozen_market_policy({'market_activation_levels':signed})
+        ranks={'OFF':0,'SHADOW':1,'PRODUCTION':2}
+        frozen={market:min((level,signed[market]),key=ranks.get) for market,level in frozen.items()}
+    pipeline['market_activation_levels']=frozen
     run_id=str(pipeline.get('run_id') or '')
     if not run_id:raise ValueError('Stable pipeline run ID required')
     source_input=dict(pipeline=pipeline,policy=policy)
@@ -346,8 +355,17 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
             selected=[r for r in strategy_input if r['ticker'] in evidence]
     else:
         selected=strategy_input
+    policy_snapshot=None
+    if family=='super_portfolio':
+        from services.activation_preflight import frozen_market_policy
+        policy_snapshot=frozen_market_policy(selected)
+        selected=deepcopy(selected)
+        selected['market_activation_levels']=deepcopy(policy_snapshot)
     receipt=trading.preview(period_id=period_id,family=family,at=at,evidence=evidence,settings=settings,
         strategy_input=selected,storage=storage)
+    if policy_snapshot is not None:
+        receipt['preflight_market_activation_policy']=policy_snapshot
+        receipt['preflight_market_activation_policy_sha256']=digest(policy_snapshot)
     receipt['preflight_excluded_candidates']=blocked
     receipt['original_strategy_input_sha256']=digest(strategy_input)
     return receipt
