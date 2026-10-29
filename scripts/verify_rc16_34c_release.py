@@ -65,7 +65,8 @@ assert "HARD_POSITION_CAP" in portfolio
 assert 'pos["target_weight_pct"] = capped_weight' in portfolio
 assert "overskytende beholdes som kontanter" in portfolio
 
-assert "RESULTAT: Paper-porteføljen" in learning
+assert "PAPER / NY PERIODE" in learning
+assert "_verified_new_paper_result_line" in learning
 assert "RISIKO: Drawdown" in learning
 assert "NESTE STEG:" in learning
 assert "HANDLING:" in learning
