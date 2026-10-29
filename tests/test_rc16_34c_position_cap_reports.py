@@ -103,7 +103,8 @@ def test_notifications_are_plain_language_first() -> None:
     autonomy = (ROOT / "autonomous_portfolio.py").read_text(encoding="utf-8")
     portfolio = (ROOT / "super_portfolio.py").read_text(encoding="utf-8")
 
-    assert "RESULTAT: Paper-porteføljen" in learning
+    assert "PAPER / NY PERIODE" in learning
+    assert "_verified_new_paper_result_line" in learning
     assert "RISIKO: Drawdown" in learning
     assert "NESTE STEG:" in learning
     assert "HANDLING:" in learning
