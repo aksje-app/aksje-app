@@ -904,13 +904,29 @@ def generate_management_report(force: bool = False) -> dict[str, Any] | None:
             f"{requirement['mature_observations']}/{requirement['mature_observations_required']} modne observasjoner "
             f"eller {requirement['closed_trades']}/{requirement['closed_trades_required']} avsluttede ordinære handler."
         )
-    if paper_snapshot.get("available"):
-        paper_line = (
-            f"PAPER / RESULTAT: Paper-porteføljen er {paper_snapshot.get('total_value', 0):,.0f} "
-            f"({paper_snapshot.get('result_amount', 0):+,.0f} / {paper_snapshot.get('result_pct', 0):+.2f}% fra start)."
-        )
-    else:
-        paper_line = "PAPER: Paper-status er utilgjengelig."
+    # Legacy Paper's 300k rules must never be compared with the new 100k
+    # economically separate simulation. Use the verified period ledger only.
+    paper_line = "PAPER / NY PERIODE: Verifisert saldo er ikke tilgjengelig; historisk Paper-resultat utelatt."
+    try:
+        from services.production_restart import selected
+        from services.restart_reporting import snapshot as period_snapshot
+        chosen = selected("paper", require_running=False)
+        if chosen is not None:
+            period_id = chosen["pointer"]["period_id"]
+            p = period_snapshot(period_id, "paper")["account"]["new_period"]
+            opening = float(p["opening_nav_nok"])
+            nav = float(p["verification"]["verified_nav"])
+            pnl = float(p["period_net_pnl_nok"])
+            pct = float(p["verification"]["verified_net_return_pct"])
+            paper_line = (
+                f"PAPER / NY PERIODE ({period_id}): Verifisert verdi {nav:,.0f} NOK; "
+                f"start {opening:,.0f} NOK; nettoresultat {pnl:+,.0f} NOK "
+                f"({pct:+.2f}% fra ny periodestart). "
+                "Historisk Paper og autonom læring holdes utenfor denne avkastningen."
+            )
+    except Exception:
+        # Do not print plausible-looking legacy figures as new-period losses.
+        pass
 
     closed_now = int(requirement["closed_trades"])
     closed_required = int(requirement["closed_trades_required"])
