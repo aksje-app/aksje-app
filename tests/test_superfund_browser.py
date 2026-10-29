@@ -36,9 +36,9 @@ def test_superfund_all_menus_wrap_without_overlap(server,width):
         p=browser.new_page(viewport={'width':width,'height':900},device_scale_factor=1)
         p.goto(server+'?aa_nav=superfund')
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
-        p.locator('.sf-card').first.wait_for()
+        p.get_by_role('heading',name='Superporteføljen – ny periode').wait_for()
         Path('dist/browser').mkdir(parents=True,exist_ok=True)
-        p.locator('.sf-card').first.scroll_into_view_if_needed()
+        p.get_by_role('heading',name='Superporteføljen – ny periode').scroll_into_view_if_needed()
         p.screenshot(path=f'dist/browser/superfund-pending-{width}.png')
         # Navigate using the app's actual section selector. Each selection
         # triggers a Streamlit rerun; do not rely on every expander staying open.
@@ -114,14 +114,14 @@ def test_first_tap_and_fresh_browser_restore_superfund_and_selected_section(serv
         p.get_by_role('combobox',name='Vis område').click()
         p.get_by_role('option',name='Portefølje',exact=True).click()
         p.locator('[data-testid="stExpander"] summary').filter(has_text='Portefølje').first.wait_for()
-        p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').first.wait_for()
+        p.get_by_role('heading',name='Superporteføljen – ny periode').wait_for()
         p.locator('.st-key-aa_mobile_nav_overview button').click()
         p.get_by_role('heading',name='Start',exact=True).wait_for()
         p.locator('.st-key-aa_mobile_nav_superfund button').click()
         p.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
         # Verify persisted Portfolio selection after returning through the mobile nav.
         p.locator('[data-testid="stExpander"] summary').filter(has_text='Portefølje').first.wait_for()
-        p.locator('.sf-card').filter(has_text='Kjøp avventer ny kursobservasjon').first.wait_for()
+        p.get_by_role('heading',name='Superporteføljen – ny periode').wait_for()
         # Candidate tags must only be asserted when Candidate view is selected.
         p.get_by_role('combobox',name='Vis område').click()
         p.get_by_role('option',name='Kandidater',exact=True).click()

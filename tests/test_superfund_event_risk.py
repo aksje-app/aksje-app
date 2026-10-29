@@ -136,9 +136,11 @@ def test_risk_ui_reads_cache_and_decides(local):
     runtime.write('snapshot.json',{'model':s,'risk':view,'parameters':engine.DEFAULTS,'at':'2026-10-12'})
     app=AppTest.from_string('import streamlit as st\nfrom pages.superfund import render_superfund\nrender_superfund(st)').run()
     assert not app.exception
-    pid=view['proposals'][0]['id'];app.button(key='sf_risk_yes_'+pid).click().run()
-    assert not app.exception and runtime.read('risk_decisions.json')[pid]['state']=='APPROVED'
+    # Legacy model decisions are not offered on new-period portfolio screens.
+    pid=view['proposals'][0]['id']
     assert not [b for b in app.button if b.key=='sf_risk_yes_'+pid]
+    assert not runtime.read('risk_decisions.json',{}).get(pid)
+
 
 
 def test_receipt_survives_new_quote_but_cannot_repeat():

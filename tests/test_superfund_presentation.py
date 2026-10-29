@@ -81,7 +81,9 @@ def test_all_menus_render_long_text_nested_capacity_without_network(monkeypatch)
     assert not app.exception
     assert any(e.label=='Portefølje' for e in app.expander)
     markdown=' '.join(x.value for x in app.markdown)
-    assert 'Et svært langt fondsnavn' in markdown
+    # Historical model positions are not part of the fresh portfolio view.
+    assert 'Et svært langt fondsnavn' not in markdown
+    assert 'Historikk, bearbeiding og validering' in markdown
     assert 'max-height:none' in markdown
     # Inactive sections are intentionally not rendered.
     app.selectbox(key='sf_section').set_value('Diagnoser').run()
