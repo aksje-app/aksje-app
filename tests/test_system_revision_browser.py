@@ -284,7 +284,7 @@ def test_native_fund_accounting_download_preserves_model(app_server,width):
         browser.close()
     # The legacy model can still be audited by internal code without presenting
     # any old gains/losses or allowing it to become a new operating balance.
-    legacy=audit_native({'initial_capital':1000000,'cash':1000000,'positions':{}})
+    legacy=audit_native({'initial_capital':1000000,'cash':1000000,'positions':{}}, at='2026-10-29T12:00:00+00:00')
     assert legacy['separate_operational_ledger'] is False
 
 
