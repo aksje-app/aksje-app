@@ -27,17 +27,8 @@ def _render_superfund(st):
     if job.get('state')=='DEFERRED_CAPACITY':st.info(job.get('message'))
     if job.get('error'):st.warning(job['error'])
     s=snapshot();model=s.get('model',{})
-    from services.superfund_accounting import audit_native
-    from datetime import datetime, timezone
-    native_accounting=audit_native(model, at=datetime.now(timezone.utc).isoformat())
-    with st.expander('NOK-regnskap – Superfonds eksisterende modell', expanded=False):
-        st.write(native_accounting['status'])
-        st.caption(native_accounting['cost_basis'])
-        st.caption('Eldre uverifiserte resultater og tap beholdes. Ingen separat fondskonto opprettes.')
-        if native_accounting['issues']:st.write(native_accounting['issues'])
-        st.download_button('Last ned Superfond NOK-avstemming (JSON)',
-            json.dumps({'verification':native_accounting,'model':model},ensure_ascii=False,indent=2).encode(),
-            file_name='superfond_nok_avstemming.json',mime='application/json',key='sf_nok_json',on_click='ignore')
+    # Keep the legacy Superfond ledger in storage for audit/learning only.
+    # It must not appear as a current-period portfolio or headline result.
     from superfund_history_progress_view import render as render_fund_history
     render_fund_history(st,s)
     index=read('catalog_index.json',{})
@@ -58,13 +49,10 @@ def _render_superfund(st):
         if st.button('Avvis',key='sf_reject'):
             decide_proposal(proposal['id'],False);st.rerun()
     if not s:st.info('Første katalogpass pågår etter deploy. Dekning og datamangler vises under Diagnoser. Ingen modellkjøp før katalogpasset er komplett.')
-    equity=model.get('cash',0)+sum(p['quantity']*p['last_nok'] for p in model.get('positions',{}).values())
-    st.metric('Modellportefølje NOK',f'{equity:,.0f}' if s else '—')
-    st.metric('Avkastning',f"{(equity/model.get('initial_capital',1)-1)*100:+.2f}%" if s else '—')
-    st.caption('Regnskapsstatus: '+native_accounting['status']+' · Modellsimulering med estimerte handels- og valutakostnader. Eldre tap og uverifiserte resultater beholdes.')
+    st.caption('Fondsanalyse og katalog. Tidligere modellbeholdninger og resultater vises ikke som aktiv portefølje.')
     st.caption('Siste komplette snapshot: '+date_label(s.get('at')))
     risk=s.get('risk',{})
-    if risk:
+    if False and risk:  # Legacy model-only risk display is not a new-period risk report.
         with st.expander('Hendelsesrisiko · Brasil og gevinstvern',expanded=True):
             st.metric('Brasil · konservativ eksponering',f"{risk['brazil_upper_pct']:.1f} %",help='Ukjent landfordeling reserveres som mulig Brasil-eksponering. Dette er en øvre grense.')
             st.caption(f"Midlertidig tak {risk['cap_pct']:.0f} % · landdata for {risk['country_data_coverage_pct']:.1f} % av kapitalen · maks trailing stop 3 %")
@@ -157,7 +145,19 @@ def _render_superfund(st):
     for title in [st.session_state['sf_section']]:
         with st.expander(title, expanded=True):
             if title=='Portefølje':
-                render_overview(st,s)
+                # Portfolio view is bound to the new, approved economic period,
+                # not the independent legacy Superfond snapshot.
+                from services.production_routing import metrics as new_period_metrics
+                verified=new_period_metrics('super_portfolio')
+                st.subheader('Superporteføljen – ny periode')
+                if verified:
+                    st.metric('Verifisert porteføljeverdi NOK', f"{verified['equity']:,.0f}")
+                    st.metric('Avkastning siden ny start', f"{verified['total_return_pct']:+.2f}%")
+                    st.metric('Kontanter NOK', f"{verified['cash']:,.0f}")
+                    st.caption('Periode: '+str(verified['economic_period_id'])+' · Ingen tidligere modellresultater inngår.')
+                else:
+                    st.info('Ny verifisert Superportefølje er ikke tilgjengelig. Ingen tidligere modellverdier vises.')
+                continue
                 st.subheader('Eide fond · løpende rangering')
                 ranking=owned_rankings(s)
                 ranking_by_id={r['id']:r for r in ranking}
