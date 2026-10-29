@@ -269,22 +269,23 @@ def test_nok_accounting_status_and_complete_draft_downloads(app_server,width,rou
 
 @pytest.mark.parametrize('width',[1280,375])
 def test_native_fund_accounting_download_preserves_model(app_server,width):
+    """Legacy accounting is preserved internally, not surfaced as active P&L."""
+    from services.superfund_accounting import audit_native
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
         browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None)
-        page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+        page=browser.new_page(viewport={'width':width,'height':900})
         page.goto(app_server+'/?aa_nav=superfund')
-        panel=page.locator('[data-testid="stExpander"]').filter(has_text='NOK-regnskap – Superfonds eksisterende modell')
-        panel.locator('summary').wait_for(timeout=45000);panel.locator('summary').click()
-        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=45000)
-        with page.expect_download() as download:
-            panel.get_by_role('button',name='Last ned Superfond NOK-avstemming (JSON)',exact=True).click()
-        data=json.loads(Path(download.value.path()).read_bytes())
-        assert data['verification']['status']=='IKKE VERIFISERT'
-        assert data['verification']['separate_operational_ledger'] is False
-        assert data['verification']['verified_nav_nok'] is None
-        assert not page.locator('[data-testid="stException"]').count()
+        page.get_by_role('heading',name='Superfondportefølje',exact=True).wait_for()
+        page.get_by_role('heading',name='Superporteføljen – ny periode').wait_for()
+        assert page.get_by_text('NOK-regnskap – Superfonds eksisterende modell').count()==0
+        assert page.get_by_text('Modellportefølje NOK',exact=True).count()==0
+        assert page.locator('[data-testid="stException"]').count()==0
         browser.close()
+    # The legacy model can still be audited by internal code without presenting
+    # any old gains/losses or allowing it to become a new operating balance.
+    legacy=audit_native({'initial_capital':1000000,'cash':1000000,'positions':{}})
+    assert legacy['separate_operational_ledger'] is False
 
 
 @pytest.mark.parametrize('width',[1280,375])
