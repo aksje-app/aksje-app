@@ -84,3 +84,9 @@ def test_critical_parameter_integrity_not_suppressed():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     assert 'relevance_event=' not in (root / 'parameter_integrity.py').read_text()
+
+
+def test_suppressed_notification_not_marked_sent_static():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'notifier.py').read_text()
+    assert '_log_delivery(title, False, detail, has_url=bool(url))\n            return False, detail' in source
