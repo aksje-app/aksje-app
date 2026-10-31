@@ -672,6 +672,7 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
             summary_priority = 1 if any(int(item.get("priority_level") or 4) == 1 for item in alerts) else 0
             ok, detail = normalize_notification_result(send_pushover_alert(
                 summary_body, title=summary_title, priority=summary_priority,
+                relevance_event={"category": "routine"},
             ))
             current["last_batch_notification"] = {
                 "sent": ok, "detail": detail, "title": summary_title,
@@ -689,6 +690,7 @@ def monitor_receipts(receipts: Sequence[Mapping[str, Any]], *, now: datetime | N
                 url=report_url or None,
                 url_title="Åpne siste rapportdetaljer" if report_url else None,
                 priority=int(event.get("pushover_priority") or 0),
+                relevance_event={"category": "observation"} if int(event.get("priority_level") or 4) > 2 else None,
             ))
             event.update({"sent": ok, "detail": detail})
     missed = []
