@@ -1,4 +1,4 @@
-"""Notification relevance decision helper; not connected to live sending."""
+"""Structured notification relevance policy for opt-in Pushover senders."""
 
 def classify(event):
     kind = str(event.get('category') or '').lower()
