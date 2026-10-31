@@ -19,3 +19,11 @@ def test_verified_actionable_buy():
 
 def test_unknown_sender_not_silently_blocked():
     assert classify({'category': 'unknown'}) == 'legacy'
+
+
+def test_verified_sell_signal():
+    assert classify({'category': 'sell_signal', 'ticker': 'XYZ', 'signal_id': 'sell-1', 'verified': True, 'requires_action': True, 'threshold_met': True}) == 'send'
+
+
+def test_missing_signal_id_stays_in_app():
+    assert classify({'category': 'buy_signal', 'ticker': 'XYZ', 'verified': True, 'requires_action': True, 'threshold_met': True}) == 'in_app'
