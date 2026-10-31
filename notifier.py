@@ -252,9 +252,17 @@ def normalize_notification_result(response):
     return bool(response), ""
 
 
-def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None, *, priority=0):
+def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None, *, priority=0, relevance_event=None):
     title = _trim_text(title, PUSHOVER_TITLE_LIMIT)
     message = fit_pushover_message(message)
+    if relevance_event is not None:
+        from notification_relevance_policy import classify
+        decision = classify(relevance_event)
+        if decision == "in_app":
+            detail = "relevance suppressed: in-app only"
+            _log_delivery(title, True, detail, has_url=bool(url))
+            return True, detail
+        # 'legacy' and 'exempt' preserve existing delivery semantics.
     url_title = _trim_text(url_title, PUSHOVER_TITLE_LIMIT) if url_title else None
     allowed, safety_reason = notifications_allowed()
     if not allowed:
