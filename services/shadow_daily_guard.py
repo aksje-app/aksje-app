@@ -65,7 +65,7 @@ def send_daily_if_due(*, now=None):
             f"Avvik: {', '.join(report['failures']) if report['failures'] else 'Ingen manglende kjøringer'}")
     try:
         ok, detail = normalize_notification_result(send_pushover_alert(
-            text, title=f"Shadow/læring daglig {report['status']}"))
+            text, title=f"Shadow/læring daglig {report['status']}", relevance_event={"category": "routine"} if not report["failures"] else None))
     except Exception as exc:
         ok, detail = False, type(exc).__name__
     # A deduplicated notification is NOT proof of a new Pushover delivery.
