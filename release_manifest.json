@@ -293,6 +293,20 @@
         "tests/test_rc16_34f_activation_history_memory.py",
         "Local focused tests: 36 passed; 40 MiB legacy latest read peak 1.77 MiB"
       ]
+    },
+    {
+      "id": "PUSH-177",
+      "title": "Pushover structured relevance filtering and sender isolation",
+      "status": "IMPLEMENTED",
+      "release_blocker": true,
+      "evidence": [
+        "notification_relevance_policy.py",
+        "notifier.py",
+        "fresh_trend_monitor.py",
+        "tests/test_notification_relevance_policy.py",
+        "GitHub Actions Release gate 41210678785: success; sender-wide end-to-end verification outstanding"
+      ],
+      "deploy_status": "NOT_VERIFIED"
     }
   ]
 }
