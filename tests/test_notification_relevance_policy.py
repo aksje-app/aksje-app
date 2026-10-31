@@ -76,7 +76,7 @@ def test_learning_reports_are_in_app_only_static():
 def test_additional_routine_senders_are_opted_in():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
-    for path in ('controlled_parameter_learning.py', 'quality_valuation_schedule.py', 'services/shadow_daily_guard.py', 'superfund_runtime.py'):
+    for path in ('controlled_parameter_learning.py', 'quality_valuation_schedule.py', 'services/shadow_daily_guard.py'):
         assert 'relevance_event=' in (root / path).read_text(), path
 
 
@@ -90,3 +90,9 @@ def test_suppressed_notification_not_marked_sent_static():
     from pathlib import Path
     source = (Path(__file__).resolve().parents[1] / 'notifier.py').read_text()
     assert '_log_delivery(title, False, detail, has_url=bool(url))\n            return False, detail' in source
+
+
+def test_superfund_ranking_digest_is_in_app_only_static():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'superfund_runtime.py').read_text()
+    assert '"state":"IN_APP_ONLY"' in source
