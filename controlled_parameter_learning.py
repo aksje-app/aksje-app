@@ -508,7 +508,7 @@ def _notify(title: str, message: str, payload: Mapping[str, Any]) -> None:
     _write(NOTIFICATIONS_PATH, rows[:1000])
     try:
         from notifier import normalize_notification_result, send_pushover_alert
-        ok, detail = normalize_notification_result(send_pushover_alert(message, title=title))
+        ok, detail = normalize_notification_result(send_pushover_alert(message, title=title, relevance_event={"category": "routine"}))
         rows[0]["delivery"] = "PUSHOVER_SENT" if ok else "PUSHOVER_FAILED"
         if detail:
             rows[0]["error"] = str(detail)[:500]
