@@ -42,3 +42,10 @@ def test_currency_sender_not_migrated_static():
     source = (Path(__file__).resolve().parents[1] / "currency_alert_service.py").read_text()
     assert "send_pushover_alert" in source
     assert "relevance_event=" not in source
+
+
+def test_fresh_trend_batches_and_observations_suppressed_static():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "fresh_trend_monitor.py").read_text()
+    assert 'relevance_event={"category": "routine"}' in source
+    assert 'relevance_event={"category": "observation"} if int(event.get("priority_level") or 4) > 2 else None' in source
