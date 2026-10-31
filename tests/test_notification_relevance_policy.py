@@ -49,3 +49,19 @@ def test_fresh_trend_batches_and_observations_suppressed_static():
     source = (Path(__file__).resolve().parents[1] / "fresh_trend_monitor.py").read_text()
     assert 'relevance_event={"category": "routine"}' in source
     assert 'relevance_event={"category": "observation"} if int(event.get("priority_level") or 4) > 2 else None' in source
+
+
+def test_critical_alerts_preserved():
+    assert classify({'category': 'critical'}) == 'legacy'
+
+
+def test_trade_receipts_preserved():
+    assert classify({'category': 'trade_execution'}) == 'legacy'
+
+
+def test_signal_requires_all_guards():
+    base = {'category': 'buy_signal', 'ticker': 'DNO', 'signal_id': '1', 'verified': True, 'requires_action': True, 'threshold_met': True}
+    for field in ('verified', 'requires_action', 'threshold_met'):
+        event = dict(base)
+        event[field] = False
+        assert classify(event) == 'in_app'
