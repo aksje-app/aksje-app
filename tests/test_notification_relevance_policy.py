@@ -27,3 +27,18 @@ def test_verified_sell_signal():
 
 def test_missing_signal_id_stays_in_app():
     assert classify({'category': 'buy_signal', 'ticker': 'XYZ', 'verified': True, 'requires_action': True, 'threshold_met': True}) == 'in_app'
+
+
+def test_notifier_opt_in_contract_static():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "notifier.py").read_text()
+    assert "relevance_event=None" in source
+    assert 'if relevance_event is not None:' in source
+    assert 'if decision == "in_app":' in source
+
+
+def test_currency_sender_not_migrated_static():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "currency_alert_service.py").read_text()
+    assert "send_pushover_alert" in source
+    assert "relevance_event=" not in source
