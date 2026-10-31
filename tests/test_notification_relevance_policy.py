@@ -71,3 +71,16 @@ def test_learning_reports_are_in_app_only_static():
     from pathlib import Path
     source = (Path(__file__).resolve().parents[1] / 'learning_observation_engine.py').read_text()
     assert source.count('relevance_event={"category": "routine"}') >= 2
+
+
+def test_additional_routine_senders_are_opted_in():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for path in ('controlled_parameter_learning.py', 'quality_valuation_schedule.py', 'services/shadow_daily_guard.py', 'superfund_runtime.py'):
+        assert 'relevance_event=' in (root / path).read_text(), path
+
+
+def test_critical_parameter_integrity_not_suppressed():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    assert 'relevance_event=' not in (root / 'parameter_integrity.py').read_text()
