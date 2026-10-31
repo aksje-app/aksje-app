@@ -65,3 +65,9 @@ def test_signal_requires_all_guards():
         event = dict(base)
         event[field] = False
         assert classify(event) == 'in_app'
+
+
+def test_learning_reports_are_in_app_only_static():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'learning_observation_engine.py').read_text()
+    assert source.count('relevance_event={"category": "routine"}') >= 2
