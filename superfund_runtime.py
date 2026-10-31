@@ -456,11 +456,6 @@ def send_scheduled_ranking_digest(*, now=None):
           f"(score {float(leader.get('score') or 0):.2f}, {leader.get('currency','')}).\n\n"
           "Se samlet rapport med rangering, sektorer, avkastning og forklaringer i appen. "
           "Nyheter som ikke er verifisert mot et enkeltfond, merkes tydelig.")
-    ok,detail=normalize_notification_result(send_pushover_alert(
-        body,title="Superfond · samlet rangeringsrapport",url=target,
-        url_title="Åpne samlet Superfond-rapport",priority=0))
-    if not ok:
-        write("ranking_digest_delivery.json",{"date":date,"state":"FAILED","reason":str(detail)[:200]})
-        return {"state":"FAILED","reason":str(detail)[:200]}
-    write("ranking_digest_delivery.json",{"date":date,"state":"SENT","pages":1,"snapshot_at":digest["at"]})
-    return {"state":"SENT","pages":1}
+    # Ranking-only digest stays available in-app; do not misreport suppression as failed delivery.
+    write("ranking_digest_delivery.json",{"date":date,"state":"IN_APP_ONLY","pages":1,"snapshot_at":digest["at"]})
+    return {"state":"IN_APP_ONLY","pages":1}

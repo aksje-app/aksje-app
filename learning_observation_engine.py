@@ -854,7 +854,7 @@ def generate_historical_baseline(*, runs: Sequence[Mapping[str, Any]] | None = N
         try:
             from notifier import send_pushover_alert
             from report_delivery import public_report_url
-            send_pushover_alert(f"Signaler: {record.get('signal_count', 0)} | verifisert: {record.get('verified_count', 0)}\nStatus: {record.get('status')}", title="Historisk læringsbaseline", url=public_report_url(record) or None, url_title="Åpne og del baseline")
+            send_pushover_alert(f"Signaler: {record.get('signal_count', 0)} | verifisert: {record.get('verified_count', 0)}\nStatus: {record.get('status')}", title="Historisk læringsbaseline", url=public_report_url(record) or None, url_title="Åpne og del baseline", relevance_event={"category": "routine"})
         except Exception:
             pass
     return {key: record.get(key) for key in ("status", "report_id", "signal_count", "verified_count", "baseline_sha256")}
@@ -989,7 +989,7 @@ def generate_weekly_report(*, now: datetime | None = None, notify: bool = True) 
                 f"Observasjoner: {analysis.get('observation_count')} | modne: {analysis.get('matured_count')}\n"
                 f"Målt 1/5/20/60: {'/'.join(str(horizon_counts.get(str(day),0)) for day in HORIZONS)} | helse: {(analysis.get('health') or {}).get('status')}\n"
                 "Foreløpige trender endrer ingen produksjonsregel.",title="Ukentlig læringsrapport",
-                url=public_report_url(record) or None,url_title="Åpne læringsrapport")
+                url=public_report_url(record) or None,url_title="Åpne læringsrapport", relevance_event={"category": "routine"})
             record["notification"]={"attempted":True,"sent":bool(ok),"detail":str(detail or "")[:500]}
         except Exception as exc:
             record["notification"]={"attempted":True,"sent":False,"detail":f"{type(exc).__name__}: {str(exc)[:420]}"}

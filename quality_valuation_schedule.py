@@ -280,7 +280,7 @@ def run_due_scheduled_screen(now: datetime | None = None) -> dict[str, Any]:
         for event in events:
             ok, _ = send_pushover_alert(
                 event["text"], title=event["title"], url=result.get("report_url") or None,
-                url_title="Åpne kvalitetsrapport", priority=0,
+                url_title="Åpne kvalitetsrapport", priority=0, relevance_event={"category": "routine"},
             )
             sent += int(bool(ok))
 
