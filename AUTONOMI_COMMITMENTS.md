@@ -100,3 +100,11 @@ Status: TESTED locally; live deployment NOT_VERIFIED. No claim of production com
 ## rc16.34f Activation history memory
 
 New activation analyses are separate documents with an atomic metadata index. Latest/history reads use bounded legacy pages and preserve the legacy collection unchanged. Historical IDs remain retrievable; history supports offsets and caps each page at 500. No trading parameters or portfolio records are changed. Status: TESTED locally (36 focused tests passed). Deployment verification is pending. Evidence: `tests/test_rc16_34f_activation_history_memory.py`.
+
+
+## Pushover relevance gate (PR #177)
+
+- AGREED: reduce routine/candidate/ranking/observation Pushover traffic; preserve verified actionable buy/sell signals, critical operational and stop-risk alerts, and currency alerts unchanged.
+- IMPLEMENTED (partial): opt-in structured policy in notifier and Fresh Trend routine/observation filtering. Legacy senders, paper trade receipts, currency sender and P1/P2 Fresh Trend alerts preserve existing delivery semantics.
+- TESTED: GitHub Actions Release gate 41210678785 succeeded on commit 02cab8082c436c8e322226b25b1f037a42568b12; this is not proof of all live sender integrations.
+- MERGED: NO. DEPLOY_VERIFIED: NO. Full sender audit and end-to-end delivery evidence required before merge readiness.
