@@ -458,7 +458,7 @@ def send_scheduled_ranking_digest(*, now=None):
           "Nyheter som ikke er verifisert mot et enkeltfond, merkes tydelig.")
     ok,detail=normalize_notification_result(send_pushover_alert(
         body,title="Superfond · samlet rangeringsrapport",url=target,
-        url_title="Åpne samlet Superfond-rapport",priority=0))
+        url_title="Åpne samlet Superfond-rapport",priority=0, relevance_event={"category": "ranking"}))
     if not ok:
         write("ranking_digest_delivery.json",{"date":date,"state":"FAILED","reason":str(detail)[:200]})
         return {"state":"FAILED","reason":str(detail)[:200]}
