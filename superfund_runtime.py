@@ -392,23 +392,15 @@ def deliver_pending():
     if s.get('report_pending'):
         from superfund_reports import prepare_report_link
         s['report']=prepare_report_link(s);s['report_pending']=False;write('snapshot.json',s)
-    if s.get('notification_pending') and config()['notifications']:
-        from notifier import send_pushover_alert, normalize_notification_result
-        from superfund_presentation import notification_batch
-        text,count=notification_batch(s['notification_pending'])
-        changes=s['notification_pending'][:count]
-        # Direct link to the first fund actually described in this Pushover batch.
-        # Each queued alert retains its immutable source ID, not its list position.
-        from urllib.parse import urlencode
-        first=next((e for e in changes if e.get('side')=='STERK UKEUTVIKLING' and e.get('id')),None)
-        base='https://aksje-app.onrender.com/'
-        target=base+'?'+urlencode({'mobile_nav':'superfund','aa_nav':'superfund','aa_tab':'Kandidater',
-                                   **({'aa_fund':str(first['id'])} if first else {})})
-        ok, detail=normalize_notification_result(send_pushover_alert(text,title='Superfondportefølje',
-            url=target,url_title=('Åpne omtalt fond' if first else 'Superfond i appen'),priority=0))
-        s['delivery']={'at':now_iso(),'sent':ok,'detail':str(detail)[:200]}
-        if ok:s['notification_pending']=s['notification_pending'][len(changes):]
-        write('snapshot.json',s)
+    if s.get('notification_pending'):
+        # Candidate/ranking/weekly-performance observations remain in the app.
+        # Never send them to Pushover or leave them queued for later replay.
+        pending = s['notification_pending']
+        s['notification_pending'] = []
+        s['delivery'] = {'at': now_iso(), 'sent': False,
+                         'detail': f'{len(pending)} candidate events: in-app only',
+                         'status': 'IN_APP_ONLY'}
+        write('snapshot.json', s)
 
 
 def decide_risk_proposal(proposal_id, approve, actor='UI'):
