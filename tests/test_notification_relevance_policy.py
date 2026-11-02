@@ -96,3 +96,21 @@ def test_superfund_ranking_digest_is_in_app_only_static():
     from pathlib import Path
     source = (Path(__file__).resolve().parents[1] / 'superfund_runtime.py').read_text()
     assert '"state":"IN_APP_ONLY"' in source
+
+
+def test_superfund_candidate_queue_never_pushes():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'superfund_runtime.py').read_text()
+    start = source.index("    if s.get('notification_pending'):")
+    end = source.index('def decide_risk_proposal', start)
+    section = source[start:end]
+    assert 'send_pushover_alert' not in section
+    assert "s['notification_pending'] = []" in section
+    assert "'status': 'IN_APP_ONLY'" in section
+    assert "'sent': False" in section
+
+
+def test_superfund_critical_capacity_alert_remains():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'superfund_runtime.py').read_text()
+    assert "title='Superfond · drift'" in source
