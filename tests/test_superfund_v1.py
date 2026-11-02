@@ -267,17 +267,18 @@ def test_detail_cache_rotates_and_keeps_held_products(local,monkeypatch):
     assert not runtime.read('details/'+old+'.json',{})
 
 
-def test_notification_delivery_keeps_unsent_events(local,monkeypatch):
+def test_notification_candidates_remain_in_app_without_push(local,monkeypatch):
     monkeypatch.setattr(runtime,'deliver_pending',REAL_DELIVERY)
     import notifier
     events=[{'side':'BUY','id':str(i)} for i in range(7)]
     runtime.write('snapshot.json',{'notification_pending':events})
-    monkeypatch.setattr(notifier,'send_pushover_alert',lambda *a,**k:True)
+    def forbidden(*a,**k):raise AssertionError('candidate Pushover must not send')
+    monkeypatch.setattr(notifier,'send_pushover_alert',forbidden)
     runtime.deliver_pending()
-    assert runtime.snapshot()['notification_pending']==events[5:]
-    monkeypatch.setattr(notifier,'send_pushover_alert',lambda *a,**k:False)
-    runtime.deliver_pending()
-    assert runtime.snapshot()['notification_pending']==events[5:]
+    snap=runtime.snapshot()
+    assert snap['notification_pending']==[]
+    assert snap['delivery']['status']=='IN_APP_ONLY'
+    assert snap['delivery']['sent'] is False
 
 
 def test_report_failure_retains_previous_published_report(local,monkeypatch):
@@ -365,16 +366,13 @@ def test_archive_clock_is_after_fetched_detail_verification(local,monkeypatch):
     assert runtime.snapshot()['archive_status']['state']=='ARCHIVED'
 
 
-def test_long_notification_batch_preserves_events_after_success_and_failure(local,monkeypatch):
+def test_long_candidate_batch_is_not_replayed(local,monkeypatch):
     import notifier
-    from superfund_presentation import notification_batch
     events=[{'side':'BUY','id':str(n),'name':'Et langt fondsnavn '*8,'reason':'En lang begrunnelse '*12} for n in range(10)]
-    _,count=notification_batch(events)
-    assert count<5
     runtime.write('snapshot.json',{'notification_pending':events})
-    monkeypatch.setattr(notifier,'send_pushover_alert',lambda *a,**k:True)
+    def forbidden(*a,**k):raise AssertionError('candidate Pushover must not send')
+    monkeypatch.setattr(notifier,'send_pushover_alert',forbidden)
     REAL_DELIVERY()
-    assert runtime.snapshot()['notification_pending']==events[count:]
-    monkeypatch.setattr(notifier,'send_pushover_alert',lambda *a,**k:False)
+    assert runtime.snapshot()['notification_pending']==[]
     REAL_DELIVERY()
-    assert runtime.snapshot()['notification_pending']==events[count:]
+    assert runtime.snapshot()['notification_pending']==[]
