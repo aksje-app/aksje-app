@@ -12,7 +12,7 @@ def test_energy_sector_translated_in_alert_and_detail():
 def test_unknown_sector_not_invented():
     assert norwegian_fund_sector({'name':'Global Equity ETF'}) is None
 
-def test_push_url_uses_one_time_mobile_deep_link():
+def test_candidate_alerts_do_not_create_pushover_deep_links():
     source=Path('superfund_runtime.py').read_text()
-    assert "'mobile_nav':'superfund'" in source
-    assert "'aa_fund':str(first['id'])" in source
+    assert "'status': 'IN_APP_ONLY'" in source
+    assert "'notification_pending'] = []" in source
