@@ -174,7 +174,7 @@ def test_pg_full_database_archive_and_atomic_three_account_preparation(pg,tmp_pa
     pg.write_json('learning/observations.json',{'TEST ONLY observations':81,'loss':-25000})
     import shlex
     from urllib.parse import urlsplit
-    if shutil.which('pg_dump') and shutil.which('pg_restore'):
+    # CI runs PostgreSQL 16 in Docker; host pg_restore can be newer and emit\n    # unsupported SET transaction_timeout when restoring into PostgreSQL 16.\n    # Use the matching server container's client binaries for CI restores.\n    if shutil.which('pg_dump') and shutil.which('pg_restore') and not (os.environ.get('GITHUB_ACTIONS') == 'true' and shutil.which('docker')):
         dump_command=[shutil.which('pg_dump')];restore_command=[shutil.which('pg_restore')]
     else:
         # Find the container serving THIS fixture's localhost port; works for
