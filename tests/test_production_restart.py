@@ -39,7 +39,10 @@ def ready(pg,sources,certificate,tmp_path,monkeypatch):
     pg.write_json('super_portfolio/state.json',{'cash':123,'positions':{'OLD':{'quantity':7}},
         'realized_pnl':-25000,'config':settings['super_portfolio']})
     root=tmp_path/'archives';root.mkdir(mode=0o700)
-    # CI runs PostgreSQL 16 in Docker; host pg_restore can be newer and emit\n    # unsupported SET transaction_timeout when restoring into PostgreSQL 16.\n    # Use the matching server container's client binaries for CI restores.\n    if shutil.which('pg_dump') and shutil.which('pg_restore') and not (os.environ.get('GITHUB_ACTIONS') == 'true' and shutil.which('docker')):
+    # CI runs PostgreSQL 16 in Docker; host pg_restore can be newer and emit
+    # unsupported SET transaction_timeout when restoring into PostgreSQL 16.
+    # Use the matching server container's client binaries for CI restores.
+    if shutil.which('pg_dump') and shutil.which('pg_restore') and not (os.environ.get('GITHUB_ACTIONS') == 'true' and shutil.which('docker')):
         dump=[shutil.which('pg_dump')];restore=[shutil.which('pg_restore')]
     else:
         ids=subprocess.check_output(['docker','ps','--format','{{.ID}}'],text=True).split()
