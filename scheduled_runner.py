@@ -605,16 +605,32 @@ def _run_once_locked() -> dict[str, Any]:
 
     _mem("scheduler:after_scanner")
 
+    # Optional jobs must not consume the final memory reserve needed for the
+    # scheduler to persist its result. Never skip mandatory reports or trades.
+    def _optional_memory_ready(name: str) -> bool:
+        from runtime_memory import release_process_memory
+        release_process_memory(f"scheduler:optional:{name}")
+        observation = _mem(f"scheduler:optional:{name}", stop=False)
+        if observation.get("pressure"):
+            state[name] = {
+                "state": "DEFERRED_MEMORY",
+                "reason": "Optional work deferred to protect the 2 GiB cron",
+                "memory_mb": observation.get("observed_mb"),
+            }
+            return False
+        return True
+
     # Learning maintenance is non-time-critical. It intentionally runs after
     # the Paper scanner so a long observation-maintenance pass can never delay
     # a due 15-minute market scan by tens of minutes.
     try:
         from runtime_memory import release_process_memory
         release_process_memory("scheduled_runner:before_learning_observations")
-        from learning_observation_engine import run_learning_maintenance
-        mark_breadcrumb("scheduler:learning_maintenance:before", component="scheduled_runner")
-        state["learning_observation_maintenance"] = dict(run_learning_maintenance() or {})
-        mark_breadcrumb("scheduler:learning_maintenance:after", component="scheduled_runner", detail={"status": (state.get("learning_observation_maintenance") or {}).get("status")})
+        if _optional_memory_ready("learning_observation_maintenance"):
+            from learning_observation_engine import run_learning_maintenance
+            mark_breadcrumb("scheduler:learning_maintenance:before", component="scheduled_runner")
+            state["learning_observation_maintenance"] = dict(run_learning_maintenance() or {})
+            mark_breadcrumb("scheduler:learning_maintenance:after", component="scheduled_runner", detail={"status": (state.get("learning_observation_maintenance") or {}).get("status")})
     except Exception as exc:
         state["learning_observation_maintenance"] = {"status":"FAILED","error":f"{type(exc).__name__}: {str(exc)[:500]}","production_changed":False}
     try:
@@ -625,15 +641,17 @@ def _run_once_locked() -> dict[str, Any]:
 
     # Optional paired experiments run after trading, in a killable child.
     try:
-        from learning_shadow_scheduler import run_shadow_job
-        state["learning_shadow"] = run_shadow_job()
+        if _optional_memory_ready("learning_shadow"):
+            from learning_shadow_scheduler import run_shadow_job
+            state["learning_shadow"] = run_shadow_job()
     except Exception as exc:
         state["learning_shadow"] = {"status": "FAILED", "error": str(exc)[:300], "production_changed": False}
 
     # Optional fund batch runs last in the same execution lane, below mandatory trading.
     try:
-        from superfund_runtime import run_batch
-        state["superfund"] = run_batch()
+        if _optional_memory_ready("superfund"):
+            from superfund_runtime import run_batch
+            state["superfund"] = run_batch()
     except Exception as exc:
         state["superfund"] = {"state": "FAILED", "error": str(exc)[:300]}
 
@@ -713,45 +731,52 @@ def _run_once_locked() -> dict[str, Any]:
 
     # Bounded historical acquisition; always advisory and isolated from trades.
     try:
-        from strategy_history_worker import run_once as run_strategy_history
-        state["strategy_history"] = run_strategy_history()
+        if _optional_memory_ready("strategy_history"):
+            from strategy_history_worker import run_once as run_strategy_history
+            state["strategy_history"] = run_strategy_history()
     except Exception as exc:
         state["strategy_history"] = {"status":"FAILED","reason":str(exc)[:250]}
 
     try:
-        from staged_entry_history_audit import run_once as audit_staging
-        state["staged_entry_audit"] = audit_staging()
+        if _optional_memory_ready("staged_entry_audit"):
+            from staged_entry_history_audit import run_once as audit_staging
+            state["staged_entry_audit"] = audit_staging()
     except Exception as exc:
         state["staged_entry_audit"] = {"status":"FAILED","reason":type(exc).__name__}
 
     try:
-        from portfolio_history_optimizer import run_once as optimize_history
-        state["portfolio_historical_optimization"] = optimize_history()
+        if _optional_memory_ready("portfolio_historical_optimization"):
+            from portfolio_history_optimizer import run_once as optimize_history
+            state["portfolio_historical_optimization"] = optimize_history()
     except Exception as exc:
         state["portfolio_historical_optimization"] = {"status":"FAILED","reason":type(exc).__name__}
 
     try:
-        from superfund_historical_research import run_once as research_fund_history
-        state["superfund_historical_research"] = research_fund_history()
+        if _optional_memory_ready("superfund_historical_research"):
+            from superfund_historical_research import run_once as research_fund_history
+            state["superfund_historical_research"] = research_fund_history()
     except Exception as exc:
         state["superfund_historical_research"] = {"status":"FAILED","reason":str(exc)[:250]}
 
     # ETF backfill is isolated and bounded; mutual fund NAV is not inferred.
     try:
-        from superfund_etf_backfill import run_once as run_etf_backfill
-        state["superfund_etf_backfill"] = run_etf_backfill()
+        if _optional_memory_ready("superfund_etf_backfill"):
+            from superfund_etf_backfill import run_once as run_etf_backfill
+            state["superfund_etf_backfill"] = run_etf_backfill()
     except Exception as exc:
         state["superfund_etf_backfill"] = {"status":"FAILED","reason":str(exc)[:250]}
 
     try:
-        from superfund_nav_backfill import run_once as run_fund_nav_backfill
-        state["superfund_nav_backfill"] = run_fund_nav_backfill()
+        if _optional_memory_ready("superfund_nav_backfill"):
+            from superfund_nav_backfill import run_once as run_fund_nav_backfill
+            state["superfund_nav_backfill"] = run_fund_nav_backfill()
     except Exception as exc:
         state["superfund_nav_backfill"] = {"status":"FAILED","reason":str(exc)[:250]}
 
     try:
-        from superfund_approved_history_worker import run_once as approved_history
-        state["superfund_approved_history"] = approved_history()
+        if _optional_memory_ready("superfund_approved_history"):
+            from superfund_approved_history_worker import run_once as approved_history
+            state["superfund_approved_history"] = approved_history()
     except Exception as exc:
         state["superfund_approved_history"] = {"status":"FAILED","reason":type(exc).__name__}
 
