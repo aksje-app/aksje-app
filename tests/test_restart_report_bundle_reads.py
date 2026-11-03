@@ -1,0 +1,32 @@
+"""Regression: reporting must not deserialize the large NOK restart bundle per family."""
+from services import simulation_restart as restart
+
+
+def test_restart_report_reads_bundle_only_once(monkeypatch):
+    period = "test-period"
+    bundle = {
+        "status": "PREPARED_NOT_ACTIVE", "start_at": "2026-10-25T01:21:18Z",
+        "archive": {}, "capital_kind": "TEST",
+        "historical_results_label": "historical", "new_results_label": "new",
+        "accounts": {family: {"family": family} for family in restart.CAPITALS},
+    }
+
+    class Storage:
+        def __init__(self):
+            self.reads = 0
+        def read_json(self, key, default=None):
+            assert key == restart._key(period)
+            self.reads += 1
+            return bundle
+
+    storage = Storage()
+    monkeypatch.setattr(restart, "verify_bundle", lambda value: None)
+
+    def report_family(family, *, storage, at=None):
+        assert storage.read_json(restart.accounting.key(family)) == bundle["accounts"][family]
+        return {"family": family}
+
+    monkeypatch.setattr(restart.accounting, "report", report_family)
+    result = restart.report(period, storage=storage)
+    assert storage.reads == 1
+    assert set(result["accounts"]) == set(restart.CAPITALS)
