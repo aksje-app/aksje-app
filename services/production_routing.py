@@ -200,7 +200,13 @@ def view(family,*,storage=None):
     receipts=[e['payload'] for e in doc['events'] if e['kind']=='STRATEGY_RUN']
     meta=deepcopy(receipts[-1]['state'] if receipts else {})
     positions={}
-    report=ledger.report(family,storage=__import__('services.simulation_restart',fromlist=['AccountStorage']).AccountStorage(p['period_id'],storage))['new_period']
+    from services.simulation_restart import AccountStorage
+    class _ReadOnlySnapshot(AccountStorage):
+        def read_json(self, key, default=None):
+            if self._family(key) != family:
+                raise ValueError('Snapshot family mismatch')
+            return doc
+    report=ledger.report(family,storage=_ReadOnlySnapshot(p['period_id'],storage))['new_period']
     nav=report['verification']['verified_nav']
     for ticker,pos in account['positions'].items():
         positions[ticker]={**deepcopy(meta.get('positions',{}).get(ticker,{})),**deepcopy(pos),
