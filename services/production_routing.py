@@ -49,7 +49,6 @@ def market_evidence(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_poli
 
 
 def context(family,run_id,rows,*,storage=None,at=None,chosen=None):
-    from services.restart_trading import account_reference
     if chosen is None:
         chosen=control.selected(family,storage=storage)
     elif chosen['pointer']['family'] != family:
@@ -76,8 +75,14 @@ def context(family,run_id,rows,*,storage=None,at=None,chosen=None):
         except Exception:
             if ticker in doc['account']['positions'] or family=='paper':raise
             blocked.append(dict(ticker=ticker,action='NO_EXECUTION',reason='Missing documented execution/FX evidence'))
+    # The selected bundle has already passed integrity and signed-grant checks.
+    # Do not deserialize the entire 83 MB bundle again just to obtain this reference.
+    if doc['status']!='ACTIVE':
+        raise ValueError('Approved account reference required')
+    account_ref=dict(period_id=p['period_id'],family=family,opening_sha256=doc['opening_sha256'],
+        approval_sha256=digest(doc['approval']),scope=doc['approval']['scope'])
     return dict(period_id=p['period_id'],run_id=run_id,at=at,evidence=evidence,
-        account_ref=account_reference(p['period_id'],family,storage=storage),storage=storage,evidence_blocks=blocked)
+        account_ref=account_ref,storage=storage,evidence_blocks=blocked)
 
 
 def paper(ticker,operation,*,signal=None,confidence=0,trade_context=None,price=None,**details):
@@ -124,7 +129,7 @@ def autonomy(candidates,run_id):
     else:
         prepared=companion.prepare(chosen,run_id,candidates,storage=storage)
         candidates=prepared['candidates']
-        common=context('autonomy',run_id,candidates,storage=storage)
+        common=context('autonomy',run_id,candidates,storage=storage,chosen=chosen)
         candidates=[row for row in candidates if str(row['ticker']).upper() in common['evidence']]
         result=trading.autonomy(**common,parameters=prepared['settings'],candidates=candidates,routing_input=source_input)
     state=view('autonomy');doc=control.selected('autonomy')['bundle']['accounts']['autonomy']
