@@ -1322,7 +1322,9 @@ def _scheduled_history_for_slot_v19220_rc13(job: JobProfile, planned_utc: dateti
         # Legacy scheduled rows predate explicit type/trigger fields.  They are
         # accepted only when both fields are absent; any explicit test,
         # revalidation, manual or repair identity is rejected.
-        if (row_type or row_trigger) and (row_type != "planlagt" or row_trigger != "SCHEDULED"):
+        # Scheduled history written by run_due_jobs uses type="Planlagt"
+        # without a trigger. Do not discard these durable start records.
+        if (row_type or row_trigger) and (row_type != "planlagt" or row_trigger not in {"", "SCHEDULED"}):
             continue
         raw = str(row.get("planned_at") or "").strip()
         if not raw:
@@ -1344,9 +1346,13 @@ def _latest_scheduled_actual(job: JobProfile) -> datetime | None:
             continue
         row_type = str(row.get("type") or "").strip().casefold()
         row_trigger = str(row.get("trigger") or "").strip().upper()
-        if (row_type or row_trigger) and (row_type != "planlagt" or row_trigger != "SCHEDULED"):
+        # Scheduled history written by run_due_jobs uses type="Planlagt"
+        # without a trigger. Do not discard these durable start records.
+        if (row_type or row_trigger) and (row_type != "planlagt" or row_trigger not in {"", "SCHEDULED"}):
             continue
-        raw = str(row.get("completed_at") or row.get("report_created_at") or row.get("started_at") or "").strip()
+        if not str(row.get("status") or "").strip().casefold().startswith("fullført"):
+            continue
+        raw = str(row.get("completed_at") or row.get("report_created_at") or "").strip()
         try:
             value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
@@ -1397,6 +1403,11 @@ def schedule_timeline(
     history_status = str(history.get("status") or "").strip().casefold()
     history_completed = history_status.startswith("fullført")
     history_failed = history_status == "feil"
+    history_started = history_status == "startet"
+    # One-shot cron may be killed without a finally block. Do not relaunch
+    # the same fixed slot repeatedly; surface an abandoned attempt instead.
+    history_abandoned = bool(history_started and previous_utc and
+        (now_utc - previous_utc).total_seconds() > 90 * 60)
     completed = bool(
         previous_slot and (history_completed or (last_run and last_run >= previous_slot))
     )
@@ -1425,15 +1436,18 @@ def schedule_timeline(
     grace_minutes = 5
     missed = bool(
         job.enabled and previous_slot and not completed and not history_failed
-        and not unobserved_after_restart
+        and not history_started and not unobserved_after_restart
         and local_now >= previous_slot + timedelta(minutes=grace_minutes)
     )
     if completed:
         status = "Fullført"
         reason_code = "DURABLE_HISTORY_OR_LAST_RUN"
-    elif history_failed:
+    elif history_failed or history_abandoned:
         status = "Feil"
-        reason_code = "DURABLE_HISTORY_FAILED"
+        reason_code = "DURABLE_HISTORY_FAILED" if history_failed else "ABANDONED_SCHEDULED_START"
+    elif history_started:
+        status = "Startet"
+        reason_code = "DURABLE_HISTORY_STARTED"
     elif unobserved_after_restart:
         status = "Ikke vurdert etter omstart"
         reason_code = "SCHEDULER_PROCESS_STARTED_AFTER_SLOT"
@@ -1461,6 +1475,7 @@ def schedule_timeline(
         "unobserved_after_restart": unobserved_after_restart,
         "scheduler_status_reason_code": reason_code,
         "durable_history_status": str(history.get("status") or ""),
+        "abandoned_scheduled_start": history_abandoned,
         "scheduler_observation_started_at_utc": process_started_utc.isoformat(timespec="seconds"),
         "authoritative_unattended": bool(authoritative_unattended),
         "authoritative_slot_eligible": authoritative_slot_eligible,
@@ -7533,7 +7548,7 @@ def _due_slot_info(job: JobProfile, now: datetime, *, authoritative_unattended: 
         job.enabled
         and timeline.get("previous_planned_utc")
         and not timeline.get("unobserved_after_restart")
-        and timeline.get("last_planned_status") not in {"Fullført", "Feil"}
+        and timeline.get("last_planned_status") not in {"Fullført", "Feil", "Startet"}
     )
     return {**timeline, "due": due}
 
