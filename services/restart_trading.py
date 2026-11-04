@@ -274,9 +274,16 @@ def run(*, period_id, family, run_id, at, evidence, settings, operation, strateg
     def authorized(bundle):
         from services import production_restart as control
         if production and not _PREVIEW.get():
-            chosen=control.selected(family,storage=backend)
-            if chosen is None or chosen['pointer']['period_id']!=period_id:raise ValueError('No explicitly selected production account')
+            # The transaction already holds the authoritative bundle row lock.
+            # Validate the signed route against this locked snapshot, rather than
+            # deserializing the same 83 MB document a second time.
+            pointer=backend.read_json(control.route_key(family),None)
+            if (not pointer or pointer.get('family')!=family or pointer.get('period_id')!=period_id
+                    or pointer.get('deployment_id')!=control.installation()):
+                raise ValueError('No explicitly selected production account')
             grant=control._check_record(bundle,family,running=True)
+            if pointer.get('grant_sha256')!=digest(bundle['production_controls'][family]['grant']):
+                raise ValueError('Route authorization mismatch')
             from services.production_routing import strategy_settings
             if digest(settings)!=digest(strategy_settings(family,storage=backend)):raise ValueError('Production strategy settings differ from canonical governance')
             from services.trading_costs import validate_family
