@@ -11,11 +11,9 @@ def test_context_reuses_verified_selection_without_another_bundle_read():
     }
     with patch.object(routing.control, "selected", side_effect=AssertionError("duplicate signed bundle read")):
         with patch("services.restart_trading.account_reference", return_value="ref"):
-            # Empty evidence must not trigger another selected() lookup.
-            try:
-                routing.context("super_portfolio", "run1", [], chosen=chosen)
-            except (KeyError, ValueError, TypeError):
-                pass
+            result = routing.context("super_portfolio", "run1", [], chosen=chosen)
+    assert result["account_ref"] == "ref"
+    assert result["evidence"] == {}
 
 
 def test_context_rejects_wrong_family_without_lookup():
