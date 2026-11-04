@@ -113,7 +113,7 @@ class AccountStorage:
                 from services.production_restart import permitted
                 if not permitted(bundle['period_id'],family):
                     raise ValueError('Explicit operator authorization or selected production job required')
-            result=deepcopy(bundle);result['accounts'][family]=candidate
+            result={**bundle,'accounts':{**bundle['accounts'],family:candidate}}
             verify_bundle(result)
             return result
         updated = self.storage.mutate_json(self.key,mutation)
