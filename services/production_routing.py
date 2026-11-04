@@ -91,7 +91,7 @@ def paper(ticker,operation,*,signal=None,confidence=0,trade_context=None,price=N
     cached=completed(selected,run_id,signals)
     if cached is not None:
         outcome=cached['outcomes'][0];return outcome['ok'],outcome['message']
-    common=context('paper',run_id,[{'ticker':ticker,'execution_quote':ctx.get('execution_quote')}])
+    common=context('paper',run_id,[{'ticker':ticker,'execution_quote':ctx.get('execution_quote')}],chosen=selected)
     if common is None:return None
     common.pop('evidence_blocks')
     result=trading.paper(**common,rules=strategy_settings('paper'),signals=signals,routing_input=signals)
