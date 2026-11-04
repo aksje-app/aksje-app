@@ -48,9 +48,12 @@ def market_evidence(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_poli
         fx_quote=fx,cost_source_ref=cost_policy['source_ref'],**costs)
 
 
-def context(family,run_id,rows,*,storage=None,at=None):
+def context(family,run_id,rows,*,storage=None,at=None,chosen=None):
     from services.restart_trading import account_reference
-    chosen=control.selected(family,storage=storage)
+    if chosen is None:
+        chosen=control.selected(family,storage=storage)
+    elif chosen['pointer']['family'] != family:
+        raise ValueError('Selected restart account family mismatch')
     if chosen is None:return None
     p=chosen['approval'];doc=chosen['bundle']['accounts'][family]
     at=at or datetime.now(timezone.utc).isoformat()
@@ -88,7 +91,7 @@ def paper(ticker,operation,*,signal=None,confidence=0,trade_context=None,price=N
     cached=completed(selected,run_id,signals)
     if cached is not None:
         outcome=cached['outcomes'][0];return outcome['ok'],outcome['message']
-    common=context('paper',run_id,[{'ticker':ticker,'execution_quote':ctx.get('execution_quote')}])
+    common=context('paper',run_id,[{'ticker':ticker,'execution_quote':ctx.get('execution_quote')}],chosen=selected)
     if common is None:return None
     common.pop('evidence_blocks')
     result=trading.paper(**common,rules=strategy_settings('paper'),signals=signals,routing_input=signals)
@@ -164,7 +167,7 @@ def super_portfolio(pipeline,policy,*,scheduled=False):
     if cached is not None:
         if scheduled:return super_risk()
         return {**cached,'state':view('super_portfolio'),'already_committed':True,'stop_alerts':[]}
-    common=context('super_portfolio',run_id,pipeline.get('candidates',[]))
+    common=context('super_portfolio',run_id,pipeline.get('candidates',[]),chosen=chosen)
     blocks=common.pop('evidence_blocks')
     pipeline=deepcopy(pipeline)
     pipeline['execution_evidence_blocks']=blocks
@@ -183,7 +186,7 @@ def super_risk(*,at=None):
     run_id='stop:'+slot;source_input={'stop_slot':slot}
     cached=completed(chosen,run_id,source_input)
     if cached is not None:return {**cached,'already_committed':True}
-    common=context('super_portfolio',run_id,[],at=instant.isoformat());common.pop('evidence_blocks')
+    common=context('super_portfolio',run_id,[],at=instant.isoformat(),chosen=chosen);common.pop('evidence_blocks')
     def operation(session):
         import super_portfolio as engine
         return engine.run_lightweight_stop_surveillance(state=session.projection(),now=instant)
@@ -382,7 +385,7 @@ def metrics(family,*,storage=None):
     chosen=control.selected(family,storage=storage,require_running=False)
     if chosen is None:return None
     from services.restart_reporting import snapshot
-    data=snapshot(chosen['pointer']['period_id'],family,storage=storage)
+    data=snapshot(chosen['pointer']['period_id'],family,storage=storage,verified_bundle=chosen['bundle'])
     period=data['account']['new_period'];verified=period['verification']
     values=[1+r['net_return_pct']/100 for r in data['nav_history'] if r['net_return_pct'] is not None]
     current=verified['verified_net_return_pct'];drawdown=None

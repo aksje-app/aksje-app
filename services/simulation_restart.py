@@ -120,9 +120,11 @@ class AccountStorage:
         return deepcopy(updated['accounts'][family])
 
 
-def report(period_id, *, storage=None, at=None):
+def report(period_id, *, storage=None, at=None, verified_bundle=None):
     scoped=AccountStorage(period_id,storage)
-    bundle=scoped.storage.read_json(scoped.key,None)
+    bundle=verified_bundle if verified_bundle is not None else scoped.storage.read_json(scoped.key,None)
+    if verified_bundle is not None and bundle.get('period_id') != period_id:
+        raise ValueError('Verified bundle period mismatch')
     if not bundle:raise ValueError('Unknown period; no legacy fallback')
     verify_bundle(bundle)
     # Reporting is read-only: reuse the verified snapshot instead of fetching the
