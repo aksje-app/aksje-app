@@ -129,7 +129,7 @@ def autonomy(candidates,run_id):
     else:
         prepared=companion.prepare(chosen,run_id,candidates,storage=storage)
         candidates=prepared['candidates']
-        common=context('autonomy',run_id,candidates,storage=storage)
+        common=context('autonomy',run_id,candidates,storage=storage,chosen=chosen)
         candidates=[row for row in candidates if str(row['ticker']).upper() in common['evidence']]
         result=trading.autonomy(**common,parameters=prepared['settings'],candidates=candidates,routing_input=source_input)
     state=view('autonomy');doc=control.selected('autonomy')['bundle']['accounts']['autonomy']
