@@ -385,7 +385,7 @@ def metrics(family,*,storage=None):
     chosen=control.selected(family,storage=storage,require_running=False)
     if chosen is None:return None
     from services.restart_reporting import snapshot
-    data=snapshot(chosen['pointer']['period_id'],family,storage=storage)
+    data=snapshot(chosen['pointer']['period_id'],family,storage=storage,verified_bundle=chosen['bundle'])
     period=data['account']['new_period'];verified=period['verification']
     values=[1+r['net_return_pct']/100 for r in data['nav_history'] if r['net_return_pct'] is not None]
     current=verified['verified_net_return_pct'];drawdown=None
