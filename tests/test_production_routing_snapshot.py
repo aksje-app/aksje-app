@@ -11,7 +11,7 @@ def test_portfolio_view_reuses_verified_snapshot():
     calls = []
 
     def report(family_arg, *, storage, at=None):
-        calls.append(storage.read_json("accounts/" + family_arg + ".json"))
+        calls.append(storage.read_json(__import__("services.portfolio_accounting", fromlist=["key"]).key(family_arg)))
         return {"new_period": {"verification": {"verified_nav": 1000, "converted_position_values": {}, "verified_net_return_pct": 0}}}
 
     with patch.object(production_routing.control, "selected", return_value=chosen), patch("services.portfolio_accounting.report", side_effect=report):
