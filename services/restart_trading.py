@@ -26,14 +26,14 @@ def current(family=None):
 
 
 class Memory:
-    def __init__(self, bundle, key): self.bundle, self.key = deepcopy(bundle), key
+    def __init__(self, bundle, key): self.bundle, self.key = {**bundle, 'accounts': dict(bundle['accounts'])}, key
     def read_json(self, key, default=None):
         if key != self.key: raise ValueError('Only explicit restart bundle is accessible')
-        return deepcopy(self.bundle)
+        return self.bundle
     def mutate_json(self, key, transform, default=None):
         if key != self.key: raise ValueError('Only explicit restart bundle is accessible')
-        self.bundle = deepcopy(transform(deepcopy(self.bundle)))
-        return deepcopy(self.bundle)
+        self.bundle = transform(self.bundle)
+        return self.bundle
 
 
 class Session:
