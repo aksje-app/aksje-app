@@ -48,9 +48,12 @@ def market_evidence(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_poli
         fx_quote=fx,cost_source_ref=cost_policy['source_ref'],**costs)
 
 
-def context(family,run_id,rows,*,storage=None,at=None):
+def context(family,run_id,rows,*,storage=None,at=None,chosen=None):
     from services.restart_trading import account_reference
-    chosen=control.selected(family,storage=storage)
+    if chosen is None:
+        chosen=control.selected(family,storage=storage)
+    elif chosen['pointer']['family'] != family:
+        raise ValueError('Selected restart account family mismatch')
     if chosen is None:return None
     p=chosen['approval'];doc=chosen['bundle']['accounts'][family]
     at=at or datetime.now(timezone.utc).isoformat()
@@ -164,7 +167,7 @@ def super_portfolio(pipeline,policy,*,scheduled=False):
     if cached is not None:
         if scheduled:return super_risk()
         return {**cached,'state':view('super_portfolio'),'already_committed':True,'stop_alerts':[]}
-    common=context('super_portfolio',run_id,pipeline.get('candidates',[]))
+    common=context('super_portfolio',run_id,pipeline.get('candidates',[]),chosen=chosen)
     blocks=common.pop('evidence_blocks')
     pipeline=deepcopy(pipeline)
     pipeline['execution_evidence_blocks']=blocks
@@ -183,7 +186,7 @@ def super_risk(*,at=None):
     run_id='stop:'+slot;source_input={'stop_slot':slot}
     cached=completed(chosen,run_id,source_input)
     if cached is not None:return {**cached,'already_committed':True}
-    common=context('super_portfolio',run_id,[],at=instant.isoformat());common.pop('evidence_blocks')
+    common=context('super_portfolio',run_id,[],at=instant.isoformat(),chosen=chosen);common.pop('evidence_blocks')
     def operation(session):
         import super_portfolio as engine
         return engine.run_lightweight_stop_surveillance(state=session.projection(),now=instant)
