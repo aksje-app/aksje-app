@@ -8,8 +8,13 @@ from services.economic_ledger import new_account, number, stamp, fx_rate
 
 
 def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
-                                     ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+    # Preserve canonical bytes without materializing a second large JSON string.
+    hasher = hashlib.sha256()
+    encoder = json.JSONEncoder(sort_keys=True, separators=(',', ':'),
+                               ensure_ascii=False, allow_nan=False)
+    for chunk in encoder.iterencode(value):
+        hasher.update(chunk.encode())
+    return hasher.hexdigest()
 
 
 def opening_account(document):

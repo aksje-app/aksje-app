@@ -115,13 +115,13 @@ def autonomy(candidates,run_id):
         # Match the established separation: pausing the financial account must
         # not freeze independent learning observations or revive legacy cash.
         prepared=companion.prepare(chosen,run_id,candidates,storage=storage)
-        state=view('autonomy',storage=storage)
+        state=view('autonomy',storage=storage,chosen=chosen)
         decisions=[dict(ticker=t,action='HOLD',reason_code='PAUSED',risk_execution_blocked=True) for t in state['positions']]
         learning=companion.complete(chosen,run_id,prepared,state,[],decisions,storage=storage)
         from autonomous_portfolio import calculate_performance
         return {**learning,'family':'autonomy','period_id':chosen['pointer']['period_id'],'run_id':run_id,
             'portfolio':state,'portfolio_decisions':decisions,'decisions':decisions,'portfolio_trades':[],
-            'production_changed':False,'financial_status':'PAUSED','execution_integrity':{'ok':True},'performance':calculate_performance(state)}
+            'production_changed':False,'financial_status':'PAUSED','execution_integrity':{'ok':True},'performance':calculate_performance(state,verified_selection=chosen)}
     result=completed(chosen,run_id,candidates)
     already=result is not None
     if already:
@@ -131,8 +131,13 @@ def autonomy(candidates,run_id):
         candidates=prepared['candidates']
         common=context('autonomy',run_id,candidates,storage=storage,chosen=chosen)
         candidates=[row for row in candidates if str(row['ticker']).upper() in common['evidence']]
+        # Release the pre-execution journal before opening the locked transaction.
+        # The learning companion only needs the immutable period pointer.
+        chosen={'pointer':chosen['pointer']}
         result=trading.autonomy(**common,parameters=prepared['settings'],candidates=candidates,routing_input=source_input)
-    state=view('autonomy');doc=control.selected('autonomy')['bundle']['accounts']['autonomy']
+    chosen=None  # release any retry snapshot before reading committed state
+    chosen=control.selected('autonomy',storage=storage)
+    state=view('autonomy',storage=storage,chosen=chosen);doc=chosen['bundle']['accounts']['autonomy']
     receipts=[e['payload'] for e in doc['events'] if e['kind']=='STRATEGY_RUN']
     last=next(e for e in reversed(receipts) if e['run_id']==run_id)
     trade_ids={r.get('trade_id') for r in last['decisions']}
@@ -141,7 +146,7 @@ def autonomy(candidates,run_id):
     from autonomous_portfolio import calculate_performance
     return {**result,**learning,'portfolio':state,'portfolio_decisions':result['decisions'],
         'portfolio_trades':trades,'run_id':run_id,'production_changed':True,'already_committed':already,
-        'performance':calculate_performance(state),
+        'performance':calculate_performance(state,verified_selection=chosen),
         'market_snapshot':prepared['market_snapshot'],'parallel_strategy_run':prepared['parallel_strategy_run'],
         'technical_contribution':prepared['technical_contribution']}
 
@@ -199,10 +204,13 @@ def super_risk(*,at=None):
         strategy_input=source_input,routing_input=source_input)
 
 
-def view(family,*,storage=None):
+def view(family,*,storage=None,chosen=None):
     """Read projection without fresh-data fetches; reports retain verification age."""
-    chosen=control.selected(family,storage=storage,require_running=False)
+    if chosen is None:
+        chosen=control.selected(family,storage=storage,require_running=False)
     if chosen is None:return None
+    if chosen['pointer']['family'] != family:
+        raise ValueError('Selected restart account family mismatch')
     from services import portfolio_accounting as ledger
     p=chosen['approval'];doc=chosen['bundle']['accounts'][family];account=doc['account']
     receipts=[e['payload'] for e in doc['events'] if e['kind']=='STRATEGY_RUN']
@@ -385,10 +393,13 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
     return receipt
 
 
-def metrics(family,*,storage=None):
+def metrics(family,*,storage=None,chosen=None):
     """Verified, flow-adjusted metrics for existing overview consumers."""
-    chosen=control.selected(family,storage=storage,require_running=False)
+    if chosen is None:
+        chosen=control.selected(family,storage=storage,require_running=False)
     if chosen is None:return None
+    if chosen['pointer']['family'] != family:
+        raise ValueError('Selected restart account family mismatch')
     from services.restart_reporting import snapshot
     data=snapshot(chosen['pointer']['period_id'],family,storage=storage,verified_bundle=chosen['bundle'])
     period=data['account']['new_period'];verified=period['verification']

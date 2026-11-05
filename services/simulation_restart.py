@@ -94,6 +94,10 @@ class AccountStorage:
             raise ValueError('Explicit prepared restart period required; no legacy fallback')
         verify_bundle(bundle)
         return deepcopy(bundle['accounts'][family])
+    def _copy_for_transform(self, doc):
+        return deepcopy(doc)
+    def _copy_result(self, doc):
+        return deepcopy(doc)
     def mutate_json(self,key,transform,default=None):
         family=self._family(key)
         if os.getenv('APP_ENVIRONMENT','production').lower()=='production':
@@ -105,7 +109,7 @@ class AccountStorage:
             if not bundle or bundle.get('status')!='PREPARED_NOT_ACTIVE':
                 raise ValueError('Explicit prepared restart period required')
             verify_bundle(bundle)
-            current=deepcopy(bundle['accounts'][family]);candidate=transform(current)
+            current=self._copy_for_transform(bundle['accounts'][family]);candidate=transform(current)
             previous=bundle['accounts'][family]
             if candidate.get('events',[])[:len(previous['events'])]!=previous['events']:
                 raise ValueError('Existing economic journal cannot be rewritten or truncated')
@@ -117,7 +121,7 @@ class AccountStorage:
             verify_bundle(result)
             return result
         updated = self.storage.mutate_json(self.key,mutation)
-        return deepcopy(updated['accounts'][family])
+        return self._copy_result(updated['accounts'][family])
 
 
 def report(period_id, *, storage=None, at=None, verified_bundle=None):

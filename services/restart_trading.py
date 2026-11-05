@@ -36,12 +36,30 @@ class Memory:
         return self.bundle
 
 
+class _SessionStorage(restart.AccountStorage):
+    """Private ledger view; all writes use the ledger's pure transformations.
+
+    Historical events are immutable inside this transaction. Public account
+    reads retain their detached-copy contract; this view never escapes Session.
+    """
+    _session_journal_copy_on_write = True
+
+    def read_json(self, key, default=None):
+        return self.storage.bundle['accounts'][self._family(key)]
+
+    def _copy_for_transform(self, doc):
+        return doc
+
+    def _copy_result(self, doc):
+        return doc
+
+
 class Session:
     def __init__(self, *, period_id, family, run_id, at, evidence, settings, memory):
         self.period_id, self.family, self.run_id, self.at = period_id, family, run_id, at
         self.evidence, self.settings = deepcopy(evidence), deepcopy(settings)
         self.memory = memory
-        self.storage = restart.AccountStorage(period_id, memory)
+        self.storage = _SessionStorage(period_id, memory)
         doc = self.storage.read_json(ledger.key(family))
         runs = [e['payload'] for e in doc['events'] if e['kind'] == 'STRATEGY_RUN']
         self.state = deepcopy(runs[-1]['state'] if runs else {})
@@ -264,7 +282,7 @@ def run(*, period_id, family, run_id, at, evidence, settings, operation, strateg
         payload=dict(run_id=run_id,request_sha256=request_hash,request=deepcopy(request),at=at,period_id=period_id,family=family,
                      state=deepcopy(session.state),decisions=session.decisions,result=result)
         def journal(current_doc):
-            ledger.verify(current_doc);updated=deepcopy(current_doc)
+            ledger.verify(current_doc);updated=ledger._copy_document(current_doc,session.storage)
             ledger._append(updated,'STRATEGY_RUN',payload);ledger.verify(updated);return updated
         session.storage.mutate_json(ledger.key(family),journal)
         restart.verify_bundle(memory.bundle)

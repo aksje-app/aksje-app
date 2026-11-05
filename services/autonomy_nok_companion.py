@@ -24,7 +24,7 @@ def prepare(chosen,run_id,candidates,*,storage=None):
         if current:
             if current['source_sha256']!=digest(source):raise ValueError('Autonomy source job reused with different input')
             return current
-        portfolio=view('autonomy',storage=storage)
+        portfolio=view('autonomy',storage=storage,chosen=chosen)
         prepared,snapshot,parallel,technical=ap.prepare_cycle_candidates(deepcopy(candidates),portfolio,
             ap.AutonomousParameters(**settings).normalized(),run_id,lambda *a,**kw:None)
         return dict(source_sha256=digest(source),settings=settings,candidates=prepared,market_snapshot=snapshot,
