@@ -6,7 +6,7 @@ def test_portfolio_view_reuses_verified_snapshot():
     family = "super_portfolio"
     account = {"cash": 1000, "initial_cash": 1000, "positions": {}, "trades": [], "realized_pnl": 0}
     doc = {"account": account, "events": []}
-    chosen = {"approval": {"period_id": "test-period", "settings": {}},
+    chosen = {"pointer": {"family": family}, "approval": {"period_id": "test-period", "settings": {}},
               "bundle": {"accounts": {family: doc}, "production_controls": {family: {"status": "RUNNING"}}}}
     calls = []
 

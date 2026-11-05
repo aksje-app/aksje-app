@@ -17,14 +17,14 @@ def prepare(chosen,run_id,candidates,*,storage=None):
     import autonomous_portfolio as ap
     from services.production_routing import view,strategy_settings
     storage=storage or control.get_storage_service()
-    period=chosen['pointer']['period_id'];settings=strategy_settings('autonomy',storage=storage)
+    period=chosen['pointer']['period_id'];settings=strategy_settings('autonomy',storage=storage,approved_settings=chosen['approval']['settings'])
     source=dict(period=period,run_id=run_id,candidates=candidates,settings=settings)
     key=preparation_key(chosen,run_id)
     def mutation(current):
         if current:
             if current['source_sha256']!=digest(source):raise ValueError('Autonomy source job reused with different input')
             return current
-        portfolio=view('autonomy',storage=storage)
+        portfolio=view('autonomy',storage=storage,chosen=chosen)
         prepared,snapshot,parallel,technical=ap.prepare_cycle_candidates(deepcopy(candidates),portfolio,
             ap.AutonomousParameters(**settings).normalized(),run_id,lambda *a,**kw:None)
         return dict(source_sha256=digest(source),settings=settings,candidates=prepared,market_snapshot=snapshot,

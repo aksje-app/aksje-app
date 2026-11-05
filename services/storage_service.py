@@ -602,7 +602,13 @@ class StorageService:
                     cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR UPDATE", (name,))
                     row = cur.fetchone()
                     current = json.loads(row[0]) if row else default
-                    result = transform(current)
+                    # libpq and the fetched text can otherwise retain another
+                    # complete serialized journal throughout the transformation.
+                    del row
+                    # Release libpq's result buffer too; the transaction and row
+                    # lock survive closing this cursor.
+                result = transform(current)
+                with conn.cursor() as cur:
                     cur.execute("""INSERT INTO app_kv_store (name, payload, updated_at)
                         VALUES (%s, %s, NOW()::TEXT) ON CONFLICT (name)
                         DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at""",

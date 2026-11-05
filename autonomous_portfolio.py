@@ -2760,11 +2760,11 @@ def run_autonomous_cycle(
     return {"run_id": run_id, "market_snapshot": market_snapshot_row, "market_snapshot_id": market_snapshot_row.get("snapshot_id", ""), "parallel_strategy_run": parallel_strategy_run, "technical_contribution": technical_contribution, "portfolio": portfolio, "learning_portfolio": learning_portfolio, "decisions": decisions + learning_decisions + list(learning_account_result.get("decisions") or []), "portfolio_decisions": decisions, "learning_decisions": learning_decisions, "learning_observations": observation_progress, "trades": trades + learning_trades, "portfolio_trades": trades, "learning_trades": learning_trades, "performance": perf, "learning_performance": learning_perf, "learning": learning_result, "capital_cleanup": capital_cleanup, "strategy_accounts": get_strategy_account_service().comparison() if shared_account_sync else [], "shared_account_sync": shared_account_sync, "autonomy_learning_account": learning_account_result, "activation_analysis": activation_analysis, "execution_integrity": execution_integrity, "full_replay": replay_snapshot_result, "replay_level": replay_snapshot_result.get("replay_level", "DECISION_REPLAY")}
 
 
-def calculate_performance(portfolio: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def calculate_performance(portfolio: Mapping[str, Any] | None = None, *, verified_selection=None) -> dict[str, Any]:
     portfolio = dict(portfolio or load_portfolio())
     if portfolio.get('economic_period_id'):
         from services.production_routing import metrics
-        result=metrics('autonomy')
+        result=metrics('autonomy',chosen=verified_selection)
         sells=[t for t in portfolio['trades'] if t['action']=='SELL']
         wins=[t for t in sells if t['pnl']>0];losses=[t for t in sells if t['pnl']<0]
         gross_profit=sum(t['pnl'] for t in wins);gross_loss=abs(sum(t['pnl'] for t in losses))

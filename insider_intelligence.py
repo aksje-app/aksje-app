@@ -203,7 +203,7 @@ def score_transactions(
         })
     evidence.sort(key=lambda x: (x["date"], x["value"]), reverse=True)
     if not evidence:
-        return {"ticker": ticker, "score": 50.0, "signal": "INGEN VERIFISERTE TRANSAKSJONER", "coverage": "MISSING", "buy_count": 0, "sell_count": 0, "net_value": 0.0, "evidence": [], "reason": "Kilden ble kontrollert, men ingen verifiserte insidertransaksjoner var tilgjengelige."}
+        return {"ticker": ticker, "score": 50.0, "signal": "INGEN VERIFISERTE TRANSAKSJONER", "coverage": "MISSING", "buy_count": 0, "sell_count": 0, "primary_verified_fact_count": 0, "secondary_fact_count": 0, "net_value": 0.0, "evidence": [], "reason": "Kilden ble kontrollert, men ingen verifiserte insidertransaksjoner var tilgjengelige."}
     cluster_bonus = min(12.0, max(0, len(buyers) - 1) * 4.0)
     direction = (weighted_buy - weighted_sell) / max(0.8, weighted_buy + weighted_sell)
     value_direction = (total_buy - total_sell) / max(1.0, total_buy + total_sell)

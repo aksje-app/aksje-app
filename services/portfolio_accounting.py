@@ -28,6 +28,14 @@ def key(family):
     return 'economic_accounts/' + family + '.json'
 
 
+def _copy_document(doc, storage):
+    if getattr(storage, '_session_journal_copy_on_write', False):
+        # Only pure ledger mutations use this private transaction view. Existing
+        # journal records are never edited; _append owns its new payload copy.
+        return {**doc, 'events': list(doc['events'])}
+    return deepcopy(doc)
+
+
 def _append(doc, kind, payload):
     events = doc.setdefault('events', [])
     event = {'sequence':len(events)+1, 'kind':kind, 'payload':deepcopy(payload),
@@ -145,7 +153,7 @@ def approve(family, approval, *, storage=None):
             if current['approval'] != approval:
                 raise ValueError('Already activated with a different approval')
             return current
-        result = deepcopy(current)
+        result = _copy_document(current, storage)
         result.update(status='ACTIVE', approval=deepcopy(approval))
         _append(result, 'APPROVED', approval)
         return result
@@ -171,7 +179,7 @@ def settle(family, fill, *, storage=None):
         if not current or current['status'] != 'ACTIVE':
             raise ValueError('Explicitly approved active NOK period required')
         _require_scope(current)
-        result = deepcopy(current)
+        result = _copy_document(current, storage)
         result['account'], _ = execute(current['account'], **fill)
         if result['account'] == current['account']:
             return current  # A lost acknowledgement remains retryable after later marks.
@@ -210,7 +218,7 @@ def mark(family, marks, *, at, storage=None):
         _require_scope(current)
         if stamp(at) < stamp(current['approval']['approved_at']):
             raise ValueError('Mark predates approval')
-        result = deepcopy(current)
+        result = _copy_document(current, storage)
         result['account'] = _marks(result['account'], **payload)
         if result['account'] != current['account']:
             _append(result, 'MARK', payload)
