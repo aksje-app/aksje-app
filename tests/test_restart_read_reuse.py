@@ -146,3 +146,24 @@ def test_legacy_write_prohibition_does_not_authorize_missing_or_unreadable_route
     class Failed:
         def read_json(self, *args): raise ConnectionError('database offline')
     with pytest.raises(ConnectionError): control.has_selection('paper', storage=Failed())
+
+
+def test_clock_rollback_into_initial_validation_window_cannot_reuse_nav(example, monkeypatch):
+    backend, calls, _ = example
+    instant = datetime.now(timezone.utc)
+    clock = [instant]
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return clock[0]
+    monkeypatch.setattr(reuse, 'datetime', Clock)
+    @reuse.account_read
+    def view(family, *, storage=None, chosen=None):
+        calls.append(1)
+        # Existing future-dated evidence can become valid during a slow read.
+        clock[0] = instant + timedelta(seconds=20)
+        return {'positions': {}, 'economic_verification': {'status': 'BESTÅTT'}}
+    with reuse.scope():
+        view('paper', storage=backend)
+        clock[0] = instant + timedelta(seconds=10)
+        view('paper', storage=backend)
+    assert calls == [1, 1]

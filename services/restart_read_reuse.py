@@ -106,9 +106,14 @@ def account_read(fn):
             raise ValueError('Concurrent account change; retry with a fresh account view')
         size = len(json.dumps(value, ensure_ascii=False, default=str).encode('utf-8'))
         deadline = _valuation_deadline(value)
+        # Validation may take seconds for a large journal. Use its completion
+        # time, not the earlier lookup time, as the lower clock boundary.
+        # Otherwise a clock rollback into that interval could reuse a NAV that
+        # only became valid while the initial read was being verified.
+        validated_at = datetime.now(timezone.utc).timestamp()
         if size <= MAX_BYTES and deadline is not None:
             if sum(e[2] for e in cache.values()) + size > MAX_BYTES:
                 cache.clear()
-            cache[key] = (version, deepcopy(value), size, now, deadline)
+            cache[key] = (version, deepcopy(value), size, validated_at, deadline)
         return value
     return call
