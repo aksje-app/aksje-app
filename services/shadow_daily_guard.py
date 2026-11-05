@@ -1,4 +1,4 @@
-"""Seven-day read-only Shadow / learning watchdog with Pushover receipts."""
+"""Continuous daily read-only Shadow / learning watchdog with Pushover receipts."""
 from __future__ import annotations
 from datetime import datetime, date, timezone
 from zoneinfo import ZoneInfo
@@ -6,7 +6,6 @@ from durable_runtime import read_events, read_json, write_json
 from storage_architecture import runtime_data_path
 
 START = date(2026, 10, 17)
-END = date(2026, 10, 23)
 LEDGER = "controlled_learning/daily_shadow_receipts.json"
 LEDGER_PATH = runtime_data_path("controlled_learning", "daily_shadow_receipts.json")
 
@@ -47,7 +46,7 @@ def evaluate(now=None):
 def send_daily_if_due(*, now=None):
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(ZoneInfo("America/Fortaleza")).date()
-    if not START <= today <= END:
+    if today < START:
         return {"status": "OUTSIDE_MONITORING_WINDOW"}
     if now.astimezone(ZoneInfo("America/Fortaleza")).hour < 8:
         return {"status": "NOT_DUE_YET", "date": today.isoformat()}
@@ -65,7 +64,7 @@ def send_daily_if_due(*, now=None):
             f"Avvik: {', '.join(report['failures']) if report['failures'] else 'Ingen manglende kjøringer'}")
     try:
         ok, detail = normalize_notification_result(send_pushover_alert(
-            text, title=f"Shadow/læring daglig {report['status']}", relevance_event={"category": "routine"} if not report["failures"] else None))
+            text, title=f"Shadow/læring daglig {report['status']}", relevance_event=None))
     except Exception as exc:
         ok, detail = False, type(exc).__name__
     # A deduplicated notification is NOT proof of a new Pushover delivery.
