@@ -333,6 +333,35 @@ class StorageService:
             finally:
                 temp.unlink(missing_ok=True)
 
+    def json_fingerprint(self, name: str) -> str | None:
+        """Fingerprint a stored JSON document without returning its payload.
+
+        PostgreSQL computes MD5 server-side, avoiding another 90+ MB JSON
+        transfer and Python object tree. Local mode hashes the file bytes.
+        This is a change-detection token, not an authentication signature.
+        """
+        import hashlib
+        name = _safe_name(name)
+        if self.using_postgres():
+            self.init_db()
+            conn = self._conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT md5(payload) FROM app_kv_store WHERE name=%s", (name,))
+                    row = cur.fetchone()
+                    return str(row[0]) if row and row[0] is not None else None
+            finally:
+                conn.close()
+        self._require_local_allowed("json_fingerprint")
+        path = self.base_dir / name
+        if not path.exists():
+            return None
+        digest = hashlib.md5()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
     def read_json(self, name: str, default: Any = None) -> Any:
         name = _safe_name(name)
         if self.using_postgres():
