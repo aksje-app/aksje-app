@@ -674,7 +674,7 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["superfund_ranking_digest"] = {"state":"FAILED","error":str(exc)[:250]}
 
-    # Daily 7-day Shadow / learning audit, sent via existing Pushover; never blocks trades.
+    # Continuous daily Shadow / learning audit, sent via existing Pushover; never blocks trades.
     try:
         from services.shadow_daily_guard import send_daily_if_due
         state["shadow_daily_guard"] = send_daily_if_due()
