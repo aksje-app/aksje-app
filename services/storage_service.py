@@ -333,6 +333,35 @@ class StorageService:
             finally:
                 temp.unlink(missing_ok=True)
 
+    def json_fingerprint(self, name: str) -> str | None:
+        """Fingerprint a stored JSON document without returning its payload.
+
+        PostgreSQL computes MD5 server-side, avoiding another 90+ MB JSON
+        transfer and Python object tree. Local mode hashes the file bytes.
+        This is a change-detection token, not an authentication signature.
+        """
+        import hashlib
+        name = _safe_name(name)
+        if self.using_postgres():
+            self.init_db()
+            conn = self._conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT md5(payload) FROM app_kv_store WHERE name=%s", (name,))
+                    row = cur.fetchone()
+                    return str(row[0]) if row and row[0] is not None else None
+            finally:
+                conn.close()
+        self._require_local_allowed("json_fingerprint")
+        path = self.base_dir / name
+        if not path.exists():
+            return None
+        digest = hashlib.md5()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
     def read_json(self, name: str, default: Any = None) -> Any:
         name = _safe_name(name)
         if self.using_postgres():
@@ -760,6 +789,32 @@ class StorageService:
                        ORDER BY octet_length(payload) DESC LIMIT 20"""
                 )
                 largest = [{"name": str(row[0]), "payload_bytes": int(row[1] or 0)} for row in cur.fetchall()]
+                # Read-only diagnosis: separate legacy aggregate documents from
+                # individually persisted strategy records. Never delete either
+                # representation without verifying references and audit history.
+                cur.execute(
+                    """SELECT split_part(name, '/', 2) AS collection,
+                              COUNT(*), COALESCE(SUM(octet_length(payload)), 0)
+                       FROM app_kv_store WHERE name LIKE 'repositories/%'
+                       GROUP BY 1 ORDER BY 3 DESC LIMIT 20"""
+                )
+                repository_collections = [
+                    {"collection": str(row[0] or "root"), "rows": int(row[1] or 0),
+                     "payload_bytes": int(row[2] or 0)} for row in cur.fetchall()
+                ]
+                cur.execute(
+                    """SELECT relname, pg_total_relation_size(relid),
+                              pg_relation_size(relid),
+                              pg_indexes_size(relid), n_live_tup, n_dead_tup
+                       FROM pg_stat_user_tables
+                       WHERE relname IN ('app_kv_store', 'app_jsonl_store')"""
+                )
+                relation_health = [
+                    {"table": str(row[0]), "total_bytes": int(row[1] or 0),
+                     "heap_bytes": int(row[2] or 0), "index_bytes": int(row[3] or 0),
+                     "estimated_live_rows": int(row[4] or 0),
+                     "estimated_dead_rows": int(row[5] or 0)} for row in cur.fetchall()
+                ]
                 capacity_bytes = max(1, int(os.getenv("DATABASE_CAPACITY_BYTES", str(5 * 1024**3)) or 5 * 1024**3))
                 capacity_pct = round(database_bytes * 100.0 / capacity_bytes, 2)
                 return {
@@ -773,6 +828,8 @@ class StorageService:
                     "event_rows": int(event_count or 0), "event_payload_bytes": int(event_payload or 0),
                     "event_relation_bytes": int(event_relation or 0),
                     "kv_namespaces": namespaces, "largest_kv_documents": largest,
+                    "repository_collections": repository_collections,
+                    "relation_health": relation_health,
                 }
             finally:
                 conn.close()
