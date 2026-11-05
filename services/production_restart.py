@@ -224,7 +224,10 @@ def stop(period,family,*,actor,reason,confirmation,resume=False,storage=None):
     require_backend(storage)
     def mutation(bundle):
         restart.verify_bundle(bundle);_check_record(bundle,family)
-        result=deepcopy(bundle)
+        # Copy only the mutable control; preserve large account journals by reference.
+        # The storage adapter serializes the completed result transactionally.
+        result={**bundle,'production_controls':{**bundle['production_controls']}}
+        result['production_controls'][family]=deepcopy(bundle['production_controls'][family])
         _transition(result['production_controls'][family],'RUNNING' if resume else 'PAUSED',actor,reason,datetime.now(timezone.utc).isoformat())
         return result
     return storage.mutate_json(restart._key(period),mutation)['production_controls'][family]['status']
