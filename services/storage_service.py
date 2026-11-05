@@ -386,20 +386,23 @@ class StorageService:
             try:
                 self.init_db(); conn = self._conn()
                 try:
-                    cur = conn.cursor()
-                    cur.execute("SELECT octet_length(payload) FROM app_kv_store WHERE name=%s", (name,))
-                    size_row = cur.fetchone()
-                    payload_bytes = int(size_row[0]) if size_row and size_row[0] is not None else 0
-                    if payload_bytes >= _large_json_threshold_bytes():
-                        logging.warning(
-                            "LARGE_JSON_READ key=%s payload_mb=%.1f rss_mb=%s role=%s",
-                            name, payload_bytes / (1024.0 * 1024.0), _rss_mb(), os.getenv("AI_RUNTIME_ROLE", ""),
-                        )
-                    if _scheduler_memory_safe_mode() and name in _LEGACY_MONOLITH_KEYS and payload_bytes >= _large_json_threshold_bytes():
-                        raise OversizedJsonReadError(
-                            f"Scheduler blocked legacy monolith read: {name} ({payload_bytes / (1024.0 * 1024.0):.1f} MB). Use bounded/indexed repository access."
-                        )
-                    cur.execute("SELECT payload FROM app_kv_store WHERE name=%s", (name,)); row = cur.fetchone()
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT octet_length(payload) FROM app_kv_store WHERE name=%s", (name,))
+                        size_row = cur.fetchone()
+                        payload_bytes = int(size_row[0]) if size_row and size_row[0] is not None else 0
+                        if payload_bytes >= _large_json_threshold_bytes():
+                            logging.warning(
+                                "LARGE_JSON_READ key=%s payload_mb=%.1f rss_mb=%s role=%s",
+                                name, payload_bytes / (1024.0 * 1024.0), _rss_mb(), os.getenv("AI_RUNTIME_ROLE", ""),
+                            )
+                        if _scheduler_memory_safe_mode() and name in _LEGACY_MONOLITH_KEYS and payload_bytes >= _large_json_threshold_bytes():
+                            raise OversizedJsonReadError(
+                                f"Scheduler blocked legacy monolith read: {name} ({payload_bytes / (1024.0 * 1024.0):.1f} MB). Use bounded/indexed repository access."
+                            )
+                        cur.execute("SELECT payload FROM app_kv_store WHERE name=%s", (name,)); row = cur.fetchone()
+                    # Closing the connection alone leaves a cursor's libpq
+                    # result alive. Release that extra complete JSON buffer
+                    # before building the decoded object graph.
                 finally:
                     conn.close()
                 value = default if not row else json.loads(row[0])
