@@ -274,12 +274,15 @@ def operational_health_snapshot(*, now: datetime | None = None, notify: bool = F
             "reason": latest_slot.get("scheduler_status_reason_code", "")},
         "warning": "Ingen full autonomisyklus på over 24 børsdagstimer." if stale else "",
     }
+    slot_info = snapshot["last_scheduled_slot"]
+    slot_line = (f"\nSiste planlagte: {slot_info['at']} · {slot_info['status']} ({slot_info['reason']})"
+                 if slot_info.get("at") else "")
     fingerprint = f"{snapshot['status']}|{current.date().isoformat()}"
     if notify and stale and fingerprint != str(previous.get("notification_fingerprint") or ""):
         try:
             from notifier import send_pushover_alert
             ok, detail = send_pushover_alert(
-                f"Siste fullførte syklus: {created_at or 'aldri'}\nNeste planlagte: {next_run or 'ukjent'}\nKontroller obligatoriske 08/14/22-rapporter.",
+                f"Siste fullførte syklus: {created_at or 'aldri'}{slot_line}\nNeste planlagte: {next_run or 'ukjent'}\nKontroller obligatoriske 08/14/22-rapporter.",
                 title="Autonomi har ikke kjørt på over 24 børsdagstimer",
             )
             snapshot["notification"] = {"attempted": True, "sent": bool(ok), "detail": str(detail or "")[:500]}
