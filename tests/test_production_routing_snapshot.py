@@ -10,11 +10,12 @@ def test_portfolio_view_reuses_verified_snapshot():
               "bundle": {"accounts": {family: doc}, "production_controls": {family: {"status": "RUNNING"}}}}
     calls = []
 
-    def report(family_arg, *, storage, at=None):
-        calls.append(storage.read_json(__import__("services.portfolio_accounting", fromlist=["key"]).key(family_arg)))
+    def report(family_arg, document, *, at=None):
+        assert family_arg == family
+        calls.append(document)
         return {"new_period": {"verification": {"verified_nav": 1000, "converted_position_values": {}, "verified_net_return_pct": 0}}}
 
-    with patch.object(production_routing.control, "selected", return_value=chosen), patch("services.portfolio_accounting.report", side_effect=report):
+    with patch.object(production_routing.control, "selected", return_value=chosen), patch("services.portfolio_accounting._report_verified", side_effect=report):
         result = production_routing.view(family)
     assert calls == [doc]
     assert result["portfolio_value"] == 1000
