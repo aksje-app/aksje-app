@@ -1,4 +1,4 @@
-"""Seven-day operational Shadow/learning watch with durable Pushover receipt.
+"""Continuous daily operational Shadow/learning watch with durable Pushover receipt.
 
 No trades, no parameter changes. Cron calls this after learning maintenance.
 """
@@ -10,7 +10,6 @@ from typing import Any, Mapping
 
 STATE_KEY = "monitoring/shadow_daily_watch_20261017.json"
 START = date(2026, 10, 17)
-END = date(2026, 10, 23)
 ZONE = ZoneInfo("America/Fortaleza")
 
 
@@ -36,7 +35,7 @@ def run_daily_watch(learning: Mapping[str, Any], shadow: Mapping[str, Any],
                     guard: Mapping[str, Any], *, now: datetime | None = None,
                     read_state=None, write_state=None, sender=None) -> dict[str, Any]:
     today = (now or datetime.now(ZONE)).astimezone(ZONE).date()
-    if not START <= today <= END:
+    if today < START:
         return {"status": "OUTSIDE_WATCH", "date": today.isoformat()}
     if read_state is None or write_state is None or sender is None:
         raise ValueError("Durable persistence and Pushover sender are required")
