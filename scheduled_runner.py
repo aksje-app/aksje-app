@@ -827,6 +827,7 @@ def run_once() -> dict[str, Any]:
 
 def main() -> int:
     state = run_once()
+    from runtime_memory import memory_snapshot
     summary = {
         "state": state.get("state"), "started_at": state.get("started_at"),
         "completed_at": state.get("completed_at"), "error": state.get("error"),
@@ -843,6 +844,7 @@ def main() -> int:
         "report_revalidation": (state.get("report_revalidation") or {}).get("state"),
         "fresh_trend_monitor": (state.get("fresh_trend_monitor") or {}).get("state"),
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
+        "memory": memory_snapshot(),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
     return 0 if state.get("state") in {

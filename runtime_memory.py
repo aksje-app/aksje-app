@@ -50,6 +50,9 @@ def _cgroup_memory() -> tuple[int | None, int | None]:
 def memory_snapshot() -> dict[str, Any]:
     rss = _current_rss_bytes()
     current, limit = _cgroup_memory()
+    cgroup_peak = _read_int("/sys/fs/cgroup/memory.peak")
+    if cgroup_peak is None:
+        cgroup_peak = _read_int("/sys/fs/cgroup/memory/memory.max_usage_in_bytes")
     try:
         peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
         peak_bytes = peak * 1024 if peak < 10_000_000 else peak
@@ -61,6 +64,8 @@ def memory_snapshot() -> dict[str, Any]:
         result["process_rss_mb"] = round(rss / mb, 1)
     if peak_bytes is not None:
         result["process_peak_rss_mb"] = round(peak_bytes / mb, 1)
+    if cgroup_peak is not None:
+        result["cgroup_memory_peak_mb"] = round(cgroup_peak / mb, 1)
     if current is not None:
         result["cgroup_memory_current_mb"] = round(current / mb, 1)
     if limit is not None:

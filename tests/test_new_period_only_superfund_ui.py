@@ -1,5 +1,6 @@
 """UI contract: new active portfolio cannot inherit old model losses."""
 from pathlib import Path
+import inspect
 
 
 def test_superfund_primary_portfolio_uses_verified_new_period():
@@ -15,7 +16,10 @@ def test_superfund_primary_portfolio_uses_verified_new_period():
 
 def test_new_period_metrics_are_authoritative():
     src = Path("services/production_routing.py").read_text(encoding="utf-8")
-    assert "def metrics(family,*,storage=None)" in src
+    from services.production_routing import metrics
+    parameters = inspect.signature(metrics).parameters
+    assert parameters['family'].default is inspect.Parameter.empty
+    assert parameters['storage'].kind is inspect.Parameter.KEYWORD_ONLY
     assert "verified['verified_nav']" in src
     assert "verified['verified_net_return_pct']" in src
     assert "economic_period_id=chosen['pointer']['period_id']" in src
