@@ -303,7 +303,7 @@ def run(*, period_id, family, run_id, at, evidence, settings, operation, strateg
             if pointer.get('grant_sha256')!=digest(bundle['production_controls'][family]['grant']):
                 raise ValueError('Route authorization mismatch')
             from services.production_routing import strategy_settings
-            if digest(settings)!=digest(strategy_settings(family,storage=backend)):raise ValueError('Production strategy settings differ from canonical governance')
+            if digest(settings)!=digest(strategy_settings(family,storage=backend,approved_settings=grant['settings'])):raise ValueError('Production strategy settings differ from canonical governance')
             from services.trading_costs import validate_family
             validate_family(grant['cost_policy'],family,settings)
             for row in evidence.values():

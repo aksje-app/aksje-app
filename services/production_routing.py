@@ -99,7 +99,9 @@ def paper(ticker,operation,*,signal=None,confidence=0,trade_context=None,price=N
     common=context('paper',run_id,[{'ticker':ticker,'execution_quote':ctx.get('execution_quote')}],chosen=selected)
     if common is None:return None
     common.pop('evidence_blocks')
-    result=trading.paper(**common,rules=strategy_settings('paper'),signals=signals,routing_input=signals)
+    rules=strategy_settings('paper',approved_settings=selected['approval']['settings'])
+    selected=None
+    result=trading.paper(**common,rules=rules,signals=signals,routing_input=signals)
     outcome=result['outcomes'][0]
     return outcome['ok'],outcome['message']
 
@@ -159,8 +161,8 @@ def super_portfolio(pipeline,policy,*,scheduled=False):
     if pipeline is None:
         import super_portfolio as engine
         from dataclasses import fields
-        cfg=engine.SuperPortfolioConfig(**{k:v for k,v in strategy_settings('super_portfolio').items() if k in {f.name for f in fields(engine.SuperPortfolioConfig)}})
-        pipeline=engine.get_or_build_super_portfolio_market_pipeline(cfg=cfg,force_refresh=engine._rebalance_due(view('super_portfolio'),datetime.now(timezone.utc),cfg,policy))
+        cfg=engine.SuperPortfolioConfig(**{k:v for k,v in strategy_settings('super_portfolio',approved_settings=chosen['approval']['settings']).items() if k in {f.name for f in fields(engine.SuperPortfolioConfig)}})
+        pipeline=engine.get_or_build_super_portfolio_market_pipeline(cfg=cfg,force_refresh=engine._rebalance_due(view('super_portfolio',chosen=chosen),datetime.now(timezone.utc),cfg,policy))
     from services.activation_preflight import frozen_market_policy
     pipeline=deepcopy(pipeline)
     frozen=frozen_market_policy(pipeline)
@@ -175,14 +177,18 @@ def super_portfolio(pipeline,policy,*,scheduled=False):
     source_input=dict(pipeline=pipeline,policy=policy)
     cached=completed(chosen,run_id,source_input)
     if cached is not None:
-        if scheduled:return super_risk()
-        return {**cached,'state':view('super_portfolio'),'already_committed':True,'stop_alerts':[]}
+        if scheduled:
+            chosen=None
+            return super_risk()
+        return {**cached,'state':view('super_portfolio',chosen=chosen),'already_committed':True,'stop_alerts':[]}
     common=context('super_portfolio',run_id,pipeline.get('candidates',[]),chosen=chosen)
     blocks=common.pop('evidence_blocks')
     pipeline=deepcopy(pipeline)
     pipeline['execution_evidence_blocks']=blocks
     pipeline['candidates']=[row for row in pipeline.get('candidates',[]) if str(row['ticker']).upper() in common['evidence']]
-    result=trading.super_portfolio(**common,config=strategy_settings('super_portfolio'),pipeline=pipeline,rebalance_policy=policy,routing_input=source_input)
+    config=strategy_settings('super_portfolio',approved_settings=chosen['approval']['settings'])
+    chosen=None
+    result=trading.super_portfolio(**common,config=config,pipeline=pipeline,rebalance_policy=policy,routing_input=source_input)
     return {**result,'state':view('super_portfolio'),'stop_alerts':[],'rebalance_due':bool(result['changes'])}
 
 
@@ -200,7 +206,9 @@ def super_risk(*,at=None):
     def operation(session):
         import super_portfolio as engine
         return engine.run_lightweight_stop_surveillance(state=session.projection(),now=instant)
-    return trading.run(**common,family='super_portfolio',settings=strategy_settings('super_portfolio'),operation=operation,
+    settings=strategy_settings('super_portfolio',approved_settings=chosen['approval']['settings'])
+    chosen=None
+    return trading.run(**common,family='super_portfolio',settings=settings,operation=operation,
         strategy_input=source_input,routing_input=source_input)
 
 
@@ -277,11 +285,13 @@ def legacy_history(family,*,storage=None):
     return result
 
 
-def strategy_settings(family,*,storage=None,require_stored=False):
+def strategy_settings(family,*,storage=None,require_stored=False,approved_settings=None):
     """Snapshot the existing configured strategy; never invent restart settings."""
     from dataclasses import asdict
     storage=storage or control.get_storage_service()
     def approved_fallback():
+        if approved_settings is not None:
+            return deepcopy(approved_settings)
         chosen=control.selected(family,storage=storage,require_running=False)
         return deepcopy(chosen['approval']['settings']) if chosen is not None else None
     if family=='paper':

@@ -17,7 +17,7 @@ def prepare(chosen,run_id,candidates,*,storage=None):
     import autonomous_portfolio as ap
     from services.production_routing import view,strategy_settings
     storage=storage or control.get_storage_service()
-    period=chosen['pointer']['period_id'];settings=strategy_settings('autonomy',storage=storage)
+    period=chosen['pointer']['period_id'];settings=strategy_settings('autonomy',storage=storage,approved_settings=chosen['approval']['settings'])
     source=dict(period=period,run_id=run_id,candidates=candidates,settings=settings)
     key=preparation_key(chosen,run_id)
     def mutation(current):

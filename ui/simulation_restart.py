@@ -1,9 +1,9 @@
 """Read-only restart plan; never archives, resets, activates or changes learning."""
 import json
-from services.simulation_restart import CAPITALS,CAPITAL_EVIDENCE,report
+from services.simulation_restart import CAPITALS,CAPITAL_EVIDENCE
 
 
-def render(st,family,*,expanded=False):
+def render(st,family,*,expanded=False,chosen=None):
     with st.expander('Kontrollert ny start – separat simuleringsperiode',expanded=expanded):
         st.write(f"Planlagt ny simuleringskapital: NOK {CAPITALS[family]:,.0f}")
         st.caption('Ny simuleringskapital. Ingen meglersaldo og ingen overføring av gamle posisjoner.')
@@ -12,7 +12,8 @@ def render(st,family,*,expanded=False):
         st.write('Nytt nettoresultat: egen dokumentert NOK-periode med null aksjer ved oppstart.')
         st.info('Før klargjøring kreves komplett, kryptert arkiv og kontrollert tilbake­lesing. Ingen nullstilling eller aktivering utføres her.')
         from services.production_restart import selected
-        chosen=selected(family,require_running=False)
+        if chosen is None:
+            chosen=selected(family,require_running=False)
         if chosen:st.info('Valgt NOK-konto: '+chosen['pointer']['period_id']+' · '+chosen['bundle']['production_controls'][family]['status'])
         period_id=st.text_input('Periode-ID for innsyn i klargjort ny konto',value=chosen['pointer']['period_id'] if chosen else '',key=family+'_restart_period')
         data=dict(family=family,status='WAITING_FOR_VERIFIED_ARCHIVE',capital_nok=CAPITALS[family],
@@ -21,13 +22,16 @@ def render(st,family,*,expanded=False):
             learning_reset=False,legacy_sales_created=False,activation_enabled=False)
         if period_id:
             try:
-                prepared=report(period_id)
-                data={k:v for k,v in prepared.items() if k!='accounts'}
-                data['family']=family;data['account']=prepared['accounts'][family]
-                st.write('Klargjort periode: '+prepared['start_at'])
-                st.write('Kontostatus: '+data['account']['status'])
                 from services.restart_reporting import snapshot,export,tables
-                data=snapshot(period_id,family)
+                if chosen and chosen['pointer']['period_id'] == period_id:
+                    bundle=chosen['bundle']
+                else:
+                    from services.simulation_restart import _key
+                    from services.storage_service import get_storage_service
+                    bundle=get_storage_service().read_json(_key(period_id))
+                data=snapshot(period_id,family,verified_bundle=bundle)
+                st.write('Klargjort periode: '+data['start_at'])
+                st.write('Kontostatus: '+data['account']['status'])
                 period=data['account']['new_period'];verified=period['verification']
                 st.write('Startkapital NOK: '+f"{period['opening_nav_nok']:,.2f}")
                 metrics=[('Disponibel kontantbeholdning NOK',period['cash_nok']),
@@ -64,7 +68,7 @@ def render_active(st,family):
     if chosen is None:return False
     st.subheader({'paper':'Paper Trading','autonomy':'Autonomi','super_portfolio':'Superporteføljen'}[family]+' – dokumentert NOK-periode')
     st.caption('Simulerte handler. Tidligere resultater og strategilæring beholdes separat. Stopp/oppstart styres gjennom godkjent operatørprosedyre.')
-    render(st,family,expanded=True)
+    render(st,family,expanded=True,chosen=chosen)
     doc=chosen['bundle']['accounts'][family]
     runs=[e['payload'] for e in doc['events'] if e['kind']=='STRATEGY_RUN']
     if runs:
@@ -76,7 +80,7 @@ def render_active(st,family):
             st.dataframe(ranking,hide_index=True,width='stretch')
     with st.expander('Bevarte strategiparametere og kostnadsforutsetninger'):
         from services.production_routing import strategy_settings
-        st.json({'strategi_ved_godkjenning':chosen['approval']['settings'],'gjeldende_strategi':strategy_settings(family),
+        st.json({'strategi_ved_godkjenning':chosen['approval']['settings'],'gjeldende_strategi':strategy_settings(family,approved_settings=chosen['approval']['settings']),
             'policy':chosen['approval']['strategy_policy'],'kostnader':chosen['approval']['cost_policy']})
     with st.expander('Tidligere økonomiske modellresultater – kan være uverifiserte'):
         from services.production_routing import legacy_history

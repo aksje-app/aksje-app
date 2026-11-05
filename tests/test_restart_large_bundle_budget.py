@@ -5,7 +5,6 @@ RUN_RESTART_MEMORY_BUDGET=1 pytest -q -s tests/test_restart_large_bundle_budget.
 import gc
 import json
 import os
-from datetime import datetime, timedelta
 
 import pytest
 from test_restart_trading import active, evidence, at
@@ -56,5 +55,7 @@ def test_full_monolith_cycle_preserves_receipts_under_2_gib(active):
     assert saved['events'][-1]['payload']['run_id'] == 'memory-acceptance'
     assert result['family'] == 'autonomy'
     assert measured['process_peak_rss_mb'] < 2048
+    if measured.get('cgroup_memory_limit_mb', 99999) <= 2048:
+        assert measured['cgroup_memory_peak_mb'] < 2048
     print(json.dumps({'synthetic_payload_mb': round(total/1024**2,1), 'preserved_events':count,
                       'memory':measured},ensure_ascii=False))
