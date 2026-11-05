@@ -313,8 +313,8 @@ def preview(*,period_id,family,at,evidence,settings,strategy_input,storage=None)
     """
     from services.production_restart import permission
     backend=storage or get_storage_service();key=restart._key(period_id)
-    source_storage_fingerprint = backend.json_fingerprint(key) if hasattr(backend, 'json_fingerprint') else None
     before=backend.read_json(key);restart.verify_bundle(before)
+    source_storage_fingerprint = backend.json_fingerprint(key) if hasattr(backend, 'json_fingerprint') else None
     memory=Memory(before,key);scoped=restart.AccountStorage(period_id,memory)
     doc=scoped.read_json(ledger.key(family))
     if doc['status']=='DRAFT':
