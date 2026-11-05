@@ -14,11 +14,21 @@ def test_guard_does_not_mark_missing_evaluations_green():
     assert len(row["failures"]) == 3
 
 
-def test_does_not_send_outside_seven_days():
-    with patch("services.shadow_daily_guard.read_json") as read:
-        result = send_daily_if_due(now=datetime(2026, 10, 24, 14, tzinfo=timezone.utc))
-    assert result["status"] == "OUTSIDE_MONITORING_WINDOW"
-    read.assert_not_called()
+def test_daily_monitoring_continues_after_original_seven_day_window():
+    now = datetime(2026, 10, 24, 14, tzinfo=timezone.utc)
+    with patch("services.shadow_daily_guard.read_json", return_value={}), patch(
+        "services.shadow_daily_guard.evaluate", return_value={
+            "date": "2026-10-24", "status": "GUL", "failures": [],
+            "registrations": 1, "evaluations": 1, "active": 91,
+            "matured": 0, "strategy_readiness": "NOT_VALIDATED",
+            "production_changed": False,
+        }
+    ), patch("notifier.send_pushover_alert", return_value=(True, "OK")), patch(
+        "notifier.normalize_notification_result", return_value=(True, "OK")
+    ), patch("services.shadow_daily_guard.write_json") as writer:
+        result = send_daily_if_due(now=now)
+    assert result["delivery_status"] == "SENT"
+    assert writer.call_args.args[2]["2026-10-24"]["sent"] is True
 
 
 def test_successful_delivery_records_receipt():

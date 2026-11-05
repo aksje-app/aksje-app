@@ -1,4 +1,4 @@
-"""Seven-day operational Shadow/learning watch with durable Pushover receipt.
+"""Continuous daily operational Shadow/learning watch with durable Pushover receipt.
 
 No trades, no parameter changes. Cron calls this after learning maintenance.
 """
@@ -10,17 +10,19 @@ from typing import Any, Mapping
 
 STATE_KEY = "monitoring/shadow_daily_watch_20261017.json"
 START = date(2026, 10, 17)
-END = date(2026, 10, 23)
 ZONE = ZoneInfo("America/Fortaleza")
 
 
 def assess_day(learning: Mapping[str, Any], shadow: Mapping[str, Any],
                guard: Mapping[str, Any]) -> dict[str, Any]:
     """Operational status, deliberately not an investment performance verdict."""
+    def finished(row):
+        status = str(row.get('status', '')).upper()
+        return bool(row) and status not in {'FAILED', 'ERROR', ''} and not status.startswith(('DEFERRED', 'WAITING', 'RUNNING'))
     checks = {
-        "learning_maintenance_finished": bool(learning) and str(learning.get("status", "")).upper() not in {"FAILED", "ERROR", ""},
-        "shadow_job_finished": bool(shadow) and str(shadow.get("status", "")).upper() not in {"FAILED", "ERROR", ""},
-        "parameter_guard_finished": bool(guard) and str(guard.get("status", "")).upper() not in {"FAILED", "ERROR", ""},
+        "learning_maintenance_finished": finished(learning),
+        "shadow_job_finished": finished(shadow),
+        "parameter_guard_finished": finished(guard),
         "no_production_trade_changes": learning.get("production_changed") is not True and shadow.get("production_changed") is not True,
     }
     # A completed check with zero matured outcomes is not proof of profit or failure;
@@ -36,7 +38,7 @@ def run_daily_watch(learning: Mapping[str, Any], shadow: Mapping[str, Any],
                     guard: Mapping[str, Any], *, now: datetime | None = None,
                     read_state=None, write_state=None, sender=None) -> dict[str, Any]:
     today = (now or datetime.now(ZONE)).astimezone(ZONE).date()
-    if not START <= today <= END:
+    if today < START:
         return {"status": "OUTSIDE_WATCH", "date": today.isoformat()}
     if read_state is None or write_state is None or sender is None:
         raise ValueError("Durable persistence and Pushover sender are required")
@@ -58,8 +60,10 @@ def run_daily_watch(learning: Mapping[str, Any], shadow: Mapping[str, Any],
     # prevent duplicates without suppressing successive daily reports.
     ok, detail = sender(message, title="Shadow og læring: daglig kontroll",
                         priority=1 if assessment["color"] == "RØD" else 0)
+    duplicate = 'duplicate' in str(detail or '').lower()
+    delivered = bool(ok) and not duplicate
     result = {"date": today.isoformat(), "status": assessment["color"],
-              "sent": bool(ok), "delivery": "CONFIRMED" if ok else "FAILED",
+              "sent": delivered, "delivery": "CONFIRMED" if delivered else ("DUPLICATE_SUPPRESSED" if ok else "FAILED"),
               "delivery_detail": str(detail or "")[:180], "assessment": assessment}
     write_state(STATE_KEY, result)
     return result
