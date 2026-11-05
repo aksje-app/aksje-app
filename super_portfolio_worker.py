@@ -36,6 +36,7 @@ def publish_verified_result(
     pipeline: Mapping[str, Any],
     *,
     applied_changes: int = 0,
+    execution: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     current = jobs.get_job(job_id)
     jobs._require_worker(current, job_id, execution_token)
@@ -44,12 +45,21 @@ def publish_verified_result(
         raise RuntimeError("SP worker refused an unverified pipeline")
     outcome = str(pipeline.get("outcome") or "COMPLETED").upper()
     terminal = "DEGRADED" if outcome == "DEGRADED" else "COMPLETED"
+    execution = dict(execution or {})
+    deferred = execution.get('execution_state') == 'DEFERRED_MARKET_CLOSED'
+    if deferred and applied_changes:
+        raise RuntimeError('Deferred execution cannot publish applied trades')
+    details = ({'execution_state':'DEFERRED_MARKET_CLOSED',
+                'execution_reason':str(execution.get('reason') or ''),
+                'next_market_open':execution.get('next_market_open') or {}}
+               if deferred else {'execution_state':'EVALUATED','execution_reason':'','next_market_open':{}})
     return jobs.update_job(
         job_id, execution_token, state=terminal, outcome=terminal,
         phase="VERIFIED", percent=100,
-        message=f"SP-vurderingen er ferdig: {int(applied_changes)} godkjente Shadow-endring(er) anvendt",
+        message=("SP-markedsskanning er ferdig; handel venter på børsåpning" if deferred else
+                 f"SP-vurderingen er ferdig: {int(applied_changes)} godkjente Shadow-endring(er) anvendt"),
         applied_changes=int(applied_changes),
-        final_pipeline_run_id=str(pipeline.get("run_id") or ""), error="",
+        final_pipeline_run_id=str(pipeline.get("run_id") or ""), error="", **details,
     )
 
 
@@ -127,6 +137,7 @@ def run_claimed_job(job_id: str, execution_token: str) -> dict[str, Any]:
                 execution_token,
                 pipeline,
                 applied_changes=applied_changes,
+                execution=result,
             )
             return {**terminal, "changes": len(result.get("changes") or [])}
     except Exception as exc:

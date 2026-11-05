@@ -116,14 +116,14 @@ def activate(ready,family='paper',signed=None):
         private_key=r['key'],restore_destination=r['destination'])
 
 
-def direct(ready,family,run,at,inputs,ev=None):
+def direct(ready,family,run,at,inputs,ev=None,markets=None):
     r=ready;period=r['bundle']['period_id']
     common=dict(period_id=period,run_id=run,at=at,evidence=ev or evidence(at),
         account_ref=trading.account_reference(period,family),storage=r['pg'])
     common['evidence']={ticker:bound_cost_evidence(row,r['costs'][family]) for ticker,row in common['evidence'].items()}
     if family=='paper':return trading.paper(**common,rules=r['settings'][family],signals=inputs)
     if family=='autonomy':return trading.autonomy(**common,parameters=r['settings'][family],candidates=inputs)
-    pipeline=dict(run_id=run,created_at=at,candidates=inputs,market_activation_levels={'USA':'PRODUCTION'},regime_fit_score=70)
+    pipeline=dict(run_id=run,created_at=at,candidates=inputs,market_activation_levels=markets or {'USA':'PRODUCTION'},regime_fit_score=70)
     return trading.super_portfolio(**common,config=r['settings'][family],pipeline=pipeline,rebalance_policy='FORCE')
 
 
@@ -345,6 +345,30 @@ def test_superportfolio_risk_surveillance_books_only_authoritative_journal(ready
     assert doc(r,family)['account']['realized_pnl']<0
     assert reconcile(doc(r,family)['account'])==[]
     assert r['pg'].read_json('super_portfolio/state.json')==old
+
+
+def test_closed_scheduled_research_and_risk_preserve_signed_postgres_history(ready,monkeypatch):
+    r=ready;family='super_portfolio';activate(r,family)
+    first=datetime.now(timezone.utc)
+    first=(first+timedelta(days=(7-first.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    second=first+timedelta(days=3);closed=second+timedelta(hours=9)
+    for name,instant in [('search',first),('buy',second)]:
+        when=instant.isoformat();row={**candidate(when),'ticker':'EVO.ST','market':'Sverige'}
+        ev={'EVO.ST':evidence(when,currency='SEK',rate=1.1)['TEST']}
+        direct(r,family,name,when,[row],ev,markets={'SVERIGE':'PRODUCTION'})
+    before=r['pg'].read_json(restart._key(r['bundle']['period_id']))
+    assert 'EVO.ST' in before['accounts'][family]['account']['positions']
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return closed
+    monkeypatch.setattr(routing,'datetime',Clock)
+    def forbidden(*args,**kwargs):pytest.fail('Closed exchange must not request an execution quote')
+    monkeypatch.setattr(routing,'market_evidence',forbidden)
+    pipeline={'run_id':'new-verified-research','created_at':closed.isoformat(),'candidates':[],
+              'market_activation_levels':{'SVERIGE':'PRODUCTION'}}
+    assert routing.super_portfolio(pipeline,'AUTO',scheduled=True)['execution_state']=='DEFERRED_MARKET_CLOSED'
+    assert routing.super_risk(at=closed)['reason']=='MARKET_CLOSED'
+    assert r['pg'].read_json(restart._key(r['bundle']['period_id']))==before
 
 
 @pytest.mark.parametrize('failure',['stale','fx','cost','future'])

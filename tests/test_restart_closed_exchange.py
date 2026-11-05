@@ -50,3 +50,29 @@ def test_closed_deferral_never_requests_quotes_or_mutates_journal(monkeypatch,wh
     else:
         with pytest.raises(ValueError,match='stale quote'):routing.super_risk(at=at(when))
     assert chosen==original
+
+
+@pytest.mark.parametrize('scheduled,when,deferred',[(True,'2026-11-06T00:00:00',True),
+                                                  (True,'2026-11-06T09:00:00',False),
+                                                  (False,'2026-11-06T00:00:00',False)])
+def test_scheduled_research_can_finish_off_hours_without_claiming_rebalance(monkeypatch,scheduled,when,deferred):
+    from services import restart_trading as trading
+    chosen={'approval':{},'bundle':{'accounts':{'super_portfolio':{'account':{'positions':{'EVO.ST':{}}}}}}}
+    original=deepcopy(chosen)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return at(when)
+    monkeypatch.setattr(routing,'datetime',Clock)
+    monkeypatch.setattr(trading,'current',lambda:None)
+    monkeypatch.setattr(routing.control,'selected',lambda *args,**kwargs:chosen)
+    monkeypatch.setattr(routing,'completed',lambda *args:None)
+    def stale(*args,**kwargs):raise ValueError('Fresh execution quote still required')
+    monkeypatch.setattr(routing,'context',stale)
+    monkeypatch.setattr(trading,'super_portfolio',lambda **kwargs:pytest.fail('Unexpected journal write'))
+    pipeline={'run_id':'verified-research','market_activation_levels':{'USA':'PRODUCTION'},'candidates':[]}
+    if deferred:
+        result=routing.super_portfolio(pipeline,'AUTO',scheduled=scheduled)
+        assert result['execution_state']=='DEFERRED_MARKET_CLOSED' and result['changes']==[]
+    else:
+        with pytest.raises(ValueError,match='Fresh execution'):routing.super_portfolio(pipeline,'AUTO',scheduled=scheduled)
+    assert chosen==original

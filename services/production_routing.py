@@ -182,6 +182,13 @@ def super_portfolio(pipeline,policy,*,scheduled=False):
             chosen=None
             return super_risk()
         return {**cached,'state':view('super_portfolio',chosen=chosen),'already_committed':True,'stop_alerts':[]}
+    if scheduled:
+        deferred=_closed_held_exchanges(chosen['bundle']['accounts']['super_portfolio']['account']['positions'],datetime.now(timezone.utc))
+        if deferred is not None:
+            # Research may finish off-hours. A verified new pipeline is not an
+            # executable rebalance while held exchanges cannot supply a fresh
+            # execution quote; leave the financial journal/date untouched.
+            return {**deferred,'pipeline_run_id':run_id,'execution_state':'DEFERRED_MARKET_CLOSED'}
     common=context('super_portfolio',run_id,pipeline.get('candidates',[]),chosen=chosen)
     blocks=common.pop('evidence_blocks')
     pipeline=deepcopy(pipeline)

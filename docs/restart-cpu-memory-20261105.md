@@ -57,6 +57,19 @@ bytes per character. This temporary allocation overlaps the decoded history.
   quote freshness, adjusts stops, writes trades or changes strategy settings.
   Unknown, continuous, mixed/open instruments retain the strict existing path.
   The result states MARKET_CLOSED and includes the next exchange opening.
+- A due weekly rebalance could also force broad discovery on every 15-minute
+  cron after the trading date starts, while a closed held exchange prevents
+  execution and the rebalance date correctly remains uncommitted. That weekly
+  trigger now waits for the recognized held exchanges to open. The normal
+  12-hour research refresh and missing-pipeline recovery still run, and the
+  weekly rebalance remains pending. Unknown, stopped and legacy accounts retain
+  their original path. No trading threshold, completion receipt or configured
+  rebalance date is changed.
+- A scheduled research refresh may still finish off-hours. Its verified
+  pipeline is published separately from an explicit execution deferral when all
+  known held exchanges are closed. The worker records that trading is waiting
+  for opening, with zero applied changes; no financial receipt or rebalance date
+  is fabricated. Open/unknown markets and manual execution retain strict quotes.
 - That read-only deferral may reuse an already verified account projection
   from the same run only after fresh route/bundle PostgreSQL row versions,
   installation/certificate and valuation clock bounds match. It never loads a

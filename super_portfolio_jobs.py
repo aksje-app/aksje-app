@@ -314,8 +314,14 @@ def _scheduled_job_due(now: datetime | None = None) -> tuple[bool, str]:
     raw_config = state.get("config") if isinstance(state.get("config"), Mapping) else {}
     allowed = set(SuperPortfolioConfig.__dataclass_fields__)
     config = SuperPortfolioConfig(**{key: value for key, value in raw_config.items() if key in allowed})
-    if reference.weekday() == int(config.rebalance_weekday) and str(state.get("last_rebalance_date") or "") != reference.date().isoformat():
-        return True, "WEEKLY_REBALANCE_DUE"
+    weekly_due = reference.weekday() == int(config.rebalance_weekday) and str(state.get("last_rebalance_date") or "") != reference.date().isoformat()
+    weekly_closed = None
+    if weekly_due:
+        if state.get('economic_period_id') and state.get('status') == 'ACTIVE':
+            from services.production_routing import _closed_held_exchanges
+            weekly_closed = _closed_held_exchanges(state.get('positions') or {}, reference)
+        if weekly_closed is None:
+            return True, "WEEKLY_REBALANCE_DUE"
     pipeline = load_latest_super_portfolio_market_pipeline()
     created_at = _parse_timestamp(pipeline.get("created_at"))
     if created_at is None or not pipeline.get("candidates"):
@@ -323,6 +329,12 @@ def _scheduled_job_due(now: datetime | None = None) -> tuple[bool, str]:
     ref_utc = reference.astimezone(timezone.utc)
     if (ref_utc - created_at.astimezone(timezone.utc)).total_seconds() >= max(1.0, float(config.market_refresh_hours)) * 3600.0:
         return True, "REFRESH_DUE"
+    if weekly_closed is not None:
+        # An unexecuted weekly rebalance remains due until the exchange opens.
+        # Do not force a whole new discovery scan every 15 minutes overnight
+        # merely because that trading date has begun. Research refreshes above
+        # still run on their unchanged cadence; no completion/date is invented.
+        return False, "WEEKLY_REBALANCE_MARKET_CLOSED"
     return False, "NOT_DUE"
 
 
