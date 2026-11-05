@@ -241,8 +241,10 @@ def operational_health_snapshot(*, now: datetime | None = None, notify: bool = F
         timelines = [schedule_timeline(job, current) for job in load_jobs() if job.enabled]
         next_rows = [row for row in timelines if row.get("next_planned_utc")]
         next_run = min((str(row["next_planned_utc"]) for row in next_rows), default="")
+        missed_slots = [row for row in timelines if row.get("last_planned_status") in {"Feil", "Ikke startet", "Startet"}]
+        latest_slot = max(missed_slots, key=lambda row: str(row.get("previous_planned_utc") or ""), default={})
     except Exception as exc:
-        next_run, timelines = "", []
+        next_run, timelines, latest_slot = "", [], {}
         schedule_error = f"{type(exc).__name__}: {str(exc)[:300]}"
     else:
         schedule_error = ""
@@ -267,6 +269,9 @@ def operational_health_snapshot(*, now: datetime | None = None, notify: bool = F
         "business_days_since_last_buy": round(buy_business_hours / 24.0, 1) if buy_business_hours is not None else None,
         "learning_stage_status": next((row.get("status") for row in latest.get("stages") or [] if row.get("name") == "CONTROLLED_LEARNING"), "ALDRI KJØRT"),
         "next_scheduled_cycle_at": next_run, "schedule_error": schedule_error,
+        "last_scheduled_slot": {"at": latest_slot.get("previous_planned_utc", ""),
+            "status": latest_slot.get("last_planned_status", ""),
+            "reason": latest_slot.get("scheduler_status_reason_code", "")},
         "warning": "Ingen full autonomisyklus på over 24 børsdagstimer." if stale else "",
     }
     fingerprint = f"{snapshot['status']}|{current.date().isoformat()}"
