@@ -7,7 +7,7 @@ services:
     # Downsize only after live RSS stays safely below the smaller-plan ceiling.
     plan: standard
     buildCommand: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.lock && python tools/verify_dependency_lock.py && python tools/check_runtime_dependencies.py
-    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    startCommand: python web_runner.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.13
