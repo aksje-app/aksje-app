@@ -36,3 +36,18 @@ def consume_control_center_route_lock_v19220_rc6(
     session_state[f"ai_control_center_panel_radio_v1863aj_{group}"] = panel
     session_state.pop("analysis_pipeline_active_stage_v1863bz", None)
     return True
+
+
+def normalize_selected_panel_aliases(session_state,panel_map):
+    """Resolve saved legacy labels to an existing renderer before radio sync."""
+    aliases={'Top Picks':'⭐ Analyse – Top Picks','Long Engine':'📈 Analyse – Long Engine',
+        'AI Kandidattest':'🤖 AI – Kandidattest','Paper Trading og kontroll':'💼 Handel – Paper Trading',
+        'System/admin':'⚙️ Innstillinger – System/admin'}
+    def actual(label):
+        return aliases.get(label,label) if label not in panel_map and aliases.get(label) in panel_map else label
+    for key in list(session_state.keys()):
+        if key in {'ai_control_center_active_panel_v1863m','ai_control_center_active_panel_v1863aj','ai_control_center_active_real_panel_v18598'} or str(key).startswith('ai_control_center_panel_radio_v1863aj_'):
+            value=session_state.get(key)
+            if isinstance(value,str):session_state[key]=actual(value)
+    lock=session_state.get('ai_control_center_route_lock_v19220_rc6')
+    if isinstance(lock,dict):session_state['ai_control_center_route_lock_v19220_rc6']={**lock,'panel':actual(lock.get('panel',''))}

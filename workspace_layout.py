@@ -2339,6 +2339,10 @@ def _render_ai_control_center_v1863aj(extra_panels: Optional[Sequence[Tuple[str,
         ]
         panels = base_panels + list(extra_panels or [])
         panel_map = dict(panels)
+        from control_center_route_state import normalize_selected_panel_aliases
+        normalize_selected_panel_aliases(st.session_state,panel_map)
+        if str(st.session_state.get('active_nav_target_v18674c') or '')=='ai':
+            st.subheader('AI-verktøy')
 
         def _matching_panel_labels(*needles: str) -> list[str]:
             out: list[str] = []

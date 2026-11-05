@@ -18,7 +18,8 @@ def run(*,storage=None,now=None):
         raise ValueError('Safe production maintenance requires authoritative PostgreSQL')
     now=now or datetime.now(timezone.utc);started=time.monotonic()
     result={'policy':POLICY,'historical_deletion_enabled':False,'state':'RUNNING',
-        'started_at':now.isoformat(timespec='seconds'),'deleted_access_tokens':{},'vacuum':{},'autovacuum':{}}
+        'started_at':now.isoformat(timespec='seconds'),'deleted_access_tokens':{},'vacuum':{},'autovacuum':{},
+        'access_token_batch_limit':500,'statement_timeout_seconds':90,'maintenance_memory_mb':16}
     conn=storage._conn();conn.autocommit=True
     try:
         with conn.cursor() as cur:

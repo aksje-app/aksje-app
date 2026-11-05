@@ -6223,6 +6223,7 @@ def _render_runtime_diagnostics_v19220_rc8() -> None:
 
 def render_system_admin_workspace(expanded=False):
     """Fase 3: Cron/bakgrunnssøk og systemdrift samlet i Kontrollsenter."""
+    st.subheader("System")
     with st.expander("System System / admin · Bakgrunnssøk / Cron", expanded=bool(expanded)):
 
         st.caption("Systemkontroller. Full stopp / ferie overstyrer Auto trading og auto-kjøp. Start auto opphever ikke sikkerhetslåser.")

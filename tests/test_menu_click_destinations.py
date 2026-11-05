@@ -72,3 +72,12 @@ def test_main_menus_open_their_content_with_one_click(app_server,width):
             if slug=='quality':assert 'Kvalitet og prising' in page.locator('.st-key-market_room_view_v1863cb').inner_text()
             print(f'MENU_CLICK width={width} destination={slug} seconds={time.monotonic()-started:.3f}')
         browser.close()
+
+
+def test_legacy_panel_alias_resolves_to_real_renderer_before_radio_sync():
+    from control_center_route_state import normalize_selected_panel_aliases
+    state={'ai_control_center_active_panel_v1863aj':'Top Picks',
+        'ai_control_center_route_lock_v19220_rc6':{'panel':'Top Picks','group':'Marked og signaler'}}
+    normalize_selected_panel_aliases(state,{'⭐ Analyse – Top Picks':lambda:None})
+    assert state['ai_control_center_active_panel_v1863aj']=='⭐ Analyse – Top Picks'
+    assert state['ai_control_center_route_lock_v19220_rc6']['panel']=='⭐ Analyse – Top Picks'
