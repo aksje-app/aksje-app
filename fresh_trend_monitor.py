@@ -505,7 +505,14 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     drivers = "; ".join(direction.get("positive") or []) or "ingen tydelig positiv driver"
     brakes = "; ".join(direction.get("negative") or []) or (cautions[0] if cautions else "ingen ny negativ driver")
     interval = changes.get("scan_interval_minutes")
-    since_label = f"siden sist ({int(interval)} min)" if interval is not None else "siden sist"
+    minutes = max(0, int(interval)) if interval is not None else None
+    if minutes is None:
+        since_label = "siden sist"
+    elif minutes >= 60:
+        hours, remainder = divmod(minutes, 60)
+        since_label = f"siden sist ({hours} t {remainder} min)"
+    else:
+        since_label = f"siden sist ({minutes} min)"
     body = (f"{identity}\n"
             f"{priority['scope']} · {priority['label']}\n"
             f"Oppsettstatus: {row.get('status')}\n"
