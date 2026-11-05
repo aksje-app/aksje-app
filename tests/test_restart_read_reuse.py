@@ -51,6 +51,22 @@ def test_explicit_verified_selection_is_never_cached(example):
     assert calls == [1, 1, 1]
 
 
+def test_read_only_cached_view_never_loads_source_on_miss_and_checks_versions(example):
+    backend,calls,view=example
+    assert reuse.cached_account_view('paper',storage=backend) is None
+    with reuse.scope():
+        assert reuse.cached_account_view('paper',storage=backend) is None
+        view('paper',storage=backend)
+        cached=reuse.cached_account_view('paper',storage=backend)
+        assert cached['cash']==1
+        cached['cash']=-1
+        assert reuse.cached_account_view('paper',storage=backend)['cash']==1
+        backend.revision=2
+        assert reuse.cached_account_view('paper',storage=backend) is None
+        assert reuse.cached_account_view('paper',storage=backend) is None
+    assert calls==[1]
+
+
 def test_storage_failure_cannot_return_cached_balance(example, monkeypatch):
     backend, calls, view = example
     with reuse.scope():

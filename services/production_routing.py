@@ -193,16 +193,48 @@ def super_portfolio(pipeline,policy,*,scheduled=False):
     return {**result,'state':view('super_portfolio'),'stop_alerts':[],'rebalance_due':bool(result['changes'])}
 
 
+def _closed_held_exchanges(positions, instant):
+    """Defer execution-only checks when every identifiable exchange is closed.
+
+    Restrict this inference to explicit exchange ticker suffixes. Unknown,
+    continuous or mixed/open instruments retain the strict existing quote path.
+    No mark, stop threshold, journal or trading permission changes here.
+    """
+    from market_hours import market_status, next_market_open
+    suffixes={'OL':'NORGE', 'ST':'SVERIGE', 'HE':'FINLAND', 'CO':'DANMARK', 'SA':'BRASIL'}
+    markets=set()
+    if not positions:return None
+    for ticker in positions:
+        name=str(ticker).upper()
+        root, separator, suffix=name.rpartition('.')
+        if not separator or not root or suffix not in suffixes or any(c in name for c in '=^/'):
+            return None
+        markets.add(suffixes[suffix])
+    rows={market:market_status(market,now=instant) for market in sorted(markets)}
+    if any(row.get('is_open') is not False or row.get('reason')=='ukjent marked' for row in rows.values()):
+        return None
+    return dict(state='NOT_DUE',reason='MARKET_CLOSED',deferred=True,changes=[],stop_alerts=[],
+                markets=rows,next_market_open={m:next_market_open(m,now=instant) for m in rows})
+
+
 def super_risk(*,at=None):
     from services import restart_trading as trading
     if trading.current() is not None:return None
+    instant=at or datetime.now(timezone.utc)
+    from services.restart_read_reuse import cached_account_view
+    prior=cached_account_view('super_portfolio')
+    if prior is not None and prior.get('status')=='ACTIVE':
+        deferred=_closed_held_exchanges(prior['positions'],instant)
+        if deferred is not None:return deferred
+    prior=None
     chosen=control.selected('super_portfolio')
     if chosen is None:return None
-    instant=at or datetime.now(timezone.utc)
     slot=instant.replace(minute=instant.minute//15*15,second=0,microsecond=0).isoformat()
     run_id='stop:'+slot;source_input={'stop_slot':slot}
     cached=completed(chosen,run_id,source_input)
     if cached is not None:return {**cached,'already_committed':True}
+    deferred=_closed_held_exchanges(chosen['bundle']['accounts']['super_portfolio']['account']['positions'],instant)
+    if deferred is not None:return deferred
     common=context('super_portfolio',run_id,[],at=instant.isoformat(),chosen=chosen);common.pop('evidence_blocks')
     def operation(session):
         import super_portfolio as engine

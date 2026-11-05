@@ -9,7 +9,7 @@ class Bundle(dict):
 
 def selection_factory(family, refs):
     def selected(*args, **kwargs):
-        bundle = Bundle(accounts={})
+        bundle = Bundle(accounts={family: {'account': {'positions': {}}}})
         refs.append(weakref.ref(bundle))
         return {'pointer': {'family': family}, 'approval': {'settings': {}}, 'bundle': bundle}
     return selected

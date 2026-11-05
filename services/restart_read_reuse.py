@@ -80,6 +80,29 @@ def _version(storage, family):
             os.getenv('NOK_APPROVAL_CERT_SHA256'), tuple(sorted(versions.items())))
 
 
+def cached_account_view(family, *, storage=None):
+    """Return an already verified current view, or None without loading history.
+
+    For read-only decisions such as closed-exchange deferral only. Transactions
+    must continue through fresh selection and locked validation.
+    """
+    cache = _SCOPE.get()
+    if cache is None:return None
+    from services import production_restart as control
+    storage = storage or control.get_storage_service()
+    key = (storage, family, 'view')
+    entry = cache.get(key)
+    if entry is None:return None
+    version = _version(storage, family)
+    now = datetime.now(timezone.utc).timestamp()
+    if entry[0] == version and entry[3] <= now <= entry[4]:
+        from services.restart_io_metrics import reuse
+        reuse('hit', family)
+        return deepcopy(entry[1])
+    cache.pop(key, None)
+    return None
+
+
 def account_read(fn):
     @wraps(fn)
     def call(family, *, storage=None, chosen=None):

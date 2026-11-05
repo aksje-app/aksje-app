@@ -106,6 +106,10 @@ def _large_json_threshold_bytes() -> int:
     return int(mb * 1024 * 1024)
 
 
+def _restart_bundle(name: str) -> bool:
+    return name.startswith('simulation_restarts/') and name.endswith('/bundle.json')
+
+
 @dataclass(frozen=True)
 class StorageHealth:
     backend: str
@@ -629,21 +633,23 @@ class StorageService:
                     cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (name,))
                     cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR UPDATE", (name,))
                     row = cur.fetchone()
-                    current = json.loads(row[0]) if row else default
-                    if row:
-                        from services.restart_io_metrics import record
-                        record(name, 'locked_mutation', raw=row[0])
-                    # libpq and the fetched text can otherwise retain another
-                    # complete serialized journal throughout the transformation.
-                    del row
-                    # Release libpq's result buffer too; the transaction and row
-                    # lock survive closing this cursor.
+                # The transaction/advisory/row locks survive cursor closure.
+                # Free the native result before decoding, as for public reads.
+                current = json.loads(row[0]) if row else default
+                if row:
+                    from services.restart_io_metrics import record
+                    record(name, 'locked_mutation', raw=row[0])
+                del row
                 result = transform(current)
                 with conn.cursor() as cur:
                     cur.execute("""INSERT INTO app_kv_store (name, payload, updated_at)
                         VALUES (%s, %s, NOW()::TEXT) ON CONFLICT (name)
                         DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at""",
-                        (name, json.dumps(result, ensure_ascii=False, default=str)))
+                        # An en dash/emoji otherwise widens the *entire* large
+                        # Python JSON string to 2/4 bytes per character. Escapes
+                        # preserve every decoded value and canonical journal
+                        # hash while keeping this storage string one byte wide.
+                        (name, json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)))
                 conn.commit()
                 return result
             except Exception:
@@ -666,7 +672,7 @@ class StorageService:
                     record(name, 'locked_mutation', raw=raw)
                 del raw
                 result = transform(current)
-                self._atomic_write_text(path, json.dumps(result, ensure_ascii=False, indent=2, default=str))
+                self._atomic_write_text(path, json.dumps(result, ensure_ascii=_restart_bundle(name), indent=2, default=str))
                 return result
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
