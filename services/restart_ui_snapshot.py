@@ -32,13 +32,19 @@ def _build_model(bundle, family, pointer, approval):
     history = _nav_history(period)
     latest = next((e['payload'] for e in reversed(doc['events']) if e['kind'] == 'STRATEGY_RUN'), {})
     verification = period['verification']
+    meta = latest.get('state') or {}
     positions = {}
     for ticker, pos in period['positions'].items():
-        positions[ticker] = {**deepcopy(pos), 'ticker': ticker, 'shares': pos['quantity'],
+        positions[ticker] = {**deepcopy((meta.get('positions') or {}).get(ticker, {})), **deepcopy(pos), 'ticker': ticker, 'shares': pos['quantity'],
             'units': pos['quantity'], 'entry_price': pos.get('average_price'),
             'avg_price': pos.get('average_price'), 'market_data_at': pos['price_observed_at'],
             'market_value': verification['converted_position_values'].get(ticker)}
-    projection = dict(cash=period['cash_nok'], initial_cash=period['opening_nav_nok'],
+    presentation = {k:deepcopy(meta[k]) for k in ('vacancy_diagnostics', 'decision_confidence', 'portfolio_health') if k in meta}
+    presentation['last_changes'] = deepcopy((meta.get('last_changes') or [])[-20:])
+    presentation['history'] = deepcopy((meta.get('history') or [])[-12:])
+    if verification['verified_nav']:
+        presentation['vacancy_diagnostics'] = {**presentation.get('vacancy_diagnostics', {}), 'cash_pct': period['cash_nok']/verification['verified_nav']*100}
+    projection = dict(**presentation, cash=period['cash_nok'], initial_cash=period['opening_nav_nok'],
         positions=positions, trades=deepcopy(period['trades'][-100:]),
         realized_pnl=period['realized_pnl_nok'], portfolio_value=verification['verified_nav'],
         portfolio_return_pct=verification['verified_net_return_pct'],
@@ -61,10 +67,11 @@ def _build_model(bundle, family, pointer, approval):
         source_control=bundle['production_controls'][family]['status'],
         approval_settings=deepcopy(approval['settings']), strategy_policy=approval['strategy_policy'],
         cost_policy=deepcopy(approval['cost_policy']), data=data, projection=projection,
+        performance=_performance(period, history, bundle['period_id']),
         total_trades=len(period['trades']), total_nav_points=len(history),
         latest_run={k:deepcopy(latest[k]) for k in ('at', 'decisions') if k in latest},
         # Rich candidate inputs stay in the full journal, not the navigation payload.
-        ranking=deepcopy((latest.get('result') or {}).get('ranking') or [])[:100])
+        ranking=deepcopy(((latest.get('result') or {}).get('ranking') or [])[:100]))
     model['projection']['verified_at'] = model['verified_at']
     model['sha256'] = digest(model)
     return model
@@ -152,16 +159,21 @@ def view(family, *, storage=None):
     return deepcopy(model['projection'])
 
 
-def metrics(family, *, storage=None):
-    model = read(family, storage=storage)
-    if model is None or model['loading']:
-        return None
-    period = model['data']['account']['new_period']; verified = period['verification']
-    values = [1+r['net_return_pct']/100 for r in model['data']['nav_history'] if r['net_return_pct'] is not None]
+def _performance(period, history, period_id):
+    # All verified NAV points participate even when the chart is bounded.
+    verified = period['verification']
+    values = [1+r['net_return_pct']/100 for r in history if r['net_return_pct'] is not None]
     current = verified['verified_net_return_pct']
     unit = 1+current/100 if current is not None else None
     drawdown = max(0, (1-unit/max([1,unit]+values))*100) if unit is not None else None
     return dict(equity=verified['verified_nav'], cash=period['cash_nok'], total_return_pct=current,
         realized_pnl=period['realized_pnl_nok'], drawdown_pct=drawdown,
-        open_positions=len(period['positions']), economic_period_id=model['data']['period_id'],
-        economic_verification=verified, verified_at=model['verified_at'])
+        open_positions=len(period['positions']), economic_period_id=period_id,
+        economic_verification=verified, return_basis='DOCUMENTED_NOK_NET_UNITIZED_WHEN_FLOWS')
+
+
+def metrics(family, *, storage=None):
+    model = read(family, storage=storage)
+    if model is None or model['loading']:
+        return None
+    return {**deepcopy(model['performance']), 'verified_at': model['verified_at']}

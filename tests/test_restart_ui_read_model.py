@@ -57,3 +57,15 @@ def test_ui_publisher_rejects_corrupt_authoritative_journal(ready):
     r['pg'].write_json(name,bundle)
     with pytest.raises(ValueError):ui.publish(storage=r['pg'])
     assert r['pg'].read_json(ui.key('paper'),None) is None
+
+
+def test_chart_window_does_not_discard_older_high_water_mark(ready,monkeypatch):
+    r=ready;activate(r)
+    history=[{'at':'old-peak','net_return_pct':200}]+[{'at':str(i),'net_return_pct':0} for i in range(1001)]
+    monkeypatch.setattr(ui,'_nav_history',lambda _:history)
+    ui.publish(storage=r['pg'])
+    model=ui.read('paper',storage=r['pg'],refresh=False)
+    assert len(model['data']['nav_history'])==1000
+    assert model['total_nav_points']==1002
+    assert model['performance']['drawdown_pct']==pytest.approx(100*2/3)
+    assert ui.metrics('paper',storage=r['pg'])['drawdown_pct']==pytest.approx(100*2/3)
