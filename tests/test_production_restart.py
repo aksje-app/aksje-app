@@ -23,7 +23,8 @@ def ready(pg,sources,certificate,tmp_path,monkeypatch):
     monkeypatch.setenv('APP_ENVIRONMENT','production');monkeypatch.setenv('NOK_DEPLOYMENT_ID','ISOLATED_LOCAL_PG_ONLY')
     monkeypatch.setenv('NOK_APPROVAL_CERTIFICATE',str(cert));monkeypatch.setenv('NOK_APPROVAL_CERT_SHA256',hashlib.sha256(cert.read_bytes()).hexdigest())
     monkeypatch.setenv('PAPER_TRADING_ENABLED','true')
-    for module in (control,restart,ledger,trading):monkeypatch.setattr(module,'get_storage_service',lambda:pg)
+    from services import restart_ui_snapshot
+    for module in (control,restart,ledger,trading,restart_ui_snapshot):monkeypatch.setattr(module,'get_storage_service',lambda:pg)
     from trading_settings import DEFAULT_RULES
     from autonomous_portfolio import AutonomousParameters
     from super_portfolio import SuperPortfolioConfig
@@ -528,6 +529,8 @@ def test_autonomy_overview_uses_new_flow_adjusted_results_not_legacy_performance
     monkeypatch.setattr(overview,'get_storage_service',lambda:r['pg'])
     monkeypatch.setattr(overview,'load_parameters',lambda:ap.AutonomousParameters())
     monkeypatch.setattr(registry,'load_registry',lambda:{'approvals':[]})
+    from services.restart_ui_snapshot import publish
+    publish(storage=r['pg'])
     result=overview.collect_autonomy_overview()
     assert result['equity']==600000 and result['return_pct']==0 and result['drawdown_pct']==0
     assert result['decisions']==[]

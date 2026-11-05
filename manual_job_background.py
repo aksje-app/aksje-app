@@ -1110,7 +1110,7 @@ def _worker(execution_id, job_payload, trigger, force_refresh, scheduled_for="")
     import time
     # Keep the UI responsive while waiting. A bounded wait fails explicitly;
     # a restart reconciles the existing durable job rather than publishing partial output.
-    deadline = time.monotonic() + 600
+    deadline = time.monotonic() + _stage_progress_limit("WAITING_FOR_REPORT_LOCK")
     try:
         while time.monotonic() < deadline:
             with execution_lane("manual_report") as acquired:
@@ -1121,11 +1121,12 @@ def _worker(execution_id, job_payload, trigger, force_refresh, scheduled_for="")
                 status.update(state="CANCELLED", completed_at=_now())
                 _write_status(status)
                 return
-            status.update(state="QUEUED", heartbeat_at=_now(), message="Venter på felles kjørelås")
+            status.update(state="QUEUED", phase="WAITING_FOR_REPORT_LOCK", active_stage="WAITING_FOR_REPORT_LOCK",
+                          updated_at=_now(), heartbeat_at=_now(), message="Venter på felles kjørelås; oppdraget er fortsatt i kø")
             _write_status(status)
             time.sleep(5)
         status = get_status(execution_id)
-        status.update(state="FAILED", completed_at=_now(), error="Køventing oversteg 10 minutter; start på nytt", message="Ingen ufullstendig rapport publisert")
+        status.update(state="FAILED", completed_at=_now(), error="Køventing oversteg grensen for felles kjørelås; start på nytt", message="Ingen ufullstendig rapport publisert")
         _write_status(status)
     except Exception as exc:
         status = get_status(execution_id)

@@ -13,6 +13,8 @@ pytestmark=pytest.mark.skipif(os.getenv('SYSTEM_BROWSER_TEST')!='1',reason='Expl
 def browser_server(ready):
     r=ready
     for family in ('paper','autonomy','super_portfolio'):activate(r,family)
+    from services.restart_ui_snapshot import publish
+    publish(storage=r['pg'])
     with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
     base='http://127.0.0.1:'+str(port)
     env={**os.environ,'DATABASE_URL':r['pg'].database_url,'STORAGE_MODE':'postgres','ALLOW_LOCAL_STORAGE_FALLBACK':'false',
@@ -38,11 +40,15 @@ def test_approved_nok_navigation_graphs_and_downloads(browser_server,family,widt
         try:
             page=browser.new_page(viewport={'width':width,'height':950},accept_downloads=True)
             page.goto(browser_server);page.get_by_text('Valgt NOK-konto:',exact=False).wait_for(timeout=30000)
+            navigation_started=time.monotonic()
             page.get_by_role('combobox').first.click()
             page.get_by_role('option',name=family,exact=True).click()
             label={'paper':'Paper Trading','autonomy':'Autonomi','super_portfolio':'Superporteføljen'}[family]
             page.get_by_role('heading',name=label+' – dokumentert NOK-periode',exact=True).wait_for(timeout=30000)
             page.locator('.st-key-'+family+'_restart_csv').get_by_role('button').wait_for(timeout=30000)
+            navigation_seconds=time.monotonic()-navigation_started
+            print(f'ACCOUNT_NAVIGATION width={width} family={family} seconds={navigation_seconds:.3f}')
+            assert navigation_seconds<5
             assert page.locator('[data-testid="stException"]').count()==0
             page.locator('[data-testid*="VegaLite"]').first.wait_for(timeout=30000)
             for fmt in ('CSV','XLSX','PDF','ZIP'):

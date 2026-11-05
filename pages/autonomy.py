@@ -33,20 +33,23 @@ def render_autonomy_core_control_center_v1880(_legacy_context) -> None:
     try:
         from durable_runtime import read_json as _read_autonomy_json
         from storage_architecture import runtime_data_path as _autonomy_data_path
-        _owned = _read_autonomy_json(
-            "autonomous_portfolio/portfolio.json",
-            _autonomy_data_path("autonomous_portfolio", "portfolio.json"), {}
-        ) or {}
-        from services.production_routing import view
-        _selected=view('autonomy')
-        if _selected is not None:_owned=_selected
+        from services.restart_ui_snapshot import view
+        _owned=view('autonomy')
+        if _owned is None:
+            _owned = _read_autonomy_json(
+                "autonomous_portfolio/portfolio.json",
+                _autonomy_data_path("autonomous_portfolio", "portfolio.json"), {}
+            ) or {}
         _positions = _owned.get("positions") if isinstance(_owned, dict) else {}
         _positions = _positions if isinstance(_positions, dict) else {}
-        st.info(
-            f"Autonomi-portefølje · {len(_positions)} beholdninger · "
-            + ("Kun teoretisk" if _owned.get("mode") == "THEORETICAL_ONLY" else "Simulert portefølje")
-            + (" · " + ", ".join(sorted(_positions)[:8]) if _positions else " · Ingen aktive beholdninger")
-        )
+        if _owned.get('_loading'):
+            st.info('Autonomi-portefølje · Verifisert beholdningsoversikt hentes i bakgrunnen.')
+        else:
+            st.info(
+                f"Autonomi-portefølje · {len(_positions)} beholdninger · "
+                + ("Kun teoretisk" if _owned.get("mode") == "THEORETICAL_ONLY" else "Simulert portefølje")
+                + (" · " + ", ".join(sorted(_positions)[:8]) if _positions else " · Ingen aktive beholdninger")
+            )
     except Exception:
         st.warning("Autonomi-portefølje: beholdningsstatus kunne ikke leses. Dette betyr ikke nødvendigvis at porteføljen er tom.")
 

@@ -239,6 +239,15 @@ def report(family, *, storage=None, at=None):
     except (ValueError, KeyError, TypeError) as exc:
         result.update(status='INTEGRITY_ERROR', issues=[str(exc)])
         return result
+    return _report_verified(family, doc, at=at, result=result)
+
+
+def _report_verified(family, doc, *, at=None, result=None):
+    """Build a read-only report from a journal already verified by the caller."""
+    if result is None:
+        result = dict(family=family, label=FAMILIES[family], status=doc['status'],
+                      legacy_result_basis='HISTORISK – IKKE VERIFISERT NETTO NOK',
+                      legacy_history_preserved=True, missing_opening_evidence=[], new_period=None)
     account = doc['account']
     checked = audit(account, at=at)
     nav = checked['verified_nav']

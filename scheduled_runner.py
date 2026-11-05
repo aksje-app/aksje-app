@@ -226,6 +226,7 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         ("storage_retention", "state"),
         ("report_delivery_retry", "state"),
         ("required_reports", "state"),
+        ("portfolio_ui_snapshots", "status"),
     ):
         value = str((state.get(key) or {}).get(field) or "").upper()
         if value in {"FAILED", "BLOCKED_DATABASE"}:
@@ -792,6 +793,18 @@ def _run_once_locked() -> dict[str, Any]:
     except Exception as exc:
         state["superfund_approved_history"] = {"status":"FAILED","reason":type(exc).__name__}
 
+    # Build UI read models outside the web process. These verified, dated
+    # projections never participate in order decisions or financial mutations.
+    try:
+        from runtime_memory import release_process_memory
+        release_process_memory('scheduler:before-ui-snapshots')
+        from services.restart_ui_snapshot import publish
+        state['portfolio_ui_snapshots'] = publish()
+        release_process_memory('scheduler:after-ui-snapshots')
+    except Exception as exc:
+        state['portfolio_ui_snapshots'] = {'status': 'FAILED', 'reason': type(exc).__name__}
+        logging.exception('Could not publish verified portfolio UI snapshots')
+
     _mem("scheduler:complete", stop=False)
     state["completed_at"] = _now()
     state["state"] = _derive_overall_state(state)
@@ -844,6 +857,7 @@ def main() -> int:
         "report_revalidation": (state.get("report_revalidation") or {}).get("state"),
         "fresh_trend_monitor": (state.get("fresh_trend_monitor") or {}).get("state"),
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
+        "portfolio_ui_snapshots": state.get("portfolio_ui_snapshots"),
         "memory": memory_snapshot(),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))

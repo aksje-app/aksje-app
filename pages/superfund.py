@@ -147,13 +147,14 @@ def _render_superfund(st):
             if title=='Portefølje':
                 # Portfolio view is bound to the new, approved economic period,
                 # not the independent legacy Superfond snapshot.
-                from services.production_routing import metrics as new_period_metrics
+                from services.restart_ui_snapshot import metrics as new_period_metrics
                 try:
                     verified=new_period_metrics('super_portfolio')
                 except Exception:
                     verified=None  # No legacy fallback when an authorized account is unavailable.
                 st.subheader('Superporteføljen – ny periode')
-                if verified:
+                if verified and verified['equity'] is not None and verified['total_return_pct'] is not None:
+                    st.caption('Sist verifisert: '+verified['verified_at'])
                     st.metric('Verifisert porteføljeverdi NOK', f"{verified['equity']:,.0f}")
                     st.metric('Avkastning siden ny start', f"{verified['total_return_pct']:+.2f}%")
                     st.metric('Kontanter NOK', f"{verified['cash']:,.0f}")

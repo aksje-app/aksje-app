@@ -62,12 +62,16 @@ def test_paper_zip_download_read_only_and_return(app_server,width):
         assert files['paper_trades.json']==[]
         assert files['paper_portfolio.json']['positions']=={}
         assert not page.locator('[data-testid="stException"]').count()
+        menu_started=time.monotonic()
         if width<768:
             page.locator('.st-key-aa_mobile_nav_overview button').click()
         else:
             page.get_by_role('button',name='🏠 Oversikt',exact=True).click()
         page.get_by_role('heading').filter(has_text='God').first.wait_for()
         assert 'aa_nav=dashboard' in page.url
+        menu_seconds=time.monotonic()-menu_started
+        print(f'SINGLE_MENU_CLICK width={width} seconds={menu_seconds:.3f}')
+        assert menu_seconds<10
         browser.close()
 
 @pytest.mark.parametrize('width',[1280,375])

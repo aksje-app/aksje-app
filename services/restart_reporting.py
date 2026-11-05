@@ -16,6 +16,12 @@ def snapshot(period_id,family,*,storage=None,at=None,verified_bundle=None):
     result['family']=family;result['account']=all_accounts['accounts'][family]
     period=result['account']['new_period']
     if not period or result['account']['status']=='INTEGRITY_ERROR': raise ValueError('Verified period required')
+    result['nav_history']=_nav_history(period)
+    return result
+
+
+def _nav_history(period):
+    """Replay dated NAV from an already verified account report."""
     history=[];account=opening_account(period['opening_document'])
     history.append(dict(at=account['created_at'],nav_nok=account['initial_cash'],net_return_pct=0))
     for event in period['journal']:
@@ -26,8 +32,7 @@ def snapshot(period_id,family,*,storage=None,at=None,verified_bundle=None):
         else: continue
         checked=audit(account,at=stamp(payload['at']))
         history.append(dict(at=payload['at'],nav_nok=checked['verified_nav'],net_return_pct=checked['verified_net_return_pct']))
-    result['nav_history']=history
-    return result
+    return history
 
 
 def tables(data):

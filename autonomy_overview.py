@@ -115,22 +115,21 @@ def collect_autonomy_overview() -> dict[str, Any]:
         except Exception:
             pass
     candidates = list(latest_run.get("candidates") or status.get("top_candidates") or [])
-    portfolio = load_portfolio()
+    from services.restart_ui_snapshot import read as read_ui_snapshot
+    ui_snapshot = read_ui_snapshot('autonomy')
+    portfolio = (ui_snapshot.get('projection') or {'_loading':True,'economic_period_id':ui_snapshot['pointer']['period_id']}) if ui_snapshot is not None else load_portfolio()
     params = load_parameters()
     positions = list((portfolio.get("positions") or {}).values())
-    decisions = _rows("autonomous_portfolio/decisions.json", DECISIONS_PATH)
+    decisions = [] if ui_snapshot is not None else _rows("autonomous_portfolio/decisions.json", DECISIONS_PATH)
     if not decisions:
         decisions = [dict(row) for row in latest_run.get("autonomous_decisions") or [] if isinstance(row, Mapping)]
     notifications = _rows("autonomous_portfolio/notifications.json", NOTIFICATIONS_PATH)
-    performance = read_json("autonomous_portfolio/performance.json", PERFORMANCE_PATH, {})
+    performance = {} if ui_snapshot is not None else read_json("autonomous_portfolio/performance.json", PERFORMANCE_PATH, {})
     performance = dict(performance) if isinstance(performance, Mapping) else {}
     if portfolio.get('economic_period_id'):
-        from services.production_routing import metrics
-        from services.production_restart import selected
-        performance=metrics('autonomy')
-        account=selected('autonomy',require_running=False)['bundle']['accounts']['autonomy']
-        runs=[e['payload'] for e in account['events'] if e['kind']=='STRATEGY_RUN']
-        decisions=list(runs[-1]['result'].get('decisions',[])) if runs else []
+        from services.restart_ui_snapshot import metrics
+        performance=metrics('autonomy') or {}
+        decisions=list((ui_snapshot.get('latest_run') or {}).get('decisions',[]))
     approvals = _rows("controlled_learning/promotion_approvals.json", APPROVALS_PATH)
     pending = [{**row, "approval_source": "LEARNING"} for row in approvals if str(row.get("status") or "").upper() == "PENDING"]
     try:
@@ -144,7 +143,7 @@ def collect_autonomy_overview() -> dict[str, Any]:
     push_latest = dict(push_rows[-1]) if push_rows else {}
     storage = get_storage_service().health()
     next_run = _next_scheduled_run(active_jobs)
-    equity = portfolio_equity(portfolio)
+    equity = portfolio.get('portfolio_value') if ui_snapshot is not None else portfolio_equity(portfolio)
     initial = _number(portfolio.get("initial_cash"), _number(getattr(params, "initial_cash", 0)))
     drawdown = performance.get('drawdown_pct') if portfolio.get('economic_period_id') else _number(performance.get("drawdown_pct"), 0)
     return {
@@ -580,6 +579,10 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
     latest = snapshot["latest_run"]
     st.markdown("### 🧭 Autonomi Oversikt")
     st.caption("Samlet daglig drift og overvåking. Alle tall hentes fra eksisterende, varige motor- og servicelag.")
+    if snapshot['portfolio'].get('_loading'):
+        st.info('Verifisert porteføljeoversikt venter på bakgrunnskjøringen. Saldo og beholdninger er foreløpig ikke tilgjengelige.')
+    elif snapshot['portfolio'].get('verified_at'):
+        st.caption('Portefølje sist verifisert: '+snapshot['portfolio']['verified_at'])
 
     _render_autonomy_status_box(snapshot)
 
@@ -681,7 +684,7 @@ def render_autonomy_overview(*, allow_quick_start: bool = True) -> None:
             q2.metric("Verdi", f"{snapshot['equity']:,.0f} kr" if snapshot['equity'] is not None else 'IKKE VERIFISERT')
             q3.metric("Avkastning", f"{snapshot['return_pct']:+.2f} %" if snapshot['return_pct'] is not None else 'IKKE VERIFISERT')
             q4.metric("Drawdown", f"{snapshot['drawdown_pct']:.2f} %" if snapshot['drawdown_pct'] is not None else 'IKKE VERIFISERT')
-            st.caption(f"{len(snapshot['positions'])} åpne teoretiske posisjoner · ingen ekte handler utføres.")
+            st.caption("Beholdningsoversikt hentes" if snapshot["portfolio"].get("_loading") else f"{len(snapshot['positions'])} åpne teoretiske posisjoner · ingen ekte handler utføres.")
             if st.button("Åpne Læringsportefølje", key="autonomy_overview_portfolio_v1883"):
                 _goto("Læringsportefølje")
     with right:

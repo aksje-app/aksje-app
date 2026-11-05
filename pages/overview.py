@@ -22,7 +22,10 @@ def _portfolio_summary(state: Mapping[str, Any] | None) -> dict[str, Any]:
 
     nav_value = _number(state.get("portfolio_value"))
     nav_return_raw = state.get("portfolio_return_pct")
-    if nav_value > 0 and initial > 0:
+    if state.get('economic_period_id') and state.get('portfolio_value') is None:
+        total = None
+        since_start = None
+    elif nav_value > 0 and initial > 0:
         total = nav_value
         since_start = (
             round(_number(nav_return_raw), 4)
@@ -223,7 +226,10 @@ def render_ab_overview(st_module, model: Mapping[str, Any], *, navigate) -> None
     if portfolio.get("value") is None:
         try:
             from super_portfolio import load_state
-            portfolio = _portfolio_summary(load_state())
+            from services.restart_ui_snapshot import view
+            selected = view('super_portfolio')
+            if selected and selected.get('verified_at'):st_module.caption('Portefølje sist verifisert: '+selected['verified_at'])
+            portfolio = ({'value': None} if selected.get('_loading') else _portfolio_summary(selected)) if selected is not None else _portfolio_summary(load_state())
         except Exception:
             pass
     def fmt_money(value):
