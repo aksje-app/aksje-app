@@ -134,21 +134,15 @@ def report(period_id, *, storage=None, at=None, verified_bundle=None, families=N
         raise ValueError('Verified bundle period mismatch')
     if not bundle:raise ValueError('Unknown period; no legacy fallback')
     verify_bundle(bundle)
-    # Reporting is read-only: reuse the verified snapshot instead of fetching the
-    # complete restart bundle once for every account family. The underlying
-    # AccountStorage remains unchanged for mutations and transactional writes.
-    class _ReportSnapshot(AccountStorage):
-        def read_json(self, key, default=None):
-            family = self._family(key)
-            return bundle['accounts'][family]
-
-    report_storage = _ReportSnapshot(period_id, scoped.storage)
     return dict(period_id=period_id,status='PRODUCTION_AUTHORIZED' if bundle.get('production_controls') else bundle['status'],start_at=bundle['start_at'],
         archive=deepcopy(bundle['archive']),capital_kind=bundle['capital_kind'],
         learning_reset=False,legacy_positions_transferred=False,
         prior_learning='BEVART – EGEN STRATEGILÆRING, IKKE NYTT ØKONOMISK RESULTAT',
         historical_results=bundle['historical_results_label'],new_results=bundle['new_results_label'],
-        accounts={family:accounting.report(family,storage=report_storage,at=at) for family in families})
+        # This exact object was fully verified above, including all account
+        # signatures/chains/replay. Rebuild no journal and perform no second
+        # verification of the same unchanged accounts for presentation.
+        accounts={family:accounting._report_verified(family,bundle['accounts'][family],at=at) for family in families})
 
 
 def verify_bundle(bundle):

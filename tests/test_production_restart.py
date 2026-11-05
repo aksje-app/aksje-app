@@ -130,6 +130,28 @@ def direct(ready,family,run,at,inputs,ev=None):
 def doc(r,family):return restart.AccountStorage(r['bundle']['period_id']).read_json(ledger.key(family))
 
 
+@pytest.mark.parametrize('mode',['view','report'])
+def test_presentation_reuses_exact_fully_verified_journals_without_second_replay(ready,monkeypatch,mode):
+    from collections import Counter
+    r=ready;activate(r,'paper')
+    calls=[];original=ledger.verify
+    def verify(document):
+        calls.append(document['family'])
+        return original(document)
+    monkeypatch.setattr(ledger,'verify',verify)
+    if mode=='view':assert routing.view('paper',storage=r['pg'])['economic_period_id']==r['bundle']['period_id']
+    else:assert set(restart.report(r['bundle']['period_id'],storage=r['pg'])['accounts'])==set(restart.CAPITALS)
+    assert Counter(calls)==Counter({family:1 for family in restart.CAPITALS})
+    # Damage in another family still rejects the complete source before any
+    # projection can use the already-verified report helper.
+    bundle=r['pg'].read_json(restart._key(r['bundle']['period_id']))
+    bundle['accounts']['super_portfolio']['events'][0]['hash']='0'*64
+    r['pg'].write_json(restart._key(r['bundle']['period_id']),bundle)
+    with pytest.raises(ValueError,match='integrity'):
+        if mode=='view':routing.view('paper',storage=r['pg'])
+        else:restart.report(r['bundle']['period_id'],storage=r['pg'])
+
+
 @pytest.mark.parametrize('family,key', [
     ('paper','settings/trading_rules.json'),
     ('autonomy','autonomous_portfolio/parameters.json'),

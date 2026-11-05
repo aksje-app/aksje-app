@@ -248,6 +248,7 @@ def super_risk(*,at=None):
 @account_read
 def view(family,*,storage=None,chosen=None):
     """Read projection without fresh-data fetches; reports retain verification age."""
+    verified_here=chosen is None
     if chosen is None:
         chosen=control.selected(family,storage=storage,require_running=False)
     if chosen is None:return None
@@ -264,7 +265,10 @@ def view(family,*,storage=None,chosen=None):
             if self._family(key) != family:
                 raise ValueError('Snapshot family mismatch')
             return doc
-    report=ledger.report(family,storage=_ReadOnlySnapshot(p['period_id'],storage))['new_period']
+    # selected() has just verified this exact bundle and every account journal.
+    # Keep verification for caller-supplied selections, whose lifetime is unknown.
+    report=(ledger._report_verified(family,doc) if verified_here else
+            ledger.report(family,storage=_ReadOnlySnapshot(p['period_id'],storage)))['new_period']
     nav=report['verification']['verified_nav']
     for ticker,pos in account['positions'].items():
         positions[ticker]={**deepcopy(meta.get('positions',{}).get(ticker,{})),**deepcopy(pos),

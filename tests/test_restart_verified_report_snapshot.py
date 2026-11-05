@@ -18,7 +18,7 @@ def test_report_reuses_verified_bundle_without_storage_read():
         def read_json(self, *args, **kwargs):
             raise AssertionError("duplicate full bundle read")
     with patch.object(restart, "verify_bundle") as verify:
-        with patch.object(restart.accounting, "report", return_value={"status": "ACTIVE"}):
+        with patch.object(restart.accounting, "_report_verified", return_value={"status": "ACTIVE"}):
             report = restart.report("period-one", storage=NoReadStorage(), verified_bundle=bundle)
     verify.assert_called_once_with(bundle)
     assert set(report["accounts"]) == set(restart.CAPITALS)

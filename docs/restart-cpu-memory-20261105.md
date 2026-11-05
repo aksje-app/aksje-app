@@ -13,11 +13,16 @@ made 327,462,645 calls, taking 87.104 CPU seconds with cProfile enabled.
 Canonical hashing, rather than JSON parsing or SQL, dominated the profile.
 Baseline job: `job-dbmgfnuk1f9s7386jro0`.
 
-The bounded subtree candidate repeated that same read-only verification in
+An experimental bounded subtree encoder repeated that same read-only verification in
 `job-dbmgqpegekts73es2tgg`: 81,910,120 calls and 39.354 CPU seconds under the
 same profiler. The projection SHA-256 was identical:
 `2fbda75b75e6e0b84bc56311f6283c634709f8820c70348e10ce67ccb3e35363`.
-These are profiler measurements, not normal application response times.
+These are profiler measurements, not normal application response times. A
+subsequent measurement without the profiler showed only 14.692 -> 14.439 CPU
+seconds. The large apparent improvement was therefore mostly profiling
+overhead. **That encoder experiment was discarded; the existing canonical
+streaming hash implementation is retained unchanged.** A lower node budget also
+failed to improve normal CPU time (14.751 seconds) and was discarded.
 Single-core utilization can still reach 100% during useful work; CPU seconds
 and run duration determine whether redundant work was actually removed.
 
@@ -27,11 +32,16 @@ bytes per character. This temporary allocation overlaps the decoded history.
 
 ## Changes and preserved guarantees
 
-- Canonical SHA-256 still includes every event and byte under the same sorted
-  keys, separators, UTF-8 and finite-number rules. Native JSON encoding is
-  restricted to subtrees with a conservative 8 MiB serialized allocation
-  bound and 262,144-node bound. Large containers are streamed in canonical
-  order. Unsupported values retain the previous encoder's validation.
+- Presentation previously replayed a selected account journal again immediately
+  after `selected()` had verified the complete same bundle and every journal.
+  Fresh selections now use the existing `_report_verified` presentation helper,
+  as UI snapshot production already does. Caller-supplied selections retain
+  their previous verification. `simulation_restart.report()` likewise verifies
+  the complete source once and builds its requested reports from those exact
+  verified account objects. The public `portfolio_accounting.report()` still
+  performs its own verification. Signatures, all historical event hashes,
+  accounting replay and locked financial transactions remain checked; only
+  immediately repeated presentation verification is removed.
 - Normal locked restart-bundle writes persist ASCII JSON escapes. Decoded
   Unicode values and signature/event hashes remain identical. No standalone
   rewrite, retention deletion or historical truncation is performed. Other
@@ -55,11 +65,12 @@ bytes per character. This temporary allocation overlaps the decoded history.
 
 ## Verification
 
-The read-only candidate checked the actual production signatures and journal
-chains without mutation. Local tests cover canonical-byte parity, large-history
-bounded allocation, rejection of malformed/circular values, Unicode/hash
-round trips, rollback, lock lifetime, exchange holidays/weekends/DST, open-market
-quote rejection and detached version-checked reuse. Release Gate explicitly
+The read-only experiments checked the actual production signatures and journal
+chains without mutation. Local tests cover Unicode/hash round trips, rollback,
+lock lifetime, exchange holidays/weekends/DST, open-market quote rejection and
+detached version-checked reuse. Real PostgreSQL tests require one verification
+per account for presentation and reject corruption in another account before
+reporting. Release Gate explicitly
 includes the new PostgreSQL tests. Final deployment and full-run measurements
 must be appended to the existing PR #190; this predeployment record does not
 claim acceptance.

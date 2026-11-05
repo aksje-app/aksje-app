@@ -22,11 +22,11 @@ def test_restart_report_reads_bundle_only_once(monkeypatch):
     storage = Storage()
     monkeypatch.setattr(restart, "verify_bundle", lambda value: None)
 
-    def report_family(family, *, storage, at=None):
-        assert storage.read_json(restart.accounting.key(family)) == bundle["accounts"][family]
+    def report_family(family, doc, *, at=None):
+        assert doc is bundle["accounts"][family]
         return {"family": family}
 
-    monkeypatch.setattr(restart.accounting, "report", report_family)
+    monkeypatch.setattr(restart.accounting, "_report_verified", report_family)
     result = restart.report(period, storage=storage)
     assert storage.reads == 1
     assert set(result["accounts"]) == set(restart.CAPITALS)
@@ -41,10 +41,11 @@ def test_single_account_report_still_verifies_whole_bundle_and_only_builds_reque
     verification = Mock()
     monkeypatch.setattr(restart, 'verify_bundle', verification)
     built = []
-    def report(family, *, storage, at=None):
+    def report(family, doc, *, at=None):
+        assert doc is bundle['accounts'][family]
         built.append(family)
         return {'status': 'ACTIVE', 'new_period': {'cash_nok': 1}}
-    monkeypatch.setattr(restart.accounting, 'report', report)
+    monkeypatch.setattr(restart.accounting, '_report_verified', report)
     monkeypatch.setattr(restart_reporting, '_nav_history', lambda period: [])
     result = restart_reporting.snapshot('p', 'paper', verified_bundle=bundle)
     verification.assert_called_once_with(bundle)

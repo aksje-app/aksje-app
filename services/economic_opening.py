@@ -2,119 +2,17 @@
 from copy import deepcopy
 import hashlib
 import json
-import math
 from datetime import timedelta
 
 from services.economic_ledger import new_account, number, stamp, fx_rate
 
 
-_NATIVE_CANONICAL_BYTES = 8 * 1024**2
-_NATIVE_CANONICAL_NODES = 262144
-
-
-def _native_canonical_fits(value):
-    """Bound native encoding's temporary allocation, not the stored history.
-
-    Only exact JSON builtin types qualify. Large/unsupported/shared graphs
-    retain the existing streaming encoder and its exact validation behavior.
-    Six bytes per input character bounds UTF-8 JSON escaping; float/integer
-    bounds also include their full lexical representation.
-    """
-    remaining = _NATIVE_CANONICAL_BYTES
-    nodes = _NATIVE_CANONICAL_NODES - 1
-    pending = [value]
-    seen = set()
-    while pending:
-        item = pending.pop()
-        if nodes < 0 or remaining < 0:
-            return False
-        kind = type(item)
-        if kind is str:
-            remaining -= 6 * len(item) + 2
-        elif kind is int:
-            remaining -= item.bit_length() // 3 + 3
-        elif kind is float:
-            if not math.isfinite(item):
-                return False
-            remaining -= 32
-        elif kind is bool or item is None:
-            remaining -= 5
-        elif kind in (dict, list, tuple):
-            identity = id(item)
-            if identity in seen:
-                return False
-            seen.add(identity)
-            count = len(item) * (2 if kind is dict else 1)
-            if count > nodes:
-                return False
-            nodes -= count
-            remaining -= count + 2
-            if remaining < 0:
-                return False
-            if kind is dict:
-                if any(type(key) is not str for key in item):
-                    return False
-                pending.extend(item.keys())
-                pending.extend(item.values())
-            else:
-                pending.extend(item)
-        else:
-            return False
-    return remaining >= 0
-
-
-def _canonical_chunks(value, encoder, active):
-    if _native_canonical_fits(value):
-        yield json.dumps(value, sort_keys=True, separators=(',', ':'),
-                         ensure_ascii=False, allow_nan=False)
-        return
-    kind = type(value)
-    if kind not in (dict, list, tuple) or (
-            kind is dict and any(type(key) is not str for key in value)):
-        yield from encoder.iterencode(value)
-        return
-    identity = id(value)
-    if identity in active:
-        raise ValueError('Circular reference detected')
-    active.add(identity)
-    try:
-        if kind is dict:
-            yield '{'
-            for index, key in enumerate(sorted(value)):
-                if index:
-                    yield ','
-                yield encoder.encode(key)
-                yield ':'
-                yield from _canonical_chunks(value[key], encoder, active)
-            yield '}'
-        else:
-            yield '['
-            # Bounded blocks also accelerate long arrays of primitive values.
-            for offset in range(0, len(value), 256):
-                block = value[offset:offset + 256]
-                if offset:
-                    yield ','
-                if _native_canonical_fits(block):
-                    encoded = json.dumps(block, sort_keys=True, separators=(',', ':'),
-                                         ensure_ascii=False, allow_nan=False)
-                    yield encoded[1:-1]
-                else:
-                    for index, item in enumerate(block):
-                        if index:
-                            yield ','
-                        yield from _canonical_chunks(item, encoder, active)
-            yield ']'
-    finally:
-        active.remove(identity)
-
-
 def digest(value):
-    # Native encoding is limited to bounded subtrees; every historical byte
-    # still participates in the same canonical SHA-256 calculation.
+    # Preserve canonical bytes without materializing a second large JSON string.
     hasher = hashlib.sha256()
     encoder = json.JSONEncoder(sort_keys=True, separators=(',', ':'),
                                ensure_ascii=False, allow_nan=False)
-    for chunk in _canonical_chunks(value, encoder, set()):
+    for chunk in encoder.iterencode(value):
         hasher.update(chunk.encode())
     return hasher.hexdigest()
 
