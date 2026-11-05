@@ -313,7 +313,7 @@ def preview(*,period_id,family,at,evidence,settings,strategy_input,storage=None)
     """
     from services.production_restart import permission
     backend=storage or get_storage_service();key=restart._key(period_id)
-    source_storage_sha256 = backend.json_sha256(key) if hasattr(backend, 'json_sha256') else None
+    source_storage_fingerprint = backend.json_fingerprint(key) if hasattr(backend, 'json_fingerprint') else None
     before=backend.read_json(key);restart.verify_bundle(before)
     memory=Memory(before,key);scoped=restart.AccountStorage(period_id,memory)
     doc=scoped.read_json(ledger.key(family))
@@ -337,8 +337,8 @@ def preview(*,period_id,family,at,evidence,settings,strategy_input,storage=None)
     # Compare a compact database-side fingerprint instead of deserializing the
     # full historical restart bundle a second time (often 90+ MB).  The
     # preview remains read-only; an observed change still invalidates it.
-    if hasattr(backend, "json_sha256"):
-        unchanged = backend.json_sha256(key) == source_storage_sha256
+    if hasattr(backend, "json_fingerprint"):
+        unchanged = backend.json_fingerprint(key) == source_storage_fingerprint
     else:
         unchanged = backend.read_json(key) == before
     if not unchanged:raise ValueError('Source changed during preview; repeat on a stable snapshot')
