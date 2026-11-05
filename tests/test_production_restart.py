@@ -672,3 +672,44 @@ def test_v2_concurrent_delivery_commits_one_policy_calculation(ready):
     account=doc(r,'paper')['account'];assert len(account['trades'])==1
     assert account['cash']==pytest.approx(100000-1001-(1001*.0033+3))
     assert reconcile(account)==[]
+
+
+def test_run_scoped_account_reads_use_mvcc_and_preserve_signed_transaction_guards(ready, monkeypatch):
+    from services.restart_read_reuse import scope
+    from services.storage_service import StorageService
+    r = ready
+    activate(r, 'paper')
+    pg = r['pg']
+    bundle_key = restart._key(r['bundle']['period_id'])
+    original = pg.read_json
+    reads = []
+    def read(name, default=None):
+        if name == bundle_key: reads.append(name)
+        return original(name, default)
+    monkeypatch.setattr(pg, 'read_json', read)
+    with scope():
+        for _ in range(100):
+            result = routing.view('paper', storage=pg)
+            assert result['cash'] == r['bundle']['capitals_nok']['paper']
+            result['cash'] = -999
+            result['positions']['POISON'] = {}
+        assert len(reads) == 1
+        external = StorageService(database_url=pg.database_url, mode='postgres', allow_local_fallback=False)
+        before = pg.json_row_versions([bundle_key])
+        external.mutate_json(bundle_key, lambda bundle: bundle)
+        assert pg.json_row_versions([bundle_key]) != before
+        assert 'POISON' not in routing.view('paper', storage=pg)['positions']
+        assert len(reads) == 2
+        period = r['bundle']['period_id']
+        confirmation = digest(dict(period_id=period, family='paper', action='STOP', deployment_id=control.installation()))
+        control.stop(period, 'paper', actor='ISOLATED operator', reason='cache invalidation acceptance',
+                     confirmation=confirmation, storage=external)
+        assert routing.view('paper', storage=pg)['status'] == 'PAUSED'
+        assert len(reads) == 3
+        with pytest.raises(ValueError): control.selected('paper', storage=pg)
+        # Corruption by an independent connection must never be hidden by reuse.
+        def tamper(bundle):
+            bundle['production_controls']['paper']['grant']['payload']['capital_nok'] += 1
+            return bundle
+        external.mutate_json(bundle_key, tamper)
+        with pytest.raises(ValueError): routing.view('paper', storage=pg)

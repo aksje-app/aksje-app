@@ -8,6 +8,7 @@ from datetime import datetime,timezone
 from uuid import uuid4
 from services import production_restart as control
 from services.economic_opening import digest
+from services.restart_read_reuse import account_read
 
 
 def completed(chosen,run_id,source_input):
@@ -212,6 +213,7 @@ def super_risk(*,at=None):
         strategy_input=source_input,routing_input=source_input)
 
 
+@account_read
 def view(family,*,storage=None,chosen=None):
     """Read projection without fresh-data fetches; reports retain verification age."""
     if chosen is None:

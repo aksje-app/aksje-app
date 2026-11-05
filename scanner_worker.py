@@ -951,6 +951,7 @@ def _run_once_impl(force=False, *, check_currency_alerts=True):
 
 
 from resource_coordinator import coordinated
+from services.restart_read_reuse import scoped
 
 
 def _deferred_for_shared_lane(*args, **kwargs):
@@ -959,6 +960,7 @@ def _deferred_for_shared_lane(*args, **kwargs):
 
 
 @coordinated("paper_scanner", deferred=_deferred_for_shared_lane)
+@scoped
 def run_once(force=False, *, check_currency_alerts=True):
     """Durable, globally coordinated unattended Paper scanner entry point."""
     def coordinated_impl(*, force=False):

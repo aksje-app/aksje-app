@@ -11,7 +11,7 @@ from services.economic_accounting_audit import audit
 
 
 def snapshot(period_id,family,*,storage=None,at=None,verified_bundle=None):
-    all_accounts=restart.report(period_id,storage=storage,at=at,verified_bundle=verified_bundle)
+    all_accounts=restart.report(period_id,storage=storage,at=at,verified_bundle=verified_bundle,families=(family,))
     result={k:deepcopy(v) for k,v in all_accounts.items() if k!='accounts'}
     result['family']=family;result['account']=all_accounts['accounts'][family]
     period=result['account']['new_period']

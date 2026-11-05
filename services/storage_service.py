@@ -362,6 +362,24 @@ class StorageService:
                 digest.update(chunk)
         return digest.hexdigest()
 
+    def json_row_versions(self, names: Iterable[str]) -> dict[str, tuple[str, str]]:
+        """Fresh MVCC identities, without detoasting or parsing JSON payloads.
+
+        Used only to invalidate run-scoped read models. Transactional writes
+        must still lock/read/validate the authoritative document themselves.
+        """
+        if not self.using_postgres():
+            raise StorageUnavailableError('Row versions require PostgreSQL')
+        self.init_db()
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute('SELECT name, xmin::text, ctid::text FROM app_kv_store WHERE name = ANY(%s)',
+                            ([_safe_name(name) for name in names],))
+                return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+        finally:
+            conn.close()
+
     def read_json(self, name: str, default: Any = None) -> Any:
         name = _safe_name(name)
         if self.using_postgres():
@@ -385,6 +403,9 @@ class StorageService:
                 finally:
                     conn.close()
                 value = default if not row else json.loads(row[0])
+                if row:
+                    from services.restart_io_metrics import record
+                    record(name, 'read', payload_bytes)
                 if payload_bytes >= _large_json_threshold_bytes():
                     logging.warning(
                         "LARGE_JSON_READ_DONE key=%s payload_mb=%.1f rss_mb=%s",
@@ -402,7 +423,11 @@ class StorageService:
         if not path.exists():
             return default
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            raw = path.read_text(encoding="utf-8")
+            value = json.loads(raw)
+            from services.restart_io_metrics import record
+            record(name, 'read', raw=raw)
+            return value
         except Exception as exc:
             logging.warning("Ugyldig lokal JSON %s: %s", path, exc)
             return default
@@ -602,6 +627,9 @@ class StorageService:
                     cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR UPDATE", (name,))
                     row = cur.fetchone()
                     current = json.loads(row[0]) if row else default
+                    if row:
+                        from services.restart_io_metrics import record
+                        record(name, 'locked_mutation', raw=row[0])
                     # libpq and the fetched text can otherwise retain another
                     # complete serialized journal throughout the transformation.
                     del row
@@ -628,7 +656,12 @@ class StorageService:
         with _path_lock(path), path.with_suffix(path.suffix + ".lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
-                current = json.loads(path.read_text()) if path.exists() else default
+                raw = path.read_text() if path.exists() else None
+                current = json.loads(raw) if raw is not None else default
+                if raw is not None:
+                    from services.restart_io_metrics import record
+                    record(name, 'locked_mutation', raw=raw)
+                del raw
                 result = transform(current)
                 self._atomic_write_text(path, json.dumps(result, ensure_ascii=False, indent=2, default=str))
                 return result

@@ -30,3 +30,23 @@ def test_restart_report_reads_bundle_only_once(monkeypatch):
     result = restart.report(period, storage=storage)
     assert storage.reads == 1
     assert set(result["accounts"]) == set(restart.CAPITALS)
+
+
+def test_single_account_report_still_verifies_whole_bundle_and_only_builds_requested_account(monkeypatch):
+    from services import restart_reporting
+    from unittest.mock import Mock
+    bundle = {'period_id': 'p', 'status': 'PREPARED_NOT_ACTIVE', 'start_at': '2026-10-25T01:21:18Z',
+              'archive': {}, 'capital_kind': 'TEST', 'historical_results_label': 'historical',
+              'new_results_label': 'new', 'accounts': {family: {'family': family} for family in restart.CAPITALS}}
+    verification = Mock()
+    monkeypatch.setattr(restart, 'verify_bundle', verification)
+    built = []
+    def report(family, *, storage, at=None):
+        built.append(family)
+        return {'status': 'ACTIVE', 'new_period': {'cash_nok': 1}}
+    monkeypatch.setattr(restart.accounting, 'report', report)
+    monkeypatch.setattr(restart_reporting, '_nav_history', lambda period: [])
+    result = restart_reporting.snapshot('p', 'paper', verified_bundle=bundle)
+    verification.assert_called_once_with(bundle)
+    assert built == ['paper']
+    assert result['family'] == 'paper'

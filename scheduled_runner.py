@@ -63,6 +63,8 @@ def _now() -> str:
 
 
 def _save(state: dict[str, Any]) -> dict[str, Any]:
+    from services.restart_io_metrics import snapshot as restart_io_snapshot
+    state['restart_io'] = restart_io_snapshot()
     last_error: Exception | None = None
     retry_delays = (1.0, 2.0, 4.0, 8.0, 15.0)
     for attempt in range(1, len(retry_delays) + 2):
@@ -307,6 +309,8 @@ def _repair_public_reports() -> dict[str, Any]:
 
 def _run_once_locked() -> dict[str, Any]:
     _configure_headless_logging()
+    from services.restart_io_metrics import reset as reset_restart_io
+    reset_restart_io()
     from runtime_identity import publish_runtime_identity, validate_cluster_alignment, validate_expected_runtime
     started = _now()
     previous = load_unattended_state()
@@ -818,9 +822,11 @@ def _run_once_locked() -> dict[str, Any]:
 
 
 from resource_coordinator import coordinated
+from services.restart_read_reuse import scoped
 
 
 @coordinated("cron")
+@scoped
 def run_once() -> dict[str, Any]:
     """Run one cron cycle with a controlled memory-pressure exit."""
     try:
@@ -845,6 +851,7 @@ def run_once() -> dict[str, Any]:
 def main() -> int:
     state = run_once()
     from runtime_memory import memory_snapshot
+    from services.restart_io_metrics import snapshot as restart_io_snapshot
     summary = {
         "state": state.get("state"), "started_at": state.get("started_at"),
         "completed_at": state.get("completed_at"), "error": state.get("error"),
@@ -863,6 +870,7 @@ def main() -> int:
         "paper_scanner": (state.get("paper_scanner") or {}).get("state"),
         "portfolio_ui_snapshots": state.get("portfolio_ui_snapshots"),
         "memory": memory_snapshot(),
+        "restart_io": restart_io_snapshot(),
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
     return 0 if state.get("state") in {

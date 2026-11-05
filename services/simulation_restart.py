@@ -124,7 +124,10 @@ class AccountStorage:
         return self._copy_result(updated['accounts'][family])
 
 
-def report(period_id, *, storage=None, at=None, verified_bundle=None):
+def report(period_id, *, storage=None, at=None, verified_bundle=None, families=None):
+    families = tuple(CAPITALS) if families is None else tuple(families)
+    if not families or not set(families).issubset(CAPITALS):
+        raise ValueError('Known report account families required')
     scoped=AccountStorage(period_id,storage)
     bundle=verified_bundle if verified_bundle is not None else scoped.storage.read_json(scoped.key,None)
     if verified_bundle is not None and bundle.get('period_id') != period_id:
@@ -145,7 +148,7 @@ def report(period_id, *, storage=None, at=None, verified_bundle=None):
         learning_reset=False,legacy_positions_transferred=False,
         prior_learning='BEVART – EGEN STRATEGILÆRING, IKKE NYTT ØKONOMISK RESULTAT',
         historical_results=bundle['historical_results_label'],new_results=bundle['new_results_label'],
-        accounts={family:accounting.report(family,storage=report_storage,at=at) for family in CAPITALS})
+        accounts={family:accounting.report(family,storage=report_storage,at=at) for family in families})
 
 
 def verify_bundle(bundle):
