@@ -314,6 +314,7 @@ def preview(*,period_id,family,at,evidence,settings,strategy_input,storage=None)
     from services.production_restart import permission
     backend=storage or get_storage_service();key=restart._key(period_id)
     before=backend.read_json(key);restart.verify_bundle(before)
+    source_storage_fingerprint = backend.json_fingerprint(key) if hasattr(backend, 'json_fingerprint') else None
     memory=Memory(before,key);scoped=restart.AccountStorage(period_id,memory)
     doc=scoped.read_json(ledger.key(family))
     if doc['status']=='DRAFT':
@@ -333,7 +334,14 @@ def preview(*,period_id,family,at,evidence,settings,strategy_input,storage=None)
         result=dict(result=result,account=ledger.report(family,storage=scoped,at=stamp(at)),mode='DRY_RUN_NO_ORDERS_NO_PERSISTENT_WRITES',
             source_sha256=digest(before),evidence=deepcopy(evidence),settings=deepcopy(settings))
     finally:_PREVIEW.reset(token)
-    if backend.read_json(key)!=before:raise ValueError('Source changed during preview; repeat on a stable snapshot')
+    # Compare a compact database-side fingerprint instead of deserializing the
+    # full historical restart bundle a second time (often 90+ MB).  The
+    # preview remains read-only; an observed change still invalidates it.
+    if hasattr(backend, "json_fingerprint"):
+        unchanged = backend.json_fingerprint(key) == source_storage_fingerprint
+    else:
+        unchanged = backend.read_json(key) == before
+    if not unchanged:raise ValueError('Source changed during preview; repeat on a stable snapshot')
     return result
 
 
