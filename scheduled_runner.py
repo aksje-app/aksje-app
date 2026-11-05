@@ -594,7 +594,7 @@ def _run_once_locked() -> dict[str, Any]:
         from paper_scanner_runtime import load_scanner_status
         scanner_status = dict(load_scanner_status() or {})
         state["paper_scanner"] = {
-            "state": str(scanner_status.get("state") or "COMPLETED"),
+            "state": "MARKET_CLOSED" if state.get("paper_scanner_market_gate") else str(scanner_status.get("state") or "COMPLETED"),
             "execution_mode": "SEQUENTIAL_SHARED_2GB_SCHEDULER",
             "trades": trades,
             "scan_run_id": str(scanner_status.get("scan_run_id") or ""),
