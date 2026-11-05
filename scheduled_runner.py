@@ -575,9 +575,21 @@ def _run_once_locked() -> dict[str, Any]:
     try:
         from runtime_memory import release_process_memory
         before_scan = release_process_memory("scheduled_runner:before_paper_scanner")
-        from scanner_worker import run_once as run_paper_scanner
-        mark_breadcrumb("scheduler:paper_scanner:before_run_once", component="scheduled_runner")
-        trades = int(run_paper_scanner(force=False, check_currency_alerts=False) or 0)
+        # Check trading calendars before importing the heavyweight scanner.
+        # Required 08/14/22 reports above are deliberately never gated.
+        from market_hours import open_markets
+        from market_universe import production_market_scopes
+        configured_markets = tuple(production_market_scopes())
+        if str(os.getenv("PRODUCTION_NORWAY_ONLY", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+            configured_markets = ("NORGE",)
+        if open_markets(configured_markets):
+            from scanner_worker import run_once as run_paper_scanner
+            mark_breadcrumb("scheduler:paper_scanner:before_run_once", component="scheduled_runner")
+            trades = int(run_paper_scanner(force=False, check_currency_alerts=False) or 0)
+        else:
+            trades = 0
+            state["paper_scanner_market_gate"] = {"state": "MARKET_CLOSED", "markets_open": []}
+            mark_breadcrumb("scheduler:paper_scanner:market_closed", component="scheduled_runner")
         mark_breadcrumb("scheduler:paper_scanner:after_run_once", component="scheduled_runner", detail={"trades": trades})
         from paper_scanner_runtime import load_scanner_status
         scanner_status = dict(load_scanner_status() or {})
