@@ -116,8 +116,10 @@ def test_news_relevance_rejects_other_companies_and_general_big_tech():
 
 
 def test_primary_and_secondary_insider_provenance_are_not_equivalent():
+    from datetime import datetime, timedelta, timezone
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     secondary = score_transactions("AAPL", [{
-        "date": "2026-07-29", "transaction": "Sale", "shares": 100,
+        "date": recent, "transaction": "Sale", "shares": 100,
         "price": 200, "insider": "Example Person", "source_type": "SECONDARY_STRUCTURED",
     }])
     assert secondary["secondary_fact_count"] == 1
@@ -126,7 +128,7 @@ def test_primary_and_secondary_insider_provenance_are_not_equivalent():
     assert canonical_status({}, [{"verification": "STRUCTURED_PROVIDER"}]) == SECONDARY_FACTS_FOUND
 
     primary = score_transactions("AAPL", [{
-        "date": "2026-07-29", "transaction": "Purchase", "shares": 100,
+        "date": recent, "transaction": "Purchase", "shares": 100,
         "price": 200, "insider": "Example Person", "source_type": "OFFICIAL_PRIMARY",
         "source_url": "https://www.sec.gov/Archives/example", "document_id": "0001",
         "form_type": "4", "verification": "PRIMARY_DOCUMENT",
