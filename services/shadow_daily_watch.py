@@ -16,10 +16,13 @@ ZONE = ZoneInfo("America/Fortaleza")
 def assess_day(learning: Mapping[str, Any], shadow: Mapping[str, Any],
                guard: Mapping[str, Any]) -> dict[str, Any]:
     """Operational status, deliberately not an investment performance verdict."""
+    def finished(row):
+        status = str(row.get('status', '')).upper()
+        return bool(row) and status not in {'FAILED', 'ERROR', ''} and not status.startswith(('DEFERRED', 'WAITING', 'RUNNING'))
     checks = {
-        "learning_maintenance_finished": bool(learning) and str(learning.get("status", "")).upper() not in {"FAILED", "ERROR", ""},
-        "shadow_job_finished": bool(shadow) and str(shadow.get("status", "")).upper() not in {"FAILED", "ERROR", ""},
-        "parameter_guard_finished": bool(guard) and str(guard.get("status", "")).upper() not in {"FAILED", "ERROR", ""},
+        "learning_maintenance_finished": finished(learning),
+        "shadow_job_finished": finished(shadow),
+        "parameter_guard_finished": finished(guard),
         "no_production_trade_changes": learning.get("production_changed") is not True and shadow.get("production_changed") is not True,
     }
     # A completed check with zero matured outcomes is not proof of profit or failure;
@@ -57,8 +60,10 @@ def run_daily_watch(learning: Mapping[str, Any], shadow: Mapping[str, Any],
     # prevent duplicates without suppressing successive daily reports.
     ok, detail = sender(message, title="Shadow og læring: daglig kontroll",
                         priority=1 if assessment["color"] == "RØD" else 0)
+    duplicate = 'duplicate' in str(detail or '').lower()
+    delivered = bool(ok) and not duplicate
     result = {"date": today.isoformat(), "status": assessment["color"],
-              "sent": bool(ok), "delivery": "CONFIRMED" if ok else "FAILED",
+              "sent": delivered, "delivery": "CONFIRMED" if delivered else ("DUPLICATE_SUPPRESSED" if ok else "FAILED"),
               "delivery_detail": str(detail or "")[:180], "assessment": assessment}
     write_state(STATE_KEY, result)
     return result
