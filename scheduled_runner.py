@@ -239,12 +239,16 @@ def _production_closure_snapshot(state: dict[str, Any]) -> dict[str, Any]:
     """Compact live acceptance evidence emitted on every cron."""
     retention = dict(state.get("storage_retention") or {})
     scanner = dict(state.get("paper_scanner") or {})
+    safe_receipt=True
+    if retention.get('policy')=='PRESERVE_ALL_HISTORY':
+        from services.safe_database_maintenance import receipt_ok
+        safe_receipt=receipt_ok(retention)
     checks = {
         "database_preflight": bool((state.get("database_preflight") or {}).get("ready")),
         "runtime_identity": bool((state.get("runtime_alignment") or {}).get("aligned")),
         "cluster_identity": bool((state.get("cluster_alignment") or {}).get("aligned")),
         "retention_apply_requested": retention.get("apply_requested") is True,
-        "retention_effective": retention.get("apply_enabled") is True and str(retention.get("state") or "") in {"PARTIAL", "COMPLETED"},
+        "retention_effective": retention.get("apply_enabled") is True and str(retention.get("state") or "") in {"PARTIAL", "COMPLETED"} and safe_receipt,
         "scanner_not_failed": str(scanner.get("state") or "") not in {"FAILED", "FAILED_STORAGE"},
         "no_unresolved_storage_finalization": str(scanner.get("state") or "") != "FINALIZATION_PENDING_STORAGE",
         "no_degraded_components": not list(state.get("degraded_components") or []),
@@ -730,7 +734,7 @@ def _run_once_locked() -> dict[str, Any]:
     retention_just_enabled = retention_env_enabled and retention_previous.get("apply_enabled") is not True
     retention_due = (
         retention_just_enabled
-        or retention_previous_state in {"PARTIAL", "FAILED", "BLOCKED_DATABASE"}
+        or retention_previous_state in {"PARTIAL", "FAILED", "BLOCKED_DATABASE", "DEFERRED_BUSY"}
         or _maintenance_due(previous, "storage_retention", default_minutes=1440)
     )
     if retention_due:
@@ -740,7 +744,7 @@ def _run_once_locked() -> dict[str, Any]:
         except Exception as exc:
             state["storage_retention"] = {"state": "FAILED", "completed_at": _now(), "error": str(exc)[:500]}
     else:
-        state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "state": "NOT_DUE"}
+        state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "schedule_state": "NOT_DUE"}
 
     # Bounded historical acquisition; always advisory and isolated from trades.
     try:

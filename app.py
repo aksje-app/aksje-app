@@ -9591,6 +9591,8 @@ def _apply_nav_target_v18658(nav: str) -> bool:
     st.session_state["active_nav_target_v18674c"] = nav
     active_group = str(st.session_state.get("ai_control_center_group_v1863aj") or "")
     active_panel = str(st.session_state.get("ai_control_center_active_panel_v1863aj") or "")
+    if active_group and active_panel:
+        st.session_state["ai_control_center_route_lock_v19220_rc6"] = {"nav":nav,"group":active_group,"panel":active_panel}
     _persist_ui_state_v18658(nav=nav, group=active_group, panel=active_panel)
     # v18.6.74c: preserve refresh state in URL without deleting remember_token.
     set_global_navigation_state(st, nav=nav, group=active_group, panel=active_panel, tab="")
@@ -19206,23 +19208,27 @@ else:
 # v18.5.1: Ticker-banner er flyttet opp mellom sticky AI-status og AI Kontrollsenter.
 _active_control_center_panel_v18598 = None
 try:
-    # v18.6.36: KPI-raden rendres i en placeholder. Da kan den oppdateres på nytt
-    # etter at aktivt Kontrollsenter-panel har fylt Top Picks/ranking-cache i samme run.
-    _dashboard2026_kpi_slot_v18636 = st.empty()
-    with _dashboard2026_kpi_slot_v18636:
-        render_dashboard2026_kpis_v18631()
-    render_daily_attention_dashboard_v19022()
-    # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
-    # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
-    # Market health precedes both market banners on the legacy front page.
-    if str(st.session_state.get("active_nav_target_v18674c") or "dashboard").strip().lower() in {"", "dashboard", "overview"}:
-        from market_health_ui import render_market_health
-        render_market_health(st)
-    render_live_market_banner()
-    render_special_watch_banner_surface_v18620()
-    render_banner_main_controls()
-    # RC16.32c: ordinary dashboard window only; do not add a third banner.
-    render_super_portfolio_front_window_v1932c()
+    # Dedicated menu destinations must not wait for homepage market providers.
+    # A failing ticker/banner must never prevent the selected panel rendering.
+    _show_home_surfaces = not use_v2_shell() or str(st.session_state.get("active_nav_target_v18674c") or "dashboard").lower() in {"dashboard","overview"}
+    if _show_home_surfaces:
+        # v18.6.36: KPI-raden rendres i en placeholder. Da kan den oppdateres på nytt
+        # etter at aktivt Kontrollsenter-panel har fylt Top Picks/ranking-cache i samme run.
+        _dashboard2026_kpi_slot_v18636 = st.empty()
+        with _dashboard2026_kpi_slot_v18636:
+            render_dashboard2026_kpis_v18631()
+        render_daily_attention_dashboard_v19022()
+        # v18.6.12: banneret er en global markedsflate og skal ikke forsvinne når
+        # Kontrollsenter eller Paper Trading er valgt. Legacy marker: _cc_fast_nav_v1863ak / if not _cc_fast_nav_v1863ak.
+        # Market health precedes both market banners on the legacy front page.
+        if str(st.session_state.get("active_nav_target_v18674c") or "dashboard").strip().lower() in {"", "dashboard", "overview"}:
+            from market_health_ui import render_market_health
+            render_market_health(st)
+        render_live_market_banner()
+        render_special_watch_banner_surface_v18620()
+        render_banner_main_controls()
+        # RC16.32c: ordinary dashboard window only; do not add a third banner.
+        render_super_portfolio_front_window_v1932c()
     _active_control_center_panel_v18598 = render_ai_control_center(extra_panels=control_center_extra_panels_v18535())
     try:
         _active_panel_for_route_v19220_rc7 = str(_active_control_center_panel_v18598 or "")
@@ -19242,10 +19248,11 @@ try:
             )
     except Exception:
         pass
-    # Oppdater KPI-raden etter panelrendering, slik at data som Top Picks akkurat har
-    # lagt i session_state faktisk vises i toppkortene uten neste manuelle refresh.
-    with _dashboard2026_kpi_slot_v18636:
-        render_dashboard2026_kpis_v18631()
+    if _show_home_surfaces:
+        # Oppdater KPI-raden etter panelrendering, slik at data som Top Picks akkurat har
+        # lagt i session_state faktisk vises i toppkortene uten neste manuelle refresh.
+        with _dashboard2026_kpi_slot_v18636:
+            render_dashboard2026_kpis_v18631()
 except Exception as _top_banner_workspace_error:
     st.caption(f"Topp-banner / AI Kontrollsenter kunne ikke vises: {_top_banner_workspace_error}")
 

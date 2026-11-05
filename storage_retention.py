@@ -99,8 +99,12 @@ def retention_configuration() -> dict[str, Any]:
     }
 
 
+def safe_maintenance_enabled() -> bool:
+    return str(os.getenv('STORAGE_SAFE_MAINTENANCE_APPLY','')).strip().lower() in _TRUE_VALUES
+
+
 def retention_apply_enabled() -> bool:
-    return bool(retention_configuration()["parsed_apply_enabled"])
+    return safe_maintenance_enabled() or bool(retention_configuration()["parsed_apply_enabled"])
 
 
 def _now() -> str:
@@ -181,6 +185,29 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
             **common,
         })
 
+    if safe_maintenance_enabled():
+        # This explicit mode supersedes broad legacy retention, including an
+        # old UI button passing apply=True. Historical candidates never delete.
+        from services.safe_database_maintenance import run
+        if not database_ready:
+            return _save_state({**common,'state':'BLOCKED_DATABASE','policy':'PRESERVE_ALL_HISTORY','historical_deletion_enabled':False,'completed_at':_now()})
+        before=storage.storage_usage_report()
+        safe=run(storage=storage) if apply is not False and database_ready else {'state':'DRY_RUN'}
+        effective=apply is not False and database_ready
+        state='FAILED' if safe['state']=='PARTIAL' else safe['state']
+        after=storage.storage_usage_report()
+        trend=_capacity_trend(before,previous,datetime.now(timezone.utc))
+        capacity_notice=_capacity_notice(after,previous,enabled=effective and safe['state']=='COMPLETED')
+        return _save_state({**common,'state':state,'policy':'PRESERVE_ALL_HISTORY',
+            'apply_requested':apply is not False,'apply_enabled':effective,
+            'apply_scope':'EXPIRED_ACCESS_TOKENS_AND_ONLINE_VACUUM',
+            'broad_retention_apply_requested':requested_apply,'historical_deletion_enabled':False,
+            'disable_reason':'' if effective else disable_reason,
+            'safe_maintenance':safe,'deleted_keys':{},'deleted_this_batch':0,'pending_after_batch':0,
+            'usage_before':before,'usage_after':after,'capacity_trend':trend,'capacity_notification':capacity_notice,
+            'oversize_documents':[{**r,'protected':True,'reason':'PRESERVE_ALL_HISTORY'} for r in _oversize_documents(after)],
+            'completed_at':_now(),'protected':PROTECTED})
+
     before = storage.storage_usage_report()
     names = storage.list_json_names()
     max_items = int(config["batch_size"])
@@ -255,23 +282,7 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
 
     after = storage.storage_usage_report()
     completed = datetime.now(timezone.utc)
-    previous_usage = previous.get("usage_before") if isinstance(previous.get("usage_before"), dict) else {}
-    trend: dict[str, Any] = {"status": "PENDING_SECOND_SAMPLE"}
-    try:
-        previous_at = datetime.fromisoformat(str(previous.get("completed_at") or "").replace("Z", "+00:00"))
-        elapsed_days = max((completed - previous_at.astimezone(timezone.utc)).total_seconds() / 86400.0, 1 / 24)
-        delta = int(before.get("database_bytes") or 0) - int(previous_usage.get("database_bytes") or 0)
-        daily = round(delta / elapsed_days)
-        remaining = int(before.get("capacity_bytes") or 0) - int(before.get("database_bytes") or 0)
-        trend = {
-            "status": "GROWING" if daily > 0 else "STABLE_OR_SHRINKING",
-            "sample_days": round(elapsed_days, 2),
-            "delta_bytes": delta,
-            "estimated_daily_growth_bytes": daily,
-            "estimated_days_to_capacity": round(remaining / daily, 1) if daily > 0 and remaining > 0 else None,
-        }
-    except Exception:
-        pass
+    trend = _capacity_trend(before, previous, completed)
 
     state_name = "PARTIAL" if effective_apply and pending_after_batch else ("COMPLETED" if effective_apply else "DRY_RUN")
     return _save_state({
@@ -296,3 +307,43 @@ def run_storage_retention(*, apply: bool | None = None) -> dict[str, Any]:
 def load_storage_retention_state() -> dict[str, Any]:
     value = read_json(STATE_KEY, STATE_PATH, {})
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _capacity_trend(before, previous, completed):
+    previous_usage = previous.get("usage_before") if isinstance(previous.get("usage_before"), dict) else {}
+    trend: dict[str, Any] = {"status": "PENDING_SECOND_SAMPLE"}
+    try:
+        previous_at = datetime.fromisoformat(str(previous.get("completed_at") or "").replace("Z", "+00:00"))
+        elapsed_days = max((completed - previous_at.astimezone(timezone.utc)).total_seconds() / 86400.0, 1 / 24)
+        delta = int(before.get("database_bytes") or 0) - int(previous_usage.get("database_bytes") or 0)
+        daily = round(delta / elapsed_days)
+        remaining = int(before.get("capacity_bytes") or 0) - int(before.get("database_bytes") or 0)
+        trend = {
+            "status": "GROWING" if daily > 0 else "STABLE_OR_SHRINKING",
+            "sample_days": round(elapsed_days, 2),
+            "delta_bytes": delta,
+            "estimated_daily_growth_bytes": daily,
+            "estimated_days_to_capacity": round(remaining / daily, 1) if daily > 0 and remaining > 0 else None,
+        }
+    except Exception:
+        pass
+
+    return trend
+
+
+def _capacity_notice(usage,previous,*,enabled):
+    """Warn before capacity is exhausted; never delete history to silence it."""
+    level=usage.get('capacity_state','UNKNOWN')
+    if not enabled or level not in {'WARNING','CRITICAL'}:return {'state':'NOT_REQUIRED','capacity_state':level}
+    fingerprint=_now()[:10]+':'+level
+    last=previous.get('capacity_notification') or {}
+    if last.get('fingerprint')==fingerprint and last.get('sent') is True:
+        return {**last,'state':'ALREADY_SENT'}
+    from notifier import send_pushover_alert
+    try:
+        sent,detail=send_pushover_alert(
+            'Databasebruk: '+str(usage.get('capacity_pct'))+' % av konfigurert kapasitet. Historikken bevares. Kontroller vekst og lagringsbehov. Målingen gjelder databaserelasjoner; leverandørens totale diskbruk og WAL er ikke målt.',
+            title='Databasekapasitet – '+str(level))
+        return {'state':'SENT' if sent else 'FAILED','sent':bool(sent),'detail':str(detail)[:300],'fingerprint':fingerprint}
+    except Exception as exc:
+        return {'state':'FAILED','sent':False,'error_type':type(exc).__name__,'fingerprint':fingerprint}

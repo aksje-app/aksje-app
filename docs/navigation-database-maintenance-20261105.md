@@ -1,0 +1,23 @@
+# Menus and history-preserving database maintenance, 5 November 2026
+
+The reported Reports click was not covered by earlier direct-URL and portfolio timing tests. A dedicated destination still went through homepage market banners before rendering its own panel. A failed/blocked banner could therefore abort the entire shared try block before Reports rendered. Desktop header links also restarted the browser document, unlike mobile's explicit native callbacks. The desktop header now uses the same native navigation callback and authenticated session as mobile. Explicit routes synchronize control-center radios before stale values can win. Dedicated destinations skip homepage market providers. The homepage and all modules remain available.
+
+A click journey additionally found the mobile More button becoming unreachable after a legacy page loaded: late global CSS overrode the horizontal navigation rail's overflow. Navigation-specific CSS now wins on those pages. Mobile controls are hidden on desktop, and desktop controls are hidden on mobile.
+
+New browser coverage clicks Reports from an established Advanced session through both sidebar and header, injects a failing homepage banner, and follows eight main destinations on each of desktop/mobile. It waits for completed browser renders, checks real destination content and exceptions, and verifies the Quality view rather than accepting the previous Market heading. Eight browser cases passed; actual route changes took roughly 1.2–5.1 seconds, including the mobile More interaction.
+
+## Database findings
+
+Read-only Render inspection measured 3,189,855,935 bytes (3042 PostgreSQL MB), approximately 59.4% of the configured 5 GiB capacity. This is database relation size; provider-wide filesystem use and WAL are not measured by that figure. The KV and JSONL relations occupied about 2.62 GB and 554 MB. Historical repository records are the largest namespace. Legacy aggregate documents remain fallbacks for records not present in indexed item documents; no blanket deletion of those aggregates is safe.
+
+Existing retention last ran at 15:01:23 UTC in DRY_RUN, with 14 historical candidates and zero deletions. Its old apply mode can delete old analyses/traces and truncate audit streams. That mode is kept disabled to satisfy preservation of all historical data. Existing PostgreSQL autovacuum was enabled, with default 20% scale factors, but table/TOAST statistics were stale; this is not proof that historical rows are disposable.
+
+## Safe automatic mode
+
+`STORAGE_SAFE_MAINTENANCE_APPLY=true` explicitly selects `PRESERVE_ALL_HISTORY` and supersedes broad retention, even when an old UI action supplies `apply=True`. It does not delete or trim any report, analysis, portfolio, trade, journal, JSONL audit, learning, repository or archive row. Its only logical deletion is access tokens expired for at least seven days. Invalid expiry strings and current/recent tokens survive. A concurrent expiry renewal is protected by comparing the original expiry in DELETE.
+
+On the two high-churn storage tables, autovacuum/autoanalyze thresholds are lowered from a 20% scale factor to 2%, with bounded thresholds (200 parent rows, 1000 TOAST rows). This prevents obsolete large-document versions accumulating unnecessarily. The job performs online `VACUUM (ANALYZE, TRUNCATE FALSE)` with 16 MB maintenance memory, a two-second lock timeout and a 90-second statement timeout per relation. It never uses VACUUM FULL and does not claim to return all reusable space to the operating system. Old row versions become reusable for future writes; legitimate historical data can still grow.
+
+The existing daily scheduler runs this mode immediately when enabled and retries deferred/failed maintenance. A successful dated receipt is retained when the next cycle is not due, instead of overwriting success with NOT_DUE. Production acceptance requires an actual successful, fresh safe-maintenance receipt for both storage tables; enabling the flag alone cannot pass. Database capacity/trend diagnostics remain available. Existing WARNING/CRITICAL thresholds generate a deduplicated daily Pushover notice; no capacity warning is sent for normal use.
+
+Real isolated PostgreSQL tests verify historical KV and JSONL preservation, expired/current/malformed token handling, online vacuum, autovacuum configuration, safe preview and protection against broad apply. They also reject absent/stale success receipts and verify capacity-notification deduplication. Production results are recorded in existing PR #190 after deployment, not inferred from local tests.

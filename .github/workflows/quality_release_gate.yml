@@ -92,7 +92,7 @@ jobs:
         env:
           SYSTEM_BROWSER_TEST: "1"
           PYTHONPATH: .
-        run: pytest -q tests/test_system_revision_browser.py
+        run: pytest -q tests/test_system_revision_browser.py tests/test_menu_click_destinations.py
       - name: Report sharing JavaScript
         env:
           PYTHONPATH: .
@@ -169,7 +169,7 @@ jobs:
         env:
           PYTHONPATH: .
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
-        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py tests/test_revision_trade_postgres.py
+        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py tests/test_revision_trade_postgres.py tests/test_safe_database_maintenance.py
       - name: Production-mode NOK lifecycle and PC/mobile exports on isolated PostgreSQL
         env:
           PYTHONPATH: .

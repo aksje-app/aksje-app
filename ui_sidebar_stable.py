@@ -299,6 +299,8 @@ def _sidebar_nav_set_v18650(st, nav: str) -> None:
         "system": ("System", "System/admin"),
     }
     q_group, q_panel = sidebar_group_panel_v18674c.get(nav, ("", ""))
+    if q_group and q_panel:
+        st.session_state["ai_control_center_route_lock_v19220_rc6"] = {"nav":nav,"group":q_group,"panel":q_panel}
     _sidebar_set_query_state_v18674c(st, nav, q_group, q_panel)
     _sidebar_persist_nav_v18658(st, nav)
     try:

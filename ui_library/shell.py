@@ -81,17 +81,19 @@ def render_shell(st_module, route: str, status: Mapping[str,Any] | None = None) 
     def nav_html(routes,css):
         return f'<nav class="{css}" aria-label="Hovednavigasjon">{"".join(nav_link(item) for item in routes)}</nav>'
 
-    # Desktop keeps normal links. Mobile uses native Streamlit buttons because
-    # fixed HTML descendants are not reliably hit-testable in iOS Safari/WebView.
-    st_module.markdown(nav_html(DESKTOP_ROUTES,"aa-desktop-nav"),unsafe_allow_html=True)
-
     if not all(hasattr(st_module, name) for name in ("container","columns","button","session_state","query_params")):
-        # Test/compatibility fallback only.
-        st_module.markdown(
-            f'<nav class="aa-mobile-nav" aria-label="Mobil hovednavigasjon">{"".join(nav_link(item, mobile=True) for item in MOBILE_ROUTES)}</nav>',
-            unsafe_allow_html=True,
-        )
+        st_module.markdown(nav_html(DESKTOP_ROUTES,"aa-desktop-nav"),unsafe_allow_html=True)
+        st_module.markdown(nav_html(MOBILE_ROUTES,"aa-mobile-nav"),unsafe_allow_html=True)
         return current
+
+    # Native callbacks retain the authenticated session and apply the same
+    # explicit navigation event on desktop and mobile, before the script reruns.
+    with st_module.container(key="aa_desktop_nav_native"):
+        for col,item in zip(st_module.columns(len(DESKTOP_ROUTES),gap="small"),DESKTOP_ROUTES):
+            with col:
+                st_module.button(item.label,key="aa_desktop_nav_"+item.slug,width="stretch",
+                    type="primary" if item.slug==current else "secondary",
+                    on_click=_navigate,args=(_LEGACY_TARGETS[item.slug],))
 
     with st_module.container(key="aa_mobile_nav_native"):
         cols=st_module.columns(len(MOBILE_ROUTES), gap="small")

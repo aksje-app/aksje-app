@@ -51,6 +51,11 @@ import pandas as pd
 yf.download=lambda *a,**k: pd.DataFrame()
 yf.Ticker.history=lambda *a,**k: pd.DataFrame()
 yf.Ticker.get_info=lambda *a,**k: {}
+if str(st.query_params.get('audit_fail_banner') or '')=='1':
+    import ui.live_market_banner as _banner
+    def unavailable_banner(*a,**kw):
+        raise RuntimeError('Fixture: home market provider unavailable')
+    _banner.render_live_market_banner=unavailable_banner
 try:
     runpy.run_path(str(ROOT / 'app.py'),run_name='__main__')
 finally:
