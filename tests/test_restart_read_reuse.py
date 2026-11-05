@@ -123,3 +123,26 @@ def test_full_decode_counter_includes_aborted_locked_transform(tmp_path):
     assert {row['kind'] for row in counts['documents']} == {'read', 'locked_mutation'}
     assert all(row['bytes'] == (tmp_path/key).stat().st_size for row in counts['documents'])
     assert backend.read_json(key) == {'historical': 'ø'*100000}
+
+
+@pytest.mark.parametrize('pointer', [{}, {'status': 'PAUSED'}, {'deployment_id': 'FOREIGN'}, {'grant_sha256': 'INVALID'}])
+def test_legacy_write_prohibition_needs_only_route_and_fails_closed(pointer, monkeypatch):
+    from services import production_routing
+    monkeypatch.setenv('APP_ENVIRONMENT', 'test')
+    class Storage:
+        def read_json(self, key, default=None):
+            assert key == control.route_key('paper'), 'legacy guard must not load full bundle'
+            return deepcopy(pointer)
+    monkeypatch.setattr(control, 'get_storage_service', lambda: Storage())
+    with pytest.raises(ValueError, match='legacy balance writes are forbidden'):
+        production_routing.guard_legacy_write('paper')
+
+
+def test_legacy_write_prohibition_does_not_authorize_missing_or_unreadable_route(monkeypatch):
+    monkeypatch.setenv('APP_ENVIRONMENT', 'test')
+    class Storage:
+        def read_json(self, key, default=None): return None
+    assert control.has_selection('paper', storage=Storage()) is False
+    class Failed:
+        def read_json(self, *args): raise ConnectionError('database offline')
+    with pytest.raises(ConnectionError): control.has_selection('paper', storage=Failed())

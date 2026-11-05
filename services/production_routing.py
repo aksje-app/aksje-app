@@ -248,7 +248,7 @@ def view(family,*,storage=None,chosen=None):
 
 
 def guard_legacy_write(family):
-    if control.selected(family,require_running=False) is not None:
+    if control.has_selection(family):
         raise ValueError('Selected NOK account: legacy balance writes are forbidden; use the authoritative strategy journal')
 
 

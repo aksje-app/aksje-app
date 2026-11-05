@@ -201,6 +201,19 @@ def activate(grant,*,confirmation,archive_root,certificate,private_key,restore_d
     return pointer
 
 
+def has_selection(family, *, storage=None):
+    """Fail closed against legacy writes for *any* published route.
+
+    This is only a prohibition check, never authorization to trade. Even a
+    broken, stopped or foreign route forbids a parallel legacy balance book.
+    Authorizing execution still requires selected() and the locked validator.
+    """
+    storage = storage or get_storage_service()
+    if os.getenv('APP_ENVIRONMENT', 'production') == 'production' and os.getenv('NOK_DEPLOYMENT_ID'):
+        require_backend(storage)
+    return storage.read_json(route_key(family), None) is not None
+
+
 def selected(family,*,storage=None,require_running=True):
     from services import simulation_restart as restart
     storage=storage or get_storage_service()
