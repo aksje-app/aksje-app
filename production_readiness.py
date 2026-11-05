@@ -57,6 +57,9 @@ def assess_production_readiness(run: Mapping[str, Any]) -> dict[str, Any]:
         "mobile_delivery": live.get("mobile_delivery_verified") is True,
     }
     production_ready = local_candidate and all(live_checks.values())
+    # Make missing evidence actionable without weakening any release gate.
+    missing_local_checks = [name for name, passed in local_checks.items() if not passed]
+    missing_live_checks = [name for name, passed in live_checks.items() if not passed]
     return {
         "status": "PRODUCTION_READY" if production_ready else (
             "LOCAL_PRODUCTION_CANDIDATE" if local_candidate else "NOT_READY"
@@ -64,7 +67,9 @@ def assess_production_readiness(run: Mapping[str, Any]) -> dict[str, Any]:
         "production_ready": production_ready,
         "local_candidate": local_candidate,
         "local_checks": local_checks,
+        "missing_local_checks": missing_local_checks,
         "live_checks": live_checks,
+        "missing_live_checks": missing_live_checks,
         "unexpected_markets": unexpected,
         "moderate_trade_authorizations": moderate_trade,
         "note": (
