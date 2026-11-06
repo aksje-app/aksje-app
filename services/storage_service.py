@@ -385,6 +385,21 @@ class StorageService:
             conn.close()
 
     def read_json(self, name: str, default: Any = None) -> Any:
+        # Retrying a read cannot replay a trade or an uncertain write/commit.
+        # Stay in the current report invocation through short PG recovery.
+        for attempt in range(5):
+            try:
+                return self._read_json_once(name, default)
+            except StorageUnavailableError as exc:
+                cause = exc.__cause__
+                transient = psycopg2 is not None and isinstance(cause, psycopg2.OperationalError)
+                code = getattr(cause, 'pgcode', None)
+                if not transient or (code and not (code.startswith('08') or code in {'57P01','57P02','57P03'})) or attempt == 4:
+                    raise
+                logging.warning('Postgres read recovery key=%s attempt=%s/5 delay_seconds=%s', name, attempt + 1, 2 ** attempt)
+                time.sleep(2 ** attempt)
+
+    def _read_json_once(self, name: str, default: Any = None) -> Any:
         name = _safe_name(name)
         if self.using_postgres():
             try:
@@ -594,19 +609,23 @@ class StorageService:
 
     def write_json(self, name: str, data: Any) -> bool:
         name = _safe_name(name)
-        payload = json.dumps(data, ensure_ascii=False, default=str)
+        payload = json.dumps(data, ensure_ascii=_restart_bundle(name), default=str)
         if self.using_postgres():
             try:
                 self.init_db(); conn = self._conn()
                 try:
                     cur = conn.cursor()
-                    cur.execute(
-                        """INSERT INTO app_kv_store (name, payload, updated_at)
-                           VALUES (%s, %s, NOW()::TEXT)
-                           ON CONFLICT (name) DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at
-                           WHERE app_kv_store.payload IS DISTINCT FROM EXCLUDED.payload""",
-                        (name, payload),
-                    )
+                    if _restart_bundle(name) and len(payload) >= _large_json_threshold_bytes():
+                        from services.large_json_write import write_restart_payload
+                        write_restart_payload(cur, name, payload, skip_unchanged=True)
+                    else:
+                        cur.execute(
+                            """INSERT INTO app_kv_store (name, payload, updated_at)
+                               VALUES (%s, %s, NOW()::TEXT)
+                               ON CONFLICT (name) DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at
+                               WHERE app_kv_store.payload IS DISTINCT FROM EXCLUDED.payload""",
+                            (name, payload),
+                        )
                     conn.commit()
                 finally:
                     conn.close()
@@ -642,14 +661,16 @@ class StorageService:
                 del row
                 result = transform(current)
                 with conn.cursor() as cur:
-                    cur.execute("""INSERT INTO app_kv_store (name, payload, updated_at)
-                        VALUES (%s, %s, NOW()::TEXT) ON CONFLICT (name)
-                        DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at""",
-                        # An en dash/emoji otherwise widens the *entire* large
-                        # Python JSON string to 2/4 bytes per character. Escapes
-                        # preserve every decoded value and canonical journal
-                        # hash while keeping this storage string one byte wide.
-                        (name, json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)))
+                    payload = json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)
+                    if _restart_bundle(name) and len(payload) >= _large_json_threshold_bytes():
+                        from services.large_json_write import write_restart_payload
+                        write_restart_payload(cur, name, payload)
+                    else:
+                        cur.execute(
+                            """INSERT INTO app_kv_store (name, payload, updated_at)
+                            VALUES (%s, %s, NOW()::TEXT) ON CONFLICT (name)
+                            DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at""",
+                            (name, payload))
                 conn.commit()
                 return result
             except Exception:
