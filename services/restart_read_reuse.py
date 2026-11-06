@@ -14,6 +14,7 @@ import json
 import os
 
 _SCOPE = ContextVar('restart_account_read_reuse', default=None)
+_READ = ContextVar('restart_account_read_source', default=None)
 MAX_BYTES = 8 * 1024**2
 
 
@@ -103,6 +104,105 @@ def cached_account_view(family, *, storage=None):
     return None
 
 
+def _store(cache, key, version, value):
+    size = len(json.dumps(value, ensure_ascii=False, default=str).encode('utf-8'))
+    deadline = _valuation_deadline(value)
+    # Take the lower clock boundary only after all source validation.
+    validated_at = datetime.now(timezone.utc).timestamp()
+    if size <= MAX_BYTES and deadline is not None:
+        cache.pop(key, None)
+        if sum(e[2] for e in cache.values()) + size > MAX_BYTES:
+            cache.clear()
+        cache[key] = (version, deepcopy(value), size, validated_at, deadline)
+
+
+def _small_projection_source(document, approval):
+    """Do not eagerly copy an unrequested large account/strategy state.
+
+    This is a conservative optional-work bound, not a financial validator.
+    Large/unsupported graphs simply retain their original on-demand read path.
+    """
+    latest = next((event['payload'].get('state', {}) for event in reversed(document['events'])
+                   if event['kind'] == 'STRATEGY_RUN'), {})
+    pending = [document['account'], latest, approval['settings']]
+    budget = MAX_BYTES // 2
+    nodes = 50000
+    seen = set()
+    while pending:
+        value = pending.pop(); kind = type(value)
+        budget -= 64
+        if budget < 0:return False
+        if kind is str:
+            budget -= 6 * len(value)
+        elif kind in (dict, list, tuple):
+            if id(value) in seen:return False
+            seen.add(id(value))
+            count = len(value) * (2 if kind is dict else 1)
+            nodes -= count
+            if nodes < 0:return False
+            if kind is dict:
+                pending.extend(value.keys());pending.extend(value.values())
+            else:pending.extend(value)
+        elif kind not in (int, float, bool) and value is not None:
+            return False
+    return budget >= 0
+
+
+def prime_related_views(chosen, *, storage, project):
+    """Fan out an already verified snapshot into bounded detached account views.
+
+    Never keep the bundle or a trading selection. Every additional account must
+    have its own current route and signed control, bound to the exact bundle row
+    revision observed before the original read. Invalid unrelated routes are not
+    cached; a later request still follows the original fully verified path.
+    """
+    context = _READ.get()
+    cache = _SCOPE.get()
+    if context is None or cache is None or context[0] is not storage:
+        return
+    from services import production_restart as control, simulation_restart as restart
+    from services.economic_opening import digest
+    from services.restart_io_metrics import reuse
+    _, selected_family, source_version = context
+    bundle = chosen['bundle']
+    bundle_key = restart._key(bundle['period_id'])
+    expected = dict(source_version[-1]).get(bundle_key)
+    if expected is None:
+        return
+    pending = []
+    pending_bytes = 0
+    for family in restart.CAPITALS:
+        if family == selected_family:
+            continue
+        try:
+            version = _version(storage, family)
+            if version is None or dict(version[-1]).get(bundle_key) != expected:
+                continue
+            pointer = storage.read_json(control.route_key(family), None)
+            if not pointer or pointer.get('period_id') != bundle['period_id']:
+                continue
+            approval = control._check_record(bundle, family, running=False)
+            if pointer.get('grant_sha256') != digest(bundle['production_controls'][family]['grant']):
+                raise ValueError('Route authorization mismatch')
+            if not _small_projection_source(bundle['accounts'][family], approval):
+                continue
+            value = project(family, dict(pointer=pointer, bundle=bundle, approval=approval))
+            if _version(storage, family) != version:
+                raise ValueError('Concurrent related account change')
+            size = len(json.dumps(value, ensure_ascii=False, default=str).encode('utf-8'))
+            if size + pending_bytes <= MAX_BYTES and _valuation_deadline(value) is not None:
+                pending.append(((storage, family, 'view'), version, value))
+                pending_bytes += size
+        except (ValueError, KeyError, TypeError, AttributeError):
+            # Do not make a valid account depend on an unrelated broken route.
+            # No cache entry is installed for that account; its own read raises.
+            reuse('prime_rejected', family)
+    if _version(storage, selected_family) != source_version:
+        raise ValueError('Concurrent account change; retry with a fresh account view')
+    for key, version, value in pending:
+        _store(cache, key, version, value)
+
+
 def account_read(fn):
     @wraps(fn)
     def call(family, *, storage=None, chosen=None):
@@ -124,19 +224,13 @@ def account_read(fn):
         reuse('invalidated' if entry is not None else 'miss', family)
         # Never retain obsolete revisions, including after failed validation.
         cache.pop(key, None)
-        value = fn(family, storage=storage, chosen=chosen)
+        token = _READ.set((storage, family, version))
+        try:
+            value = fn(family, storage=storage, chosen=chosen)
+        finally:
+            _READ.reset(token)
         if _version(storage, family) != version:
             raise ValueError('Concurrent account change; retry with a fresh account view')
-        size = len(json.dumps(value, ensure_ascii=False, default=str).encode('utf-8'))
-        deadline = _valuation_deadline(value)
-        # Validation may take seconds for a large journal. Use its completion
-        # time, not the earlier lookup time, as the lower clock boundary.
-        # Otherwise a clock rollback into that interval could reuse a NAV that
-        # only became valid while the initial read was being verified.
-        validated_at = datetime.now(timezone.utc).timestamp()
-        if size <= MAX_BYTES and deadline is not None:
-            if sum(e[2] for e in cache.values()) + size > MAX_BYTES:
-                cache.clear()
-            cache[key] = (version, deepcopy(value), size, validated_at, deadline)
+        _store(cache, key, version, value)
         return value
     return call

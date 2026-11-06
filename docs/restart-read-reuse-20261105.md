@@ -1,5 +1,31 @@
 # Repeated restart-bundle decoding, 2026-11-05
 
+## Cross-account follow-up, 2026-11-06
+
+The successful 02:00 production cron still decoded the same 126,054,514-byte
+bundle four times: once for Superportfolio, once for Autonomy, once for Paper
+learning evidence, then a fresh read for UI publication. Its actual cgroup peak
+was 864.4 MiB, below 2048 MiB; `OOM_BREADCRUMB` is diagnostic telemetry, not an
+OOM event. The remaining duplication was across distinct account cache keys.
+
+A fresh selection now prepares other selected accounts' detached projections
+from the same fully verified bundle. Each account independently requires a
+matching current route, installation and signed grant. Cache entries bind to
+the bundle row version observed **before** the original read; the complete
+read window and each additional route are checked before installation. No
+bundle/journal/selection is retained, and all projections share the existing
+8 MiB total serialized budget and valuation/clock bounds. Broken unrelated
+controls are never cached; their own read still fails through normal validation.
+Different periods cannot share these projections. Backend failures propagate.
+
+Financial selections and locked transactions remain fresh. UI publication
+intentionally retains its independent final full verification. The expected
+unchanged-revision cron cost is therefore two full JSON decodes rather than
+four; source/control mutations invalidate projections as before. Production
+acceptance requires the exact-source Release Gate and another measured full
+Autonomy/report/Pushover workload under 2048 MiB, with before/after account
+projection hashes and native decode counters recorded in existing PR #190.
+
 Status: implementation under test; production acceptance is pending a complete measured run. No historical or trading-policy data is removed or rewritten by this change.
 
 ## Cause and baseline

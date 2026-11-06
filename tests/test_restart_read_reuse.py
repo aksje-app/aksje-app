@@ -51,6 +51,16 @@ def test_explicit_verified_selection_is_never_cached(example):
     assert calls == [1, 1, 1]
 
 
+def test_unrequested_large_projection_source_is_not_eagerly_copied(monkeypatch):
+    monkeypatch.setattr(reuse,'MAX_BYTES',1024)
+    small={'account':{},'events':[]}
+    assert reuse._small_projection_source(small,{'settings':{}})
+    large={'account':{},'events':[{'kind':'STRATEGY_RUN','payload':{'state':{'history':'x'*1024}}}]}
+    assert not reuse._small_projection_source(large,{'settings':{}})
+    wide={'account':{'history':list(range(60000))},'events':[]}
+    assert not reuse._small_projection_source(wide,{'settings':{}})
+
+
 def test_read_only_cached_view_never_loads_source_on_miss_and_checks_versions(example):
     backend,calls,view=example
     assert reuse.cached_account_view('paper',storage=backend) is None

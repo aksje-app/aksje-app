@@ -759,3 +759,79 @@ def test_run_scoped_account_reads_use_mvcc_and_preserve_signed_transaction_guard
             return bundle
         external.mutate_json(bundle_key, tamper)
         with pytest.raises(ValueError): routing.view('paper', storage=pg)
+
+
+def test_related_account_views_share_one_checked_bundle_but_writes_remain_fresh(ready,monkeypatch):
+    from services.restart_read_reuse import scope
+    r=ready;pg=r['pg']
+    for family in restart.CAPITALS:activate(r,family)
+    key=restart._key(r['bundle']['period_id']);original=pg.read_json;reads=[]
+    def read(name,default=None):
+        if name==key:reads.append(name)
+        return original(name,default)
+    monkeypatch.setattr(pg,'read_json',read)
+    with scope():
+        for family in ('super_portfolio','autonomy','paper'):
+            value=routing.view(family,storage=pg)
+            assert value['cash']==restart.CAPITALS[family]
+            value['cash']=-999
+        assert len(reads)==1
+        assert routing.view('paper',storage=pg)['cash']==restart.CAPITALS['paper']
+        control.selected('paper',storage=pg);control.selected('paper',storage=pg)
+        assert len(reads)==3  # Financial selections never consume projections.
+        pg.mutate_json(key,lambda bundle:bundle)
+        routing.view('autonomy',storage=pg)
+        assert len(reads)==4
+        routing.view('super_portfolio',storage=pg)
+        assert len(reads)==4
+    from services import restart_read_reuse as reuse
+    monkeypatch.setattr(reuse,'MAX_BYTES',1)
+    with scope():
+        for family in restart.CAPITALS:routing.view(family,storage=pg)
+        assert not reuse._SCOPE.get()  # Fan-out shares the existing total budget.
+    assert len(reads)==7
+
+
+def test_invalid_related_signed_control_is_never_primed_or_hidden(ready,monkeypatch):
+    from services.restart_read_reuse import scope
+    r=ready;pg=r['pg']
+    for family in restart.CAPITALS:activate(r,family)
+    key=restart._key(r['bundle']['period_id'])
+    def damage(bundle):
+        bundle['production_controls']['paper']['grant']['payload']['capital_nok']+=1
+        return bundle
+    pg.mutate_json(key,damage)
+    with scope():
+        assert routing.view('super_portfolio',storage=pg)['status']=='ACTIVE'
+        with pytest.raises(ValueError):routing.view('paper',storage=pg)
+
+
+def test_concurrent_bundle_change_during_fanout_discards_stale_seeds(ready,monkeypatch):
+    from services.restart_read_reuse import scope
+    from services.storage_service import StorageService
+    r=ready;pg=r['pg']
+    for family in restart.CAPITALS:activate(r,family)
+    external=StorageService(database_url=pg.database_url,mode='postgres',allow_local_fallback=False)
+    key=restart._key(r['bundle']['period_id']);original=routing._account_projection;changed=[]
+    def project(family,*args,**kwargs):
+        value=original(family,*args,**kwargs)
+        if family=='paper' and not changed:
+            changed.append(True);external.mutate_json(key,lambda bundle:bundle)
+        return value
+    monkeypatch.setattr(routing,'_account_projection',project)
+    with scope():
+        with pytest.raises(ValueError,match='Concurrent'):routing.view('super_portfolio',storage=pg)
+        assert routing.view('paper',storage=pg)['cash']==restart.CAPITALS['paper']
+
+
+def test_related_views_do_not_cross_selected_periods(ready):
+    from services.restart_read_reuse import scope,cached_account_view
+    r=ready;pg=r['pg']
+    for family in restart.CAPITALS:activate(r,family)
+    def switch(pointer):
+        pointer['period_id']='a-different-period'
+        return pointer
+    pg.mutate_json(control.route_key('paper'),switch)
+    with scope():
+        assert routing.view('super_portfolio',storage=pg)['status']=='ACTIVE'
+        assert cached_account_view('paper',storage=pg) is None

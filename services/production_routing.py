@@ -261,6 +261,16 @@ def view(family,*,storage=None,chosen=None):
     if chosen is None:return None
     if chosen['pointer']['family'] != family:
         raise ValueError('Selected restart account family mismatch')
+    value = _account_projection(family, chosen, storage=storage, verified=verified_here)
+    if verified_here:
+        from services.restart_read_reuse import prime_related_views
+        prime_related_views(chosen, storage=storage,
+            project=lambda related, selection: _account_projection(related, selection, storage=storage, verified=True))
+    return value
+
+
+def _account_projection(family, chosen, *, storage=None, verified=False):
+    """Detached read projection; verified=True requires this exact checked bundle."""
     from services import portfolio_accounting as ledger
     p=chosen['approval'];doc=chosen['bundle']['accounts'][family];account=doc['account']
     receipts=[e['payload'] for e in doc['events'] if e['kind']=='STRATEGY_RUN']
@@ -274,7 +284,7 @@ def view(family,*,storage=None,chosen=None):
             return doc
     # selected() has just verified this exact bundle and every account journal.
     # Keep verification for caller-supplied selections, whose lifetime is unknown.
-    report=(ledger._report_verified(family,doc) if verified_here else
+    report=(ledger._report_verified(family,doc) if verified else
             ledger.report(family,storage=_ReadOnlySnapshot(p['period_id'],storage)))['new_period']
     nav=report['verification']['verified_nav']
     for ticker,pos in account['positions'].items():
