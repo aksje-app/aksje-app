@@ -36,6 +36,8 @@ STORAGE_SCHEMA_VERSION = "2.0"
 _VALID_MODES = {"auto", "postgres", "local"}
 _LOCAL_LOCKS: dict[str, threading.RLock] = {}
 _LOCAL_LOCKS_GUARD = threading.Lock()
+# A diagnostic log threshold must never disable the safe database transport.
+_RESTART_COPY_MIN_BYTES = 1024**2
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -615,7 +617,7 @@ class StorageService:
                 self.init_db(); conn = self._conn()
                 try:
                     cur = conn.cursor()
-                    if _restart_bundle(name) and len(payload) >= _large_json_threshold_bytes():
+                    if _restart_bundle(name) and len(payload) >= _RESTART_COPY_MIN_BYTES:
                         from services.large_json_write import write_restart_payload
                         write_restart_payload(cur, name, payload, skip_unchanged=True)
                     else:
@@ -662,7 +664,7 @@ class StorageService:
                 result = transform(current)
                 with conn.cursor() as cur:
                     payload = json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)
-                    if _restart_bundle(name) and len(payload) >= _large_json_threshold_bytes():
+                    if _restart_bundle(name) and len(payload) >= _RESTART_COPY_MIN_BYTES:
                         from services.large_json_write import write_restart_payload
                         write_restart_payload(cur, name, payload)
                     else:

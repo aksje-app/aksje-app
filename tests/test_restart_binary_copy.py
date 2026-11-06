@@ -53,7 +53,8 @@ def test_large_pg_write_rollback_and_concurrency(pg, monkeypatch):
 
 def test_copy_failure_after_staging_rolls_back_old_document(pg,monkeypatch):
     import services.large_json_write as transport
-    monkeypatch.setenv('SCHEDULER_LARGE_JSON_WARN_MB','1')
+    # Raising a logging threshold must not switch off bounded transport.
+    monkeypatch.setenv('SCHEDULER_LARGE_JSON_WARN_MB','500')
     key='simulation_restarts/rollback/bundle.json';value={'text':'x'*1100000,'counter':0}
     pg.write_json(key,value)
     original=transport.write_restart_payload

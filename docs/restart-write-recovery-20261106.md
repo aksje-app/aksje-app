@@ -12,13 +12,14 @@ application reads does not fix PostgreSQL's write-side SQL parsing overhead.
 psycopg2 v2 inserts text parameters into SQL literals before sending them.
 That gives PostgreSQL's parser additional full-document buffers.
 
-Large restart writes now use bounded binary COPY into a temporary text row,
+Restart writes of at least 1 MiB now use bounded binary COPY into a temporary text row,
 then INSERT/ON CONFLICT from that row. Both operations remain inside the same
 connection, transaction, advisory lock and row lock as the original mutation.
 The temporary row disappears on commit/rollback/connection loss. The durable
 payload is still the complete ordinary JSON document; no history is moved,
 compressed into a private format, pruned, or omitted. Unicode escapes change
 only serialization, not decoded values or canonical journal hashes.
+The transport threshold is independent of diagnostic warning configuration.
 
 Reads retry transient PostgreSQL availability failures up to five attempts,
 with 1/2/4/8-second waits. Corrupt JSON and non-transient SQL errors still fail.
