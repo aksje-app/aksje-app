@@ -63,7 +63,7 @@ def evaluate(now=None):
             "production_changed": production_changed, "learning_progress": progress}
 
 
-def send_daily_if_due(*, now=None):
+def send_daily_if_due(*, now=None, repair_id=None):
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(ZoneInfo("America/Fortaleza")).date()
     if today < START:
@@ -72,7 +72,13 @@ def send_daily_if_due(*, now=None):
         return {"status": "NOT_DUE_YET", "date": today.isoformat()}
     ledger = read_json(LEDGER, LEDGER_PATH, {})
     ledger = dict(ledger) if isinstance(ledger, dict) else {}
-    prior = ledger.get(today.isoformat(), {})
+    # Explicit operator recovery can deliver corrected evidence once without
+    # deleting/replacing the daily message the user already received.
+    if repair_id is not None:
+        if not isinstance(repair_id,str) or not repair_id.isalnum() or len(repair_id)>64:
+            raise ValueError('A bounded alphanumeric repair ID is required')
+    receipt_key = today.isoformat() + (':repair:'+repair_id if repair_id else '')
+    prior = ledger.get(receipt_key, {})
     if isinstance(prior, dict) and prior.get("sent") is True:
         return {"status": "ALREADY_SENT", "date": today.isoformat()}
     report = evaluate(now)
@@ -112,6 +118,8 @@ def send_daily_if_due(*, now=None):
     report.update({"sent": actual_delivery, "delivery": delivery[:180],
                    "delivery_status": "SENT" if actual_delivery else
                    ("DUPLICATE_SUPPRESSED" if ok else "FAILED")})
-    ledger[today.isoformat()] = report
+    if repair_id:
+        report['repair_id'] = repair_id
+    ledger[receipt_key] = report
     write_json(LEDGER, LEDGER_PATH, ledger)
     return report

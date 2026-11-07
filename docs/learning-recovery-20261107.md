@@ -69,6 +69,9 @@ suppressed as in-app-only and then never retried because the report existed.
   at most five attempts with one hour between attempts. Use a learning-report
   category rather than routine, while keeping the notifier's global enable,
   safety and deduplication controls. Preserve explicit no-notification reports.
+- An explicit operator repair ID may deliver one corrected daily summary,
+  retaining the original daily receipt and deduplicating that repair separately.
+  Ordinary scheduler calls never opt into this extra delivery.
 
 This is bounded capacity, not unlimited retention. Further capacity action will
 be visible before the new ceiling; historical completeness is never inferred

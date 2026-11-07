@@ -65,3 +65,17 @@ def test_daily_is_red_for_stopped_archives_even_when_jobs_run_and_shows_results(
     text=sender.call_args.args[0]
     assert all(label in text for label in ('Autonomi:','Superporteføljen:','Aksjeunivers:','1/1/1/0','+1.00 pp','fullt'))
     assert len(text)<=1024 and result['sent'] is True
+
+
+def test_explicit_corrected_daily_receipt_preserves_original_and_deduplicates():
+    now=datetime(2026,11,7,12,tzinfo=timezone.utc)
+    original={'sent':True,'message':'old evidence','date':'2026-11-07'}
+    ledger={'2026-11-07':deepcopy(original)}
+    report={'date':'2026-11-07','status':'GUL','failures':[],'registrations':2,'evaluations':1,
+        'active':91,'matured':0,'strategy_readiness':'NOT_VALIDATED','production_changed':False}
+    with patch('services.shadow_daily_guard.read_json',side_effect=lambda *a:deepcopy(ledger)),patch('services.shadow_daily_guard.evaluate',side_effect=lambda *a:deepcopy(report)),patch('services.shadow_daily_guard.write_json',side_effect=lambda k,p,d:ledger.update(deepcopy(d))),patch('notifier.send_pushover_alert',return_value=(True,'HTTP 200')) as send:
+        assert send_daily_if_due(now=now)['status']=='ALREADY_SENT'
+        assert send_daily_if_due(now=now,repair_id='source123')['sent']
+        assert send_daily_if_due(now=now,repair_id='source123')['status']=='ALREADY_SENT'
+    assert ledger['2026-11-07']==original and send.call_count==1
+    assert ledger['2026-11-07:repair:source123']['repair_id']=='source123'
