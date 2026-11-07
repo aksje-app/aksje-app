@@ -80,6 +80,18 @@ from today's market/news data.
 
 ## Acceptance
 
+Gate 42424459612 exposed an older static test requiring both learning senders
+to be routine/in-app-only. The user's requested weekly Pushover delivery
+supersedes that restriction. Replace that test with a behavioral policy
+contract: weekly learning reports retain normal notifier controls, while
+individual observations, candidates, rankings and routine activity remain
+in-app-only. The delivery recovery tests exercise the real weekly sender.
+
+The additional local unversioned run had 986 passes, 219 conditional skips
+and two live Yahoo OHLC checks blocked by this workspace's CONNECT 403
+network policy. The same provider checks passed in the first GitHub gate;
+the final gate and production verification must still check real provider data.
+
 Run regression tests and Release Gate on the exact source before main/deploy.
 Then verify actual production capture/worker states, immutable old-index
 fingerprints and preserved gaps, real weekly Pushover delivery and current

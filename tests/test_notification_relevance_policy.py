@@ -67,10 +67,13 @@ def test_signal_requires_all_guards():
         assert classify(event) == 'in_app'
 
 
-def test_learning_reports_are_in_app_only_static():
-    from pathlib import Path
-    source = (Path(__file__).resolve().parents[1] / 'learning_observation_engine.py').read_text()
-    assert source.count('relevance_event={"category": "routine"}') >= 2
+def test_requested_weekly_learning_delivery_preserved_without_observation_spam():
+    # The weekly report is an explicitly requested delivery. It still passes
+    # through the notifier's enable/safety/deduplication controls. Individual
+    # observations and routine activity retain their in-app-only policy.
+    assert classify({'category': 'learning_report'}) == 'legacy'
+    for category in ('routine', 'observation', 'candidate', 'ranking'):
+        assert classify({'category': category}) == 'in_app'
 
 
 def test_additional_routine_senders_are_opted_in():
