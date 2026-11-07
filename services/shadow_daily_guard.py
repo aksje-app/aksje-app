@@ -32,6 +32,19 @@ def evaluate(now=None):
     progress = snapshot(lambda key: read_json(key, runtime_data_path(*key.split('/')), {}),
                         now=now, acceptance=acceptance)
     failures = []
+    if progress.get('archive_status') == 'STORAGE_BUDGET_REACHED':
+        failures.append('Historikkarkivet er fullt; nye læringsrammer blir avvist')
+    elif progress.get('archive_bytes') is not None and progress.get('archive_remaining_bytes',0) < 16*1024**2:
+        failures.append('Læringsarkivet har under 16 MiB ledig; kapasitetstiltak kreves')
+    for name, stream in progress.get('replay_streams', {}).items():
+        try:
+            last = datetime.fromisoformat(str(stream.get('last_at') or '').replace('Z', '+00:00'))
+            if (now - last).total_seconds() > 72 * 3600:
+                failures.append(name + ': ingen nye historikkrammer siste 72 t')
+        except (TypeError, ValueError):
+            if stream.get('frames'): failures.append(name + ': ugyldig siste datatidspunkt')
+    if (progress.get('weekly_report') or {}).get('status') == 'PUSHOVER_FAILED':
+        failures.append('Ukentlig læringsrapport er laget, men ikke levert på Pushover')
     if acceptance and not progress['acceptance_fresh']:
         failures.append('Aksept-/kvalitetsrapport mangler gyldig oppdatering siste 48 t')
     if not registered: failures.append("Ingen observasjonsregistrering siste 24 t")
@@ -43,6 +56,8 @@ def evaluate(now=None):
     status = "RØD" if failures else ("GUL" if acceptance.get("strategy_readiness") != "VALIDATED" else "GRØNN")
     return {"date": today.isoformat(), "status": status, "failures": failures,
             "registrations": len(registered), "evaluations": len(evaluated),
+            "new_observations": sum(int(r.get('created') or 0) for r in registered),
+            "new_measurements": sum(int(r.get('updated') or 0) for r in evaluated),
             "active": latest.get("active"), "matured": latest.get("matured"),
             "strategy_readiness": acceptance.get("strategy_readiness", "UKJENT"),
             "production_changed": production_changed, "learning_progress": progress}
@@ -63,15 +78,29 @@ def send_daily_if_due(*, now=None):
     report = evaluate(now)
     from notifier import send_pushover_alert, normalize_notification_result
     progress = report.get("learning_progress") or {}
-    text = (f"Shadow og læring {report['date']}: {report['status']}\n"
-            f"Registreringer 24t: {report['registrations']}; evalueringer: {report['evaluations']}\n"
-            f"Aktive: {report['active']}; modne: {report['matured']}\n"
+    measured = {row['horizon_days']: row for row in progress.get('measured_shadow_horizons', [])}
+    counts = '/'.join(str((measured.get(day) or {}).get('measured_count', 0)) for day in (1, 5, 20, 60))
+    current_results = measured.get(20) or measured.get(5) or measured.get(1) or {}
+    returns = current_results.get('mean_return_pct')
+    excess = current_results.get('mean_excess_return_pct')
+    outcome = (f"Alle Shadow-grupper {current_results.get('horizon_days')}d: kurs {returns:+.2f} %, mot benchmark {excess:+.2f} pp. Ikke validert nettoeffekt."
+               if returns is not None and excess is not None else 'Shadow-resultat: ingen målte kurshorisonter')
+    labels = {'AUTONOMY':'Autonomi', 'SUPER_PORTFOLIO':'Superporteføljen', 'AUTONOMY_UNIVERSE':'Aksjeunivers'}
+    streams = '\n'.join(f"{labels[name]}: {row.get('frames', 0)} rammer; sist {str(row.get('last_at') or 'ukjent')[:10]}; "
+                        + (f"skygge {row.get('forward_trading_dates', 'ukjent')} datoer" if row.get('independent_strategy_test') else 'kun arkiv')
+                        for name, row in progress.get('replay_streams', {}).items() if name in labels)
+    failures = report['failures']
+    diagnosis = (failures[0] + (f" (+{len(failures)-1} andre avvik)" if len(failures)>1 else '')) if failures else 'Ingen manglende kjøringer'
+    text = (f"Shadow og læring {report['date']}: {report['status']}\nAvvik: {diagnosis}\n"
+            f"Kjøringer 24t: registrering {report['registrations']}, evaluering {report['evaluations']}\n"
+            f"Aktive: {report['active']}; fullført 60d: {report['matured']}\n"
+            f"Nye observasjoner: {report.get('new_observations', 'ukjent')}; nye målinger: {report.get('new_measurements', 'ukjent')}\n"
+            f"Målt 1/5/20/60 handelsdager: {counts}\n{outcome}\n{streams}\n"
             f"Strategi: {report['strategy_readiness']}; prod endret: {report['production_changed']}\n"
             f"Historisk baseline: {progress.get('historical_signal_count', 'ukjent')} signaler; "
             f"modne strategiposisjoner: {progress.get('current_mature_positions', 'ukjent')}; "
             f"benchmark-målte: {progress.get('benchmark_measured_positions', 'ukjent')}\n"
-            f"Kvalitetsrapportens alder: {progress.get('acceptance_age_hours', 'ukjent')} timer\n"
-            f"Avvik: {', '.join(report['failures']) if report['failures'] else 'Ingen manglende kjøringer'}")
+            f"Kvalitetsrapportens alder: {progress.get('acceptance_age_hours', 'ukjent')} timer")
     try:
         ok, detail = normalize_notification_result(send_pushover_alert(
             text, title=f"Shadow/læring daglig {report['status']}", relevance_event=None))

@@ -14,7 +14,10 @@ from learning_experiments import checksum
 
 PREFIX = 'controlled_learning/history/'
 INDEX = PREFIX + 'index.json'
-MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
+# Disk capacity, not resident memory: individual frames remain capped at 8 MiB.
+# A bounded extra 128 MiB fits the measured 5 GiB production DB without
+# consuming its remaining capacity. Approaching this new cap is observable.
+MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_FRAME_BYTES = 8 * 1024 * 1024
 MAX_RECORDS = 20000
 AUTONOMY_PARAMETERS = {'minimum_investment_score', 'minimum_data_quality', 'maximum_risk_score',
@@ -82,6 +85,8 @@ def archive(frame):
             'complete_universe': bool(frame.get('complete_universe')),
             'legacy_import': bool(frame.get('source_manifest'))})
         current['bytes'] += size
+        # Resume after a capacity increase without erasing historical gaps.
+        current['status'] = 'COLLECTING'
         return current
     service = storage()
     index = service.mutate_json(INDEX, reserve)
@@ -125,8 +130,11 @@ def capture_autonomy(candidates, *, parameters, run_id, portfolio_before):
 def coverage():
     index = storage().read_json(INDEX, {}) or {}
     ready = [r for r in index.get('records', []) if r['status'] == 'READY']
+    status = index.get('status', 'COLLECTING')
+    if status == 'STORAGE_BUDGET_REACHED' and index.get('bytes',0)<MAX_ARCHIVE_BYTES and len(index.get('records',[]))<MAX_RECORDS:
+        status = 'CAPACITY_RESTORED_AWAITING_NEW_FRAME'
     return {'archive_bytes': index.get('bytes', 0), 'budget_bytes': MAX_ARCHIVE_BYTES,
-        'reported_gaps': index.get('gaps', 0), 'status': index.get('status', 'COLLECTING'),
+        'reported_gaps': index.get('gaps', 0), 'status': status,
         'engines': {engine: {'frames': len(rows), 'first_at': min((r['at'] for r in rows), default=None),
             'last_at': max((r['at'] for r in rows), default=None),
             'whole_universe_frames': sum(r['complete_universe'] for r in rows),
@@ -285,7 +293,9 @@ def run_forward_batch(limit=6):
             frame = load_frame(record)
             current = service.mutate_json(key, lambda value: process_forward_frame(frame, value))
             done += 1
-    return {'status': 'COMPLETED', 'frames_processed': done, 'coverage': coverage(),
+    archive_coverage = coverage()
+    return {'status': 'BLOCKED_STORAGE' if archive_coverage['status']=='STORAGE_BUDGET_REACHED' else ('COMPLETED' if done else 'WAITING_NEW_DATA'),
+        'frames_processed': done, 'coverage': archive_coverage,
         'production_changed': False, 'validated': False}
 
 
@@ -313,7 +323,8 @@ def backfill_legacy_batch(limit=2):
     source = service.read_json('full_replay/index.json', []) or []
     key = 'controlled_learning/history/backfill.json'
     progress = service.read_json(key, {}) or {'processed': {}, 'source_count': len(source)}
-    pending = [r for r in source if r.get('run_id') not in progress['processed']]
+    pending = [r for r in source if r.get('run_id') not in progress['processed']
+               or progress['processed'][r['run_id']].get('status') == 'STORAGE_BUDGET_REACHED']
     for row in pending[:max(1, min(2, limit))]:
         rid = row['run_id']
         try:

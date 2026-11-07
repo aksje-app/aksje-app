@@ -962,12 +962,66 @@ def load_weekly_reports(limit: int = 52) -> list[dict[str, Any]]:
     return rows[:max(0, int(limit))]
 
 
+def _weekly_delivery_due(record, now):
+    notification = record.get('notification') or {}
+    required = notification.get('required', notification.get('attempted', False))
+    attempts = int(notification.get('attempts') or (1 if notification.get('attempted') else 0))
+    if required is not True or notification.get('sent') is True or attempts >= 5:
+        return False
+    try:
+        last = datetime.fromisoformat(str(notification.get('attempted_at') or record.get('created_at')).replace('Z','+00:00'))
+        return (now.astimezone(timezone.utc)-last.astimezone(timezone.utc)).total_seconds() >= 3600
+    except (TypeError, ValueError):
+        return True
+
+
+def _notify_weekly_report(record, now):
+    """Retry delivery of the same report; never regenerate its evidence or PDFs."""
+    from notifier import send_pushover_alert, normalize_notification_result
+    from report_delivery import public_report_url
+    prior = dict(record.get('notification') or {})
+    analysis = record['analysis']
+    counts = {str(row.get('horizon_days')):int(((row.get('excess_return') or {}).get('count') or 0)) for row in analysis.get('horizons', [])}
+    comparison = analysis.get('selection_quality') or {}
+    delta = comparison.get('selected_minus_control_pct_points')
+    result_text = (f"20d utvalg/kontroll: {(comparison.get('selected') or {}).get('count',0)}/{(comparison.get('matched_control') or {}).get('count',0)}, forskjell {float(delta):+.2f} pp."
+                   if delta is not None else '20d utvalg/kontroll: ingen sammenlignbare resultater.')
+    attempted_at = _now_iso(now)
+    try:
+        ok, detail = normalize_notification_result(send_pushover_alert(
+            f"Observasjoner: {analysis.get('observation_count')} | fullført 60d: {analysis.get('matured_count')}\n"
+            f"Målt 1/5/20/60: {'/'.join(str(counts.get(str(day),0)) for day in HORIZONS)} | prisgrunnlag: {(analysis.get('health') or {}).get('status')}\n{result_text}\n"
+            "Foreløpige trender endrer ingen produksjonsregel.", title='Ukentlig læringsrapport',
+            url=public_report_url(record) or None, url_title='Åpne læringsrapport',
+            relevance_event={'category':'learning_report'}))
+        sent = bool(ok) and 'duplicate' not in str(detail).lower()
+    except Exception as exc:
+        sent, detail = False, f'{type(exc).__name__}: {str(exc)[:420]}'
+    attempts = int(prior.get('attempts') or (1 if prior.get('attempted') else 0)) + 1
+    history = list(prior.get('delivery_attempts') or [])
+    history.append({'at':attempted_at,'sent':sent,'detail':str(detail)[:500]})
+    record['notification'] = {**prior,'required':True,'attempted':True,'attempted_at':attempted_at,
+        'attempts':attempts,'sent':sent,'detail':str(detail)[:500],'delivery_attempts':history}
+    return record
+
+
 def generate_weekly_report(*, now: datetime | None = None, notify: bool = True) -> dict[str, Any]:
     current = (now or datetime.now(timezone.utc)).astimezone(OSLO); week_key = current.strftime("%G-W%V")
     previous = load_weekly_reports()
     existing = next((row for row in previous if str(row.get("week_key") or "") == week_key), None)
     if existing:
-        return {"status":"ALREADY_COMPLETED","week_key":week_key,"report_id":existing.get("report_id"),
+        if notify and _weekly_delivery_due(existing, current):
+            record = _notify_weekly_report(dict(existing), current)
+            write_json(WEEKLY_KEY,WEEKLY_PATH,[record if row.get('report_id')==record['report_id'] else row for row in previous])
+            status = 'COMPLETED' if record['notification']['sent'] else 'PUSHOVER_FAILED'
+            state=load_engine_state()
+            state['weekly']={'status':status,'week_key':week_key,'report_id':record['report_id'],
+                'completed_at':_now_iso(now),'notification':record['notification']}
+            write_json(STATE_KEY,STATE_PATH,state)
+            return {'status':status,'week_key':week_key,'report_id':record['report_id'],
+                'notification':record['notification'],'delivery_retry':True,'evidence_regenerated':False}
+        pending = notify and (existing.get('notification') or {}).get('required', (existing.get('notification') or {}).get('attempted',False)) is True and not (existing.get('notification') or {}).get('sent')
+        return {"status":"PUSHOVER_FAILED" if pending else "ALREADY_COMPLETED","week_key":week_key,"report_id":existing.get("report_id"),
                 "notification":dict(existing.get("notification") or {}),
                 "reason":"Ukens rapport finnes allerede; duplikat og nytt Pushover-varsel ble undertrykt."}
     analysis = build_weekly_analysis(now=now); main_pdf = build_weekly_pdf(analysis); technical_pdf = build_weekly_pdf(analysis,technical=True)
@@ -976,23 +1030,12 @@ def generate_weekly_report(*, now: datetime | None = None, notify: bool = True) 
         "week_key":week_key,"created_at":_now_iso(now),"analysis":analysis,
         "public_pdf_name":f"Ukentlig_laeringsrapport_{week_key}.pdf",
         "technical_pdf_name":f"Ukentlig_laeringsrapport_{week_key}_technical.pdf",
-        "notification":{"attempted":False,"sent":False}}
+        "notification":{"required":bool(notify),"attempted":False,"sent":False}}
     from public_report_store import publish_durable_pdf
     publish_durable_pdf(record,main_pdf)
     publish_durable_pdf(record,technical_pdf,token_field="technical_report_token",filename_field="technical_pdf_name",document_kind="learning_technical")
     if notify:
-        try:
-            from notifier import send_pushover_alert
-            from report_delivery import public_report_url
-            horizon_counts={str(row.get("horizon_days")):int(((row.get("excess_return") or {}).get("count") or 0)) for row in (analysis.get("horizons") or [])}
-            ok,detail=send_pushover_alert(
-                f"Observasjoner: {analysis.get('observation_count')} | modne: {analysis.get('matured_count')}\n"
-                f"Målt 1/5/20/60: {'/'.join(str(horizon_counts.get(str(day),0)) for day in HORIZONS)} | helse: {(analysis.get('health') or {}).get('status')}\n"
-                "Foreløpige trender endrer ingen produksjonsregel.",title="Ukentlig læringsrapport",
-                url=public_report_url(record) or None,url_title="Åpne læringsrapport", relevance_event={"category": "routine"})
-            record["notification"]={"attempted":True,"sent":bool(ok),"detail":str(detail or "")[:500]}
-        except Exception as exc:
-            record["notification"]={"attempted":True,"sent":False,"detail":f"{type(exc).__name__}: {str(exc)[:420]}"}
+        record = _notify_weekly_report(record, current)
     record["pdf_sizes"]={"main":len(main_pdf),"technical":len(technical_pdf)}
     record["public_json_name"]=f"Ukentlig_laeringsrapport_{week_key}.json"
     payload=json.dumps(record,ensure_ascii=False,separators=(",",":"),default=str).encode("utf-8")
@@ -1022,7 +1065,8 @@ def _daily_due(now: datetime) -> bool:
 def _weekly_due(now: datetime) -> bool:
     local=now.astimezone(OSLO)
     if not ((local.weekday()==4 and (local.hour,local.minute)>=(23,10)) or local.weekday() in {5,6}): return False
-    return not any(str(row.get("week_key") or "")==local.strftime("%G-W%V") for row in load_weekly_reports())
+    existing = next((row for row in load_weekly_reports() if str(row.get('week_key') or '')==local.strftime('%G-W%V')),None)
+    return existing is None or _weekly_delivery_due(existing, now)
 
 
 @tracked_job('Autonomi · læringsvedlikehold')
@@ -1068,7 +1112,8 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
     _breadcrumb("learning:maintenance:weekly_due:after", {"due": weekly_due})
     if weekly_due:
         _breadcrumb("learning:maintenance:weekly_refresh:before")
-        result["weekly_refresh"]=evaluate_observations(series_loader,now=current)
+        exists = any(row.get('week_key')==local.strftime('%G-W%V') for row in load_weekly_reports())
+        result["weekly_refresh"]={'status':'NOT_NEEDED_DELIVERY_RETRY'} if exists else evaluate_observations(series_loader,now=current)
         _breadcrumb("learning:maintenance:weekly_refresh:after", {"status": result["weekly_refresh"].get("status")})
         _release_memory("learning_maintenance_after_weekly_refresh")
         _breadcrumb("learning:maintenance:weekly_report:before")
@@ -1078,7 +1123,9 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
     elif local.weekday() in {4,5,6}:
         existing = next((row for row in load_weekly_reports() if str(row.get("week_key") or "") == local.strftime("%G-W%V")), None)
         if existing:
-            result["weekly"] = {"status":"ALREADY_COMPLETED","week_key":existing.get("week_key"),
+            notification = existing.get('notification') or {}
+            pending = notification.get('required',notification.get('attempted',False)) is True and not notification.get('sent')
+            result["weekly"] = {"status":"PUSHOVER_FAILED" if pending else "ALREADY_COMPLETED","week_key":existing.get("week_key"),
                                 "report_id":existing.get("report_id"),
                                 "notification":dict(existing.get("notification") or {}),
                                 "reason":"Ukens rapport og heartbeat er allerede opprettet."}
