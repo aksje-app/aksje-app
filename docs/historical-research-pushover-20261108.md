@@ -37,6 +37,30 @@ notation out of the Pushover copy. The evidence, existing 0.30% cost assumption,
 candidate selection, measurement rules and original receipts stay intact.
 Only genuine missing/stale progress adds a short plain-language warning.
 
+## Gain magnitude and combinations
+
+The count of stocks with a positive result alone does not describe the size of
+gains or losses. Show the mean percentage return per completed simulated trade,
+including losing trades and the existing 0.30% round-trip cost. Read the actual
+first finalist's holdout avg_pct and trades; weight each stock's mean by its
+actual trade count. Never divide a compounded total return by the number of
+trades or imply that it is a per-trade or annual return. Missing avg_pct remains
+missing and its reduced measurement coverage is explicit.
+
+Show the two most frequently preselected stop/holding combinations separately
+for each portfolio, explaining them as selling on a specified fall or after a
+specified number of trading days. Give the mean per trade for each combination
+and the number of stocks providing that measurement. Sort by selection count,
+not holdout profit. These groups contain different stocks selected in training;
+they cannot establish which combination is best on a common universe. Do not
+call them a ranking or an automatically recommended trading rule.
+
+Cache the enriched evidence under a separate indexes/results-v2 path. Keep the
+earlier cache, all original research/price data, previous notifications and
+trading rules. Collection remains bounded to 24 pairs per cron, maximum 32;
+completed measurements are reused without price downloads or large financial
+journal reads. Per-trade gains, source digests and counts are retained for audit.
+
 Pushover delivery uses the existing notifier and learning_report category.
 Serialize it with the shared cross-process execution lane. Preserve daily
 receipts and failed attempts; a duplicate-suppression response is not a delivery.

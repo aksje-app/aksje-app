@@ -12,6 +12,7 @@ PROGRESS = 'strategy_history/optimization_progress.json'
 ENGINES = ('AUTONOMY', 'SUPER_PORTFOLIO')
 LABELS = dict(zip(ENGINES, ('Autonomi', 'Superporteføljen')))
 MAX_INDEX_BYTES = 8 * 1024**2
+MEASUREMENT_VERSION = 2
 
 
 def digest(value):
@@ -45,7 +46,12 @@ def observation(result, ticker, engine, method):
         trades = score['trades']
         if not isfinite(value) or trades < 1 or finalist['stop_pct'] not in STOPS or finalist['hold_sessions'] not in HOLDS:
             raise ValueError('Invalid held-out result')
+        average = score.get('avg_pct')
+        average = float(average) if average is not None and not isinstance(average, bool) else None
+        if average is not None and not isfinite(average):
+            average = None
         return {'status': 'MEASURED', 'return_pct': value, 'trades': trades,
+                'avg_trade_return_pct': average,
                 'stop_pct': finalist['stop_pct'], 'hold_sessions': finalist['hold_sessions'],
                 'source_sha256': digest(result)}
     except (ValueError, TypeError, KeyError, IndexError):
@@ -60,6 +66,14 @@ def summarize(progress, records, *, cohort, now):
         measured = [r for r in rows if r.get('status') == 'MEASURED']
         pairs = Counter((r['stop_pct'], r['hold_sessions']) for r in measured)
         common = sorted(pairs, key=lambda p: (-pairs[p], p))
+        def magnitude(rows):
+            usable = [r for r in rows if r.get('avg_trade_return_pct') is not None]
+            trades = sum(r['trades'] for r in usable)
+            return {'magnitude_symbols': len(usable), 'trade_count': trades,
+                    'mean_trade_return_pct': sum(r['avg_trade_return_pct']*r['trades'] for r in usable)/trades if trades else None}
+        combinations = [{'stop_pct': pair[0], 'hold_sessions': pair[1], 'symbols': pairs[pair],
+                         **magnitude([r for r in measured if (r['stop_pct'],r['hold_sessions']) == pair])}
+                        for pair in common[:2]]
         engines[engine] = {'measured': len(measured),
             'positive': sum(r['return_pct'] > 0 for r in measured),
             'negative': sum(r['return_pct'] < 0 for r in measured),
@@ -67,10 +81,11 @@ def summarize(progress, records, *, cohort, now):
             'positive_share_pct': 100 * sum(r['return_pct'] > 0 for r in measured) / len(measured) if measured else None,
             'insufficient': sum(r.get('status') == 'INSUFFICIENT_HISTORY' for r in rows),
             'unmeasurable': sum(r.get('status') == 'UNMEASURABLE' for r in rows),
-            'most_selected': {'stop_pct': common[0][0], 'hold_sessions': common[0][1], 'symbols': pairs[common[0]]} if common else None}
+            'most_selected': {'stop_pct': common[0][0], 'hold_sessions': common[0][1], 'symbols': pairs[common[0]]} if common else None,
+            **magnitude(measured), 'combinations': combinations}
     processed = len(completed)
     pending = sum(t not in records for t in completed)
-    return {'schema': 1, 'cohort': cohort, 'method_version': progress.get('method_version'),
+    return {'schema': MEASUREMENT_VERSION, 'cohort': cohort, 'method_version': progress.get('method_version'),
             'total': int(progress.get('total') or 0), 'processed': processed,
             'failed': int(progress.get('failed') or 0), 'source_status': progress.get('status'),
             'source_updated_at': progress.get('updated_at'), 'updated_at': now.isoformat(),
@@ -87,7 +102,9 @@ def collect(*, service, now, limit=24):
     if progress.get('method_version') != METHOD_VERSION or not progress.get('started_at'):
         return {'status': 'WAITING_FOR_CURRENT_METHOD', 'production_changed': False}
     cohort = digest([METHOD_VERSION, progress['started_at']])
-    key = PREFIX + 'indexes/' + cohort + '.json'
+    # Preserve earlier cached evidence; enrich from original small result
+    # documents once, without inferring per-trade gains from compounded returns.
+    key = PREFIX + 'indexes/results-v2/' + cohort + '.json'
     index = service.read_json(key, {}) or {}
     records = index.get('records') or {}
     pending = sorted(set(progress.get('completed_tickers') or []) - set(records))
@@ -121,16 +138,23 @@ def message(summary, previous=None):
         lines.append(f"{number(added)} flere aksjer er undersøkt siden forrige melding." if added > 0 else
                      'Ingen nye aksjer er ferdig undersøkt siden forrige melding.' if added == 0 else
                      'Antallet undersøkte aksjer er korrigert siden forrige melding.')
-    lines.extend(['', 'De historiske testene viser:'])
+    percent = lambda n: f'{n:+.2f}'.replace('.', ',') + ' %'
+    lines.extend(['', 'Gjennomsnitt per testhandel, med både gevinster og tap:'])
     for engine in ENGINES:
         row = summary['engines'][engine]
-        share = row['positive_share_pct']
-        text = ('Foreløpig for lite data til å vise et resultat.' if share is None else
-                f"{row['positive']} av {row['measured']} undersøkte aksjer ga gevinst i testen." if row['measured'] < 100 else
-                f"Omtrent {share:.0f} av 100 aksjer ga gevinst i testen.")
-        lines.append(f"{LABELS[engine]}: {text}")
-    lines.extend(['', 'Tallene viser hvor ofte testene ga gevinst. Om dette gir bedre handel i praksis, er ennå ikke dokumentert.',
-                  'Handelsreglene dine er uendret.'])
+        average = row.get('mean_trade_return_pct')
+        lines.append(f"{LABELS[engine]}: {percent(average)}." if average is not None else
+                     f"{LABELS[engine]}: Størrelsen på resultatene mangler foreløpig.")
+        if average is not None and row['magnitude_symbols'] < row['measured']:
+            lines.append(f"Størrelsen er målt for {row['magnitude_symbols']} av {row['measured']} aksjer.")
+        for pair in row.get('combinations',[])[:2]:
+            value = pair.get('mean_trade_return_pct')
+            if value is not None:
+                stop = f"{pair['stop_pct']:g}".replace('.', ',')
+                lines.append(f"Salg ved {stop} % fall eller etter {pair['hold_sessions']} børsdager: {percent(value)} ({pair['magnitude_symbols']} aksjer).")
+    lines.extend(['', 'De vanligste kombinasjonene vises. De er prøvd på ulike aksjer; vi vet ennå ikke hvilken som er best.',
+                  'Beregnet kostnad på 0,30 % per handel er trukket fra. Testene gjelder salgsregler.',
+                  'Bedre handel i praksis er fortsatt uavklart. Handelsreglene dine er uendret.'])
     return '\n'.join(lines)
 
 

@@ -33,8 +33,8 @@ def result(ticker='A', engine='AUTONOMY', returns=-2):
             'status': 'COMPLETE_RESEARCH', 'cost_round_trip_pct': .3, 'purge_sessions': 120,
             'scope': 'UNCONDITIONAL_ENTRY_EXIT_GRID_NOT_PORTFOLIO_REPLAY',
             'train_end': '2023-01-01', 'validation_start': '2023-07-01', 'holdout_start': '2025-01-01',
-            'finalists': [{'stop_pct': 3, 'hold_sessions': 20, 'holdout': {'trades': 5, 'total_pct': returns}},
-                          {'stop_pct': 5, 'hold_sessions': 10, 'holdout': {'trades': 5, 'total_pct': 200}}]}
+            'finalists': [{'stop_pct': 3, 'hold_sessions': 20, 'holdout': {'trades': 5, 'total_pct': returns, 'avg_pct': returns/5}},
+                          {'stop_pct': 5, 'hold_sessions': 10, 'holdout': {'trades': 5, 'total_pct': 200, 'avg_pct': 40}}]}
 
 
 def populated(count=3):
@@ -89,10 +89,11 @@ def test_missing_insufficient_and_unmeasured_are_not_made_up_wins():
         store.data[prefix+sha256(b'A0').hexdigest()+'.json'] = {'ticker': 'A0', 'status': 'INSUFFICIENT_PURGED_PERIODS'}
         del store.data[prefix+sha256(b'A1').hexdigest()+'.json']
     summary = report.run_once(service=store, now=NOW, notify=False)
-    assert summary['engines']['AUTONOMY'] == {
+    expected = {
         'measured': 1, 'positive': 0, 'negative': 1, 'flat': 0, 'positive_share_pct': 0,
         'insufficient': 1, 'unmeasurable': 1, 'most_selected': {'stop_pct': 3, 'hold_sessions': 20, 'symbols': 1}}
-    assert 'Autonomi: 0 av 1 undersøkte aksjer ga gevinst i testen.' in report.message(summary)
+    assert all(summary['engines']['AUTONOMY'][k] == v for k,v in expected.items())
+    assert 'Autonomi: -0,40 %.' in report.message(summary)
 
 
 def test_new_method_cohort_keeps_older_evidence_and_resets_comparison():
@@ -113,8 +114,8 @@ def test_message_reports_progress_and_descriptive_change_with_bounded_footer():
     previous['engines']['AUTONOMY']['positive_share_pct'] = 50
     text = report.message(summary, previous)
     assert '2 flere aksjer er undersøkt siden forrige melding.' in text
-    assert all(s in text for s in ('Autonomi:', 'Superporteføljen:', 'hvor ofte testene ga gevinst', 'bedre handel i praksis, er ennå ikke dokumentert', 'Handelsreglene dine er uendret.'))
-    assert not any(s in text for s in ('testdel', 'pp', 'UTC', 'Modellkost', 'exit-forskning', 'stopp', 'testmetoden', 'umålbar'))
+    assert all(s in text for s in ('Autonomi:', 'Superporteføljen:', 'per testhandel', 'både gevinster og tap', 'Salg ved 3 % fall eller etter 20 børsdager: -0,40 % (3 aksjer)', 'ulike aksjer', '0,30 %', 'Handelsreglene dine er uendret.'))
+    assert not any(s in text for s in ('testdel', 'pp', 'UTC', 'Modellkost', 'exit-forskning', 'testmetoden', 'umålbar'))
     assert len(text) + 120 < 1024
 
 
@@ -154,3 +155,35 @@ def test_notification_job_is_wired_after_real_optimizer():
     from pathlib import Path
     code = Path('scheduled_runner.py').read_text()
     assert code.index('state["portfolio_historical_optimization"] = optimize_history()') < code.index('state["historical_research_notifications"] = notify_history()')
+
+
+def test_trade_mean_includes_losses_and_weights_by_actual_trades_not_compounding():
+    store = populated(2)
+    for engine in report.ENGINES:
+        for ticker,trades,average,total,stop in [('A0',2,10,1000,2),('A1',8,-1,-50,3)]:
+            source=result(ticker,engine)
+            source['finalists'][0].update(stop_pct=stop,holdout={'trades':trades,'avg_pct':average,'total_pct':total})
+            store.data[f'strategy_history/optimized/{engine}/{sha256(ticker.encode()).hexdigest()}.json']=source
+    value=report.run_once(service=store,now=NOW,notify=False)
+    for stats in value['engines'].values():
+        assert stats['trade_count']==10 and stats['mean_trade_return_pct']==1.2
+        assert [(p['stop_pct'],p['symbols'],p['mean_trade_return_pct']) for p in stats['combinations']]==[(2,1,10),(3,1,-1)]
+    assert '+1,20 %' in report.message(value)
+
+
+def test_missing_average_does_not_turn_total_profit_into_per_trade_gain():
+    source=result()
+    del source['finalists'][0]['holdout']['avg_pct']
+    measured=report.observation(source,'A','AUTONOMY',METHOD_VERSION)
+    assert measured['return_pct']==-2 and measured['avg_trade_return_pct'] is None
+
+
+def test_enrichment_preserves_previous_index_and_reports_limited_coverage():
+    store=populated(40)
+    cohort=report.digest([METHOD_VERSION,store.data[report.PROGRESS]['started_at']])
+    old_key=report.PREFIX+'indexes/'+cohort+'.json'
+    store.data[old_key]={'records':{'original':'retained'}}
+    before=deepcopy(store.data)
+    summary=report.run_once(service=store,now=NOW,notify=False)
+    assert summary['status']=='BUILDING' and summary['coverage_pending']==16
+    assert store.data[old_key]==before[old_key]
