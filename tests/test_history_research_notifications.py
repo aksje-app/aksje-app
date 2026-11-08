@@ -92,7 +92,7 @@ def test_missing_insufficient_and_unmeasured_are_not_made_up_wins():
     assert summary['engines']['AUTONOMY'] == {
         'measured': 1, 'positive': 0, 'negative': 1, 'flat': 0, 'positive_share_pct': 0,
         'insufficient': 1, 'unmeasurable': 1, 'most_selected': {'stop_pct': 3, 'hold_sessions': 20, 'symbols': 1}}
-    assert 'For kort/umålbar historikk: 1/1' in report.message(summary)
+    assert 'Autonomi: 0 av 1 undersøkte aksjer ga gevinst i testen.' in report.message(summary)
 
 
 def test_new_method_cohort_keeps_older_evidence_and_resets_comparison():
@@ -102,7 +102,7 @@ def test_new_method_cohort_keeps_older_evidence_and_resets_comparison():
     store.data[report.PROGRESS]['started_at'] = NOW.isoformat()
     new = report.run_once(service=store, now=NOW, notify=False)
     assert old['cohort'] != new['cohort']
-    assert 'Første tendensmåling' in report.message(new, old)
+    assert 'siden forrige melding' not in report.message(new, old)
     assert all(store.data[k] == v for k,v in original_keys.items())
 
 
@@ -112,8 +112,9 @@ def test_message_reports_progress_and_descriptive_change_with_bounded_footer():
     previous['processed'] = 1
     previous['engines']['AUTONOMY']['positive_share_pct'] = 50
     text = report.message(summary, previous)
-    assert '+2 behandlet' in text and 'endring -50.0 pp' in text
-    assert all(s in text for s in ('Autonomi:', 'Superporteføljen:', 'ikke portefølje/prognose', '0,30 %', 'Ingen regelendring'))
+    assert '2 flere aksjer er undersøkt siden forrige melding.' in text
+    assert all(s in text for s in ('Autonomi:', 'Superporteføljen:', 'hvor ofte testene ga gevinst', 'bedre handel i praksis, er ennå ikke dokumentert', 'Handelsreglene dine er uendret.'))
+    assert not any(s in text for s in ('testdel', 'pp', 'UTC', 'Modellkost', 'exit-forskning', 'stopp', 'testmetoden', 'umålbar'))
     assert len(text) + 120 < 1024
 
 
@@ -146,7 +147,7 @@ def test_oslo_clock_summary_backlog_and_stale_data_are_explicit():
         assert report.send_daily(service=store, summary={**summary,'status':'BUILDING'}, now=NOW)['status'] == 'WAITING_FOR_SUMMARY'
         assert not sender.called
         assert report.send_daily(service=store, summary=summary, now=NOW+timedelta(hours=9))['sent']
-        assert sender.call_args.args[0].startswith('OBS: Ingen fersk forskningsfremdrift')
+        assert sender.call_args.args[0].startswith('Testingen har ikke meldt ny fremdrift de siste 8 timene.')
 
 
 def test_notification_job_is_wired_after_real_optimizer():

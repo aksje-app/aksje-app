@@ -113,28 +113,24 @@ def collect(*, service, now, limit=24):
 
 def message(summary, previous=None):
     total, done = summary['total'], summary['processed']
-    lines = [f"Historisk forskning: {done}/{total} aksjer ({100*done/total:.1f} %)." if total else 'Historisk forskning: mangler aksjeunivers.']
+    number = lambda n: f'{n:,}'.replace(',', ' ')
+    lines = [f"Vi har undersøkt {number(done)} av {number(total)} aksjer." if total else 'Testingen venter på en liste over aksjer som skal undersøkes.']
     same = previous and previous.get('cohort') == summary['cohort']
     if same:
-        lines.append(f"Siden sist: {done-previous['processed']:+d} behandlet. Endret utvalg kan påvirke tendensen.")
-    else:
-        lines.append('Første tendensmåling for denne testmetoden.')
+        added = done - previous['processed']
+        lines.append(f"{number(added)} flere aksjer er undersøkt siden forrige melding." if added > 0 else
+                     'Ingen nye aksjer er ferdig undersøkt siden forrige melding.' if added == 0 else
+                     'Antallet undersøkte aksjer er korrigert siden forrige melding.')
+    lines.extend(['', 'De historiske testene viser:'])
     for engine in ENGINES:
         row = summary['engines'][engine]
-        text = f"{LABELS[engine]}: testdel positiv {row['positive']}/{row['measured']}"
-        old = (previous.get('engines', {}).get(engine) or {}) if same else {}
-        if row['positive_share_pct'] is not None:
-            text += f" ({row['positive_share_pct']:.1f} %)"
-            if old.get('positive_share_pct') is not None:
-                text += f"; endring {row['positive_share_pct']-old['positive_share_pct']:+.1f} pp"
-        lines.append(text + '.')
-        common = row.get('most_selected')
-        if common:
-            lines.append(f"Vanligst valgt før test: stopp {common['stop_pct']:g} %, {common['hold_sessions']} børsdager ({common['symbols']} aksjer).")
-        if row['insufficient'] or row['unmeasurable']:
-            lines.append(f"For kort/umålbar historikk: {row['insufficient']}/{row['unmeasurable']}.")
-    lines.append('Siste forskningsdata: ' + str(summary.get('source_updated_at') or 'ukjent')[:16].replace('T', ' ') + ' UTC.')
-    lines.append('Foreløpig exit-forskning, ikke portefølje/prognose. Modellkost 0,30 %/handel. Ingen regelendring.')
+        share = row['positive_share_pct']
+        text = ('Foreløpig for lite data til å vise et resultat.' if share is None else
+                f"{row['positive']} av {row['measured']} undersøkte aksjer ga gevinst i testen." if row['measured'] < 100 else
+                f"Omtrent {share:.0f} av 100 aksjer ga gevinst i testen.")
+        lines.append(f"{LABELS[engine]}: {text}")
+    lines.extend(['', 'Tallene viser hvor ofte testene ga gevinst. Om dette gir bedre handel i praksis, er ennå ikke dokumentert.',
+                  'Handelsreglene dine er uendret.'])
     return '\n'.join(lines)
 
 
@@ -165,12 +161,12 @@ def send_daily(*, service, summary, now):
         try:
             age = (now - datetime.fromisoformat(source_time)).total_seconds()
             if age < 0 or (age > 8*3600 and summary.get('source_status') == 'RUNNING'):
-                text = 'OBS: Ingen fersk forskningsfremdrift siste 8 timer.\n' + text
+                text = 'Testingen har ikke meldt ny fremdrift de siste 8 timene.\n\n' + text
         except (TypeError, ValueError):
-            text = 'OBS: Ugyldig tidspunkt for forskningsdata.\n' + text
+            text = 'Vi kan ikke bekrefte hvor oppdaterte resultatene er.\n\n' + text
         try:
             ok, detail = normalize_notification_result(send_pushover_alert(
-                text, title='Historisk læring – fremdrift og tendens', relevance_event={'category': 'learning_report'}))
+                text, title='Historisk læring – kort oppdatering', relevance_event={'category': 'learning_report'}))
         except Exception as exc:
             ok, detail = False, type(exc).__name__
         sent = bool(ok) and 'duplicate' not in str(detail).lower()

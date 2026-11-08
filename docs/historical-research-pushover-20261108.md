@@ -19,16 +19,23 @@ training/validation selection before the untouched holdout is evaluated. It neve
 chooses the best holdout finalist. Require current method, ticker/portfolio,
 scope, chronological split, purge and cost contracts, a finite held-out return
 and actual trades. Missing/insufficient results do not become zero returns or
-wins. Report positive/negative/flat counts for that candidate, and the most
-frequently selected stop/holding pair, separately for the two portfolios.
+wins. Retain positive/negative/flat counts and the most frequently selected
+stop/holding pair in the stored evidence, separately for the two portfolios.
 
 One message per Europe/Oslo date, from 08:00 onward, once summary collection has
-caught up. Show processed/total and the change since the last delivered report;
-compare positive-share changes only within the same method/start cohort. Warn
-that changing the sample can change the tendency. State the existing 0.30%
-round-trip model cost and that these are exploratory exit tests, not portfolio
-returns, forecasts, benchmark-relative excess, causal improvement or strategy
-validation. No strategy promotion or trading rule is changed.
+caught up. The short message uses everyday Norwegian: how many stocks have been
+examined, how many more since the last message within the same method/start
+cohort, and how often the historical tests produced a gain for each portfolio.
+For at least 100 measured stocks, express this as approximately X out of 100;
+for smaller samples use the actual counts. Explain that this describes how
+often tests made a gain, and better real trading remains unproven. State that
+the user's trading rules are unchanged. No strategy promotion is allowed.
+
+Keep technical method names, percentage-point changes, modal stop/holding
+parameters, slash-separated missing-data counters, UTC stamps and model-cost
+notation out of the Pushover copy. The evidence, existing 0.30% cost assumption,
+candidate selection, measurement rules and original receipts stay intact.
+Only genuine missing/stale progress adds a short plain-language warning.
 
 Pushover delivery uses the existing notifier and learning_report category.
 Serialize it with the shared cross-process execution lane. Preserve daily
