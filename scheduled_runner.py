@@ -773,6 +773,13 @@ def _run_once_locked() -> dict[str, Any]:
         state["portfolio_historical_optimization"] = {"status":"FAILED","reason":type(exc).__name__}
 
     try:
+        if _optional_memory_ready("historical_research_notifications"):
+            from services.history_research_notifications import run_once as notify_history
+            state["historical_research_notifications"] = notify_history()
+    except Exception as exc:
+        state["historical_research_notifications"] = {"status":"FAILED","reason":type(exc).__name__}
+
+    try:
         if _optional_memory_ready("superfund_historical_research"):
             from superfund_historical_research import run_once as research_fund_history
             state["superfund_historical_research"] = research_fund_history()
