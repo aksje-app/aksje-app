@@ -1,6 +1,6 @@
 """Continuous daily read-only Shadow / learning watchdog with Pushover receipts."""
 from __future__ import annotations
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta, time
 from zoneinfo import ZoneInfo
 from durable_runtime import read_events, read_json, write_json
 from storage_architecture import runtime_data_path
@@ -10,21 +10,69 @@ LEDGER = "controlled_learning/daily_shadow_receipts.json"
 LEDGER_PATH = runtime_data_path("controlled_learning", "daily_shadow_receipts.json")
 
 
+def _activity_floor(now, schedules):
+    """Keep the 24h check, extending only over a verified scheduled pause.
+
+    An hour after a scheduled start allows the normal job to complete. Unknown
+    schedules fail closed to the existing 24-hour rule. A pause cannot hide a
+    missing run on the last expected workday.
+    """
+    normal = now - timedelta(days=1)
+    expected_days = []
+    for job in schedules:
+        if not isinstance(job, dict) or job.get('enabled') is not True:
+            continue
+        try:
+            tz = ZoneInfo(job.get('timezone_name') or 'Europe/Oslo')
+            local = now.astimezone(tz)
+            weekdays = set(job.get('weekdays') or [])
+            for offset in range(8):
+                day = local.date() - timedelta(days=offset)
+                if day.weekday() not in weekdays or (day.weekday() >= 5 and not job.get('allow_weekends')):
+                    continue
+                passed = False
+                for slot in job.get('schedules') or []:
+                    hour, minute = map(int, str(slot).split(':'))
+                    start = datetime.combine(day, time(hour, minute), tzinfo=tz)
+                    passed |= start + timedelta(hours=1) <= local
+                if passed:
+                    expected_days.append(datetime.combine(day, time(), tzinfo=tz).astimezone(timezone.utc))
+                    break
+        except (ValueError, TypeError, KeyError):
+            continue
+    return min(normal, max(expected_days)) if expected_days else normal
+
+
 def evaluate(now=None):
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(ZoneInfo("America/Fortaleza")).date()
     audit = read_events("controlled_learning/outcome_audit.jsonl",
                         runtime_data_path("controlled_learning", "outcome_audit.jsonl"), limit=400)
-    window = []
+    timed = []
     for row in audit:
         try:
             at = datetime.fromisoformat(str(row.get("at") or "").replace("Z", "+00:00"))
-            if 0 <= (now - at).total_seconds() <= 86400:
-                window.append(row)
+            if at.tzinfo is not None and at <= now:
+                timed.append((at, row))
         except (TypeError, ValueError):
             continue
+    window = [r for at, r in timed if at >= now - timedelta(days=1)]
     registered = [r for r in window if r.get("event") == "OBSERVATIONS_REGISTERED"]
     evaluated = [r for r in window if r.get("event") == "OUTCOMES_EVALUATED"]
+    # Read the canonical job document directly; do not invoke load_jobs(),
+    # repair configuration or change the operator's weekend choices here.
+    registry = read_json('autonomi_core/configuration_registry.json',
+                         runtime_data_path('autonomi_core', 'configuration_registry.json'), {})
+    node = registry
+    for key in ('values', 'runtime', 'scheduler'):
+        node = node.get(key) if isinstance(node, dict) else None
+    jobs = node.get('jobs', []) if isinstance(node, dict) else []
+    jobs = [r for r in jobs if isinstance(r, dict) and str(r.get('job_id') or '').startswith('MI-REQUIRED-')] if isinstance(jobs, list) else []
+    registration_floor = _activity_floor(now, jobs)
+    evaluation_floor = _activity_floor(now, [dict(enabled=True, weekdays=list(range(5)),
+        schedules=['06:30'], allow_weekends=False, timezone_name='Europe/Oslo')])
+    expected_registered = [r for at, r in timed if at >= registration_floor and r.get('event') == 'OBSERVATIONS_REGISTERED']
+    expected_evaluated = [r for at, r in timed if at >= evaluation_floor and r.get('event') == 'OUTCOMES_EVALUATED']
     acceptance = read_json("controlled_learning/acceptance_latest.json",
                            runtime_data_path("controlled_learning", "acceptance_latest.json"), {})
     acceptance = acceptance if isinstance(acceptance, dict) else {}
@@ -47,10 +95,10 @@ def evaluate(now=None):
         failures.append('Ukentlig læringsrapport er laget, men ikke levert på Pushover')
     if acceptance and not progress['acceptance_fresh']:
         failures.append('Aksept-/kvalitetsrapport mangler gyldig oppdatering siste 48 t')
-    if not registered: failures.append("Ingen observasjonsregistrering siste 24 t")
-    if not evaluated: failures.append("Ingen utfallsevaluering siste 24 t")
+    if not expected_registered: failures.append("Ingen observasjonsregistrering siden siste planlagte kjøredag" if registration_floor < now-timedelta(days=1) else "Ingen observasjonsregistrering siste 24 t")
+    if not expected_evaluated: failures.append("Ingen utfallsevaluering siden siste planlagte kjøredag" if evaluation_floor < now-timedelta(days=1) else "Ingen utfallsevaluering siste 24 t")
     if not acceptance: failures.append("Ingen aksept-/kvalitetsrapport")
-    latest = max(evaluated, key=lambda r: str(r.get("at") or ""), default={})
+    latest = max(expected_evaluated, key=lambda r: str(r.get("at") or ""), default={})
     production_changed = any(r.get("production_changed") is True for r in window)
     if production_changed: failures.append("Uventet endring i produksjon registrert")
     status = "RØD" if failures else ("GUL" if acceptance.get("strategy_readiness") != "VALIDATED" else "GRØNN")
@@ -59,6 +107,11 @@ def evaluate(now=None):
             "new_observations": sum(int(r.get('created') or 0) for r in registered),
             "new_measurements": sum(int(r.get('updated') or 0) for r in evaluated),
             "active": latest.get("active"), "matured": latest.get("matured"),
+            "scheduled_pause": registration_floor < now-timedelta(days=1) or evaluation_floor < now-timedelta(days=1),
+            "registration_window_start": registration_floor.isoformat(),
+            "evaluation_window_start": evaluation_floor.isoformat(),
+            "last_registration_at": max((str(r.get('at') or '') for r in expected_registered), default=None),
+            "last_evaluation_at": latest.get('at'),
             "strategy_readiness": acceptance.get("strategy_readiness", "UKJENT"),
             "production_changed": production_changed, "learning_progress": progress}
 
@@ -96,7 +149,7 @@ def send_daily_if_due(*, now=None, repair_id=None):
                         + (f"skygge {row.get('forward_trading_dates', 'ukjent')} datoer" if row.get('independent_strategy_test') else 'kun arkiv')
                         for name, row in progress.get('replay_streams', {}).items() if name in labels)
     failures = report['failures']
-    diagnosis = (failures[0] + (f" (+{len(failures)-1} andre avvik)" if len(failures)>1 else '')) if failures else 'Ingen manglende kjøringer'
+    diagnosis = (failures[0] + (f" (+{len(failures)-1} andre avvik)" if len(failures)>1 else '')) if failures else ('Planlagt pause; siste kjøredag kontrollert' if report.get('scheduled_pause') else 'Ingen manglende kjøringer')
     text = (f"Shadow og læring {report['date']}: {report['status']}\nAvvik: {diagnosis}\n"
             f"Kjøringer 24t: registrering {report['registrations']}, evaluering {report['evaluations']}\n"
             f"Aktive: {report['active']}; fullført 60d: {report['matured']}\n"

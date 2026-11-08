@@ -80,6 +80,19 @@ from today's market/news data.
 
 ## Acceptance
 
+The real production job on 8d416bf completed the full Autonomy chain (60
+decisions, FINAL, no financial trade authorizations), captured all three new
+frames and advanced both frozen forward plans under a 1719.4/2048 MiB
+container peak. Its strict final watchdog assertion failed: no 24-hour
+registrations/evaluations during the weekend. Production confirmed that all
+three required report profiles disallow weekend runs; manual reports do not
+register Shadow observations, and daily outcome evaluation runs weekdays only.
+The last real registration/evaluation were Friday evening. Preserve that
+evidence and report zero weekend invocations. Extend the freshness window only
+across a verified scheduled pause, retaining detection of a missing last
+workday, operator-enabled weekend jobs, and resumed Monday deadlines. Read
+canonical schedules without repairing or changing the user's configuration.
+
 Gate 42424459612 exposed an older static test requiring both learning senders
 to be routine/in-app-only. The user's requested weekly Pushover delivery
 supersedes that restriction. Replace that test with a behavioral policy
