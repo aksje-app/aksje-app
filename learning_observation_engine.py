@@ -457,6 +457,8 @@ def _factor_attribution(observations: Sequence[Mapping[str, Any]], horizon: int 
 
 
 def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, now: datetime | None = None) -> dict[str, Any]:
+    from services.learning_position_outcomes import SUMMARY as closed_results_key
+    closed_results = read_json(closed_results_key, runtime_data_path(*closed_results_key.split('/')), {}) if rows is None else {}
     observations = [dict(row) for row in (rows if rows is not None else load_observations()) if isinstance(row, Mapping)]
     active = [row for row in observations if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     horizon_rows = []
@@ -550,6 +552,7 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
             "selection_quality": selection_quality,
             "shadow_proposals": proposals, "strategy_readiness": "NOT_VALIDATED",
             "production_parameters_changed": False,
+            "closed_position_results": closed_results,
             "note": "Foreløpige trender er beskrivende. Ingen regel eller vekt endres automatisk."}
 
 
@@ -892,6 +895,14 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
              Paragraph("Ingen produksjonsregel, vekt eller handelsfullmakt er endret.", body),
              Paragraph("Meravkastning er forskjell mot benchmark, ikke nødvendigvis positiv avkastning. Gruppene er observasjoner, ikke utførte porteføljer. Null observasjoner betyr at gruppen ikke kan vurderes.", body),
              Paragraph("Målepunkter", heading)]
+    closed_results = analysis.get('closed_position_results') or {}
+    closed_excess = closed_results.get('mean_excess_return_pct')
+    if closed_excess is not None:
+        story.extend([Paragraph('Lukkede læringshandler mot markedet', heading),
+            Paragraph(f"Sammenlignet {closed_results.get('measured',0)} / {closed_results.get('closed_positions',0)}. "
+                f"Gjennomsnittlig forskjell mot daglig indeksreferanse {closed_excess:+.2f} prosentpoeng før kostnader. "
+                f"Ettervalgte referanser: {closed_results.get('retrospective_comparators',0)}. "
+                "Lukkede handler alene er ikke hele porteføljen. Ettervalgte referanser kan ikke validere strategien; netto meravkastning er ikke dokumentert.", body)])
     horizon_data = [["Dager", "Antall", "Gj.snitt", "Median", "Treff", "Meravkastning", "Modenhet"]]
     for row in analysis.get("horizons") or []:
         ret, excess = row.get("return") or {}, row.get("excess_return") or {}
@@ -1077,6 +1088,20 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
                       "reason":"Ukentlig rapport er bare forfalt fredag etter 23:10 eller i helgen, og bare én gang per ISO-uke."},
             "baseline":{"status":"NOT_DUE"},"production_changed":False}
     _breadcrumb("learning:maintenance:start", {"local_weekday": current.astimezone(OSLO).weekday()})
+    # Closing a learning position must lead to a measured result even when
+    # the independent Shadow outcome job is not due (including weekends).
+    # Providers and bounded evidence writes run here, never on a menu click.
+    try:
+        from services.learning_position_outcomes import run_maintenance as closed_maintenance
+        closed_result = closed_maintenance(now=current)
+        result['closed_positions'] = {k:v for k,v in closed_result.items()
+            if k not in ('recent_positions','by_cohort','latest_attempts')}
+    except Exception as exc:
+        result['closed_positions'] = {'status':'FAILED','error':type(exc).__name__+': '+str(exc)[:240]}
+    engine_state=load_engine_state()
+    engine_state['closed_positions']={k:v for k,v in result['closed_positions'].items()
+        if k in ('status','updated_at','measured','unmeasured','closed_positions','pending_after_batch','error')}
+    write_json(STATE_KEY,STATE_PATH,engine_state)
 
     daily_due = _daily_due(current)
     _breadcrumb("learning:maintenance:daily_due", {"due": daily_due})
@@ -1129,7 +1154,7 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
                                 "report_id":existing.get("report_id"),
                                 "notification":dict(existing.get("notification") or {}),
                                 "reason":"Ukens rapport og heartbeat er allerede opprettet."}
-    if result["daily"].get("status")=="FAILED" or result["weekly"].get("status") in {"FAILED","PUSHOVER_FAILED"}: result["status"]="DEGRADED"
+    if result["daily"].get("status")=="FAILED" or result["weekly"].get("status") in {"FAILED","PUSHOVER_FAILED"} or result['closed_positions'].get('status')=='FAILED': result["status"]="DEGRADED"
     _breadcrumb("learning:maintenance:done", {"status": result["status"]})
     return result
 

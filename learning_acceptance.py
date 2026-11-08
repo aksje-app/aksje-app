@@ -172,9 +172,13 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
         row for row in active_closed
         if int(row.get("observation_days") or 0) >= 20
     ]
+    from services.learning_position_outcomes import INDEX as benchmark_index_key, position_id, verified_measurement, summarize
+    benchmark_index = read_json(benchmark_index_key, runtime_data_path(*benchmark_index_key.split('/')), {}) or {}
+    benchmark_records = benchmark_index.get('records') or {}
     benchmark_measured = [
-        row for row in mature_closed
-        if row.get("excess_return_pct") is not None or row.get("benchmark_return_pct") is not None
+        measurement for row in mature_closed
+        if (measurement := verified_measurement(row, benchmark_records.get(position_id(row))))
+        and measurement['validation_eligible'] is True
     ]
     pnl_values = [float(row.get("pnl") or 0.0) for row in mature_closed]
     gross_profit = sum(value for value in pnl_values if value > 0)
@@ -183,6 +187,7 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
     excess_values = [float(row.get("excess_return_pct") or 0.0) for row in benchmark_measured]
     average_excess = sum(excess_values) / len(excess_values) if excess_values else None
     strategy_checks = {
+        "operational_accounting_pass": verdict == 'PASS',
         "clean_current_cohort": all(str(row.get("learning_cohort") or "") == APP_VERSION for row in active_positions + active_closed),
         "minimum_mature_observations": len(mature_closed) >= 30,
         "benchmark_coverage_complete": bool(mature_closed) and len(benchmark_measured) == len(mature_closed),
@@ -219,6 +224,7 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
         "unaccounted_candidate_tickers": unaccounted_tickers,
         "open_learning_positions": len(positions),
         "closed_learning_positions": len(closed),
+        "closed_position_benchmarks": summarize(closed, benchmark_index),
         "checks": checks,
         "blocker_counts": [{"first_blocker_code": code, "count": count} for code, count in blockers.most_common()],
         "decision_trace": decision_trace,

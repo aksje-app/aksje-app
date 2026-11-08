@@ -109,4 +109,5 @@ def test_quality_diagnostics_exposes_mixed_cohorts_and_denominator():
     assert quality["gap_or_delayed_stop_exits"] == 1
     assert len(quality["cohorts"]) == 2
     assert perf["return_denominator"] == "CUMULATIVE_ENTRY_NOTIONAL"
-    assert perf["mature_observations_20d"] == 1
+    # Elapsed calendar time without recorded observations is not maturity.
+    assert perf["mature_observations_20d"] == 0

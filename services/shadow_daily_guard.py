@@ -80,6 +80,12 @@ def evaluate(now=None):
     progress = snapshot(lambda key: read_json(key, runtime_data_path(*key.split('/')), {}),
                         now=now, acceptance=acceptance)
     failures = []
+    closed_collector = progress.get('closed_position_collector') or {}
+    closed_results = progress.get('closed_position_results') or {}
+    if closed_collector.get('status') == 'FAILED':
+        failures.append('Resultatmåling for lukkede læringshandler har feilet')
+    if closed_results.get('unmeasured',0) and not closed_results.get('pending_after_batch',0):
+        failures.append('Lukkede læringshandler mangler verifiserbare indekskurser')
     if progress.get('archive_status') == 'STORAGE_BUDGET_REACHED':
         failures.append('Historikkarkivet er fullt; nye læringsrammer blir avvist')
     elif progress.get('archive_bytes') is not None and progress.get('archive_remaining_bytes',0) < 16*1024**2:
@@ -144,6 +150,17 @@ def send_daily_if_due(*, now=None, repair_id=None):
     excess = current_results.get('mean_excess_return_pct')
     outcome = (f"Alle Shadow-grupper {current_results.get('horizon_days')}d: kurs {returns:+.2f} %, mot benchmark {excess:+.2f} pp. Ikke validert nettoeffekt."
                if returns is not None and excess is not None else 'Shadow-resultat: ingen målte kurshorisonter')
+    closed = progress.get('closed_position_results') or {}
+    closed_excess = closed.get('mean_excess_return_pct')
+    if closed_excess is not None:
+        outcome += (f"\nLukkede: {closed.get('measured',0)}/{closed.get('closed_positions',0)} målt; mot indeks {closed_excess:+.2f} pp før kostnader; "
+                    f"{closed.get('retrospective_comparators',0)} ettervalgte referanser.")
+    validation_text = (f"Valideringsklare posisjoner: {progress.get('current_mature_positions','ukjent')}; "
+                       f"benchmark-klare: {progress.get('benchmark_measured_positions','ukjent')}"
+                       if closed_excess is not None else
+                       f"Historisk baseline: {progress.get('historical_signal_count','ukjent')} signaler; "
+                       f"modne strategiposisjoner: {progress.get('current_mature_positions','ukjent')}; "
+                       f"benchmark-klare: {progress.get('benchmark_measured_positions','ukjent')}")
     labels = {'AUTONOMY':'Autonomi', 'SUPER_PORTFOLIO':'Superporteføljen', 'AUTONOMY_UNIVERSE':'Aksjeunivers'}
     streams = '\n'.join(f"{labels[name]}: {row.get('frames', 0)} rammer; sist {str(row.get('last_at') or 'ukjent')[:10]}; "
                         + (f"skygge {row.get('forward_trading_dates', 'ukjent')} datoer" if row.get('independent_strategy_test') else 'kun arkiv')
@@ -156,9 +173,7 @@ def send_daily_if_due(*, now=None, repair_id=None):
             f"Nye observasjoner: {report.get('new_observations', 'ukjent')}; nye målinger: {report.get('new_measurements', 'ukjent')}\n"
             f"Målt 1/5/20/60 handelsdager: {counts}\n{outcome}\n{streams}\n"
             f"Strategi: {report['strategy_readiness']}; prod endret: {report['production_changed']}\n"
-            f"Historisk baseline: {progress.get('historical_signal_count', 'ukjent')} signaler; "
-            f"modne strategiposisjoner: {progress.get('current_mature_positions', 'ukjent')}; "
-            f"benchmark-målte: {progress.get('benchmark_measured_positions', 'ukjent')}\n"
+            f"{validation_text}\n"
             f"Kvalitetsrapportens alder: {progress.get('acceptance_age_hours', 'ukjent')} timer")
     try:
         ok, detail = normalize_notification_result(send_pushover_alert(

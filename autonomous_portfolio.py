@@ -852,7 +852,10 @@ def _learning_benchmark(candidate: Mapping[str, Any]) -> tuple[str, str]:
     ticker = str(candidate.get("ticker") or "").upper()
     if not market:
         market = "NORGE" if ticker.endswith(".OL") else "SVERIGE" if ticker.endswith(".ST") else "USA"
-    benchmark = {"NORGE": "^OSEAX", "SVERIGE": "^OMX", "USA": "^GSPC"}.get(market, "")
+    # OSEBX.OL has historical coverage, unlike the obsolete ^OSEAX provider
+    # spelling. This affects newly recorded comparisons only, never old rows
+    # or any order/position rule. It matches the existing Shadow benchmark.
+    benchmark = {"NORGE": "OSEBX.OL", "SVERIGE": "^OMX", "USA": "^GSPC"}.get(market, "")
     return market, benchmark
 
 
@@ -1192,9 +1195,9 @@ def learning_portfolio_performance(portfolio: Mapping[str, Any] | None = None) -
     realized = _f(portfolio.get("realized_pnl"))
     total_entry = max(_f(portfolio.get("total_entry_notional")), entry_open)
     total_pnl = realized + unrealized
-    mature_open = sum(1 for row in positions.values() if _days_opened(row.get("opened_at")) >= 20)
+    mature_open = sum(1 for row in positions.values() if int(row.get("observation_days") or 0) >= 20)
     closed_positions = list(portfolio.get("closed_positions") or [])
-    mature_closed = sum(1 for row in closed_positions if int(row.get("observation_days") or _days_opened(row.get("opened_at"))) >= 20)
+    mature_closed = sum(1 for row in closed_positions if int(row.get("observation_days") or 0) >= 20)
     return {
         "updated_at": _now(), "open_positions": len(positions),
         "entry_notional": round(entry_open, 2), "current_value": round(current_open, 2),
@@ -2872,12 +2875,46 @@ def render_learning_portfolio() -> None:
     c1.metric("Åpne læringsposisjoner", perf["open_positions"])
     c2.metric("Inngangsnotional", f"{perf['entry_notional']:,.0f}")
     c3.metric("Nåverdi", f"{perf['current_value']:,.0f}")
-    c4.metric("Samlet P/L", f"{perf['total_pnl']:+,.0f}")
-    c5.metric("Læringsavkastning", f"{perf['return_pct']:+.2f}%")
+    c4.metric("Modell-P/L før kostnader", f"{perf['total_pnl']:+,.0f}")
+    c5.metric("Modellavkastning før kostnader", f"{perf['return_pct']:+.2f}%")
     quality = learning_quality_diagnostics(portfolio)
+    from services.learning_position_outcomes import SUMMARY as outcomes_key
+    outcomes = durable_read_json(outcomes_key, runtime_data_path(*outcomes_key.split('/')), {})
+    if isinstance(outcomes, dict) and outcomes.get('closed_positions') is not None:
+        st.markdown("##### Resultater mot markedet – lukkede læringshandler")
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Sammenlignet med indeks", f"{outcomes.get('measured',0)} / {outcomes['closed_positions']}")
+        excess = outcomes.get('mean_excess_return_pct')
+        r2.metric("Gjennomsnitt mot indeks, før kostnader", f"{excess:+.2f} pp" if excess is not None else "Mangler data")
+        r3.metric("Ettervalgte referanser", outcomes.get('retrospective_comparators',0))
+        current = outcomes.get('current_cohort') or {}
+        if current.get('mean_excess_return_pct') is not None:
+            st.caption(f"Nåværende programkohort: {current['measured']} lukkede handler, "
+                       f"{current['mean_excess_return_pct']:+.2f} prosentpoeng mot indeks før kostnader.")
+        st.caption("Daglige indeksreferanser tilgjengelige ved kjøp og salg. Ettervalgt betyr valgt etter handelen fordi opprinnelig referanse eller historikk manglet. Disse sammenligningene kan ikke validere strategien. Lukkede handler alene er ikke hele porteføljen; resultat etter kostnader er ikke verifisert.")
+        if outcomes.get('by_cohort'):
+            st.dataframe(pd.DataFrame(outcomes['by_cohort']).rename(columns={
+                'cohort':'Kohort','market':'Marked','measured':'Handler',
+                'mean_gross_return_pct':'Handelsavkastning % før kostnader',
+                'mean_benchmark_return_pct':'Indeks %','mean_excess_return_pct':'Forskjell mot indeks pp',
+                'beat_benchmark':'Bedre enn indeks','retrospective_comparators':'Ettervalgte referanser',
+                'eligible_original_benchmarks':'Opprinnelige verifiserte referanser'}),hide_index=True,width='stretch')
+        if outcomes.get('recent_positions'):
+            with st.expander('Resultatgrunnlag per lukket handel – siste 200'):
+                table = pd.DataFrame(outcomes['recent_positions'])
+                table['entry_reference'] = table['entry_reference'].map(lambda r:f"{r['date']}: {r['price']:.4f}")
+                table['exit_reference'] = table['exit_reference'].map(lambda r:f"{r['date']}: {r['price']:.4f}")
+                st.dataframe(table.rename(columns={'ticker':'Aksje','cohort':'Kohort','market':'Marked',
+                    'opened_at':'Kjøpstid','closed_at':'Salgstid','requested_benchmark':'Opprinnelig referanse',
+                    'benchmark_symbol':'Sammenlignet med','gross_return_pct':'Handel % før kostnader',
+                    'benchmark_return_pct':'Indeks %','excess_return_pct':'Forskjell pp',
+                    'retrospective_comparator':'Ettervalgt referanse','validation_eligible':'Opprinnelig benchmark verifisert',
+                    'entry_reference':'Indeks ved kjøp','exit_reference':'Indeks ved salg','sha256':'Kontrollsum'}).round(4),
+                    hide_index=True,width='stretch')
     st.caption(
         "Avkastningen bruker kumulativ inngangsnotional som nevner og blander ikke automatisk kohorter i en "
-        "produksjonskonklusjon. Realisert og urealisert resultat må vurderes separat."
+        "produksjonskonklusjon. Realisert og urealisert resultat må vurderes separat. "
+        "Modellens summer er ikke et verifisert nettoresultat i én felles valuta; indeksanalysen viser prosent per handel, marked og kohort."
     )
     q1, q2, q3, q4 = st.columns(4)
     q1.metric("Modne observasjoner (20 d)", perf["mature_observations_20d"])
@@ -2892,7 +2929,7 @@ def render_learning_portfolio() -> None:
     st.caption(
         f"Realisert P/L {perf['realized_pnl']:+,.0f} · urealisert P/L {perf['unrealized_pnl']:+,.0f} · "
         f"profit factor {quality['profit_factor'] if quality['profit_factor'] is not None else '-'} · "
-        f"benchmark {quality['benchmark_return_status']}."
+        f"benchmark for åpne posisjoner: {quality['benchmark_return_status']}."
     )
     st.info(f"Fast notional per ny læringsposisjon: {params.learning_probe_notional_value:,.0f}. Normal observasjonshorisont: {params.learning_probe_horizon_days} dager.")
     if abs(float(params.learning_probe_notional_value) - RC16_RECOMMENDED_LEARNING_NOTIONAL) > 0.01:

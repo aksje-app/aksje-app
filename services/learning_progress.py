@@ -10,6 +10,7 @@ KEYS = {
     'observations': 'controlled_learning/observation_cohorts.json',
     'autonomy_forward': 'controlled_learning/forward/AUTONOMY.json',
     'super_forward': 'controlled_learning/forward/SUPER_PORTFOLIO.json',
+    'closed_results': 'controlled_learning/closed_benchmarks/latest.json',
 }
 
 
@@ -62,5 +63,7 @@ def snapshot(read_json, *, now=None, acceptance=None):
             'archive_budget_bytes': MAX_ARCHIVE_BYTES,
             'archive_remaining_bytes': max(0,MAX_ARCHIVE_BYTES-int(archive.get('bytes') or 0)),
             'reported_archive_gaps': archive.get('gaps'),
+            'closed_position_results': documents['closed_results'],
+            'closed_position_collector': engine.get('closed_positions', {}),
             'historical_completeness': 'UNPROVEN_NO_RETROACTIVE_RECONSTRUCTION',
             'production_changed': False}
