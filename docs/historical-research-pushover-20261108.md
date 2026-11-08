@@ -17,49 +17,37 @@ separately per method/start cohort; hitting the limit deletes no history.
 The descriptive tendency uses exactly the first finalist, ranked by the existing
 training/validation selection before the untouched holdout is evaluated. It never
 chooses the best holdout finalist. Require current method, ticker/portfolio,
-scope, chronological split, purge and cost contracts, a finite held-out return
-and actual trades. Missing/insufficient results do not become zero returns or
+scope, chronological split, purge and cost contracts, finite held-out total and
+average returns and actual trades. Missing/insufficient results do not become zero returns or
 wins. Retain positive/negative/flat counts and the most frequently selected
 stop/holding pair in the stored evidence, separately for the two portfolios.
 
 One message per Europe/Oslo date, from 08:00 onward, once summary collection has
-caught up. The short message uses everyday Norwegian: how many stocks have been
-examined, how many more since the last message within the same method/start
-cohort, and how often the historical tests produced a gain for each portfolio.
-For at least 100 measured stocks, express this as approximately X out of 100;
-for smaller samples use the actual counts. Explain that this describes how
-often tests made a gain, and better real trading remains unproven. State that
-the user's trading rules are unchanged. No strategy promotion is allowed.
+caught up. The short message uses everyday Norwegian: progress since the previous
+message, average percentage gain/loss per test trade after the existing 0.30%
+round-trip cost, including losing trades, and how many stocks had a positive
+total result. Show sample sizes (trades and stocks), separately for each portfolio.
+Show the two most frequently selected stop/holding pairs with their own average
+and sample sizes. Order pairs by selection frequency, then stop/holding values
+to break ties, never by their holdout performance.
 
-Keep technical method names, percentage-point changes, modal stop/holding
-parameters, slash-separated missing-data counters, UTC stamps and model-cost
-notation out of the Pushover copy. The evidence, existing 0.30% cost assumption,
-candidate selection, measurement rules and original receipts stay intact.
+Use held-out `avg_pct` from the first finalist and weight it by its `trades`.
+This is the arithmetic average of all net trades; compounded `total_pct` divided
+by trades is not a per-trade return. Do not subtract the cost a second time.
+Store aggregates for every selected pair in the summary. Pair results describe
+different selected subsets of stocks and periods; they cannot prove which rule
+is best. Explain that sales happen at the stop or after the stated exchange
+sessions, that most common does not mean best, and that these historical tests
+are not annual or portfolio returns or a forecast. Trading rules are unchanged.
+Keep technical method names and UTC counters out of the Pushover copy.
+
+Notification index version 2 uses `indexes/v2/<cohort>.json` so existing stored
+results are reread in bounded batches to obtain the average, without changing
+the original index or optimizer. Keep cohort identity unchanged for progress
+comparisons. Do not send until collection has caught up. Existing daily delivery
+receipts remain authoritative; deploying this change does not resend that day.
+The existing 0.30% cost assumption, candidate selection and source data stay intact.
 Only genuine missing/stale progress adds a short plain-language warning.
-
-## Gain magnitude and combinations
-
-The count of stocks with a positive result alone does not describe the size of
-gains or losses. Show the mean percentage return per completed simulated trade,
-including losing trades and the existing 0.30% round-trip cost. Read the actual
-first finalist's holdout avg_pct and trades; weight each stock's mean by its
-actual trade count. Never divide a compounded total return by the number of
-trades or imply that it is a per-trade or annual return. Missing avg_pct remains
-missing and its reduced measurement coverage is explicit.
-
-Show the two most frequently preselected stop/holding combinations separately
-for each portfolio, explaining them as selling on a specified fall or after a
-specified number of trading days. Give the mean per trade for each combination
-and the number of stocks providing that measurement. Sort by selection count,
-not holdout profit. These groups contain different stocks selected in training;
-they cannot establish which combination is best on a common universe. Do not
-call them a ranking or an automatically recommended trading rule.
-
-Cache the enriched evidence under a separate indexes/results-v2 path. Keep the
-earlier cache, all original research/price data, previous notifications and
-trading rules. Collection remains bounded to 24 pairs per cron, maximum 32;
-completed measurements are reused without price downloads or large financial
-journal reads. Per-trade gains, source digests and counts are retained for audit.
 
 Pushover delivery uses the existing notifier and learning_report category.
 Serialize it with the shared cross-process execution lane. Preserve daily
