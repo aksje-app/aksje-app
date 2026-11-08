@@ -15,6 +15,7 @@ KEYS = {
 
 
 def snapshot(read_json, *, now=None, acceptance=None):
+    from services.learning_position_outcomes import report_view
     now = now or datetime.now(timezone.utc)
     documents = {name: (acceptance if name == 'acceptance' and acceptance is not None else read_json(key))
                  for name, key in KEYS.items()}
@@ -63,7 +64,7 @@ def snapshot(read_json, *, now=None, acceptance=None):
             'archive_budget_bytes': MAX_ARCHIVE_BYTES,
             'archive_remaining_bytes': max(0,MAX_ARCHIVE_BYTES-int(archive.get('bytes') or 0)),
             'reported_archive_gaps': archive.get('gaps'),
-            'closed_position_results': documents['closed_results'],
+            'closed_position_results': report_view(documents['closed_results']),
             'closed_position_collector': engine.get('closed_positions', {}),
             'historical_completeness': 'UNPROVEN_NO_RETROACTIVE_RECONSTRUCTION',
             'production_changed': False}

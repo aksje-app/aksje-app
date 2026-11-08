@@ -457,8 +457,8 @@ def _factor_attribution(observations: Sequence[Mapping[str, Any]], horizon: int 
 
 
 def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, now: datetime | None = None) -> dict[str, Any]:
-    from services.learning_position_outcomes import SUMMARY as closed_results_key
-    closed_results = read_json(closed_results_key, runtime_data_path(*closed_results_key.split('/')), {}) if rows is None else {}
+    from services.learning_position_outcomes import SUMMARY as closed_results_key, report_view
+    closed_results = report_view(read_json(closed_results_key, runtime_data_path(*closed_results_key.split('/')), {})) if rows is None else {}
     observations = [dict(row) for row in (rows if rows is not None else load_observations()) if isinstance(row, Mapping)]
     active = [row for row in observations if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     horizon_rows = []
@@ -1092,10 +1092,9 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
     # the independent Shadow outcome job is not due (including weekends).
     # Providers and bounded evidence writes run here, never on a menu click.
     try:
-        from services.learning_position_outcomes import run_maintenance as closed_maintenance
+        from services.learning_position_outcomes import run_maintenance as closed_maintenance, report_view
         closed_result = closed_maintenance(now=current)
-        result['closed_positions'] = {k:v for k,v in closed_result.items()
-            if k not in ('recent_positions','by_cohort','latest_attempts')}
+        result['closed_positions'] = report_view(closed_result)
     except Exception as exc:
         result['closed_positions'] = {'status':'FAILED','error':type(exc).__name__+': '+str(exc)[:240]}
     engine_state=load_engine_state()

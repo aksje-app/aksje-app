@@ -172,7 +172,7 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
         row for row in active_closed
         if int(row.get("observation_days") or 0) >= 20
     ]
-    from services.learning_position_outcomes import INDEX as benchmark_index_key, position_id, verified_measurement, summarize
+    from services.learning_position_outcomes import INDEX as benchmark_index_key, position_id, verified_measurement, summarize, report_view
     benchmark_index = read_json(benchmark_index_key, runtime_data_path(*benchmark_index_key.split('/')), {}) or {}
     benchmark_records = benchmark_index.get('records') or {}
     benchmark_measured = [
@@ -224,7 +224,7 @@ def evaluate_learning_run(run: Mapping[str, Any]) -> dict[str, Any]:
         "unaccounted_candidate_tickers": unaccounted_tickers,
         "open_learning_positions": len(positions),
         "closed_learning_positions": len(closed),
-        "closed_position_benchmarks": summarize(closed, benchmark_index),
+        "closed_position_benchmarks": report_view(summarize(closed, benchmark_index)),
         "checks": checks,
         "blocker_counts": [{"first_blocker_code": code, "count": count} for code, count in blockers.most_common()],
         "decision_trace": decision_trace,

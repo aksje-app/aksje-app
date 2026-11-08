@@ -248,3 +248,26 @@ def test_provider_series_are_frozen_once_per_day_without_repeated_downloads(monk
     assert first==second and len(calls)==1
     outcomes.cached_series(['OSEBX.OL'],store,NOW+timedelta(days=1))
     assert len(calls)==2 and len([k for k in store.data if '/series/' in k])==2
+
+
+def test_daily_receipt_size_does_not_grow_with_the_ui_trade_dataset():
+    import json
+    from services.learning_progress import snapshot,KEYS
+    summary={'measured':129,'mean_excess_return_pct':-.88,'current_cohort':{'measured':13,'mean_excess_return_pct':-6.53}}
+    data={KEYS['closed_results']:{**summary,'recent_positions':[{'ticker':'OLD','details':'x'*1000}]*200}}
+    small=snapshot(data.get)
+    data[KEYS['closed_results']]['recent_positions']*=100
+    large=snapshot(data.get)
+    assert small['closed_position_results']==large['closed_position_results']==summary
+    assert len(json.dumps(large))==len(json.dumps(small))
+
+
+def test_cross_market_reference_obeys_the_index_exchange_clock():
+    row=position();row.update(benchmark_ticker='^GSPC',opened_at='2026-11-03T17:00:00Z')
+    data={'^GSPC':[{'date':'2026-11-02','close':100},{'date':'2026-11-03','close':105},
+                  {'date':'2026-11-05','close':110},{'date':'2026-11-06','close':1000}]}
+    measured=outcomes.measure(row,data,now=NOW)
+    assert measured['entry_reference']['date']=='2026-11-02'
+    assert measured['exit_reference']['date']=='2026-11-05'
+    assert measured['benchmark_return_pct']==pytest.approx(10)
+    assert outcomes.verified_measurement(row,measured)==measured

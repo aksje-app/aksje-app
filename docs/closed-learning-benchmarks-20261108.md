@@ -28,7 +28,8 @@ not buying/selling thresholds, risk, stops, position sizing or trade authority.
   New evidence lives only in controlled_learning/closed_benchmarks/.
 - Compare the actual simulated fill-price return with the latest completed
   official index session close available at each event. Use exchange calendars,
-  holidays/early closes and a 15-minute publication buffer. Missing the expected
+  holidays/early closes and a 15-minute publication buffer. Follow the index's
+  exchange clock even for a cross-market reference. Missing the expected
   session is missing data, not zero or a carried-forward older quote.
 - This is a daily reference, not exact intraday benchmark execution. Returns
   are before costs. No actual commissions, FX costs or net alpha are invented.
@@ -49,6 +50,8 @@ The source book is read after trading in the optional learning maintenance
 phase, including weekends. Menu clicks read a precomputed summary and at most
 200 recent comparison rows. They never fetch provider prices. The complete
 receipt history remains in the index and immutable documents.
+Small notification receipts, operational snapshots and report metadata retain
+the aggregates, not repeated copies of the UI's per-trade dataset.
 
 ## Interpretation and validation
 

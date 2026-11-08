@@ -29,6 +29,11 @@ MARKETS = {'NORGE': ('XOSL', 'Europe/Oslo', 'OSEBX.OL'),
 ALIASES = {'^OSEAX': 'OSEAX.OL'}
 
 
+def report_view(value):
+    """Small receipts/reports must not duplicate the UI's per-trade dataset."""
+    return {k:v for k,v in value.items() if k not in ('recent_positions','by_cohort','latest_attempts')} if isinstance(value,dict) else {}
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
                                      ensure_ascii=False, allow_nan=False).encode()).hexdigest()
@@ -70,6 +75,15 @@ def market_for(row):
     if ticker and '.' not in ticker:
         return 'USA'
     raise ValueError('Unsupported or ambiguous market')
+
+
+def benchmark_market(symbol):
+    if symbol == 'OSEAX.OL':
+        return 'NORGE'
+    for market, (_, _, benchmark) in MARKETS.items():
+        if symbol == benchmark:
+            return market
+    raise ValueError('Unsupported benchmark exchange')
 
 
 @lru_cache(maxsize=512)
@@ -116,8 +130,9 @@ def measure(row, series_by_symbol, *, now):
     errors = []
     for symbol in candidates:
         try:
-            entry_reference = reference_point(series_by_symbol.get(symbol, []), opened, market)
-            exit_reference = reference_point(series_by_symbol.get(symbol, []), closed, market)
+            reference_market = benchmark_market(symbol)
+            entry_reference = reference_point(series_by_symbol.get(symbol, []), opened, reference_market)
+            exit_reference = reference_point(series_by_symbol.get(symbol, []), closed, reference_market)
             break
         except (ValueError, KeyError, TypeError) as exc:
             errors.append(symbol+': '+str(exc))
@@ -164,7 +179,7 @@ def verified_measurement(row, record):
         if not math.isclose(number(record['gross_return_pct']), gross, abs_tol=1e-9) or not math.isclose(number(record['benchmark_return_pct']), benchmark, abs_tol=1e-9) or not math.isclose(number(record['excess_return_pct']), gross-benchmark, abs_tol=1e-9):
             return None
         for field, boundary in (('entry_reference','opened_at'), ('exit_reference','closed_at')):
-            expected = reference_point([{'date':record[field]['date'],'close':record[field]['price']}], stamp(row[boundary]), market_for(row))
+            expected = reference_point([{'date':record[field]['date'],'close':record[field]['price']}], stamp(row[boundary]), benchmark_market(record['benchmark_symbol']))
             if expected != record[field]:
                 return None
         requested = str(row.get('benchmark_ticker') or '')
@@ -261,7 +276,7 @@ def run_maintenance(*, service=None, now=None, series_loader=None, limit=24):
         try:
             symbols.add(MARKETS[market_for(row)][2])
             requested=str(row.get('benchmark_ticker') or '')
-            if requested in set(MARKETS[m][2] for m in MARKETS) | set(ALIASES):
+            if requested in set(MARKETS[m][2] for m in MARKETS) | set(ALIASES) | set(ALIASES.values()):
                 symbols.add(ALIASES.get(requested,requested))
         except ValueError:
             pass
