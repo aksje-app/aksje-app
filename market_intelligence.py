@@ -1651,6 +1651,10 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     lines.extend(["", "RESULTAT- OG LÆRINGSKONTROLL"])
     lines.append(f"- Status: {result_learning.get('status') or 'VENTER'} · motor {result_learning.get('engine_status') or 'UKJENT'}")
     lines.append(f"- Observasjoner: {result_learning.get('active_observations', 0)} aktive · {result_learning.get('matured_observations', 0)} modne · {result_learning.get('pending_registration', 0)} nye fra denne rapporten")
+    coverage = result_learning.get('signal_coverage') or {}
+    if coverage:
+        lines.append(f"- Kjøpssignaler i rapporten: {coverage.get('strict_count',0)} strenge og {coverage.get('moderate_count',0)} moderate. Registrering venter sluttkontroll; utfallsmålingene bruker et begrenset utvalg.")
+    lines.append('- Signalmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK.')
     lines.append(f"- Ferdige 1/5/20/60 børsdager: {measured.get('1', 0)}/{measured.get('5', 0)}/{measured.get('20', 0)}/{measured.get('60', 0)}")
     lines.append(f"- Benchmark komplett: {'JA' if result_learning.get('benchmark_complete') else 'NEI'} · manglende/foreldede: {result_learning.get('missing_or_stale', 0)}")
     separated = result_learning.get("separate_results") or {}
@@ -4382,6 +4386,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
     baseline_status = decision_result_learning.get("historical_baseline") or {}
     separate_results = decision_result_learning.get("separate_results") or {}
     learning_health = decision_result_learning.get("health_detail") if isinstance(decision_result_learning.get("health_detail"), Mapping) else {}
+    learning_coverage = decision_result_learning.get('signal_coverage') or {}
     learning_selection = decision_result_learning.get("selection_quality") if isinstance(decision_result_learning.get("selection_quality"), Mapping) else {}
     learning_rows = [
         ["Status", "Aktive / modne", "Ferdige 1/5/20/60", "Benchmark", "Historisk baseline"],
@@ -4399,10 +4404,17 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
         Paragraph("Resultat- og læringskontroll", styles["Section"]),
         learning_table,
         Paragraph(
-            "Nye låste signaler fra denne rapporten: "
+            "Planlagte nye utfallsmålinger fra denne rapporten: "
             f"{int(decision_result_learning.get('pending_registration') or 0)}. "
             "Observasjonene er isolert fra paper-porteføljen; ingen handel eller produksjonsregel kan endres automatisk.",
             styles["Small"],
+        ),
+        Paragraph(
+            (f"Kjøpssignaler i rapporten: {int(learning_coverage.get('strict_count') or 0)} strenge og "
+             f"{int(learning_coverage.get('moderate_count') or 0)} moderate. Registrering venter sluttkontroll. "
+             if learning_coverage else "Registreringsdekningen er ikke dokumentert i denne eldre rapporten. ")
+            + "Signalmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK.",
+            styles['Small'],
         ),
         Paragraph(
             "Tre separate resultater: signal 20d meravkastning "
@@ -7276,8 +7288,18 @@ def _run_job_impl(
         run["final_artifact_sync"]["release_gate"] = "PASSED"
         if str(learning_observation_plan.get("status") or "") == "COMMIT_AFTER_FINAL_GATE":
             try:
+                run.setdefault('signal_available_at',_now_iso())
                 from learning_observation_engine import register_report_observations
                 committed_observations = register_report_observations(run, commit=True)
+                # The canonical report/PDF was frozen before the final gate.
+                # Keep its preview truthful; record post-gate persistence as a
+                # separate operational receipt, never a divergent section copy.
+                run['learning_registration_receipt'] = {
+                    'recorded_after_final_release_gate':True,
+                    'signal_coverage':dict(committed_observations.get('signal_coverage') or {}),
+                    'registered_outcome_samples':int(committed_observations.get('created') or 0),
+                    'source_report_id':run_id,
+                }
                 _audit("LEARNING_OBSERVATIONS_COMMITTED", {"run_id":run_id,"created":int(committed_observations.get("created") or 0),"created_by_group":dict(committed_observations.get("created_by_group") or {}),"production_changed":False})
             except Exception as learning_exc:
                 _audit("LEARNING_OBSERVATION_COMMIT_FAILED", {"run_id":run_id,"error":str(learning_exc)[:500],"production_changed":False})

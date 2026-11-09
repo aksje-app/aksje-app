@@ -22,6 +22,8 @@ from zoneinfo import ZoneInfo
 from app_version import APP_VERSION
 from durable_runtime import append_event, read_events, read_json, write_json
 from storage_architecture import runtime_data_path
+from services.learning_signal_coverage import capture as record_signal_coverage, reference as signal_reference
+from services.learning_signal_measurement import POLICY as SIGNAL_MEASUREMENT_POLICY, BENCHMARKS as SIGNAL_BENCHMARKS
 
 SCHEMA_VERSION = "1.1"
 ENGINE_VERSION = "v19.22.0-rc16.31bj"
@@ -185,8 +187,12 @@ def save_observations(rows: Sequence[Mapping[str, Any]]) -> None:
 
 def _eligible(row: Mapping[str, Any]) -> bool:
     ticker = str(row.get("ticker") or "").strip().upper()
+    try:
+        reference_price = signal_reference(dict(row)).get('reference_price')
+    except ValueError:
+        return False
     return bool(ticker and _market(row.get("market") or row.get("country"), ticker) in CORE_MARKETS
-                and _candidate_price(row)
+                and reference_price
                 and str(row.get("coverage_role") or "").upper() != "PORTFOLIO_ONLY_EXISTING_POSITION")
 
 
@@ -213,11 +219,13 @@ def register_report_observations(
     report_id = str(run.get("run_id") or run.get("report_id") or "").strip()
     created_at = str(run.get("created_at") or _now_iso(now))
     summary = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
+    coverage = record_signal_coverage(run, commit=commit)
     threshold = _number(summary.get("production_buy_threshold"), 73.0) or 73.0
     candidates = [dict(row) for row in (run.get("candidates") or []) if isinstance(row, Mapping) and _eligible(row)]
     rows = load_observations()
     active = [row for row in rows if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
-    active_tickers = {str(row.get("ticker") or "").upper() for row in active}
+    active_pairs = {(str(row.get('ticker') or '').upper(),str(row.get('group') or '')) for row in active
+                    if row.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY}
     active_by_group: dict[str, int] = defaultdict(int)
     for row in active:
         active_by_group[str(row.get("group") or "UNKNOWN").upper()] += 1
@@ -239,17 +247,19 @@ def register_report_observations(
             if capacity <= 0 or len(active) + len(created) >= MAX_ACTIVE_OBSERVATIONS:
                 break
             ticker = str(candidate.get("ticker") or "").upper()
-            if ticker in active_tickers or any(str(row.get("ticker") or "").upper() == ticker for row in created):
+            if (ticker,group) in active_pairs or any(str(row.get("ticker") or "").upper() == ticker for row in created):
                 continue
             snapshot = _frozen_snapshot(candidate, group=group, report_id=report_id, created_at=created_at)
             created.append({
                 "schema_version": SCHEMA_VERSION, "engine_version": ENGINE_VERSION,
                 "observation_id": f"LOW-{report_id}-{ticker}-{group}", "ticker": ticker,
                 "market": snapshot["market"], "sector": snapshot["sector"], "strategy": snapshot["strategy"],
-                "group": group, "benchmark_ticker": BENCHMARKS[snapshot["market"]],
-                "registered_at": _now_iso(now), "entry_at": created_at, "entry_market_date": created_at[:10],
-                "entry_price": round(float(_candidate_price(candidate) or 0), 6),
-                "benchmark_entry_price": None, "benchmark_entry_policy": "PREVIOUS_OFFICIAL_CLOSE",
+                "group": group, "benchmark_ticker": SIGNAL_BENCHMARKS[snapshot["market"]],
+                "registered_at": _now_iso(now), "entry_at": run.get('signal_available_at') or created_at,
+                "entry_market_date": str(run.get('signal_available_at') or created_at)[:10],
+                "entry_price": None, "signal_reference":signal_reference(candidate),
+                "measurement_policy":SIGNAL_MEASUREMENT_POLICY,
+                "benchmark_entry_price": None, "benchmark_entry_policy": "SAME_NEXT_OPEN_AS_STOCK",
                 "status": "ACTIVE", "decision_snapshot": snapshot, "horizon_measurements": {},
                 "daily_marks": [], "source_health": {"status": "PENDING"},
                 "production_applied": False, "trade_authorized": False,
@@ -263,6 +273,8 @@ def register_report_observations(
         "created_by_group": {group: sum(row["group"] == group for row in created) for group in GROUP_TARGETS},
         "active_after": len(active) + len(created), "capacity": MAX_ACTIVE_OBSERVATIONS,
         "committed": bool(commit), "production_changed": False,
+        "signal_coverage": coverage,
+        "sampling_scope": "BOUNDED_OUTCOME_SAMPLE_NOT_ALL_SIGNAL_OCCURRENCES",
     }
     if commit:
         _audit("OBSERVATIONS_REGISTERED", {**result, "created_ids_sha256": _checksum([row["observation_id"] for row in created])}, now=now)
@@ -273,13 +285,16 @@ SeriesLoader = Callable[[Sequence[str], str], Mapping[str, Sequence[Mapping[str,
 
 
 def _normalise_series(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    by_date: dict[str, float] = {}
+    by_date: dict[str, dict[str, Any]] = {}
     for row in rows:
         day = str(row.get("date") or row.get("market_date") or "")[:10]
         close = _number(row.get("close") if row.get("close") is not None else row.get("price"))
         if day and close and close > 0:
-            by_date[day] = close
-    return [{"date": day, "close": by_date[day]} for day in sorted(by_date)]
+            by_date[day] = {"date":day,"close":close}
+            for field in ('open','raw_open','raw_close','return_basis','source_ticker'):
+                if row.get(field) is not None:
+                    by_date[day][field] = row[field]
+    return [by_date[day] for day in sorted(by_date)]
 
 
 def _price_on_or_before(series: Sequence[Mapping[str, Any]], day: str, *, strict: bool = False) -> float | None:
@@ -298,16 +313,29 @@ def yfinance_series_loader(symbols: Sequence[str], start_date: str) -> dict[str,
     for offset in range(0, len(clean), batch_size):
         batch = clean[offset:offset + batch_size]
         frame = yf.download(batch, start=start_date, end=end, interval="1d", progress=False,
-                            auto_adjust=True, threads=False, group_by="ticker", timeout=20)
+                            auto_adjust=False, threads=False, group_by="ticker", timeout=20)
         if frame is None or getattr(frame, "empty", True):
             continue
         for symbol in batch:
             try:
-                close = frame["Close"] if len(batch) == 1 else (frame[symbol]["Close"] if symbol in frame.columns.get_level_values(0) else frame["Close"][symbol])
-                if hasattr(close, "columns"):
-                    close = close.iloc[:, 0]
-                output[symbol] = [{"date": index.date().isoformat() if hasattr(index, "date") else str(index)[:10],
-                                   "close": float(value)} for index, value in close.dropna().items()]
+                one = frame
+                if getattr(frame.columns,'nlevels',1)>1:
+                    level = next(i for i in range(frame.columns.nlevels) if symbol in frame.columns.get_level_values(i))
+                    one = frame.xs(symbol,axis=1,level=level)
+                points = []
+                from services.learning_signal_measurement import RETURN_BASIS
+                for index,row in one.iterrows():
+                    raw_close = _number(row.get('Close'))
+                    adjusted = _number(row.get('Adj Close'))
+                    raw_open = _number(row.get('Open'))
+                    if not raw_close or raw_close<=0:
+                        continue
+                    point={'date':index.date().isoformat(),'close':adjusted or raw_close,
+                           'raw_close':raw_close,'source_ticker':symbol}
+                    if adjusted and adjusted>0 and raw_open and raw_open>0:
+                        point.update(open=raw_open*adjusted/raw_close,raw_open=raw_open,return_basis=RETURN_BASIS)
+                    points.append(point)
+                output[symbol] = points
                 market = next((m for m,b in BENCHMARKS.items() if b == symbol), _market(None, symbol))
                 cutoff = completed_through(market, downloaded_at)
                 output[symbol] = [p for p in output[symbol] if p['date'] <= cutoff]
@@ -339,7 +367,7 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
         return result
     start = min(str(row.get("entry_market_date") or "9999-12-31") for row in active)
     start_date = (date.fromisoformat(start) - timedelta(days=10)).isoformat()
-    symbols = sorted({str(row.get("ticker")) for row in active} | {str(row.get("benchmark_ticker")) for row in active})
+    symbols = sorted({str(row.get("ticker")) for row in active} | {str(row['benchmark_ticker']) for row in active if row.get('benchmark_ticker')})
     try:
         loaded = (series_loader or yfinance_series_loader)(symbols, start_date)
     except Exception as exc:
@@ -354,6 +382,26 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
     for observation in active:
         ticker = str(observation.get("ticker") or ""); benchmark = str(observation.get("benchmark_ticker") or "")
         stock = series_map.get(ticker, []); bench = series_map.get(benchmark, [])
+        if observation.get('measurement_policy') == SIGNAL_MEASUREMENT_POLICY:
+            from services.learning_signal_measurement import measure
+            previous = {k:observation[k] for k in ('entry_reference','horizon_measurements','daily_marks') if k in observation}
+            measured = measure(observation,stock,bench,now=current,previous=previous)
+            state = measured['state']
+            observation['source_health']={'status': 'OK' if state=='MEASURED' else state,'checked_at':_now_iso(now)}
+            if state in ('MEASURED','MEASURED_WITHOUT_COMPARABLE_BENCHMARK'):
+                old_keys=set(observation.get('horizon_measurements') or {})
+                for key,reading in measured['horizon_measurements'].items():
+                    reading.setdefault('measured_at',_now_iso(now))
+                for key in ('entry_reference','entry_price','benchmark_entry_price','horizon_measurements','daily_marks','return_basis'):
+                    observation[key]=measured[key]
+                updated += len(set(measured['horizon_measurements'])-old_keys)
+                if '60' in measured['horizon_measurements']:
+                    observation['status']='MATURED';observation['completed_at']=_now_iso(now);matured+=1
+            elif not state.startswith('AWAITING_'):
+                missing += 1
+            if state=='MEASURED_WITHOUT_COMPARABLE_BENCHMARK':
+                missing += 1
+            continue
         from services.learning_outcome_integrity import completed_through
         try:
             cutoff = completed_through(_market(observation.get('market'), ticker), current)
@@ -511,6 +559,11 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
     excluded_tickers = [str(row.get('ticker') or '') for row in observations if not usable(row)]
     excluded_count = sum(not usable(row) for row in observations)
     observations = [row for row in observations if usable(row)]
+    legacy_count = sum(row.get('measurement_policy') != SIGNAL_MEASUREMENT_POLICY for row in observations)
+    has_current_method = any(row.get('measurement_policy') == SIGNAL_MEASUREMENT_POLICY for row in observations)
+    if has_current_method:
+        observations = [row for row in observations if row.get('measurement_policy') == SIGNAL_MEASUREMENT_POLICY]
+    basis = SIGNAL_MEASUREMENT_POLICY if has_current_method else 'LEGACY_UNQUALIFIED_PRICE_REFERENCE'
     active = [row for row in observations if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     horizon_rows = []
     for horizon in HORIZONS:
@@ -538,7 +591,8 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
             value = _number(((row.get("horizon_measurements") or {}).get("20") or {}).get("excess_return_pct"))
             if value is not None: by_name[str(row.get(dimension) or "Ukjent")].append(value)
         for name, values in by_name.items(): dimension_rows.append({"dimension": dimension, "name": name, **_stats(values)})
-    healthy_waiting_states = {"OK", "AWAITING_NEXT_TRADING_DAY", "PENDING"}
+    healthy_waiting_states = {"OK", "AWAITING_NEXT_TRADING_DAY", "PENDING",
+                              "AWAITING_NEXT_OPEN", "AWAITING_COMPLETED_ENTRY_SESSION"}
     missing = [
         row for row in active
         if str((row.get("source_health") or {}).get("status") or "PENDING").upper() not in healthy_waiting_states
@@ -598,13 +652,18 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
             "health": {"status": "OK" if not missing and not excluded_count else "DEGRADED", "missing_or_stale": len(missing),
                        "missing_tickers": [str(row.get("ticker") or "") for row in missing[:30]],
                        "all_measurements_accounted": not missing,
-                       "benchmark_mapping_complete": all(str(row.get("benchmark_ticker") or "") in set(BENCHMARKS.values()) for row in observations),
+                       "benchmark_mapping_complete": all(str(row.get("benchmark_ticker") or "") in (set(BENCHMARKS.values()) | {v for v in SIGNAL_BENCHMARKS.values() if v}) for row in observations),
                        "production_mutations": 0},
             "selection_quality": selection_quality,
             "data_quality": {"excluded_observations": excluded_count,
+                             "legacy_reference_observations": legacy_count,
                              "excluded_tickers": excluded_tickers[:30],
                              "reason": "Inconsistent or quarantined outcomes excluded; negative returns retained."},
             "shadow_proposals": proposals, "strategy_readiness": "NOT_VALIDATED",
+            "measurement_policy": basis,
+            "return_basis": "GROSS_ADJUSTED_TOTAL_RETURN_PROXY_IN_LISTING_CURRENCY" if has_current_method else "UNQUALIFIED_LEGACY_PRICE_REFERENCE",
+            "net_result_verified": False,
+            "method_warning": "Brutto referanseberegning i noteringsvaluta. Ikke nettoresultat i NOK. Eldre metode blandes ikke med ny metode.",
             "production_parameters_changed": False,
             "closed_position_results": closed_results,
             "note": "Foreløpige trender er beskrivende. Ingen regel eller vekt endres automatisk."}
@@ -654,6 +713,8 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
         "matured_observations": int(analysis.get("matured_count") or 0),
         "measurements_1_5_20_60": horizons,
         "pending_registration": int(pending.get("created") or 0),
+        "signal_coverage": dict(pending.get('signal_coverage') or {}),
+        "sampling_scope": "BOUNDED_OUTCOME_SAMPLE_NOT_ALL_SIGNAL_OCCURRENCES",
         "benchmark_complete": bool(health.get("benchmark_mapping_complete", True)),
         "missing_or_stale": int(health.get("missing_or_stale") or 0),
         "data_quality": quality,
@@ -675,10 +736,13 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
             "report_id": str(baseline.get("report_id") or ""),
         },
         "separate_results": {
-            "signal_20d_excess_return_pct": excess_20.get("average"),
-            "signal_20d_count": int(excess_20.get("count") or 0),
+            "signal_20d_excess_return_pct": excess_20.get("average") if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else None,
+            "signal_20d_count": int(excess_20.get("count") or 0) if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else 0,
             "paper_portfolio_return_pct": _number(portfolio.get("total_return_pct")),
-            "selection_alpha_status": "FOR LITE DATA" if int(excess_20.get("count") or 0) < 10 else "MÅLT",
+            "selection_alpha_status": "NOT_VALIDATED",
+            "measurement_policy": analysis.get('measurement_policy'),
+            "net_result_verified": False,
+            "return_basis": analysis.get('return_basis'),
             "separation_verified": True,
         },
         "selection_quality": dict(analysis.get("selection_quality") or {}),
@@ -949,6 +1013,7 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
     body = ParagraphStyle("LearningBody", parent=styles["BodyText"], fontName=regular, fontSize=8.5, leading=11)
     small = ParagraphStyle("LearningSmall", parent=body, fontSize=7, leading=9)
     story = [Paragraph(report_title, title), Spacer(1, 4*mm),
+             Paragraph(str(analysis.get('method_warning') or 'Historisk referansediagnose. Ikke dokumentert nettoavkastning i NOK.'),body),
              Paragraph(f"Kohort {analysis.get('cohort')} | Observasjoner {analysis.get('observation_count')} | Aktive {analysis.get('active_count')} | Fullført 60 børsdager {analysis.get('matured_count')} | Strategistatus {analysis.get('strategy_readiness')}", body),
              Paragraph("Ingen produksjonsregel, vekt eller handelsfullmakt er endret.", body),
              Paragraph("Meravkastning er forskjell mot benchmark, ikke nødvendigvis positiv avkastning. Gruppene er observasjoner, ikke utførte porteføljer. Null observasjoner betyr at gruppen ikke kan vurderes.", body),
@@ -1239,6 +1304,7 @@ def render_weekly_learning_reports()->None:
     from report_delivery import public_report_url
     st.markdown("##### Ukentlig kontrollert observasjonslæring")
     live=report_control_snapshot()
+    st.caption('Læringsmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK. Gamle og nye målemetoder blandes ikke.')
     measures=live.get("measurements_1_5_20_60") or {}
     a,b,c,d=st.columns(4)
     a.metric("Resultatmotor",str(live.get("engine_status") or "UKJENT"))
