@@ -78,5 +78,6 @@ def summarize_measured_observation_horizons(observations: list[Mapping[str, Any]
                                     if any(e is not None for _,e in values) else None),
         "benchmark_measured_count": sum(e is not None for _,e in values),
         "net_result_verified": False,
+        "scope": "ALL_SAMPLED_GROUPS_INCLUDING_CONTROLS_NOT_BUY_PERFORMANCE",
         "whole_observation_maturity_independent": True,
     } for days, values in sorted(buckets.items())]

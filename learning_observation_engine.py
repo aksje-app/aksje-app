@@ -683,8 +683,9 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
     report_run = dict(run or {})
     decision_report = report_run.get("decision_report") if isinstance(report_run.get("decision_report"), Mapping) else {}
     portfolio = decision_report.get("portfolio_intelligence") if isinstance(decision_report.get("portfolio_intelligence"), Mapping) else {}
-    horizon_20 = next((row for row in (analysis.get("horizons") or []) if int(row.get("horizon_days") or 0) == 20), {})
-    excess_20 = horizon_20.get("excess_return") if isinstance(horizon_20.get("excess_return"), Mapping) else {}
+    # The buy headline must never pool controls, near-threshold or moderate references.
+    excess_20 = next((row for row in analysis.get('groups') or []
+                      if row.get('group')=='STRICT' and row.get('horizon_days')==20),{})
     health = dict(analysis.get("health") or {})
     daily = dict(state.get("daily") or {})
     health_status = str(health.get("status") or "OK").upper()
@@ -738,6 +739,7 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
         "separate_results": {
             "signal_20d_excess_return_pct": excess_20.get("average") if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else None,
             "signal_20d_count": int(excess_20.get("count") or 0) if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else 0,
+            "signal_scope": "STRICT_ONLY",
             "paper_portfolio_return_pct": _number(portfolio.get("total_return_pct")),
             "selection_alpha_status": "NOT_VALIDATED",
             "measurement_policy": analysis.get('measurement_policy'),
@@ -1017,7 +1019,7 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
              Paragraph(f"Kohort {analysis.get('cohort')} | Observasjoner {analysis.get('observation_count')} | Aktive {analysis.get('active_count')} | Fullført 60 børsdager {analysis.get('matured_count')} | Strategistatus {analysis.get('strategy_readiness')}", body),
              Paragraph("Ingen produksjonsregel, vekt eller handelsfullmakt er endret.", body),
              Paragraph("Meravkastning er forskjell mot benchmark, ikke nødvendigvis positiv avkastning. Gruppene er observasjoner, ikke utførte porteføljer. Null observasjoner betyr at gruppen ikke kan vurderes.", body),
-             Paragraph("Målepunkter", heading)]
+             Paragraph("Målepunkter – alle utvalgsgrupper, inkludert kontroll", heading)]
     closed_results = analysis.get('closed_position_results') or {}
     closed_excess = closed_results.get('mean_excess_return_pct')
     if closed_excess is not None:

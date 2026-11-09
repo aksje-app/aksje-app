@@ -233,3 +233,17 @@ def test_waiting_for_first_completed_session_is_healthy():
          'benchmark_ticker':'OSEBX.OL','source_health':{'status':'AWAITING_COMPLETED_ENTRY_SESSION'},'horizon_measurements':{}}
     result=build_weekly_analysis([row])
     assert result['health']['status']=='OK' and result['health']['missing_or_stale']==0
+
+
+def test_headline_buy_performance_does_not_include_controls_or_moderate_references(monkeypatch):
+    import learning_observation_engine as engine
+    from services.learning_signal_measurement import POLICY
+    rows=[{'ticker':group,'group':group,'status':'ACTIVE','measurement_policy':POLICY,'benchmark_ticker':'OSEBX.OL',
+           'horizon_measurements':{'20':{'return_pct':ret,'benchmark_return_pct':0.,'excess_return_pct':ret}}}
+          for group,ret in [('STRICT',10.),('MODERATE',50.),('MATCHED_CONTROL',100.)]]
+    monkeypatch.setattr(engine,'load_observations',lambda:rows)
+    monkeypatch.setattr(engine,'read_json',lambda *a:{})
+    result=engine.report_control_snapshot()
+    assert result['separate_results']['signal_20d_excess_return_pct']==10.
+    assert result['separate_results']['signal_20d_count']==1
+    assert result['separate_results']['signal_scope']=='STRICT_ONLY'
