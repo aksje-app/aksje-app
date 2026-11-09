@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 
 import learning_observation_engine as engine
 from services.learning_signal_measurement import POLICY
+from test_revision_trade_postgres import pg
+import pytest
 
 
 def isolated(monkeypatch, rows):
@@ -104,3 +106,51 @@ def test_old_baseline_verified_label_does_not_qualify_return_figures():
     assert result['historical_horizons']==[]
     assert result['historical_original_status_label']=='VERIFISERT'
     assert result['historical_qualified_for_strategy'] is False
+
+
+def test_live_control_and_diagnostics_exclude_legacy_counts_and_verified_baseline(monkeypatch):
+    old=legacy()
+    isolated(monkeypatch,[old])
+    baseline={'status':'VERIFISERT','report_id':'old-baseline','signal_count':42,'verified_count':42}
+    monkeypatch.setattr(engine,'read_json',lambda key,*a:baseline if key==engine.BASELINE_KEY else {})
+    monkeypatch.setattr(engine,'load_weekly_reports',lambda *a:[])
+    monkeypatch.setattr(engine,'load_audit',lambda *a:[])
+    for result in [engine.report_control_snapshot(),engine.diagnostics()]:
+        view=result['historical_baseline']
+        assert view['status']=='IKKE KVALIFISERT – ELDRE METODE'
+        assert view['original_status']=='VERIFISERT'
+        assert view['verified']==0 and view['original_verified']==42
+    diagnostic=engine.diagnostics()
+    assert diagnostic['active']==0 and diagnostic['groups']['STRICT']==0
+    assert diagnostic['legacy_frozen']==1
+
+
+def test_stale_writer_cannot_modify_or_drop_frozen_legacy(pg,monkeypatch):
+    import services.storage_service as stores
+    from services.learning_outcome_integrity import SOURCE
+    original=legacy()
+    pg.write_json(SOURCE,[original])
+    monkeypatch.setattr(stores,'get_storage_service',lambda:pg)
+    changed=legacy(entry_price=999.,horizon_measurements={'20':{'return_pct':999.}})
+    engine.save_observations([changed])
+    assert pg.read_json(SOURCE)==[original]
+    engine.save_observations([])
+    assert pg.read_json(SOURCE)==[original]
+
+
+@pytest.mark.parametrize('has_weekly',[False,True])
+def test_both_baseline_ui_branches_label_original_as_unqualified(monkeypatch,has_weekly):
+    import sys
+    from types import SimpleNamespace
+    import public_report_store
+    captions=[]
+    ui=SimpleNamespace(markdown=lambda *a,**k:None,caption=captions.append,
+                       info=lambda *a,**k:None,metric=lambda *a,**k:None)
+    ui.columns=lambda *a,**k:[ui]*4
+    monkeypatch.setitem(sys.modules,'streamlit',ui)
+    monkeypatch.setattr(engine,'report_control_snapshot',lambda:{})
+    monkeypatch.setattr(engine,'load_weekly_reports',lambda *a:[{}] if has_weekly else [])
+    monkeypatch.setattr(engine,'read_json',lambda *a:{'status':'VERIFISERT','report_id':'old','signal_count':42,'verified_count':42})
+    monkeypatch.setattr(public_report_store,'load_public_pdf',lambda *a:None)
+    engine.render_weekly_learning_reports()
+    assert any('IKKE KVALIFISERT' in text and '42' in text for text in captions)

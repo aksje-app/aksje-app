@@ -5,6 +5,7 @@ parameters. Point-in-time inputs are frozen; prices and benchmarks are followed
 independently from simulated portfolio exits and later report appearances.
 """
 from __future__ import annotations
+from services.learning_evidence_report import legacy_baseline_view
 from ui_library.work_progress import tracked_job
 
 import hashlib
@@ -172,10 +173,10 @@ def save_observations(rows: Sequence[Mapping[str, Any]]) -> None:
     storage = get_storage_service()
     if storage.using_postgres() and not storage.allow_local_fallback:
         # A report or price job may still hold a pre-cleanup copy in memory.
-        # Preserve authoritative quarantine tombstones under the same row lock.
+        # Preserve authoritative quarantine tombstones and frozen legacy rows under the same row lock.
         def preserve_quarantine(current):
             protected = {r['observation_id']: r for r in (current or [])
-                         if r.get('status') == 'QUARANTINED'}
+                         if r.get('status') == 'QUARANTINED' or r.get('measurement_policy') != SIGNAL_MEASUREMENT_POLICY}
             merged = [protected.get(r.get('observation_id'), r) for r in proposed]
             present = {r.get('observation_id') for r in merged}
             merged.extend(r for key,r in protected.items() if key not in present)
@@ -639,12 +640,7 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
             "next_attempt": "NESTE DAGLIGE LÆRINGSKJØRING" if status in {"FEIL", "DEGRADERT"} else "ETTER NESTE BØRSDAG",
             "partial_results_preserved": status != "FEIL" or any(horizons.values()),
         },
-        "historical_baseline": {
-            "status": str(baseline.get("status") or "VENTER"),
-            "signals": int(baseline.get("signal_count") or 0),
-            "verified": int(baseline.get("verified_count") or 0),
-            "report_id": str(baseline.get("report_id") or ""),
-        },
+        "historical_baseline": legacy_baseline_view(baseline),
         "separate_results": {
             "signal_20d_excess_return_pct": excess_20.get("average") if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else None,
             "signal_20d_count": int(excess_20.get("count") or 0) if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else 0,
@@ -1162,14 +1158,18 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
 
 def diagnostics()->dict[str,Any]:
     rows=load_observations(); state=load_engine_state(); reports=load_weekly_reports(3)
+    from services.learning_outcome_integrity import usable
+    current=[row for row in rows if row.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY and usable(row)]
     baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
     return {"schema_version":SCHEMA_VERSION,"engine_version":ENGINE_VERSION,
-        "active":sum(str(row.get("status") or "ACTIVE").upper()=="ACTIVE" for row in rows),
-        "matured":sum(str(row.get("status") or "").upper()=="MATURED" for row in rows),
-        "groups":{group:sum(str(row.get("group") or "")==group for row in rows) for group in GROUP_TARGETS},
+        "active":sum(str(row.get("status") or "ACTIVE").upper()=="ACTIVE" for row in current),
+        "matured":sum(str(row.get("status") or "").upper()=="MATURED" for row in current),
+        "groups":{group:sum(str(row.get("group") or "")==group for row in current) for group in GROUP_TARGETS},
         "latest_daily":dict(state.get("daily") or {}),"latest_weekly":dict(state.get("weekly") or {}),
         "recent_weekly_reports":[{key:row.get(key) for key in ("report_id","week_key","created_at","notification")} for row in reports],
-        "historical_baseline":{key:(baseline or {}).get(key) for key in ("status","report_id","signal_count","verified_count","baseline_sha256")},
+        "historical_baseline":legacy_baseline_view(baseline or {}),
+        "legacy_frozen":sum(row.get('measurement_policy')!=SIGNAL_MEASUREMENT_POLICY and row.get('status')!='QUARANTINED' for row in rows),
+        "quarantined":sum(row.get('status')=='QUARANTINED' for row in rows),
         "recent_audit":load_audit(20),
         "production_parameters_changed":False}
 
@@ -1196,7 +1196,7 @@ def render_weekly_learning_reports()->None:
         baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
         if isinstance(baseline,Mapping) and baseline.get("report_id"):
             st.markdown("##### Historisk baseline")
-            st.caption(f"Status {baseline.get('status')} · verifisert {int(baseline.get('verified_count') or 0)}/{int(baseline.get('signal_count') or 0)} signaler.")
+            st.caption(f"{legacy_baseline_view(baseline)['status']} · {int(baseline.get('signal_count') or 0)} historiske referanser. Originalrapporten er bevart.")
             baseline_pdf=load_public_pdf(str(baseline.get("public_report_token") or ""))
             if baseline_pdf:
                 url=public_report_url(baseline) or f"/?public_report_token={baseline.get('public_report_token')}"
@@ -1223,7 +1223,7 @@ def render_weekly_learning_reports()->None:
     baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
     if isinstance(baseline,Mapping) and baseline.get("report_id"):
         st.markdown("##### Historisk baseline")
-        st.caption(f"Status {baseline.get('status')} · verifisert {int(baseline.get('verified_count') or 0)}/{int(baseline.get('signal_count') or 0)} signaler. Baseline endrer ingen produksjonsregel.")
+        st.caption(f"{legacy_baseline_view(baseline)['status']} · {int(baseline.get('signal_count') or 0)} historiske referanser. Originalrapporten er bevart.")
         baseline_pdf=load_public_pdf(str(baseline.get("public_report_token") or ""))
         if baseline_pdf:
             url=public_report_url(baseline) or f"/?public_report_token={baseline.get('public_report_token')}"

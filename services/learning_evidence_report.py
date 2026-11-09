@@ -6,6 +6,16 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
+def legacy_baseline_view(baseline: Mapping[str, Any]) -> dict[str, Any]:
+    """Preserve original labels as metadata, never financial qualification."""
+    return {"status":"IKKE KVALIFISERT – ELDRE METODE" if baseline else "VENTER",
+            "original_status":baseline.get("status"),
+            "signals":baseline.get("signal_count"), "verified":0,
+            "original_verified":baseline.get("verified_count"),
+            "qualified_for_strategy":False, "report_id":baseline.get("report_id"),
+            "baseline_sha256":baseline.get("baseline_sha256")}
+
+
 def summarize_learning_evidence(baseline: Mapping[str, Any],
                                 acceptance: Mapping[str, Any],
                                 observations: list[Mapping[str, Any]]) -> dict[str, Any]:
