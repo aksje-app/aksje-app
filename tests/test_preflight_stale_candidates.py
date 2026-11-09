@@ -92,7 +92,9 @@ def test_general_market_closure_does_not_block_evidenced_subset(monkeypatch,stub
     def evidence(ticker, **kw):
         if ticker != "FRESH":
             raise ValueError("Stale quote")
-        return {"price": 100, "currency": "USD", "observed_at": kw["at"], "source": "documented"}
+        return {"price": 100, "currency": "USD", "observed_at": kw["at"], "source": "documented",
+                "fx_quote": {"currency": "USD", "base_currency": "NOK", "rate": 10,
+                             "observed_at": kw["at"], "source": "documented"}}
     monkeypatch.setattr(routing, "market_evidence", evidence)
     result = routing.live_preview("p", "autonomy", strategy_input=rows,
                                   cost_policy={}, storage=FakeStore())
