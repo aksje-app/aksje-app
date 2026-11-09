@@ -263,7 +263,7 @@ def test_dry_run_production_draft_does_not_activate_or_persist(ready,family):
 @pytest.mark.parametrize('family',list(restart.CAPITALS))
 def test_ordinary_scheduler_entrypoints_route_selected_account(ready,family,monkeypatch):
     r=ready;activate(r,family)
-    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
+    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy,clock=None):
         return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     if family=='paper':
@@ -304,7 +304,7 @@ def test_partial_activation_failure_retries_without_reset(ready,monkeypatch):
 def test_ordinary_retries_use_receipt_during_provider_outage(ready,monkeypatch):
     r=ready
     for family in restart.CAPITALS:activate(r,family)
-    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
+    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy,clock=None):
         return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     import trading_engine as paper
@@ -335,7 +335,7 @@ def test_superportfolio_risk_surveillance_books_only_authoritative_journal(ready
     direct(r,family,'search',first.isoformat(),[candidate(first.isoformat())])
     direct(r,family,'buy',second.isoformat(),[candidate(second.isoformat())])
     assert doc(r,family)['account']['positions']
-    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
+    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy,clock=None):
         return bound_cost_evidence(evidence(at,80)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     import super_portfolio as sp
@@ -414,7 +414,7 @@ def test_archive_restore_rejects_existing_target_and_keeps_original_files(ready)
 
 def test_live_dry_run_uses_actual_adapter_and_never_persists(ready,monkeypatch):
     r=ready;calls=[]
-    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
+    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy,clock=None):
         calls.append(ticker);return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     before=doc(r,'paper')
@@ -524,7 +524,7 @@ def test_real_upstream_contribution_and_learning_continue_with_new_book(ready,mo
 def test_canonical_governed_parameter_updates_are_not_frozen(ready,monkeypatch):
     r=ready;activate(r)
     r['pg'].write_json('settings/trading_rules.json',{**r['settings']['paper'],'min_buy_confidence':95})
-    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
+    def provider(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy,clock=None):
         return bound_cost_evidence(evidence(at)['TEST'],cost_policy)
     monkeypatch.setattr(routing,'market_evidence',provider)
     import trading_engine as engine

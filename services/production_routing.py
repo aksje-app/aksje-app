@@ -4,7 +4,7 @@ No selection -> existing behavior. A broken/stopped selection raises, never fall
 back. Market data are fetched before the ledger transaction; no guessed FX/fees.
 """
 from copy import deepcopy
-from datetime import datetime,timezone
+from datetime import datetime,timezone,timedelta
 from uuid import uuid4
 from services import production_restart as control
 from services.economic_opening import digest
@@ -21,32 +21,128 @@ def completed(chosen,run_id,source_input):
     return None
 
 
-def market_evidence(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy):
+class ExecutionEvidenceError(ValueError):
+    """Public, credential-free explanation of a failed execution prerequisite."""
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(message)
+
+
+def _execution_fields(row, ticker):
+    """Read documented wrapper fields, never turn a daily mark into a quote."""
+    fields = {}
+    current = row
+    for _ in range(10):
+        if not isinstance(current, dict):
+            break
+        identity = current.get('ticker')
+        if identity and str(identity).upper() != ticker:
+            raise ExecutionEvidenceError('INSTRUMENT_IDENTITY_MISMATCH',
+                                         'Kurs-/valutagrunnlaget tilhører en annen aksje.')
+        for key in ('currency', 'execution_quote', 'fx_quote'):
+            value = current.get(key)
+            if value not in (None, '', {}):
+                if key == 'currency' and fields.get(key) and str(value).upper() != str(fields[key]).upper():
+                    raise ExecutionEvidenceError('INSTRUMENT_CURRENCY_MISMATCH',
+                                                 'Motstridende dokumentert valuta for aksjen.')
+                fields.setdefault(key, value)
+        current = current.get('raw')
+    return fields
+
+
+def _evidence_block(ticker, exc):
+    # Arbitrary provider exceptions may contain authenticated URLs. Persist
+    # only our controlled messages or the exception class, never their text.
+    code = exc.code if isinstance(exc, ExecutionEvidenceError) else 'EXECUTION_EVIDENCE_ERROR'
+    reason = str(exc) if isinstance(exc, ExecutionEvidenceError) else 'Kurs-/valutakontroll feilet: ' + type(exc).__name__
+    return dict(ticker=ticker, action='NO_EXECUTION', reason_code=code,
+                execution_stage='EXECUTION_EVIDENCE_GATE', reason=reason[:240])
+
+
+def _check_evidence_time(row, at):
+    try:
+        age = datetime.fromisoformat(at) - datetime.fromisoformat(row['observed_at'])
+    except (KeyError, TypeError, ValueError):
+        raise ExecutionEvidenceError('INVALID_EXECUTION_TIMESTAMP', 'Utførelseskursen mangler gyldig tidspunkt.')
+    if age < timedelta(0):
+        raise ExecutionEvidenceError('FUTURE_EXECUTION_QUOTE', 'Utførelseskursen ligger i fremtiden.')
+    if age > timedelta(minutes=15):
+        raise ExecutionEvidenceError('EXPIRED_EXECUTION_QUOTE', 'Utførelseskursen er eldre enn 15 minutter.')
+    from services.economic_ledger import fx_rate
+    try:
+        fx_rate(row['currency'], 'NOK', row.get('fx_quote'), at=at)
+    except (KeyError, TypeError, ValueError):
+        raise ExecutionEvidenceError('INVALID_FX_QUOTE', 'Valutakursen mangler, er foreldet eller stemmer ikke med aksjens valuta.')
+
+
+def market_evidence(ticker,*,currency=None,quote=None,fx_quote=None,at,cost_policy,clock=None):
     from services.trading_costs import validate
-    validate(cost_policy)
+    try:
+        validate(cost_policy)
+    except ValueError:
+        raise ExecutionEvidenceError('INVALID_COST_POLICY', 'Dokumentert og godkjent kostnadsmodell mangler eller er ugyldig.')
     import yfinance as yf
     from scanner_fresh_quote import fresh_paper_buy_quote,validate_execution_quote
+    reference = lambda: clock() if clock is not None else datetime.fromisoformat(at)
     quote=deepcopy(quote or {})
-    valid,_=validate_execution_quote(quote.get('price'),{'execution_quote':quote,'market_data_at':quote.get('market_data_at')},now=datetime.fromisoformat(at))
+    valid,_=validate_execution_quote(quote.get('price'),{'execution_quote':quote,'market_data_at':quote.get('market_data_at')},now=reference())
     if not valid:
-        quote,error=fresh_paper_buy_quote(ticker,now=datetime.fromisoformat(at))
-        if not quote:raise ValueError('Missing documented execution price: '+ticker+'; '+error)
-    valid,error=validate_execution_quote(quote.get('price'),{'execution_quote':quote,'market_data_at':quote.get('market_data_at')},now=datetime.fromisoformat(at))
-    if not valid:raise ValueError(error)
+        quote,error=fresh_paper_buy_quote(ticker,now=reference(),**({'clock': clock} if clock is not None else {}))
+        if not quote:raise ExecutionEvidenceError('MISSING_EXECUTION_QUOTE', 'Missing documented execution price: '+ticker+'; '+error)
+    valid,error=validate_execution_quote(quote.get('price'),{'execution_quote':quote,'market_data_at':quote.get('market_data_at')},now=reference())
+    if not valid:raise ExecutionEvidenceError('INVALID_EXECUTION_QUOTE', error)
     if not currency:
-        currency=yf.Ticker(ticker).fast_info['currency']
-    if not isinstance(currency,str) or len(currency)!=3:raise ValueError('Documented instrument currency required')
+        try:
+            currency=yf.Ticker(ticker).fast_info['currency']
+        except Exception:
+            raise ExecutionEvidenceError('MISSING_INSTRUMENT_CURRENCY', 'Aksjens dokumenterte valuta kunne ikke hentes.')
+    if not isinstance(currency,str) or len(currency)!=3:raise ExecutionEvidenceError('MISSING_INSTRUMENT_CURRENCY', 'Documented instrument currency required')
     currency=currency.upper();fx=None
     if currency!='NOK':
         from services.economic_ledger import fx_rate
-        try:fx_rate(currency,'NOK',fx_quote,at=at);fx=deepcopy(fx_quote)
+        try:fx_rate(currency,'NOK',fx_quote,at=reference().isoformat());fx=deepcopy(fx_quote)
         except (ValueError,KeyError,TypeError):
-            fxq,error=fresh_paper_buy_quote(currency+'NOK=X',now=datetime.fromisoformat(at))
-            if not fxq:raise ValueError('Missing documented FX: '+currency+'; '+error)
+            fxq,error=fresh_paper_buy_quote(currency+'NOK=X',now=reference(),**({'clock': clock} if clock is not None else {}))
+            if not fxq:raise ExecutionEvidenceError('MISSING_FX_QUOTE', 'Missing documented FX: '+currency+'; '+error)
             fx=dict(currency=currency,base_currency='NOK',rate=fxq['price'],observed_at=fxq['market_data_at'],source=fxq['source']+':'+currency+'NOK=X')
     costs = dict(cost_policy=deepcopy(cost_policy)) if 'schema' in cost_policy else dict(cost_components=deepcopy(cost_policy['components_per_fill']))
     return dict(price=quote['price'],currency=currency,observed_at=quote['market_data_at'],source=quote['source'],
         fx_quote=fx,cost_source_ref=cost_policy['source_ref'],**costs)
+
+
+def _collect_execution_evidence(family, rows, doc, cost_policy, *, at=None):
+    live_clock = at is None
+    at=at or datetime.now(timezone.utc).isoformat()
+    evidence={};blocked=[]
+    for ticker in sorted(set(rows)|set(doc['account']['positions'])):
+        quote_at = datetime.now(timezone.utc).isoformat() if live_clock else at
+        row=rows.get(ticker,{})
+        held=doc['account']['positions'].get(ticker,{})
+        try:
+            fields = _execution_fields(row, ticker)
+            quote = fields.get('execution_quote')
+            from scanner_fresh_quote import validate_execution_quote
+            valid,_=validate_execution_quote((quote or {}).get('price'),{'execution_quote':quote or {},'market_data_at':(quote or {}).get('market_data_at')},now=datetime.fromisoformat(quote_at))
+            if not valid:
+                latest = next((e['payload'] for e in reversed(doc.get('events') or []) if e['kind']=='STRATEGY_RUN'), {})
+                quote = (latest.get('state', {}).get('positions', {}).get(ticker, {}) or {}).get('execution_quote')
+            evidence[ticker]=market_evidence(ticker,currency=held.get('currency') or fields.get('currency'),quote=quote,
+                fx_quote=held.get('fx_quote') or fields.get('fx_quote'),at=quote_at,cost_policy=cost_policy,
+                **({'clock': lambda: datetime.now(timezone.utc)} if live_clock else {}))
+        except Exception as exc:
+            if ticker in doc['account']['positions'] or family=='paper':raise
+            blocked.append(_evidence_block(ticker, exc))
+    # A long batch must neither reject later quotes against its starting clock
+    # nor execute early quotes after their 15-minute window has expired.
+    at = datetime.now(timezone.utc).isoformat() if live_clock else at
+    for ticker, row in list(evidence.items()):
+        try:
+            _check_evidence_time(row, at)
+        except Exception as exc:
+            if ticker in doc['account']['positions'] or family=='paper':raise
+            del evidence[ticker]
+            blocked.append(_evidence_block(ticker, exc))
+    return evidence, blocked, at
 
 
 def context(family,run_id,rows,*,storage=None,at=None,chosen=None):
@@ -56,26 +152,8 @@ def context(family,run_id,rows,*,storage=None,at=None,chosen=None):
         raise ValueError('Selected restart account family mismatch')
     if chosen is None:return None
     p=chosen['approval'];doc=chosen['bundle']['accounts'][family]
-    at=at or datetime.now(timezone.utc).isoformat()
     rows={str(r['ticker']).upper():r for r in rows}
-    evidence={};blocked=[]
-    for ticker in sorted(set(rows)|set(doc['account']['positions'])):
-        row=rows.get(ticker,{})
-        held=doc['account']['positions'].get(ticker,{})
-        cached=(chosen['bundle']['accounts'][family].get('events') or [])
-        # Strategy metadata may supply a documented quote, never numeric marks.
-        quote=row.get('execution_quote')
-        from scanner_fresh_quote import validate_execution_quote
-        valid,_=validate_execution_quote((quote or {}).get('price'),{'execution_quote':quote or {},'market_data_at':(quote or {}).get('market_data_at')},now=datetime.fromisoformat(at))
-        if not valid:
-            runs=[e['payload'] for e in cached if e['kind']=='STRATEGY_RUN']
-            quote=((runs[-1]['state'].get('positions',{}).get(ticker,{}) if runs else {}).get('execution_quote'))
-        try:
-            evidence[ticker]=market_evidence(ticker,currency=held.get('currency') or row.get('currency'),quote=quote,
-                fx_quote=held.get('fx_quote') or row.get('fx_quote'),at=at,cost_policy=p['cost_policy'])
-        except Exception:
-            if ticker in doc['account']['positions'] or family=='paper':raise
-            blocked.append(dict(ticker=ticker,action='NO_EXECUTION',reason='Missing documented execution/FX evidence'))
+    evidence,blocked,at = _collect_execution_evidence(family,rows,doc,p['cost_policy'],at=at)
     # The selected bundle has already passed integrity and signed-grant checks.
     # Do not deserialize the entire 83 MB bundle again just to obtain this reference.
     if doc['status']!='ACTIVE':
@@ -412,20 +490,8 @@ def live_preview(period_id,family,*,strategy_input,cost_policy,storage=None):
     from services.trading_costs import validate_family
     validate_family(cost_policy,family,settings)
     rows=strategy_input.get('candidates',[]) if family=='super_portfolio' else strategy_input
-    rows={r['ticker']:r for r in rows};at=datetime.now(timezone.utc).isoformat();evidence={}
-    blocked=[]
-    for ticker in sorted(set(rows)|set(doc['account']['positions'])):
-        row=rows.get(ticker,{});held=doc['account']['positions'].get(ticker,{})
-        try:
-            evidence[ticker]=market_evidence(ticker,currency=held.get('currency') or row.get('currency'),quote=row.get('execution_quote'),
-                fx_quote=held.get('fx_quote') or row.get('fx_quote'),at=at,cost_policy=cost_policy)
-        except ValueError as exc:
-            # This is preflight only. Live autonomy/super-portfolio routing already
-            # excludes non-held candidates without fresh execution evidence.
-            # Never skip held positions (NAV) or Paper's ordinary signals.
-            if family=='paper' or ticker in doc['account']['positions']:
-                raise
-            blocked.append(dict(ticker=ticker,action='NO_EXECUTION',reason=str(exc)[:200]))
+    rows={r['ticker']:r for r in rows}
+    evidence,blocked,at = _collect_execution_evidence(family,rows,doc,cost_policy)
     # Startup is not an order: full candidate-universe quote coverage is not
     # required. Missing quotes are recorded as NO_EXECUTION, independent of
     # how many markets are closed or providers are delayed. Actual held

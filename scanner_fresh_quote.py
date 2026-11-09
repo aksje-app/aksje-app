@@ -18,7 +18,8 @@ def _intraday_history(ticker: str, interval: str = "5m") -> Any:
 
 
 def fresh_paper_buy_quote(ticker: str, *, history_provider: Callable[[str], Any] | None = None,
-                          now: datetime | None = None, max_age_minutes: float = 15) -> tuple[dict[str, Any] | None, str]:
+                          now: datetime | None = None, max_age_minutes: float = 15,
+                          clock: Callable[[], datetime] | None = None) -> tuple[dict[str, Any] | None, str]:
     """Validate real timestamped bars; retry finer granularity if a 5m bar is stale.
 
     The retry is a second provider query, never a revised timestamp or a
@@ -43,7 +44,10 @@ def fresh_paper_buy_quote(ticker: str, *, history_provider: Callable[[str], Any]
         if not isfinite(price) or price <= 0:
             return None, "Ugyldig intradagkurs"
         observed_utc = observed.astimezone(timezone.utc)
-        age = (reference.astimezone(timezone.utc) - observed_utc).total_seconds() / 60
+        checked_at = clock() if clock is not None else reference
+        if checked_at.tzinfo is None:
+            return None, "Referansetidspunkt mangler tidssone"
+        age = (checked_at.astimezone(timezone.utc) - observed_utc).total_seconds() / 60
         if age < -5 or age > max(1, float(max_age_minutes)):
             return None, "Intradagkurs er for gammel eller ligger i fremtiden"
         return {"price": price, "market_data_at": observed_utc.isoformat(timespec="seconds"),
