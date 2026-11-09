@@ -28,9 +28,12 @@ def summarize_learning_evidence(baseline: Mapping[str, Any],
         status_counts[name] = status_counts.get(name, 0) + 1
     return {
         "historical_signal_count": baseline.get("signal_count"),
-        "historical_horizons": horizons,
+        "historical_horizons": [],
+        "historical_reference_horizons": horizons,
+        "historical_qualified_for_strategy": False,
+        "historical_original_status_label": baseline.get("status"),
         "historical_matured_count": analysis.get("matured_count"),
-        "historical_status_label": baseline.get("status"),
+        "historical_status_label": "IKKE KVALIFISERT – ELDRE METODE" if baseline else None,
         "strategy_readiness": acceptance.get("strategy_readiness", "UNKNOWN"),
         "current_mature_positions": current.get("mature_closed_positions"),
         "benchmark_measured_positions": current.get("benchmark_measured_positions"),
@@ -47,12 +50,11 @@ def summarize_measured_observation_horizons(observations: list[Mapping[str, Any]
     from math import isfinite
     from services.learning_outcome_integrity import usable
     from services.learning_signal_measurement import POLICY
-    current_method = any(o.get('measurement_policy')==POLICY for o in observations if usable(o))
     buckets = defaultdict(list)
     for observation in observations:
         if not usable(observation):
             continue
-        if current_method and observation.get('measurement_policy')!=POLICY:
+        if observation.get('measurement_policy')!=POLICY:
             continue
         measurements = observation.get("horizon_measurements") or {}
         if not isinstance(measurements, Mapping):

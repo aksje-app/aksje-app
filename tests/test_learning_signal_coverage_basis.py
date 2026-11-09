@@ -101,7 +101,7 @@ def test_inconsistent_reference_does_not_erase_the_buy_recommendation(pg):
 def test_full_outcome_sample_still_records_every_recommendation(pg,monkeypatch):
     import learning_observation_engine as engine
     from services.learning_signal_coverage import capture
-    old=[{'ticker':f'OLD{i}.OL','group':'STRICT','status':'ACTIVE'} for i in range(120)]
+    old=[{'ticker':f'OLD{i}.OL','group':'STRICT','status':'ACTIVE','measurement_policy':engine.SIGNAL_MEASUREMENT_POLICY} for i in range(120)]
     monkeypatch.setattr(engine,'load_observations',lambda:deepcopy(old))
     monkeypatch.setattr(engine,'save_observations',lambda rows:pytest.fail('Full sample should not be rewritten'))
     monkeypatch.setattr(engine,'record_signal_coverage',lambda report,commit=False:capture(report,commit=commit,storage=pg))

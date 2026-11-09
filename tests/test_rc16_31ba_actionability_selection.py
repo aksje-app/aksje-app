@@ -85,10 +85,10 @@ def test_selection_control_exposes_missed_value_without_changing_production():
     import learning_observation_engine as engine
     rows = []
     for index in range(10):
-        rows.append({"ticker": f"S{index}", "group": "MODERATE", "status": "ACTIVE",
+        rows.append({"ticker": f"S{index}", "group": "MODERATE", "status": "ACTIVE", "measurement_policy":engine.SIGNAL_MEASUREMENT_POLICY,
                      "decision_snapshot": {"score": 75 + index},
                      "horizon_measurements": {"20": {"return_pct": 0, "benchmark_return_pct": 1, "excess_return_pct": -1}}})
-        rows.append({"ticker": f"C{index}", "group": "MATCHED_CONTROL", "status": "ACTIVE",
+        rows.append({"ticker": f"C{index}", "group": "MATCHED_CONTROL", "status": "ACTIVE", "measurement_policy":engine.SIGNAL_MEASUREMENT_POLICY,
                      "decision_snapshot": {"score": 65 + index},
                      "horizon_measurements": {"20": {"return_pct": 3, "benchmark_return_pct": 1, "excess_return_pct": 2}}})
     result = engine.build_weekly_analysis(rows)

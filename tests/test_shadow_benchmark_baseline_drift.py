@@ -19,6 +19,6 @@ def test_benchmark_baseline_drift_preserves_historical_denominator():
         "learning_observation_engine.load_engine_state",return_value={}),patch(
         "learning_observation_engine._audit"):
         result=evaluate_observations(series_loader=loader,now=datetime(2026,9,3,tzinfo=timezone.utc))
-    assert result["missing"] == 1
-    assert saved.call_args.args[0][0]["benchmark_entry_price"] == 200.0
-    assert saved.call_args.args[0][0]["source_health"]["status"] == "BENCHMARK_BASELINE_DRIFT"
+    assert result["missing"] == 0 and result["legacy_frozen"] == 1
+    assert row["benchmark_entry_price"] == 200.0
+    saved.assert_not_called()

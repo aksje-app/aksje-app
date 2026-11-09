@@ -41,6 +41,8 @@ def test_single_report_package_contains_standard_technical_json_and_diagnostic(m
 def test_new_observation_before_next_trading_day_is_not_degraded(monkeypatch):
     obs = [{
         "observation_id": "O1",
+        "measurement_policy":loe.SIGNAL_MEASUREMENT_POLICY,
+        "market":"NORGE", "entry_at":"2026-09-08T20:00:00+00:00",
         "ticker": "AKRBP.OL",
         "benchmark_ticker": "^OSEAX",
         "entry_market_date": "2026-09-08",
@@ -64,7 +66,7 @@ def test_new_observation_before_next_trading_day_is_not_degraded(monkeypatch):
     result = loe.evaluate_observations(loader, now=datetime(2026, 9, 9, 1, 0, tzinfo=timezone.utc))
     assert result["status"] == "COMPLETED"
     assert result["missing"] == 0
-    assert obs[0]["source_health"]["status"] == "AWAITING_NEXT_TRADING_DAY"
+    assert obs[0]["source_health"]["status"] == "AWAITING_COMPLETED_ENTRY_SESSION"
 
 
 def test_weekly_health_does_not_degrade_for_waiting_next_trading_day():

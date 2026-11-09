@@ -42,7 +42,7 @@ def test_historical_baseline_compares_stock_with_market_without_mutation():
     assert result["signal_count"] == 1
     assert result["verified_count"] == 1
     twenty = next(row for row in result["analysis"]["horizons"] if row["horizon_days"] == 20)
-    assert twenty["excess_return"]["count"] == 1
+    assert twenty["excess_return"]["count"] == 0  # Legacy forensic source is not active learning.
     assert result["production_parameters_changed"] is False
     assert result["trade_authorized"] is False
     assert len(result["baseline_sha256"]) == 64

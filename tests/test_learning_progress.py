@@ -13,7 +13,7 @@ def test_streams_and_maturity_are_separate_and_stale_pass_is_visible():
             {'status': 'MISSING', 'engine': 'SUPER_PORTFOLIO', 'at': '2026-10-30'}]},
     }
     report = snapshot(lambda key: data.get(key), now=datetime(2026, 11, 5, tzinfo=timezone.utc))
-    assert report['historical_horizons'][0]['measured_count'] == 1382
+    assert report['historical_reference_horizons'][0]['measured_count'] == 1382
     assert report['current_mature_positions'] == 0
     assert report['acceptance_fresh'] is False
     assert report['replay_streams']['AUTONOMY']['frames'] == 1

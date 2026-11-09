@@ -49,6 +49,8 @@ def test_daily_and_horizon_returns_on_the_same_date_must_agree():
 def test_unfinished_us_session_is_not_a_daily_outcome(monkeypatch):
     import learning_observation_engine as engine
     row = observation(); row['horizon_measurements'] = {}; row['daily_marks'] = []
+    row.update(measurement_policy=engine.SIGNAL_MEASUREMENT_POLICY,market='USA',
+               entry_at='2026-09-02T12:00:00+00:00',entry_market_date='2026-09-02')
     saved = []
     monkeypatch.setattr(engine, 'load_observations', lambda: [row])
     monkeypatch.setattr(engine, 'save_observations', lambda rows: saved.extend(deepcopy(rows)))
@@ -161,6 +163,7 @@ def test_restored_data_can_be_requarantined_and_restored_again(pg):
 def test_fresh_download_cannot_attach_a_contradictory_longer_horizon(monkeypatch):
     import learning_observation_engine as engine
     row = observation(); row['horizon_measurements'].pop('5')
+    row.update(measurement_policy=engine.SIGNAL_MEASUREMENT_POLICY,market='USA')
     saved = []
     monkeypatch.setattr(engine, 'load_observations', lambda: [row])
     monkeypatch.setattr(engine, 'save_observations', lambda rows: saved.extend(deepcopy(rows)))
@@ -171,7 +174,10 @@ def test_fresh_download_cannot_attach_a_contradictory_longer_horizon(monkeypatch
         {'date': d, 'close': p} for d,p in [('2026-09-02',102.),('2026-09-03',101.),
         ('2026-09-04',100.),('2026-09-07',99.),('2026-09-08',95.)]]
     bench = [{'date': '2026-08-31', 'close': 100.}] + [dict(r, close=100.) for r in stock]
+    from services.learning_signal_measurement import RETURN_BASIS
+    stock=[dict(r,open=r['close'],raw_open=r['close'],return_basis=RETURN_BASIS) for r in stock]
+    bench=[dict(r,open=r['close'],raw_open=r['close'],return_basis=RETURN_BASIS) for r in bench]
     engine.evaluate_observations(lambda *a: {'A':stock, '^GSPC':bench}, now=datetime(2026,9,9,tzinfo=timezone.utc))
     assert saved[0]['horizon_measurements'] == row['horizon_measurements']
     assert '5' not in saved[0]['horizon_measurements']
-    assert saved[0]['source_health']['status'] == 'OUTCOME_WINDOW_INCONSISTENT'
+    assert saved[0]['source_health']['status'] == 'NORMALIZED_HISTORY_REVISION'

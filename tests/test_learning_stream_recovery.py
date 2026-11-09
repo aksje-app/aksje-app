@@ -36,7 +36,7 @@ def test_budget_blocked_legacy_backfill_can_retry_but_invalid_input_cannot(monke
 
 
 def test_three_streams_and_real_20_day_results_do_not_become_validated():
-    data={KEYS['observations']:[{'status':'ACTIVE','entry_at':'2026-08-31','horizon_measurements':{'20':{'return_pct':2,'excess_return_pct':1}}}],
+    data={KEYS['observations']:[{'status':'ACTIVE','measurement_policy':'NEXT_COMMON_OPEN_ADJUSTED_PROXY_V2','entry_at':'2026-08-31','horizon_measurements':{'20':{'return_pct':2,'excess_return_pct':1}}}],
         KEYS['history']:{'status':'STORAGE_BUDGET_REACHED','gaps':105,'records':[{'engine':e,'status':'READY','at':'2026-10-29','complete_universe':e!='AUTONOMY'}for e in ('AUTONOMY','SUPER_PORTFOLIO','AUTONOMY_UNIVERSE')]},
         KEYS['autonomy_forward']:{'status':'ACTIVE_SHADOW','observed_trading_dates':11},
         KEYS['super_forward']:{'status':'ACTIVE_SHADOW','observed_trading_dates':13}}
@@ -54,7 +54,7 @@ def test_daily_is_red_for_stopped_archives_even_when_jobs_run_and_shows_results(
     now=datetime(2026,11,7,12,tzinfo=timezone.utc)
     data={KEYS['acceptance']:{'evaluated_at':now.isoformat(),'strategy_readiness':'NOT_VALIDATED'},
           KEYS['history']:{'status':'STORAGE_BUDGET_REACHED','gaps':105,'records':[{'engine':e,'status':'READY','at':'2026-10-29T00:00:00Z'} for e in ('AUTONOMY','SUPER_PORTFOLIO','AUTONOMY_UNIVERSE')]},
-          KEYS['observations']:[{'status':'ACTIVE','horizon_measurements':{str(d):{'return_pct':2,'excess_return_pct':1}for d in (1,5,20)}}]}
+          KEYS['observations']:[{'status':'ACTIVE','measurement_policy':'NEXT_COMMON_OPEN_ADJUSTED_PROXY_V2','horizon_measurements':{str(d):{'return_pct':2,'excess_return_pct':1}for d in (1,5,20)}}]}
     audit=[{'at':now.isoformat(),'event':'OBSERVATIONS_REGISTERED','created':0},{'at':now.isoformat(),'event':'OUTCOMES_EVALUATED','updated':0,'active':91,'matured':0}]
     with patch('services.shadow_daily_guard.read_json',side_effect=lambda k,p,d:data.get(k,d)),patch('services.shadow_daily_guard.read_events',return_value=audit):
         report=evaluate(now)
