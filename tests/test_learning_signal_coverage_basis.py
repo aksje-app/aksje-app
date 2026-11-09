@@ -36,6 +36,18 @@ def test_legacy_same_group_cannot_block_the_corrected_method(monkeypatch):
     assert result['created_by_group']['STRICT']==1
 
 
+def test_replaying_legacy_report_cannot_duplicate_observation_identity(monkeypatch):
+    import learning_observation_engine as engine
+    old={'ticker':'VEI.OL','observation_id':'LOW-R1-VEI.OL-STRICT','group':'STRICT','status':'ACTIVE'}
+    saved=[]
+    monkeypatch.setattr(engine,'load_observations',lambda:[deepcopy(old)])
+    monkeypatch.setattr(engine,'save_observations',lambda rows:saved.extend(rows))
+    monkeypatch.setattr(engine,'record_signal_coverage',lambda *a,**k:{'state':'RECORDED'})
+    monkeypatch.setattr(engine,'_audit',lambda *a,**k:None)
+    engine.register_report_observations(run())
+    assert len({r['observation_id'] for r in saved})==len(saved)
+
+
 def test_coverage_survives_full_sampling_quota(pg):
     from services.learning_signal_coverage import capture
     report=run(candidates=[signal(f'S{i}.OL') for i in range(40)])

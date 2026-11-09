@@ -252,7 +252,7 @@ def register_report_observations(
             snapshot = _frozen_snapshot(candidate, group=group, report_id=report_id, created_at=created_at)
             created.append({
                 "schema_version": SCHEMA_VERSION, "engine_version": ENGINE_VERSION,
-                "observation_id": f"LOW-{report_id}-{ticker}-{group}", "ticker": ticker,
+                "observation_id": f"LOW2-{report_id}-{ticker}-{group}", "ticker": ticker,
                 "market": snapshot["market"], "sector": snapshot["sector"], "strategy": snapshot["strategy"],
                 "group": group, "benchmark_ticker": SIGNAL_BENCHMARKS[snapshot["market"]],
                 "registered_at": _now_iso(now), "entry_at": run.get('signal_available_at') or created_at,
