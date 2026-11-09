@@ -289,6 +289,8 @@ def _price_on_or_before(series: Sequence[Mapping[str, Any]], day: str, *, strict
 
 def yfinance_series_loader(symbols: Sequence[str], start_date: str) -> dict[str, list[dict[str, Any]]]:
     import yfinance as yf
+    from services.learning_outcome_integrity import completed_through
+    downloaded_at = datetime.now(timezone.utc)
     clean = sorted({str(symbol or "").strip().upper() for symbol in symbols if str(symbol or "").strip()})
     output: dict[str, list[dict[str, Any]]] = {symbol: [] for symbol in clean}
     batch_size = max(5, min(30, int(os.getenv("LEARNING_PRICE_BATCH_SIZE", "20") or 20)))
@@ -306,6 +308,9 @@ def yfinance_series_loader(symbols: Sequence[str], start_date: str) -> dict[str,
                     close = close.iloc[:, 0]
                 output[symbol] = [{"date": index.date().isoformat() if hasattr(index, "date") else str(index)[:10],
                                    "close": float(value)} for index, value in close.dropna().items()]
+                market = next((m for m,b in BENCHMARKS.items() if b == symbol), _market(None, symbol))
+                cutoff = completed_through(market, downloaded_at)
+                output[symbol] = [p for p in output[symbol] if p['date'] <= cutoff]
             except Exception:
                 output[symbol] = []
         try:
@@ -323,6 +328,7 @@ def load_engine_state() -> dict[str, Any]:
 
 def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: datetime | None = None) -> dict[str, Any]:
     """Backfill 1/5/20/60 trading-day measurements regardless of portfolio exit."""
+    current = now or datetime.now(timezone.utc)
     rows = load_observations()
     active = [row for row in rows if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     if not active:
@@ -348,6 +354,15 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
     for observation in active:
         ticker = str(observation.get("ticker") or ""); benchmark = str(observation.get("benchmark_ticker") or "")
         stock = series_map.get(ticker, []); bench = series_map.get(benchmark, [])
+        from services.learning_outcome_integrity import completed_through
+        try:
+            cutoff = completed_through(_market(observation.get('market'), ticker), current)
+            stock = [p for p in stock if p['date'] <= cutoff]
+            bench = [p for p in bench if p['date'] <= cutoff]
+        except (ValueError, KeyError):
+            observation['source_health'] = {'status':'UNVERIFIED_SESSION_CALENDAR', 'checked_at':_now_iso(now)}
+            missing += 1
+            continue
         entry_day = str(observation.get("entry_market_date") or "")[:10]
         forward = [row for row in stock if str(row.get("date") or "") > entry_day]
         if not stock or not bench:
@@ -416,8 +431,6 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
                                             'checked_at': _now_iso(now), 'reasons': contradictions}
             missing += 1
             continue
-        observation["horizon_measurements"] = measurements
-        updated += window_updates
         latest = forward[-1]; latest_day = str(latest["date"]); latest_dates.add(latest_day)
         benchmark_latest = _price_on_or_before(bench, latest_day)
         stock_return = (float(latest["close"]) / entry_price - 1.0) * 100.0 if entry_price else 0.0
@@ -427,6 +440,14 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
                       "benchmark_price": round(float(benchmark_latest), 6) if benchmark_latest else None,
                       "return_pct": round(stock_return, 4), "benchmark_return_pct": round(benchmark_return, 4),
                       "excess_return_pct": round(stock_return - benchmark_return, 4), "recorded_at": _now_iso(now)})
+        contradictions = outcome_issues({**observation, 'horizon_measurements': measurements, 'daily_marks': marks[-70:]})
+        if contradictions:
+            observation['source_health'] = {'status': 'OUTCOME_WINDOW_INCONSISTENT',
+                                            'checked_at': _now_iso(now), 'reasons': contradictions}
+            missing += 1
+            continue
+        observation["horizon_measurements"] = measurements
+        updated += window_updates
         observation["daily_marks"] = marks[-70:]
         observation["last_market_date"] = latest_day; observation["last_evaluated_at"] = _now_iso(now)
         observation["source_health"] = {"status": "OK", "checked_at": _now_iso(now),

@@ -7,6 +7,7 @@ active outcome fields are removed. Trading and research keys are out of scope.
 """
 from copy import deepcopy
 from datetime import datetime, timezone
+from functools import lru_cache
 import base64
 import gzip
 import hashlib
@@ -51,6 +52,17 @@ def issues(row):
                 calculated = (float(reading['price']) / float(row['entry_price']) - 1) * 100
                 if not math.isfinite(calculated) or abs(calculated-ret) > .0002:
                     found.add('RETURN_ARITHMETIC_MISMATCH')
+            if row.get('benchmark_entry_price') and reading.get('benchmark_price') and reading.get('benchmark_return_pct') is not None:
+                calculated = (float(reading['benchmark_price']) / float(row['benchmark_entry_price']) - 1) * 100
+                if not math.isfinite(calculated) or abs(calculated-float(reading['benchmark_return_pct'])) > .0002:
+                    found.add('BENCHMARK_ARITHMETIC_MISMATCH')
+            if reading.get('benchmark_return_pct') is not None and reading.get('excess_return_pct') is not None:
+                if abs(ret-float(reading['benchmark_return_pct'])-float(reading['excess_return_pct'])) > .0002:
+                    found.add('EXCESS_ARITHMETIC_MISMATCH')
+            for mark in row.get('daily_marks') or []:
+                if mark.get('market_date') == reading.get('market_date') and mark.get('return_pct') is not None:
+                    if abs(float(mark['return_pct'])-ret) > .0002:
+                        found.add('DAILY_HORIZON_ENDPOINT_MISMATCH')
             windows.append((horizon, maximum, minimum))
         except (ValueError, TypeError, OverflowError, ZeroDivisionError):
             found.add('INVALID_NUMERIC_MEASUREMENT')
@@ -66,6 +78,20 @@ def issues(row):
 
 def usable(row):
     return row.get('status') != STATUS and not issues(row)
+
+
+@lru_cache(maxsize=16)
+def completed_through(market, at):
+    """Use the actual exchange close plus the existing 15-minute publication buffer."""
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from services.learning_position_outcomes import MARKETS, session_closes
+    local_day = at.astimezone(ZoneInfo(MARKETS[market][1])).date()
+    closes = session_closes(market, (local_day-timedelta(days=14)).isoformat(), local_day.isoformat())
+    eligible = [day for day, close in closes if close+timedelta(minutes=15) <= at]
+    if not eligible:
+        raise ValueError('No completed exchange session')
+    return eligible[-1]
 
 
 def unpack(backup):
@@ -197,7 +223,7 @@ def restore(*, storage, backup_key, apply=False):
 
 
 def run_authorized_cleanup(*, now=None):
-    """User-authorized 9 Nov repair, only the 26 audited immutable row versions.
+    """User-authorized 9 Nov repair, only the 78 audited immutable row versions.
 
     The manifest can never expand from data or environment flags. Missing local
     production storage is a no-op for development and test harnesses.
@@ -208,5 +234,14 @@ def run_authorized_cleanup(*, now=None):
     if not storage.using_postgres() or storage.allow_local_fallback:
         return {'state': 'NOT_POSTGRES', 'isolated': 0}
     manifest = json.loads(Path(__file__).with_name('learning_quarantine_20261109.json').read_text())
-    result = apply_manifest(storage=storage, manifest=manifest, apply=True, now=now)
-    return {k:v for k,v in result.items() if k != 'reasons'}
+    entries = list(manifest.items())
+    if len(entries) != 78:
+        raise ValueError('Unexpected authorized cleanup scope')
+    results = []
+    for offset in range(0, len(entries), MAX_BATCH):
+        batch = dict(entries[offset:offset+MAX_BATCH])
+        result = apply_manifest(storage=storage, manifest=batch, apply=True, now=now)
+        results.append({k:v for k,v in result.items() if k != 'reasons'})
+    return {'state': 'COMPLETED' if all(r['state'] in ('COMPLETED','ALREADY_APPLIED') for r in results) else 'DEFERRED',
+            'isolated': sum(r['isolated'] for r in results), 'batches': results,
+            'permanent_backup_purge': False}

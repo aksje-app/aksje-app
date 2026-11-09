@@ -32,6 +32,36 @@ def test_negative_returns_are_preserved_when_consistent():
     assert issues(observation()) == []
 
 
+def test_stored_benchmark_denominator_must_reproduce_the_return():
+    from services.learning_outcome_integrity import issues
+    row = observation()
+    row['horizon_measurements']['1']['benchmark_return_pct'] = 1.
+    assert 'BENCHMARK_ARITHMETIC_MISMATCH' in issues(row)
+
+
+def test_daily_and_horizon_returns_on_the_same_date_must_agree():
+    from services.learning_outcome_integrity import issues
+    row = observation()
+    row['daily_marks'] = [{'market_date':'2026-09-02','return_pct':9.}]
+    assert 'DAILY_HORIZON_ENDPOINT_MISMATCH' in issues(row)
+
+
+def test_unfinished_us_session_is_not_a_daily_outcome(monkeypatch):
+    import learning_observation_engine as engine
+    row = observation(); row['horizon_measurements'] = {}; row['daily_marks'] = []
+    saved = []
+    monkeypatch.setattr(engine, 'load_observations', lambda: [row])
+    monkeypatch.setattr(engine, 'save_observations', lambda rows: saved.extend(deepcopy(rows)))
+    monkeypatch.setattr(engine, 'load_engine_state', lambda: {})
+    monkeypatch.setattr(engine, 'write_json', lambda *a: None)
+    monkeypatch.setattr(engine, '_audit', lambda *a, **k: None)
+    loader = lambda *a: {'A':[{'date':'2026-09-02','close':110.}],
+                         '^GSPC':[{'date':'2026-08-31','close':100.},{'date':'2026-09-02','close':101.}]}
+    engine.evaluate_observations(loader, now=datetime(2026,9,2,15,tzinfo=timezone.utc))
+    assert saved[0]['horizon_measurements'] == {}
+    assert saved[0]['daily_marks'] == []
+
+
 def test_preview_is_read_only_and_apply_backs_up_before_removing_outcomes(pg):
     from services.learning_outcome_integrity import SOURCE, apply_manifest, digest, restore, unpack
     bad = observation(broken=True)
