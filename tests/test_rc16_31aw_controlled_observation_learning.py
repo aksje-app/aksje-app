@@ -10,6 +10,11 @@ def _candidate(ticker,market,score,outcome,sector="Industri"):
 
 def _memory(monkeypatch,initial=None):
     store={engine.OBSERVATIONS_KEY:list(initial or []),engine.STATE_KEY:{},engine.WEEKLY_KEY:[]}
+    from services.learning_signal_coverage import capture
+    class Receipts:
+        def write_json_immutable(self,key,value):
+            return store.setdefault(key,value)
+    monkeypatch.setattr(engine,'record_signal_coverage',lambda run,commit=False: capture(run,commit=commit,storage=Receipts()))
     monkeypatch.setattr(engine,"read_json",lambda key,path,default:store.get(key,default))
     monkeypatch.setattr(engine,"write_json",lambda key,path,value:store.__setitem__(key,value)); return store
 
@@ -23,6 +28,7 @@ def test_registration_freezes_groups_and_core_markets(monkeypatch):
                 _candidate("NEAR","USA",69,"OVERVÅKES_AUTOMATISK"),_candidate("CTRL","USA",55,"AVVIST"),
                 _candidate("FOREIGN.CO","Danmark",90,"KJØPSKANDIDAT")]
     run={"run_id":"R1","created_at":"2026-08-28T12:00:00+00:00","candidates":candidates,"report_summary":{"production_buy_threshold":73}}
+    run['signal_available_at']=run['created_at']
     result=engine.register_report_observations(run); rows=store[engine.OBSERVATIONS_KEY]
     assert result["created"]==4 and {r["group"] for r in rows}==set(engine.GROUP_TARGETS)
     assert {r["market"] for r in rows}<=set(engine.CORE_MARKETS)
@@ -31,6 +37,7 @@ def test_registration_freezes_groups_and_core_markets(monkeypatch):
 def test_registration_idempotent_and_capped(monkeypatch):
     store=_memory(monkeypatch); candidates=[_candidate(f"T{i}","USA",80 if i<40 else 55,"MODERAT_KJØPSANBEFALING" if i<40 else "AVVIST") for i in range(150)]
     run={"run_id":"R2","created_at":"2026-08-28T12:00:00+00:00","candidates":candidates,"report_summary":{"production_buy_threshold":73}}
+    run['signal_available_at']=run['created_at']
     assert engine.register_report_observations(run)["created"]<=120
     assert engine.register_report_observations(run)["created"]==0
     assert len(store[engine.OBSERVATIONS_KEY])<=120

@@ -46,9 +46,13 @@ def summarize_measured_observation_horizons(observations: list[Mapping[str, Any]
     from collections import defaultdict
     from math import isfinite
     from services.learning_outcome_integrity import usable
+    from services.learning_signal_measurement import POLICY
+    current_method = any(o.get('measurement_policy')==POLICY for o in observations if usable(o))
     buckets = defaultdict(list)
     for observation in observations:
         if not usable(observation):
+            continue
+        if current_method and observation.get('measurement_policy')!=POLICY:
             continue
         measurements = observation.get("horizon_measurements") or {}
         if not isinstance(measurements, Mapping):
@@ -58,11 +62,11 @@ def summarize_measured_observation_horizons(observations: list[Mapping[str, Any]
                 continue
             try:
                 ret = float(reading["return_pct"])
-                excess = float(reading["excess_return_pct"])
+                excess = float(reading["excess_return_pct"]) if reading.get('excess_return_pct') is not None else None
                 days = int(horizon)
             except (TypeError, ValueError, KeyError):
                 continue
-            if days not in (1, 5, 20, 60) or not isfinite(ret) or not isfinite(excess):
+            if days not in (1, 5, 20, 60) or not isfinite(ret) or (excess is not None and not isfinite(excess)):
                 continue
             buckets[days].append((ret, excess))
     return [{
@@ -70,6 +74,10 @@ def summarize_measured_observation_horizons(observations: list[Mapping[str, Any]
         "measured_count": len(values),
         "positive_count": sum(ret > 0 for ret, _ in values),
         "mean_return_pct": round(sum(ret for ret, _ in values) / len(values), 4),
-        "mean_excess_return_pct": round(sum(excess for _, excess in values) / len(values), 4),
+        "mean_excess_return_pct": (round(sum(e for _,e in values if e is not None)/sum(e is not None for _,e in values),4)
+                                    if any(e is not None for _,e in values) else None),
+        "benchmark_measured_count": sum(e is not None for _,e in values),
+        "net_result_verified": False,
+        "scope": "ALL_SAMPLED_GROUPS_INCLUDING_CONTROLS_NOT_BUY_PERFORMANCE",
         "whole_observation_maturity_independent": True,
     } for days, values in sorted(buckets.items())]
