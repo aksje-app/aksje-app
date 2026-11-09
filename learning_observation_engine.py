@@ -165,7 +165,22 @@ def save_observations(rows: Sequence[Mapping[str, Any]]) -> None:
     active = [row for row in payload if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     archive = [row for row in payload if str(row.get("status") or "ACTIVE").upper() != "ACTIVE"]
     archive.sort(key=lambda row: str(row.get("completed_at") or row.get("registered_at") or ""), reverse=True)
-    write_json(OBSERVATIONS_KEY, OBSERVATIONS_PATH, active + archive[:MAX_ARCHIVED_OBSERVATIONS])
+    proposed = active + archive[:MAX_ARCHIVED_OBSERVATIONS]
+    from services.storage_service import get_storage_service
+    storage = get_storage_service()
+    if storage.using_postgres() and not storage.allow_local_fallback:
+        # A report or price job may still hold a pre-cleanup copy in memory.
+        # Preserve authoritative quarantine tombstones under the same row lock.
+        def preserve_quarantine(current):
+            protected = {r['observation_id']: r for r in (current or [])
+                         if r.get('status') == 'QUARANTINED'}
+            merged = [protected.get(r.get('observation_id'), r) for r in proposed]
+            present = {r.get('observation_id') for r in merged}
+            merged.extend(r for key,r in protected.items() if key not in present)
+            return merged
+        storage.mutate_json(OBSERVATIONS_KEY, preserve_quarantine, default=[])
+    else:
+        write_json(OBSERVATIONS_KEY, OBSERVATIONS_PATH, proposed)
 
 
 def _eligible(row: Mapping[str, Any]) -> bool:
@@ -274,6 +289,8 @@ def _price_on_or_before(series: Sequence[Mapping[str, Any]], day: str, *, strict
 
 def yfinance_series_loader(symbols: Sequence[str], start_date: str) -> dict[str, list[dict[str, Any]]]:
     import yfinance as yf
+    from services.learning_outcome_integrity import completed_through
+    downloaded_at = datetime.now(timezone.utc)
     clean = sorted({str(symbol or "").strip().upper() for symbol in symbols if str(symbol or "").strip()})
     output: dict[str, list[dict[str, Any]]] = {symbol: [] for symbol in clean}
     batch_size = max(5, min(30, int(os.getenv("LEARNING_PRICE_BATCH_SIZE", "20") or 20)))
@@ -291,6 +308,9 @@ def yfinance_series_loader(symbols: Sequence[str], start_date: str) -> dict[str,
                     close = close.iloc[:, 0]
                 output[symbol] = [{"date": index.date().isoformat() if hasattr(index, "date") else str(index)[:10],
                                    "close": float(value)} for index, value in close.dropna().items()]
+                market = next((m for m,b in BENCHMARKS.items() if b == symbol), _market(None, symbol))
+                cutoff = completed_through(market, downloaded_at)
+                output[symbol] = [p for p in output[symbol] if p['date'] <= cutoff]
             except Exception:
                 output[symbol] = []
         try:
@@ -308,6 +328,7 @@ def load_engine_state() -> dict[str, Any]:
 
 def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: datetime | None = None) -> dict[str, Any]:
     """Backfill 1/5/20/60 trading-day measurements regardless of portfolio exit."""
+    current = now or datetime.now(timezone.utc)
     rows = load_observations()
     active = [row for row in rows if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     if not active:
@@ -333,6 +354,15 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
     for observation in active:
         ticker = str(observation.get("ticker") or ""); benchmark = str(observation.get("benchmark_ticker") or "")
         stock = series_map.get(ticker, []); bench = series_map.get(benchmark, [])
+        from services.learning_outcome_integrity import completed_through
+        try:
+            cutoff = completed_through(_market(observation.get('market'), ticker), current)
+            stock = [p for p in stock if p['date'] <= cutoff]
+            bench = [p for p in bench if p['date'] <= cutoff]
+        except (ValueError, KeyError):
+            observation['source_health'] = {'status':'UNVERIFIED_SESSION_CALENDAR', 'checked_at':_now_iso(now)}
+            missing += 1
+            continue
         entry_day = str(observation.get("entry_market_date") or "")[:10]
         forward = [row for row in stock if str(row.get("date") or "") > entry_day]
         if not stock or not bench:
@@ -372,6 +402,7 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
             observation["benchmark_entry_price"] = round(benchmark_entry, 6)
         entry_price = _number(observation.get("entry_price")) or 0.0
         measurements = dict(observation.get("horizon_measurements") or {})
+        window_updates = 0
         for horizon in HORIZONS:
             if len(forward) < horizon or str(horizon) in measurements:
                 continue
@@ -390,8 +421,16 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
                 "maximum_gain_pct": round((max(window) / entry_price - 1.0) * 100.0, 4),
                 "maximum_drawdown_pct": round((min(window) / entry_price - 1.0) * 100.0, 4),
             }
-            updated += 1
-        observation["horizon_measurements"] = measurements
+            window_updates += 1
+        from services.learning_outcome_integrity import issues as outcome_issues
+        contradictions = outcome_issues({**observation, 'horizon_measurements': measurements})
+        if contradictions:
+            # A new provider window must not contradict previously frozen outcomes.
+            # Keep the original evidence for audit; never publish the new mixture.
+            observation['source_health'] = {'status': 'OUTCOME_WINDOW_INCONSISTENT',
+                                            'checked_at': _now_iso(now), 'reasons': contradictions}
+            missing += 1
+            continue
         latest = forward[-1]; latest_day = str(latest["date"]); latest_dates.add(latest_day)
         benchmark_latest = _price_on_or_before(bench, latest_day)
         stock_return = (float(latest["close"]) / entry_price - 1.0) * 100.0 if entry_price else 0.0
@@ -401,6 +440,14 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
                       "benchmark_price": round(float(benchmark_latest), 6) if benchmark_latest else None,
                       "return_pct": round(stock_return, 4), "benchmark_return_pct": round(benchmark_return, 4),
                       "excess_return_pct": round(stock_return - benchmark_return, 4), "recorded_at": _now_iso(now)})
+        contradictions = outcome_issues({**observation, 'horizon_measurements': measurements, 'daily_marks': marks[-70:]})
+        if contradictions:
+            observation['source_health'] = {'status': 'OUTCOME_WINDOW_INCONSISTENT',
+                                            'checked_at': _now_iso(now), 'reasons': contradictions}
+            missing += 1
+            continue
+        observation["horizon_measurements"] = measurements
+        updated += window_updates
         observation["daily_marks"] = marks[-70:]
         observation["last_market_date"] = latest_day; observation["last_evaluated_at"] = _now_iso(now)
         observation["source_health"] = {"status": "OK", "checked_at": _now_iso(now),
@@ -460,6 +507,10 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
     from services.learning_position_outcomes import SUMMARY as closed_results_key, report_view
     closed_results = report_view(read_json(closed_results_key, runtime_data_path(*closed_results_key.split('/')), {})) if rows is None else {}
     observations = [dict(row) for row in (rows if rows is not None else load_observations()) if isinstance(row, Mapping)]
+    from services.learning_outcome_integrity import usable
+    excluded_tickers = [str(row.get('ticker') or '') for row in observations if not usable(row)]
+    excluded_count = sum(not usable(row) for row in observations)
+    observations = [row for row in observations if usable(row)]
     active = [row for row in observations if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     horizon_rows = []
     for horizon in HORIZONS:
@@ -544,12 +595,15 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
             "group_counts": {group: sum(str(row.get("group") or "") == group for row in observations) for group in GROUP_TARGETS},
             "horizons": horizon_rows, "groups": group_rows,
             "dimensions_20d": sorted(dimension_rows, key=lambda row: (row["dimension"], -(row.get("average") or -9999))),
-            "health": {"status": "OK" if not missing else "DEGRADED", "missing_or_stale": len(missing),
+            "health": {"status": "OK" if not missing and not excluded_count else "DEGRADED", "missing_or_stale": len(missing),
                        "missing_tickers": [str(row.get("ticker") or "") for row in missing[:30]],
                        "all_measurements_accounted": not missing,
                        "benchmark_mapping_complete": all(str(row.get("benchmark_ticker") or "") in set(BENCHMARKS.values()) for row in observations),
                        "production_mutations": 0},
             "selection_quality": selection_quality,
+            "data_quality": {"excluded_observations": excluded_count,
+                             "excluded_tickers": excluded_tickers[:30],
+                             "reason": "Inconsistent or quarantined outcomes excluded; negative returns retained."},
             "shadow_proposals": proposals, "strategy_readiness": "NOT_VALIDATED",
             "production_parameters_changed": False,
             "closed_position_results": closed_results,
@@ -587,6 +641,9 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
         reason_codes.append("MEASUREMENT_JOB_FAILED")
     if missing_tickers:
         reason_codes.append("MISSING_OR_STALE_SERIES")
+    quality = analysis.get('data_quality') or {}
+    if quality.get('excluded_observations'):
+        reason_codes.append('INCONSISTENT_OUTCOMES_EXCLUDED')
     if not bool(health.get("benchmark_mapping_complete", True)):
         reason_codes.append("BENCHMARK_MAPPING_INCOMPLETE")
     payload = {
@@ -599,12 +656,13 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
         "pending_registration": int(pending.get("created") or 0),
         "benchmark_complete": bool(health.get("benchmark_mapping_complete", True)),
         "missing_or_stale": int(health.get("missing_or_stale") or 0),
+        "data_quality": quality,
         "last_measurement_job": daily,
         "health_detail": {
             "level": status,
             "reason_codes": reason_codes,
-            "affected_tickers": missing_tickers,
-            "affected_count": int(health.get("missing_or_stale") or 0),
+            "affected_tickers": list(dict.fromkeys(missing_tickers + quality.get('excluded_tickers', []))),
+            "affected_count": int(health.get("missing_or_stale") or 0) + int(quality.get('excluded_observations') or 0),
             "last_attempt_at": str(daily.get("completed_at") or ""),
             "last_error": str(daily.get("error") or ""),
             "next_attempt": "NESTE DAGLIGE LÆRINGSKJØRING" if status in {"FEIL", "DEGRADERT"} else "ETTER NESTE BØRSDAG",
@@ -1088,6 +1146,8 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
                       "reason":"Ukentlig rapport er bare forfalt fredag etter 23:10 eller i helgen, og bare én gang per ISO-uke."},
             "baseline":{"status":"NOT_DUE"},"production_changed":False}
     _breadcrumb("learning:maintenance:start", {"local_weekday": current.astimezone(OSLO).weekday()})
+    from services.learning_outcome_integrity import run_authorized_cleanup
+    result['outcome_quarantine'] = run_authorized_cleanup(now=current)
     # Closing a learning position must lead to a measured result even when
     # the independent Shadow outcome job is not due (including weekends).
     # Providers and bounded evidence writes run here, never on a menu click.

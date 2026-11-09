@@ -169,7 +169,7 @@ jobs:
         env:
           PYTHONPATH: .
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
-        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py tests/test_revision_trade_postgres.py tests/test_safe_database_maintenance.py
+        run: pytest -q tests/test_entry_exit_postgres.py tests/test_superfund_postgres.py tests/test_quality_turnaround_postgres.py tests/test_revision_trade_postgres.py tests/test_safe_database_maintenance.py tests/test_learning_outcome_integrity.py
       - name: Production-mode NOK lifecycle and PC/mobile exports on isolated PostgreSQL
         env:
           PYTHONPATH: .
@@ -213,7 +213,7 @@ jobs:
           git merge-base "origin/$BASE_REF" HEAD >/dev/null
           git diff --name-only "origin/$BASE_REF"...HEAD > dist/changed_files_all.txt
 
-          grep -E '(\.py$|^render\.yaml$)' dist/changed_files_all.txt \
+          grep -E '(\.py$|^render\.yaml$|^services/learning_quarantine_20261109\.json$)' dist/changed_files_all.txt \
             | grep -vE '^(tests/|scripts/verify_|\.github/)' \
             > dist/changed_files_delta.txt || true
 

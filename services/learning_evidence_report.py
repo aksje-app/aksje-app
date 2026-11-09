@@ -45,8 +45,11 @@ def summarize_measured_observation_horizons(observations: list[Mapping[str, Any]
     """Report measured sub-horizons independently of lifecycle status ACTIVE."""
     from collections import defaultdict
     from math import isfinite
+    from services.learning_outcome_integrity import usable
     buckets = defaultdict(list)
     for observation in observations:
+        if not usable(observation):
+            continue
         measurements = observation.get("horizon_measurements") or {}
         if not isinstance(measurements, Mapping):
             continue
