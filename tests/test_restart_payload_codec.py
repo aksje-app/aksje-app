@@ -88,6 +88,47 @@ def test_corrupt_encoded_database_cannot_fall_back_to_stale_local_financial_stat
     with pytest.raises(StorageUnavailableError):pg.read_json(key)
 
 
+def test_corrupt_immutable_restart_never_retries_or_falls_back(pg,monkeypatch):
+    key='simulation_restarts/immutable-corrupt/bundle.json';record=envelope({'cash':500000})
+    record['sha256']='0'*64;raw_put(pg,key,record);before=raw_get(pg,key)
+    path=pg.base_dir/key;path.parent.mkdir(parents=True);path.write_text('{"cash":999}')
+    pg.allow_local_fallback=True;retries=[]
+    monkeypatch.setattr('services.storage_service.time.sleep',lambda seconds:retries.append(seconds))
+    with pytest.raises(StorageUnavailableError):pg.write_json_immutable(key,{'cash':123})
+    assert retries==[] and raw_get(pg,key)==before and path.read_text()=='{"cash":999}'
+
+
+def test_immutable_size_guard_never_falls_back(pg,monkeypatch):
+    from services import restart_payload_codec as codec
+    key='simulation_restarts/immutable-oversize/bundle.json'
+    monkeypatch.setenv(FLAG,'1');monkeypatch.setattr(codec,'MAX_STORED_BYTES',200)
+    pg.allow_local_fallback=True
+    with pytest.raises(StorageUnavailableError):pg.write_json_immutable(key,{'text':'x'*1100000})
+    assert not (pg.base_dir/key).exists() and pg.read_json(key,None) is None
+
+
+def test_mutable_size_guard_never_falls_back(pg,monkeypatch):
+    from services import restart_payload_codec as codec
+    key='simulation_restarts/mutable-oversize/bundle.json'
+    monkeypatch.setenv(FLAG,'1');monkeypatch.setattr(codec,'MAX_STORED_BYTES',200)
+    pg.allow_local_fallback=True
+    with pytest.raises(StorageUnavailableError):pg.write_json(key,{'text':'x'*1100000})
+    assert not (pg.base_dir/key).exists() and pg.read_json(key,None) is None
+
+
+def test_truncated_outer_restart_json_never_falls_back(pg):
+    key='simulation_restarts/truncated-outer/bundle.json'
+    conn=pg._conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('INSERT INTO app_kv_store(name,payload,updated_at) VALUES(%s,%s,NOW()::text)',(key,'{"__restart_storage__":"ZLIB_BASE64_JSON_V1"'))
+        conn.commit()
+    finally:conn.close()
+    path=pg.base_dir/key;path.parent.mkdir(parents=True);path.write_text('{"cash":999}')
+    pg.allow_local_fallback=True
+    with pytest.raises(StorageUnavailableError):pg.read_json(key)
+
+
 @pytest.mark.parametrize('enabled',['0','1'])
 def test_database_size_guard_preserves_old_document(pg,monkeypatch,enabled):
     from services import restart_payload_codec as codec

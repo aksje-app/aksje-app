@@ -21,6 +21,8 @@ Safety bounds: decoded JSON may not exceed 512 MiB; a database write may not exc
 
 After encoded records exist, rollback targets must also understand this codec; do not roll back below this reader release. New readers continue to decode with the flag off, and the writer preserves an already encoded format. A missing or corrupt encoded value never becomes a fresh/empty financial account.
 
+Storage envelopes are internal canonical records: preserve their serialized representation when copying/restoring them rather than reordering or pretty-printing envelope fields. Sticky encoding applies to documents at or above the 1 MiB large-write threshold; an explicitly replaced smaller document can use legacy JSON, which both deployed reader versions understand.
+
 ## Verification
 
 A private, production-shaped 241,463,878-byte fixture from the user's restored database archive was tested only on disposable local PostgreSQL 18. Original transport: 708.0 MiB peak backend RSS. Encoded transport: 40,915,830 stored bytes and 155.0 MiB peak backend RSS. The entire original SHA256 and decoded content were verified. Native large-object staging was explored but rejected: it reduced backend RSS only to 668.8 MiB and added shared-catalog churn.
@@ -34,4 +36,4 @@ Tests were observed failing before fixes for original-error preservation, readin
 - `test_packaged_universe_is_nonempty_but_not_claimed_as_exchange_master`: existing universe-source authority fixture.
 - `test_new_breach_sends_pushover_after_configuration_change`: an additional time-dependent FX alert.
 
-The exact-head Release Gate, review and production rollout evidence are recorded in the PR and issue 200. No checks were relaxed. Source API quotas/rate limits are a separate limitation: this storage correction never lowers evidence requirements or invents buy signals.
+Independent review also found corruption and size-bound errors could enter the older availability fallback in immutable and ordinary writes, and malformed outer JSON could fall back on read. Four regression tests reproduced these cases before the fix. These errors now fail closed without retry or stale local fallback; the final targeted adapter set passed 32 tests. The exact-head Release Gate, review and production rollout evidence are recorded in the PR and issue 200. No checks were relaxed. Source API quotas/rate limits are a separate limitation: this storage correction never lowers evidence requirements or invents buy signals.

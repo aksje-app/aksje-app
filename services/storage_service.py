@@ -114,7 +114,10 @@ def _restart_bundle(name: str) -> bool:
 
 
 def _load_json_document(name,raw):
-    value=json.loads(raw)
+    try:value=json.loads(raw)
+    except (ValueError,UnicodeError) as exc:
+        if _restart_bundle(name):raise RestartPayloadError('Invalid restart JSON document') from exc
+        raise
     return decode_document(value) if _restart_bundle(name) else value
 
 
@@ -235,6 +238,8 @@ class StorageService:
                         raise
                     finally:
                         conn.close()
+                except RestartPayloadError as exc:
+                    raise StorageUnavailableError(f'immutable_json({name}) invalid restart storage encoding') from exc
                 except Exception as exc:
                     last_error = exc
                     logging.warning("Postgres immutable_json forsøk %s/%s feilet for %s: %s", attempt, attempts, name, exc)
@@ -246,7 +251,7 @@ class StorageService:
         path = self.base_dir / name
         with _path_lock(path):
             if path.exists():
-                return json.loads(path.read_text(encoding="utf-8"))
+                return _load_json_document(name,path.read_text(encoding="utf-8"))
             self._atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, default=str))
             return data
 
@@ -652,6 +657,8 @@ class StorageService:
                 finally:
                     conn.close()
                 return True
+            except RestartPayloadError as exc:
+                raise StorageUnavailableError(f'write_json({name}) invalid restart storage encoding') from exc
             except Exception as exc:
                 logging.warning("Postgres write_json feilet for %s: %s", name, exc)
                 if not self._local_allowed():
