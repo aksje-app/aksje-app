@@ -223,6 +223,7 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         ("super_portfolio", "state"),
         ("quality_valuation_schedule", "state"),
         ("learning_observation_maintenance", "status"),
+        ("restart_storage_encoding", "status"),
         ("report_repair", "state"),
         ("report_revalidation", "state"),
         ("storage_retention", "state"),
@@ -324,6 +325,7 @@ def _run_once_locked() -> dict[str, Any]:
         "currency_alerts": {},
         "retired_module_cleanup": {},
         "learning_observation_maintenance": {},
+        "restart_storage_encoding": {},
         "report_repair": {},
         "report_revalidation": {},
         "error": "",
@@ -371,6 +373,17 @@ def _run_once_locked() -> dict[str, Any]:
         state["completed_at"] = _now()
         _notify_failure_once(state, cluster_reason)
         return _save(state)
+
+    # Explicitly enabled only after all readers understand the versioned codec.
+    # This changes storage bytes under the bundle lock, never financial events.
+    try:
+        if _mem('scheduler:restart_storage_encoding',stop=False).get('pressure'):
+            state['restart_storage_encoding']={'status':'DEFERRED_MEMORY','financial_state_changed':False}
+        else:
+            from services.restart_storage_maintenance import run_restart_storage_maintenance
+            state['restart_storage_encoding']=run_restart_storage_maintenance()
+    except Exception as exc:
+        state['restart_storage_encoding']={'status':'FAILED','error':f'{type(exc).__name__}: {str(exc)[:400]}','financial_state_changed':False}
 
     try:
         state["runtime_dependencies"] = assert_runtime_dependencies()

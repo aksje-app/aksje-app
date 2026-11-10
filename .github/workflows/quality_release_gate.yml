@@ -179,7 +179,8 @@ jobs:
           AUTH_DATABASE_URL: ""
           TEST_POSTGRES_URL: postgresql://test:test@localhost:5432/entry_exit_test
           SYSTEM_BROWSER_TEST: "1"
-        run: pytest -q tests/test_production_restart.py tests/test_production_restart_browser.py tests/test_restart_trading.py tests/test_simulation_restart.py tests/test_restart_startup_guards.py tests/test_activation_preflight_integration.py tests/test_nok_operator_transport.py tests/test_restart_ui_read_model.py tests/test_restart_ascii_persistence.py tests/test_restart_read_cursor_lifetime.py tests/test_restart_closed_exchange.py tests/test_restart_binary_copy.py tests/test_storage_read_recovery.py
+          RESTART_BUNDLE_COMPRESSION_ENABLED: "1"
+        run: pytest -q tests/test_production_restart.py tests/test_production_restart_browser.py tests/test_restart_trading.py tests/test_simulation_restart.py tests/test_restart_startup_guards.py tests/test_activation_preflight_integration.py tests/test_nok_operator_transport.py tests/test_restart_ui_read_model.py tests/test_restart_ascii_persistence.py tests/test_restart_read_cursor_lifetime.py tests/test_restart_closed_exchange.py tests/test_restart_binary_copy.py tests/test_storage_read_recovery.py tests/test_restart_payload_codec.py tests/test_restart_write_failure_origin.py tests/test_restart_storage_maintenance.py
       - name: Large restart journal memory acceptance
         env:
           PYTHONPATH: .
