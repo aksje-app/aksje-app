@@ -4398,11 +4398,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             _p(f"{baseline_status.get('status') or 'VENTER'} · {int(baseline_status.get('signals') or 0)} historiske referanser", "Tiny"),
         ],
     ]
+    from services.learning_cost_reference import report_text as cost_reference_text
     learning_table = Table(learning_rows, repeatRows=1, colWidths=[38*mm, 31*mm, 38*mm, 34*mm, 43*mm])
     learning_table.setStyle(_table_style(5.4, padding=1.3))
     decision_story += [
         Paragraph("Resultat- og læringskontroll", styles["Section"]),
         learning_table,
+        Paragraph(cost_reference_text(decision_result_learning.get('cost_reference_model') or {}),styles['Small']),
         Paragraph(
             "Planlagte nye utfallsmålinger fra denne rapporten: "
             f"{int(decision_result_learning.get('pending_registration') or 0)}. "

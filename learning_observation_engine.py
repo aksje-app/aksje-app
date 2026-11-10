@@ -296,7 +296,7 @@ def _normalise_series(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]
         close = _number(row.get("close") if row.get("close") is not None else row.get("price"))
         if day and close and close > 0:
             by_date[day] = {"date":day,"close":close}
-            for field in ('open','raw_open','raw_close','return_basis','source_ticker'):
+            for field in ('open','raw_open','raw_close','return_basis','source_ticker','fx_open_quote','fx_close_quote'):
                 if row.get(field) is not None:
                     by_date[day][field] = row[field]
     return [by_date[day] for day in sorted(by_date)]
@@ -354,6 +354,11 @@ def yfinance_series_loader(symbols: Sequence[str], start_date: str) -> dict[str,
     return output
 
 
+def _load_cost_contract():
+    from services.learning_cost_reference import read_contract
+    return read_contract(lambda key:read_json(key,runtime_data_path(*key.split('/')),{}))
+
+
 def load_engine_state() -> dict[str, Any]:
     value = read_json(STATE_KEY, STATE_PATH, {})
     return dict(value) if isinstance(value, Mapping) else {}
@@ -373,6 +378,7 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
         write_json(STATE_KEY, STATE_PATH, {**load_engine_state(), "daily": result})
         _audit("OUTCOMES_EVALUATED", result, now=now)
         return result
+    cost_contract = _load_cost_contract()
     start = min(str(row.get("entry_market_date") or "9999-12-31") for row in active)
     start_date = (date.fromisoformat(start) - timedelta(days=10)).isoformat()
     symbols = sorted({str(row.get("ticker")) for row in active} | {str(row['benchmark_ticker']) for row in active if row.get('benchmark_ticker')})
@@ -393,7 +399,7 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
         if observation.get('measurement_policy') == SIGNAL_MEASUREMENT_POLICY:
             from services.learning_signal_measurement import measure
             previous = {k:observation[k] for k in ('entry_reference','horizon_measurements','daily_marks') if k in observation}
-            measured = measure(observation,stock,bench,now=current,previous=previous)
+            measured = measure(observation,stock,bench,now=current,previous=previous,cost_contract=cost_contract)
             state = measured['state']
             observation['source_health']={'status': 'OK' if state=='MEASURED' else state,'checked_at':_now_iso(now)}
             if state in ('MEASURED','MEASURED_WITHOUT_COMPARABLE_BENCHMARK'):
@@ -462,6 +468,7 @@ def _factor_attribution(observations: Sequence[Mapping[str, Any]], horizon: int 
 
 def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, now: datetime | None = None) -> dict[str, Any]:
     from services.learning_position_outcomes import SUMMARY as closed_results_key, report_view
+    from services.learning_cost_reference import summarize as summarize_cost_reference
     closed_results = report_view(read_json(closed_results_key, runtime_data_path(*closed_results_key.split('/')), {})) if rows is None else {}
     observations = [dict(row) for row in (rows if rows is not None else load_observations()) if isinstance(row, Mapping)]
     from services.learning_outcome_integrity import usable
@@ -570,6 +577,7 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
                              "legacy_updates_frozen": True,
                              "reason": "Inconsistent/quarantined outcomes excluded; legacy frozen outside active learning; negative current-method returns retained."},
             "shadow_proposals": proposals, "strategy_readiness": "NOT_VALIDATED",
+            "cost_reference_model":summarize_cost_reference(observations,_load_cost_contract()),
             "measurement_policy": basis,
             "return_basis": "GROSS_ADJUSTED_TOTAL_RETURN_PROXY_IN_LISTING_CURRENCY" if has_current_method else "NO_QUALIFIED_CURRENT_METHOD_OBSERVATIONS",
             "net_result_verified": False,
@@ -653,6 +661,7 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
             "separation_verified": True,
         },
         "selection_quality": dict(analysis.get("selection_quality") or {}),
+        "cost_reference_model":dict(analysis.get("cost_reference_model") or {}),
         "production_parameters_changed": False,
         "trade_authorized": False,
         "generated_at": _now_iso(now),
@@ -922,6 +931,8 @@ def build_weekly_pdf(analysis: Mapping[str, Any], *, technical: bool = False, re
     groups.setStyle(TableStyle([("FONTNAME",(0,0),(-1,0),bold),("FONTNAME",(0,1),(-1,-1),regular),("FONTSIZE",(0,0),(-1,-1),7),
                                 ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#e2e8f0")),("GRID",(0,0),(-1,-1),.3,colors.HexColor("#94a3b8"))]))
     story.append(groups)
+    from services.learning_cost_reference import report_text as cost_reference_text
+    story.append(Paragraph(cost_reference_text(analysis.get('cost_reference_model') or {}),small))
     selection = analysis.get("selection_quality") if isinstance(analysis.get("selection_quality"), Mapping) else {}
     selected = selection.get("selected") if isinstance(selection.get("selected"), Mapping) else {}
     control = selection.get("matched_control") if isinstance(selection.get("matched_control"), Mapping) else {}
@@ -1086,6 +1097,17 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
     _breadcrumb("learning:maintenance:start", {"local_weekday": current.astimezone(OSLO).weekday()})
     from services.learning_outcome_integrity import run_authorized_cleanup
     result['outcome_quarantine'] = run_authorized_cleanup(now=current)
+    try:
+        from services.learning_cost_reference import ensure_contract
+        from services.storage_service import get_storage_service
+        from runtime_identity import current_runtime_identity
+        contract=ensure_contract(get_storage_service(),commit=current_runtime_identity()['commit'])
+        result['cost_reference_contract']=({'status':'BOUND','sha256':contract['sha256'],
+            'recorded_at':contract['recorded_at'],'commit':contract['commit']} if contract else
+            {'status':'NOT_AUTHORITATIVE_STORAGE'})
+    except Exception as exc:
+        result['cost_reference_contract']={'status':'FAILED','error':type(exc).__name__+': '+str(exc)[:200]}
+        result['status']='DEGRADED'
     # Closing a learning position must lead to a measured result even when
     # the independent Shadow outcome job is not due (including weekends).
     # Providers and bounded evidence writes run here, never on a menu click.
@@ -1181,6 +1203,8 @@ def render_weekly_learning_reports()->None:
     from report_delivery import public_report_url
     st.markdown("##### Ukentlig kontrollert observasjonslæring")
     live=report_control_snapshot()
+    from services.learning_cost_reference import report_text as cost_reference_text
+    st.caption(cost_reference_text(live.get('cost_reference_model') or {}))
     st.caption('Læringsmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK. Gamle og nye målemetoder blandes ikke.')
     measures=live.get("measurements_1_5_20_60") or {}
     a,b,c,d=st.columns(4)
