@@ -28,7 +28,7 @@ def sessions(market, start, end):
             for day,row in schedule.iterrows()]
 
 
-def measure(row, stock, benchmark, *, now, previous=None):
+def measure(row, stock, benchmark, *, now, previous=None, cost_contract=None):
     from services.learning_position_outcomes import stamp
     original = deepcopy(previous or {})
     signal_at = stamp(row['entry_at'])
@@ -84,15 +84,26 @@ def measure(row, stock, benchmark, *, now, previous=None):
                 'source_basis':{'stock_adjusted_entry_open':stock_open,
                     'stock_adjusted_exit_close':positive(stock_by_date[expected[horizon-1]]['close']),
                     'benchmark_adjusted_entry_open':bench_open,
-                    'benchmark_adjusted_exit_close':positive(bench_by_date[expected[horizon-1]]['close']) if paired else None},
+                    'benchmark_adjusted_exit_close':positive(bench_by_date[expected[horizon-1]]['close']) if paired else None,
+                    'exit_session_close_at':completed[horizon-1][2].isoformat()},
                 'net_return_pct':None,'net_status':'NOT_MODELLED_NO_EXECUTION_FX_COST_LEDGER',
             }
+        from services.learning_cost_reference import cost_reference, reference_changed
+        for key,reading in measurements.items():
+            endpoint=stock_by_date[reading['market_date']]
+            reading['cost_reference']=cost_reference(
+                gross_factor=positive(endpoint['close'])/stock_open,
+                currency=(row.get('signal_reference') or {}).get('reference_currency'),
+                entry_at=entry_open.isoformat(),exit_at=reading['source_basis']['exit_session_close_at'],
+                contract=cost_contract,fx_entry=entry.get('fx_open_quote'),fx_exit=endpoint.get('fx_close_quote'))
         for key,old in (original.get('horizon_measurements') or {}).items():
             fresh = measurements.get(key)
             if fresh is None or any(old.get(f)!=fresh.get(f) for f in
                                     ('market_date','return_pct','maximum_gain_pct','maximum_drawdown_pct')):
                 return {**original,'state':'NORMALIZED_HISTORY_REVISION'}
             if old.get('benchmark_return_pct') is not None and fresh.get('benchmark_return_pct') is not None and old.get('benchmark_return_pct')!=fresh.get('benchmark_return_pct'):
+                return {**original,'state':'NORMALIZED_HISTORY_REVISION'}
+            if reference_changed(old.get('cost_reference'),fresh.get('cost_reference')):
                 return {**original,'state':'NORMALIZED_HISTORY_REVISION'}
             measurements[key] = old  # Preserve the exact frozen result and provenance.
         reference = original.get('entry_reference') or {

@@ -1654,7 +1654,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     coverage = result_learning.get('signal_coverage') or {}
     if coverage:
         lines.append(f"- Kjøpssignaler i rapporten: {coverage.get('strict_count',0)} strenge og {coverage.get('moderate_count',0)} moderate. Registrering venter sluttkontroll; utfallsmålingene bruker et begrenset utvalg.")
-    lines.append('- Signalmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK.')
+    lines.append('- Brutto signalmålinger vises i noteringsvaluta. Kostnadsreferansen i NOK er en separat modellberegning, ikke faktisk netto porteføljegevinst.')
     lines.append(f"- Ferdige 1/5/20/60 børsdager: {measured.get('1', 0)}/{measured.get('5', 0)}/{measured.get('20', 0)}/{measured.get('60', 0)}")
     lines.append(f"- Benchmark komplett: {'JA' if result_learning.get('benchmark_complete') else 'NEI'} · manglende/foreldede: {result_learning.get('missing_or_stale', 0)}")
     separated = result_learning.get("separate_results") or {}
@@ -4398,11 +4398,13 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             _p(f"{baseline_status.get('status') or 'VENTER'} · {int(baseline_status.get('signals') or 0)} historiske referanser", "Tiny"),
         ],
     ]
+    from services.learning_cost_reference import report_text as cost_reference_text
     learning_table = Table(learning_rows, repeatRows=1, colWidths=[38*mm, 31*mm, 38*mm, 34*mm, 43*mm])
     learning_table.setStyle(_table_style(5.4, padding=1.3))
     decision_story += [
         Paragraph("Resultat- og læringskontroll", styles["Section"]),
         learning_table,
+        Paragraph(cost_reference_text(decision_result_learning.get('cost_reference_model') or {}),styles['Small']),
         Paragraph(
             "Planlagte nye utfallsmålinger fra denne rapporten: "
             f"{int(decision_result_learning.get('pending_registration') or 0)}. "
@@ -4413,7 +4415,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             (f"Kjøpssignaler i rapporten: {int(learning_coverage.get('strict_count') or 0)} strenge og "
              f"{int(learning_coverage.get('moderate_count') or 0)} moderate. Registrering venter sluttkontroll. "
              if learning_coverage else "Registreringsdekningen er ikke dokumentert i denne eldre rapporten. ")
-            + "Signalmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK.",
+            + "Brutto signalmålinger vises i noteringsvaluta. Kostnadsreferansen i NOK er en separat modellberegning, ikke faktisk netto porteføljegevinst.",
             styles['Small'],
         ),
         Paragraph(
