@@ -5,6 +5,7 @@ parameters. Point-in-time inputs are frozen; prices and benchmarks are followed
 independently from simulated portfolio exits and later report appearances.
 """
 from __future__ import annotations
+from services.learning_evidence_report import legacy_baseline_view
 from ui_library.work_progress import tracked_job
 
 import hashlib
@@ -172,10 +173,10 @@ def save_observations(rows: Sequence[Mapping[str, Any]]) -> None:
     storage = get_storage_service()
     if storage.using_postgres() and not storage.allow_local_fallback:
         # A report or price job may still hold a pre-cleanup copy in memory.
-        # Preserve authoritative quarantine tombstones under the same row lock.
+        # Preserve authoritative quarantine tombstones and frozen legacy rows under the same row lock.
         def preserve_quarantine(current):
             protected = {r['observation_id']: r for r in (current or [])
-                         if r.get('status') == 'QUARANTINED'}
+                         if r.get('status') == 'QUARANTINED' or r.get('measurement_policy') != SIGNAL_MEASUREMENT_POLICY}
             merged = [protected.get(r.get('observation_id'), r) for r in proposed]
             present = {r.get('observation_id') for r in merged}
             merged.extend(r for key,r in protected.items() if key not in present)
@@ -223,7 +224,10 @@ def register_report_observations(
     threshold = _number(summary.get("production_buy_threshold"), 73.0) or 73.0
     candidates = [dict(row) for row in (run.get("candidates") or []) if isinstance(row, Mapping) and _eligible(row)]
     rows = load_observations()
-    active = [row for row in rows if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
+    legacy_frozen = sum(row.get("measurement_policy") != SIGNAL_MEASUREMENT_POLICY
+                        and row.get("status") != "QUARANTINED" for row in rows)
+    active = [row for row in rows if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"
+              and row.get("measurement_policy") == SIGNAL_MEASUREMENT_POLICY]
     active_pairs = {(str(row.get('ticker') or '').upper(),str(row.get('group') or '')) for row in active
                     if row.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY}
     active_by_group: dict[str, int] = defaultdict(int)
@@ -272,6 +276,7 @@ def register_report_observations(
         "eligible_candidates": len(candidates), "created": len(created),
         "created_by_group": {group: sum(row["group"] == group for row in created) for group in GROUP_TARGETS},
         "active_after": len(active) + len(created), "capacity": MAX_ACTIVE_OBSERVATIONS,
+        "legacy_frozen": legacy_frozen,
         "committed": bool(commit), "production_changed": False,
         "signal_coverage": coverage,
         "sampling_scope": "BOUNDED_OUTCOME_SAMPLE_NOT_ALL_SIGNAL_OCCURRENCES",
@@ -355,13 +360,16 @@ def load_engine_state() -> dict[str, Any]:
 
 
 def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: datetime | None = None) -> dict[str, Any]:
-    """Backfill 1/5/20/60 trading-day measurements regardless of portfolio exit."""
+    """Measure the current method only; retain legacy evidence without updating it."""
     current = now or datetime.now(timezone.utc)
     rows = load_observations()
-    active = [row for row in rows if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
+    legacy_frozen = sum(row.get("measurement_policy") != SIGNAL_MEASUREMENT_POLICY
+                        and row.get("status") != "QUARANTINED" for row in rows)
+    active = [row for row in rows if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"
+              and row.get("measurement_policy") == SIGNAL_MEASUREMENT_POLICY]
     if not active:
         result = {"status": "COMPLETED", "active": 0, "updated": 0, "matured": 0, "missing": 0,
-                  "completed_at": _now_iso(now), "production_changed": False}
+                  "completed_at": _now_iso(now), "production_changed": False, "legacy_frozen": legacy_frozen}
         write_json(STATE_KEY, STATE_PATH, {**load_engine_state(), "daily": result})
         _audit("OUTCOMES_EVALUATED", result, now=now)
         return result
@@ -402,110 +410,11 @@ def evaluate_observations(series_loader: SeriesLoader | None = None, *, now: dat
             if state=='MEASURED_WITHOUT_COMPARABLE_BENCHMARK':
                 missing += 1
             continue
-        from services.learning_outcome_integrity import completed_through
-        try:
-            cutoff = completed_through(_market(observation.get('market'), ticker), current)
-            stock = [p for p in stock if p['date'] <= cutoff]
-            bench = [p for p in bench if p['date'] <= cutoff]
-        except (ValueError, KeyError):
-            observation['source_health'] = {'status':'UNVERIFIED_SESSION_CALENDAR', 'checked_at':_now_iso(now)}
-            missing += 1
-            continue
-        entry_day = str(observation.get("entry_market_date") or "")[:10]
-        forward = [row for row in stock if str(row.get("date") or "") > entry_day]
-        if not stock or not bench:
-            observation["source_health"] = {"status": "MISSING_SERIES", "checked_at": _now_iso(now),
-                                             "stock_points": len(stock), "benchmark_points": len(bench)}
-            missing += 1; continue
-        if not forward:
-            # A newly registered observation can legitimately have no trading day
-            # after its entry date yet (for example a night run before Oslo opens).
-            # This is waiting for market time, not degraded source health.
-            observation["source_health"] = {
-                "status": "AWAITING_NEXT_TRADING_DAY", "checked_at": _now_iso(now),
-                "stock_points": len(stock), "benchmark_points": len(bench),
-                "entry_market_date": entry_day,
-            }
-            continue
-        benchmark_entry = _price_on_or_before(bench, entry_day, strict=True)
-        if not benchmark_entry:
-            observation["source_health"] = {"status": "MISSING_BENCHMARK_BASELINE", "checked_at": _now_iso(now)}
-            missing += 1; continue
-        # Freeze the benchmark denominator used for historical Shadow returns.
-        frozen_entry = _number(observation.get("benchmark_entry_price"))
-        if frozen_entry and frozen_entry > 0:
-            drift_pct = abs((benchmark_entry / frozen_entry - 1.0) * 100.0)
-            if drift_pct > 0.10:
-                observation["source_health"] = {
-                    "status": "BENCHMARK_BASELINE_DRIFT",
-                    "checked_at": _now_iso(now),
-                    "stored_entry": frozen_entry,
-                    "provider_entry": round(benchmark_entry, 6),
-                    "drift_pct": round(drift_pct, 4),
-                }
-                missing += 1
-                continue
-            benchmark_entry = frozen_entry
-        else:
-            observation["benchmark_entry_price"] = round(benchmark_entry, 6)
-        entry_price = _number(observation.get("entry_price")) or 0.0
-        measurements = dict(observation.get("horizon_measurements") or {})
-        window_updates = 0
-        for horizon in HORIZONS:
-            if len(forward) < horizon or str(horizon) in measurements:
-                continue
-            point = forward[horizon - 1]; point_day = str(point["date"]); price = float(point["close"])
-            benchmark_price = _price_on_or_before(bench, point_day)
-            if not benchmark_price or not entry_price:
-                continue
-            stock_return = (price / entry_price - 1.0) * 100.0
-            benchmark_return = (benchmark_price / benchmark_entry - 1.0) * 100.0
-            window = [float(row["close"]) for row in forward[:horizon]]
-            measurements[str(horizon)] = {
-                "horizon_days": horizon, "market_date": point_day, "measured_at": _now_iso(now),
-                "price": round(price, 6), "benchmark_price": round(benchmark_price, 6),
-                "return_pct": round(stock_return, 4), "benchmark_return_pct": round(benchmark_return, 4),
-                "excess_return_pct": round(stock_return - benchmark_return, 4),
-                "maximum_gain_pct": round((max(window) / entry_price - 1.0) * 100.0, 4),
-                "maximum_drawdown_pct": round((min(window) / entry_price - 1.0) * 100.0, 4),
-            }
-            window_updates += 1
-        from services.learning_outcome_integrity import issues as outcome_issues
-        contradictions = outcome_issues({**observation, 'horizon_measurements': measurements})
-        if contradictions:
-            # A new provider window must not contradict previously frozen outcomes.
-            # Keep the original evidence for audit; never publish the new mixture.
-            observation['source_health'] = {'status': 'OUTCOME_WINDOW_INCONSISTENT',
-                                            'checked_at': _now_iso(now), 'reasons': contradictions}
-            missing += 1
-            continue
-        latest = forward[-1]; latest_day = str(latest["date"]); latest_dates.add(latest_day)
-        benchmark_latest = _price_on_or_before(bench, latest_day)
-        stock_return = (float(latest["close"]) / entry_price - 1.0) * 100.0 if entry_price else 0.0
-        benchmark_return = (benchmark_latest / benchmark_entry - 1.0) * 100.0 if benchmark_latest else 0.0
-        marks = [dict(row) for row in (observation.get("daily_marks") or []) if str(row.get("market_date") or "") != latest_day]
-        marks.append({"market_date": latest_day, "price": round(float(latest["close"]), 6),
-                      "benchmark_price": round(float(benchmark_latest), 6) if benchmark_latest else None,
-                      "return_pct": round(stock_return, 4), "benchmark_return_pct": round(benchmark_return, 4),
-                      "excess_return_pct": round(stock_return - benchmark_return, 4), "recorded_at": _now_iso(now)})
-        contradictions = outcome_issues({**observation, 'horizon_measurements': measurements, 'daily_marks': marks[-70:]})
-        if contradictions:
-            observation['source_health'] = {'status': 'OUTCOME_WINDOW_INCONSISTENT',
-                                            'checked_at': _now_iso(now), 'reasons': contradictions}
-            missing += 1
-            continue
-        observation["horizon_measurements"] = measurements
-        updated += window_updates
-        observation["daily_marks"] = marks[-70:]
-        observation["last_market_date"] = latest_day; observation["last_evaluated_at"] = _now_iso(now)
-        observation["source_health"] = {"status": "OK", "checked_at": _now_iso(now),
-                                         "stock_points": len(stock), "benchmark_points": len(bench)}
-        if "60" in measurements:
-            observation["status"] = "MATURED"; observation["completed_at"] = _now_iso(now); matured += 1
     save_observations(rows)
     result = {"status": "COMPLETED" if not missing else "DEGRADED", "active": len(active),
               "updated": updated, "matured": matured, "missing": missing,
-              "latest_market_dates": sorted(latest_dates), "completed_at": _now_iso(now), "production_changed": False}
+              "latest_market_dates": sorted(latest_dates), "completed_at": _now_iso(now), "production_changed": False,
+              "legacy_frozen": legacy_frozen}
     state = load_engine_state(); state["daily"] = result; write_json(STATE_KEY, STATE_PATH, state)
     _audit("OUTCOMES_EVALUATED", {**result, "observation_set_sha256": _checksum(rows)}, now=now)
     return result
@@ -561,9 +470,9 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
     observations = [row for row in observations if usable(row)]
     legacy_count = sum(row.get('measurement_policy') != SIGNAL_MEASUREMENT_POLICY for row in observations)
     has_current_method = any(row.get('measurement_policy') == SIGNAL_MEASUREMENT_POLICY for row in observations)
-    if has_current_method:
-        observations = [row for row in observations if row.get('measurement_policy') == SIGNAL_MEASUREMENT_POLICY]
-    basis = SIGNAL_MEASUREMENT_POLICY if has_current_method else 'LEGACY_UNQUALIFIED_PRICE_REFERENCE'
+    # Unqualified history remains available in storage, never as active learning.
+    observations = [row for row in observations if row.get('measurement_policy') == SIGNAL_MEASUREMENT_POLICY]
+    basis = SIGNAL_MEASUREMENT_POLICY if has_current_method else 'NO_QUALIFIED_CURRENT_METHOD_OBSERVATIONS'
     active = [row for row in observations if str(row.get("status") or "ACTIVE").upper() == "ACTIVE"]
     horizon_rows = []
     for horizon in HORIZONS:
@@ -658,10 +567,11 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
             "data_quality": {"excluded_observations": excluded_count,
                              "legacy_reference_observations": legacy_count,
                              "excluded_tickers": excluded_tickers[:30],
-                             "reason": "Inconsistent or quarantined outcomes excluded; negative returns retained."},
+                             "legacy_updates_frozen": True,
+                             "reason": "Inconsistent/quarantined outcomes excluded; legacy frozen outside active learning; negative current-method returns retained."},
             "shadow_proposals": proposals, "strategy_readiness": "NOT_VALIDATED",
             "measurement_policy": basis,
-            "return_basis": "GROSS_ADJUSTED_TOTAL_RETURN_PROXY_IN_LISTING_CURRENCY" if has_current_method else "UNQUALIFIED_LEGACY_PRICE_REFERENCE",
+            "return_basis": "GROSS_ADJUSTED_TOTAL_RETURN_PROXY_IN_LISTING_CURRENCY" if has_current_method else "NO_QUALIFIED_CURRENT_METHOD_OBSERVATIONS",
             "net_result_verified": False,
             "method_warning": "Brutto referanseberegning i noteringsvaluta. Ikke nettoresultat i NOK. Eldre metode blandes ikke med ny metode.",
             "production_parameters_changed": False,
@@ -730,12 +640,7 @@ def report_control_snapshot(plan: Mapping[str, Any] | None = None, run: Mapping[
             "next_attempt": "NESTE DAGLIGE LÆRINGSKJØRING" if status in {"FEIL", "DEGRADERT"} else "ETTER NESTE BØRSDAG",
             "partial_results_preserved": status != "FEIL" or any(horizons.values()),
         },
-        "historical_baseline": {
-            "status": str(baseline.get("status") or "VENTER"),
-            "signals": int(baseline.get("signal_count") or 0),
-            "verified": int(baseline.get("verified_count") or 0),
-            "report_id": str(baseline.get("report_id") or ""),
-        },
+        "historical_baseline": legacy_baseline_view(baseline),
         "separate_results": {
             "signal_20d_excess_return_pct": excess_20.get("average") if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else None,
             "signal_20d_count": int(excess_20.get("count") or 0) if analysis.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY else 0,
@@ -943,48 +848,14 @@ def build_historical_baseline(
 def generate_historical_baseline(*, runs: Sequence[Mapping[str, Any]] | None = None,
                                  series_loader: SeriesLoader | None = None,
                                  now: datetime | None = None, notify: bool = True) -> dict[str, Any]:
+    # The legacy baseline mixes raw entry references with revised adjusted history.
+    # Preserve its original document; the authorized point-5 study must replace the
+    # method explicitly before any automatic archive scan or notification resumes.
     existing = read_json(BASELINE_KEY, BASELINE_PATH, {})
-    if isinstance(existing, Mapping) and existing.get("report_id"):
-        return {"status": "ALREADY_COMPLETED", "report_id": existing.get("report_id")}
-    if runs is None:
-        _breadcrumb("learning:baseline:compact_archive:before")
-        runs = _load_compact_baseline_runs(max_reports=100, max_signals=1500)
-        _breadcrumb("learning:baseline:compact_archive:after", {"runs": len(runs), "candidates": sum(len(run.get("candidates") or []) for run in runs)})
-    _breadcrumb("learning:baseline:build:before", {"runs": len(runs) if hasattr(runs, "__len__") else None})
-    result = build_historical_baseline(runs, series_loader=series_loader, now=now)
-    _breadcrumb("learning:baseline:build:after", {"status": result.get("status"), "signals": result.get("signal_count")})
-    _release_memory("learning_baseline_after_build")
-    if int(result.get("signal_count") or 0) <= 0 or str(result.get("status") or "").upper() == "FEIL":
-        _audit("HISTORICAL_BASELINE_DEFERRED", result, now=now)
-        state=load_engine_state(); state["baseline_attempt"]={"status":result.get("status"),"completed_at":_now_iso(now)}
-        write_json(STATE_KEY,STATE_PATH,state)
-        return result
-    report_id = "HLB-" + (now or datetime.now(timezone.utc)).strftime("%Y%m%d%H%M%S")
-    result["report_id"] = report_id
-    analysis = result.get("analysis") if isinstance(result.get("analysis"), Mapping) else build_weekly_analysis([], now=now)
-    public_pdf = build_weekly_pdf(analysis, report_title="Historisk baseline – siste tilgjengelige rapporthistorikk")
-    technical_pdf = build_weekly_pdf(analysis, technical=True, report_title="Historisk baseline – teknisk revisjon")
-    record = {"report_id": report_id, "run_id": report_id, "created_at": _now_iso(now),
-              "public_pdf_name": f"Historisk_baseline_{report_id}.pdf",
-              "technical_pdf_name": f"Historisk_baseline_{report_id}_technical.pdf", **result}
-    from public_report_store import publish_durable_file, publish_durable_pdf
-    publish_durable_pdf(record, public_pdf)
-    publish_durable_pdf(record, technical_pdf, token_field="technical_report_token", filename_field="technical_pdf_name", document_kind="baseline_technical")
-    json_name = f"Historisk_baseline_{report_id}.json"
-    record["public_json_name"] = json_name
-    record["public_json_token"] = publish_durable_file(json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"), filename=json_name, mime="application/json", report_id=report_id)
-    write_json(BASELINE_KEY, BASELINE_PATH, record)
-    state=load_engine_state(); state["baseline_attempt"]={"status":record.get("status"),"completed_at":_now_iso(now),"report_id":report_id}
-    write_json(STATE_KEY,STATE_PATH,state)
-    _audit("HISTORICAL_BASELINE_COMPLETED", {key: record.get(key) for key in ("status", "report_id", "signal_count", "verified_count", "baseline_sha256")}, now=now)
-    if notify:
-        try:
-            from notifier import send_pushover_alert
-            from report_delivery import public_report_url
-            send_pushover_alert(f"Signaler: {record.get('signal_count', 0)} | verifisert: {record.get('verified_count', 0)}\nStatus: {record.get('status')}", title="Historisk læringsbaseline", url=public_report_url(record) or None, url_title="Åpne og del baseline", relevance_event={"category": "routine"})
-        except Exception:
-            pass
-    return {key: record.get(key) for key in ("status", "report_id", "signal_count", "verified_count", "baseline_sha256")}
+    return {"status":"ON_HOLD_DATA_QUALITY", "production_parameters_changed":False,
+            "historical_qualified_for_strategy":False,
+            "preserved_report_id":existing.get("report_id") if isinstance(existing, Mapping) else None,
+            "reason":"LEGACY_METHOD_NOT_QUALIFIED; HISTORICAL_STUDY_NOT_STARTED"}
 
 
 def _register_pdf_fonts() -> tuple[str, str]:
@@ -1287,14 +1158,18 @@ def run_learning_maintenance(*,now:datetime|None=None,series_loader:SeriesLoader
 
 def diagnostics()->dict[str,Any]:
     rows=load_observations(); state=load_engine_state(); reports=load_weekly_reports(3)
+    from services.learning_outcome_integrity import usable
+    current=[row for row in rows if row.get('measurement_policy')==SIGNAL_MEASUREMENT_POLICY and usable(row)]
     baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
     return {"schema_version":SCHEMA_VERSION,"engine_version":ENGINE_VERSION,
-        "active":sum(str(row.get("status") or "ACTIVE").upper()=="ACTIVE" for row in rows),
-        "matured":sum(str(row.get("status") or "").upper()=="MATURED" for row in rows),
-        "groups":{group:sum(str(row.get("group") or "")==group for row in rows) for group in GROUP_TARGETS},
+        "active":sum(str(row.get("status") or "ACTIVE").upper()=="ACTIVE" for row in current),
+        "matured":sum(str(row.get("status") or "").upper()=="MATURED" for row in current),
+        "groups":{group:sum(str(row.get("group") or "")==group for row in current) for group in GROUP_TARGETS},
         "latest_daily":dict(state.get("daily") or {}),"latest_weekly":dict(state.get("weekly") or {}),
         "recent_weekly_reports":[{key:row.get(key) for key in ("report_id","week_key","created_at","notification")} for row in reports],
-        "historical_baseline":{key:(baseline or {}).get(key) for key in ("status","report_id","signal_count","verified_count","baseline_sha256")},
+        "historical_baseline":legacy_baseline_view(baseline or {}),
+        "legacy_frozen":sum(row.get('measurement_policy')!=SIGNAL_MEASUREMENT_POLICY and row.get('status')!='QUARANTINED' for row in rows),
+        "quarantined":sum(row.get('status')=='QUARANTINED' for row in rows),
         "recent_audit":load_audit(20),
         "production_parameters_changed":False}
 
@@ -1321,7 +1196,7 @@ def render_weekly_learning_reports()->None:
         baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
         if isinstance(baseline,Mapping) and baseline.get("report_id"):
             st.markdown("##### Historisk baseline")
-            st.caption(f"Status {baseline.get('status')} · verifisert {int(baseline.get('verified_count') or 0)}/{int(baseline.get('signal_count') or 0)} signaler.")
+            st.caption(f"{legacy_baseline_view(baseline)['status']} · {int(baseline.get('signal_count') or 0)} historiske referanser. Originalrapporten er bevart.")
             baseline_pdf=load_public_pdf(str(baseline.get("public_report_token") or ""))
             if baseline_pdf:
                 url=public_report_url(baseline) or f"/?public_report_token={baseline.get('public_report_token')}"
@@ -1348,7 +1223,7 @@ def render_weekly_learning_reports()->None:
     baseline=read_json(BASELINE_KEY,BASELINE_PATH,{})
     if isinstance(baseline,Mapping) and baseline.get("report_id"):
         st.markdown("##### Historisk baseline")
-        st.caption(f"Status {baseline.get('status')} · verifisert {int(baseline.get('verified_count') or 0)}/{int(baseline.get('signal_count') or 0)} signaler. Baseline endrer ingen produksjonsregel.")
+        st.caption(f"{legacy_baseline_view(baseline)['status']} · {int(baseline.get('signal_count') or 0)} historiske referanser. Originalrapporten er bevart.")
         baseline_pdf=load_public_pdf(str(baseline.get("public_report_token") or ""))
         if baseline_pdf:
             url=public_report_url(baseline) or f"/?public_report_token={baseline.get('public_report_token')}"

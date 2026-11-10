@@ -4395,7 +4395,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             _p(f"{int(decision_result_learning.get('active_observations') or 0)} / {int(decision_result_learning.get('matured_observations') or 0)}", "Tiny"),
             _p("/".join(str(int(learning_measurements.get(str(day)) or 0)) for day in (1, 5, 20, 60)), "Tiny"),
             _p("Komplett" if decision_result_learning.get("benchmark_complete") else f"Avvik {int(decision_result_learning.get('missing_or_stale') or 0)}", "Tiny"),
-            _p(f"{baseline_status.get('status') or 'VENTER'} · {int(baseline_status.get('verified') or 0)}/{int(baseline_status.get('signals') or 0)} verifisert", "Tiny"),
+            _p(f"{baseline_status.get('status') or 'VENTER'} · {int(baseline_status.get('signals') or 0)} historiske referanser", "Tiny"),
         ],
     ]
     learning_table = Table(learning_rows, repeatRows=1, colWidths=[38*mm, 31*mm, 38*mm, 34*mm, 43*mm])

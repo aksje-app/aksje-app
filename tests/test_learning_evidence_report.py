@@ -12,8 +12,8 @@ def test_separates_historical_short_horizons_from_matured_gate():
                   "strategy_quality_gate":{"mature_closed_positions":0,
                                            "benchmark_measured_positions":0}}
     result = summarize_learning_evidence(baseline, acceptance, [{"status":"ACTIVE"}])
-    assert result["historical_horizons"][0]["measured_count"] == 1382
-    assert result["historical_horizons"][1]["average_return_pct"] is None
+    assert result["historical_reference_horizons"][0]["measured_count"] == 1382
+    assert result["historical_reference_horizons"][1]["average_return_pct"] is None
     assert result["historical_matured_count"] == 0
     assert result["strategy_readiness"] == "NOT_VALIDATED"
     assert result["observation_status_counts"] == {"ACTIVE":1}
@@ -22,10 +22,10 @@ def test_separates_historical_short_horizons_from_matured_gate():
 
 def test_active_shadow_can_have_measured_subhorizons():
     from services.learning_evidence_report import summarize_measured_observation_horizons
-    rows = [{"status": "ACTIVE", "horizon_measurements": {
+    rows = [{"status": "ACTIVE", "measurement_policy":"NEXT_COMMON_OPEN_ADJUSTED_PROXY_V2", "horizon_measurements": {
         "1": {"return_pct": -2, "excess_return_pct": -1},
         "5": {"return_pct": 3, "excess_return_pct": 2}}},
-        {"status": "ACTIVE", "horizon_measurements": {
+        {"status": "ACTIVE", "measurement_policy":"NEXT_COMMON_OPEN_ADJUSTED_PROXY_V2", "horizon_measurements": {
         "1": {"return_pct": 4, "excess_return_pct": 3}}}]
     result = summarize_measured_observation_horizons(rows)
     assert result[0]["measured_count"] == 2

@@ -40,7 +40,7 @@ def test_multi_stock_notification_uses_current_price_denominator():
     assert "ikke garantert salgskurs" in message
 
 def test_learning_reports_absolute_excess_and_no_validation_claim():
-    rows = [{"group": group, "decision_snapshot": {"program_version": "old"},
+    rows = [{"group": group, "measurement_policy":learning.SIGNAL_MEASUREMENT_POLICY, "decision_snapshot": {"program_version": "old"},
              "horizon_measurements": {"20": {"return_pct": -.4, "excess_return_pct": excess}}}
             for group, excess in (("MODERATE", 1.5), ("MATCHED_CONTROL", .7)) for _ in range(30)]
     result = learning.build_weekly_analysis(rows)

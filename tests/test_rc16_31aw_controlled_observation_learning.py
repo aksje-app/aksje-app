@@ -45,15 +45,14 @@ def test_registration_idempotent_and_capped(monkeypatch):
 def test_evaluation_reaches_60_after_simulated_exit(monkeypatch):
     entry=datetime(2026,1,2,tzinfo=timezone.utc)
     row={"observation_id":"O1","ticker":"AAA","market":"USA","sector":"Tech","strategy":"QUALITY","group":"MODERATE",
-         "benchmark_ticker":"^GSPC","entry_at":entry.isoformat(),"entry_market_date":"2026-01-02","entry_price":100.0,
+         "benchmark_ticker":"^SP500TR","measurement_policy":engine.SIGNAL_MEASUREMENT_POLICY,"entry_at":entry.isoformat(),"entry_market_date":"2026-01-02","entry_price":100.0,
          "status":"ACTIVE","horizon_measurements":{},"daily_marks":[],"simulated_exit_at":"2026-01-10T12:00:00+00:00"}
-    store=_memory(monkeypatch,[row]); days=[]; day=entry.date()
-    while len(days)<65:
-        if day.weekday()<5: days.append(day.isoformat())
-        day+=timedelta(days=1)
-    stock=[{"date":"2025-12-31","close":99.0}]+[{"date":d,"close":100+i} for i,d in enumerate(days)]
-    bench=[{"date":"2025-12-31","close":200.0}]+[{"date":d,"close":200+i} for i,d in enumerate(days)]
-    result=engine.evaluate_observations(lambda symbols,start:{"AAA":stock,"^GSPC":bench},now=datetime(2026,4,15,tzinfo=timezone.utc))
+    from services.learning_signal_measurement import sessions, RETURN_BASIS
+    store=_memory(monkeypatch,[row])
+    days=[d for d,opened,closed in sessions('USA','2026-01-02','2026-04-14')]
+    stock=[{"date":d,"open":100+i,"raw_open":100+i,"close":101+i,"return_basis":RETURN_BASIS} for i,d in enumerate(days)]
+    bench=[{"date":d,"open":200+i,"raw_open":200+i,"close":201+i,"return_basis":RETURN_BASIS} for i,d in enumerate(days)]
+    result=engine.evaluate_observations(lambda symbols,start:{"AAA":stock,"^SP500TR":bench},now=datetime(2026,4,15,tzinfo=timezone.utc))
     observed=store[engine.OBSERVATIONS_KEY][0]
     assert result["matured"]==1 and set(observed["horizon_measurements"])=={"1","5","20","60"}
     assert observed["status"]=="MATURED" and observed["simulated_exit_at"].startswith("2026-01-10")
@@ -61,7 +60,7 @@ def test_evaluation_reaches_60_after_simulated_exit(monkeypatch):
 def test_weekly_analysis_is_shadow_only():
     rows=[]
     for i in range(12):
-        rows.append({"status":"ACTIVE","ticker":f"X{i}","group":"MODERATE" if i<6 else "NEAR_THRESHOLD","market":"USA","sector":"Tech","strategy":"QUALITY","benchmark_ticker":"^GSPC","source_health":{"status":"OK"},"horizon_measurements":{"20":{"return_pct":4+i,"benchmark_return_pct":2,"excess_return_pct":2+i}}})
+        rows.append({"status":"ACTIVE","measurement_policy":engine.SIGNAL_MEASUREMENT_POLICY,"ticker":f"X{i}","group":"MODERATE" if i<6 else "NEAR_THRESHOLD","market":"USA","sector":"Tech","strategy":"QUALITY","benchmark_ticker":"^GSPC","source_health":{"status":"OK"},"horizon_measurements":{"20":{"return_pct":4+i,"benchmark_return_pct":2,"excess_return_pct":2+i}}})
     a=engine.build_weekly_analysis(rows); twenty=next(r for r in a["horizons"] if r["horizon_days"]==20)
     assert twenty["excess_return"]["maturity"]=="FORELØPIG" and not a["production_parameters_changed"]
     assert all(not p["production_applied"] and p["approval_required"] for p in a["shadow_proposals"])
