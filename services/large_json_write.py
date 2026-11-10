@@ -39,14 +39,26 @@ class BinaryTextRow:
         return b''.join(chunks)
 
 
-def write_restart_payload(cur, name, payload, *, skip_unchanged=False):
+def write_restart_payload(cur, name, payload, *, skip_unchanged=False, immutable=False):
+    from services.restart_payload_codec import PREFIX,MAX_STORED_BYTES,CHUNK_BYTES,RestartPayloadError,enabled,encode_payload
+    original_bytes=len(payload) if payload.isascii() else sum(len(payload[i:i+CHUNK_BYTES].encode('utf8')) for i in range(0,len(payload),CHUNK_BYTES))
+    # All large writers use the same lock order as mutate_json. An encoded
+    # document stays encoded even if the rollout flag is later absent.
+    cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',(name,))
+    cur.execute('SELECT left(payload,%s) FROM app_kv_store WHERE name=%s FOR UPDATE',(len(PREFIX),name))
+    previous=cur.fetchone()
+    compressed=enabled() or bool(previous and previous[0].startswith(PREFIX))
+    if compressed:
+        payload=encode_payload(payload)
+    elif len(payload)>MAX_STORED_BYTES:
+        raise RestartPayloadError('Legacy restart value exceeds 64 MiB; deploy compatible readers and enable restart compression')
     cur.execute('CREATE TEMP TABLE app_restart_payload (payload TEXT NOT NULL) ON COMMIT DROP')
     cur.copy_expert('COPY app_restart_payload (payload) FROM STDIN WITH (FORMAT binary)', BinaryTextRow(payload))
     query = '''INSERT INTO app_kv_store (name, payload, updated_at)
         SELECT %s, payload, NOW()::TEXT FROM app_restart_payload
-        ON CONFLICT (name) DO UPDATE
-        SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at'''
-    if skip_unchanged:
+        ON CONFLICT (name)'''
+    query += ' DO NOTHING' if immutable else ' DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at'
+    if skip_unchanged and not immutable:
         query += ' WHERE app_kv_store.payload IS DISTINCT FROM EXCLUDED.payload'
     cur.execute(query, (name,))
-    logging.warning('LARGE_JSON_WRITE_STAGED key=%s transport=binary_copy bytes=%s', name, len(payload))
+    logging.warning('LARGE_JSON_WRITE_STAGED key=%s transport=binary_copy bytes=%s decoded_bytes=%s encoded=%s',name,len(payload),original_bytes,compressed)

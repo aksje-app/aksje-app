@@ -25,6 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from storage_architecture import get_runtime_paths
 from utils import _now_iso
+from services.restart_payload_codec import RestartPayloadError,decode_document
 
 try:
     import psycopg2  # type: ignore
@@ -112,6 +113,20 @@ def _restart_bundle(name: str) -> bool:
     return name.startswith('simulation_restarts/') and name.endswith('/bundle.json')
 
 
+def _load_json_document(name,raw):
+    try:value=json.loads(raw)
+    except (ValueError,UnicodeError) as exc:
+        if _restart_bundle(name):raise RestartPayloadError('Invalid restart JSON document') from exc
+        raise
+    return decode_document(value) if _restart_bundle(name) else value
+
+
+def _rollback_preserving_error(conn):
+    try:conn.rollback()
+    except Exception:
+        logging.warning('Rollback failed; preserving the original database operation error',exc_info=True)
+
+
 @dataclass(frozen=True)
 class StorageHealth:
     backend: str
@@ -193,7 +208,7 @@ class StorageService:
         a caller still validates content identity and fails on a real conflict.
         """
         name = _safe_name(name)
-        payload = json.dumps(data, ensure_ascii=False, default=str)
+        payload = json.dumps(data, ensure_ascii=_restart_bundle(name), default=str)
         attempts = max(1, min(5, int(attempts or 1)))
         if self.using_postgres():
             last_error: Exception | None = None
@@ -202,23 +217,29 @@ class StorageService:
                     self.init_db(); conn = self._conn()
                     try:
                         cur = conn.cursor()
-                        cur.execute(
-                            """INSERT INTO app_kv_store (name, payload, updated_at)
-                               VALUES (%s, %s, NOW()::TEXT)
-                               ON CONFLICT (name) DO NOTHING""",
-                            (name, payload),
-                        )
+                        if _restart_bundle(name) and len(payload)>=_RESTART_COPY_MIN_BYTES:
+                            from services.large_json_write import write_restart_payload
+                            write_restart_payload(cur,name,payload,immutable=True)
+                        else:
+                            cur.execute(
+                                """INSERT INTO app_kv_store (name, payload, updated_at)
+                                   VALUES (%s, %s, NOW()::TEXT)
+                                   ON CONFLICT (name) DO NOTHING""",
+                                (name, payload),
+                            )
                         cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR SHARE", (name,))
                         row = cur.fetchone()
                         if not row:
                             raise StorageUnavailableError(f"immutable_json({name}) mangler etter transaksjon")
                         conn.commit()
-                        return json.loads(row[0])
+                        return _load_json_document(name,row[0])
                     except Exception:
-                        conn.rollback()
+                        _rollback_preserving_error(conn)
                         raise
                     finally:
                         conn.close()
+                except RestartPayloadError as exc:
+                    raise StorageUnavailableError(f'immutable_json({name}) invalid restart storage encoding') from exc
                 except Exception as exc:
                     last_error = exc
                     logging.warning("Postgres immutable_json forsøk %s/%s feilet for %s: %s", attempt, attempts, name, exc)
@@ -230,7 +251,7 @@ class StorageService:
         path = self.base_dir / name
         with _path_lock(path):
             if path.exists():
-                return json.loads(path.read_text(encoding="utf-8"))
+                return _load_json_document(name,path.read_text(encoding="utf-8"))
             self._atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, default=str))
             return data
 
@@ -426,7 +447,7 @@ class StorageService:
                     # before building the decoded object graph.
                 finally:
                     conn.close()
-                value = default if not row else json.loads(row[0])
+                value = default if not row else _load_json_document(name,row[0])
                 if row:
                     from services.restart_io_metrics import record
                     record(name, 'read', payload_bytes)
@@ -438,6 +459,8 @@ class StorageService:
                 return value
             except OversizedJsonReadError:
                 raise
+            except RestartPayloadError as exc:
+                raise StorageUnavailableError(f'read_json({name}) invalid restart storage encoding') from exc
             except Exception as exc:
                 logging.warning("Postgres read_json feilet for %s: %s", name, exc)
                 if not self._local_allowed():
@@ -448,10 +471,12 @@ class StorageService:
             return default
         try:
             raw = path.read_text(encoding="utf-8")
-            value = json.loads(raw)
+            value = _load_json_document(name,raw)
             from services.restart_io_metrics import record
             record(name, 'read', raw=raw)
             return value
+        except RestartPayloadError:
+            raise
         except Exception as exc:
             logging.warning("Ugyldig lokal JSON %s: %s", path, exc)
             return default
@@ -632,6 +657,8 @@ class StorageService:
                 finally:
                     conn.close()
                 return True
+            except RestartPayloadError as exc:
+                raise StorageUnavailableError(f'write_json({name}) invalid restart storage encoding') from exc
             except Exception as exc:
                 logging.warning("Postgres write_json feilet for %s: %s", name, exc)
                 if not self._local_allowed():
@@ -639,6 +666,41 @@ class StorageService:
         self._require_local_allowed("write_json")
         self._atomic_write_text(self.base_dir / name, json.dumps(data, ensure_ascii=False, indent=2, default=str))
         return False
+
+    def ensure_restart_encoding(self,name):
+        """Lossless, idempotent storage migration; no financial callback runs."""
+        from services.restart_payload_codec import enabled,PREFIX,MAX_RAW_BYTES,CHUNK_BYTES
+        import hashlib
+        name=_safe_name(name)
+        if not _restart_bundle(name):raise ValueError('Explicit restart bundle required')
+        if not enabled():return {'state':'NOT_ENABLED','financial_state_changed':False}
+        if not self.using_postgres() or self.allow_local_fallback:
+            raise StorageUnavailableError('Restart encoding maintenance requires authoritative PostgreSQL')
+        self.init_db();conn=self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',(name,))
+                cur.execute('SELECT left(payload,%s),octet_length(payload) FROM app_kv_store WHERE name=%s FOR UPDATE',(len(PREFIX),name))
+                row=cur.fetchone()
+                if not row:return {'state':'MISSING','financial_state_changed':False}
+                prefix,size=row
+                if prefix.startswith(PREFIX):return {'state':'ALREADY_ENCODED','stored_bytes':size,'financial_state_changed':False}
+                if size<_RESTART_COPY_MIN_BYTES:return {'state':'SMALL_LEGACY','stored_bytes':size,'financial_state_changed':False}
+                if size>MAX_RAW_BYTES:raise RestartPayloadError('Legacy restart exceeds the decoded-size limit')
+                cur.execute('SELECT payload FROM app_kv_store WHERE name=%s',(name,));raw=cur.fetchone()[0]
+            checksum=hashlib.sha256()
+            for offset in range(0,len(raw),CHUNK_BYTES):checksum.update(raw[offset:offset+CHUNK_BYTES].encode('utf8'))
+            with conn.cursor() as cur:
+                from services.large_json_write import write_restart_payload
+                write_restart_payload(cur,name,raw)
+                cur.execute('SELECT octet_length(payload) FROM app_kv_store WHERE name=%s',(name,));stored_bytes=cur.fetchone()[0]
+            conn.commit()
+            return {'state':'ENCODED','key':name,'source_bytes':size,'stored_bytes':stored_bytes,
+                    'source_sha256':checksum.hexdigest(),'financial_state_changed':False}
+        except Exception:
+            _rollback_preserving_error(conn)
+            raise
+        finally:conn.close()
 
     def mutate_json(self, name: str, transform, default=None):
         """Serialize a read/modify/write; DB failures never fall back locally.
@@ -656,7 +718,7 @@ class StorageService:
                     row = cur.fetchone()
                 # The transaction/advisory/row locks survive cursor closure.
                 # Free the native result before decoding, as for public reads.
-                current = json.loads(row[0]) if row else default
+                current = _load_json_document(name,row[0]) if row else default
                 if row:
                     from services.restart_io_metrics import record
                     record(name, 'locked_mutation', raw=row[0])
@@ -676,7 +738,7 @@ class StorageService:
                 conn.commit()
                 return result
             except Exception:
-                conn.rollback()
+                _rollback_preserving_error(conn)
                 raise
             finally:
                 conn.close()
@@ -689,7 +751,7 @@ class StorageService:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 raw = path.read_text() if path.exists() else None
-                current = json.loads(raw) if raw is not None else default
+                current = _load_json_document(name,raw) if raw is not None else default
                 if raw is not None:
                     from services.restart_io_metrics import record
                     record(name, 'locked_mutation', raw=raw)
