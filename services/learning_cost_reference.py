@@ -5,7 +5,8 @@ reinvestment charges and no tax. Only the pinned proportional Autonomy policy
 is supported. Foreign currency needs supplied, timestamped endpoint references.
 """
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from functools import lru_cache
 from math import isfinite
 import re
 
@@ -141,10 +142,22 @@ def reference_changed(old,fresh):
          'model_return_after_costs_pct','fx_entry','fx_exit'))
 
 
-def summarize(rows,contract):
+@lru_cache(maxsize=256)
+def _expected_window(market,signal_at):
+    from services.learning_signal_measurement import sessions
+    signal=stamp(signal_at)
+    calendar=sessions(market,signal.date().isoformat(),(signal+timedelta(days=70)).date().isoformat())
+    eligible=[s for s in calendar if s[1]>signal]
+    if len(eligible)<20:
+        raise ValueError('Insufficient documented exchange sessions')
+    return eligible[0][1],eligible[19][0],eligible[19][2]
+
+
+def summarize(rows,contract,*,as_of=None):
     """Replay frozen evidence before including STRICT references in a mean."""
     from services.learning_signal_measurement import POLICY, RETURN_BASIS
     from services.learning_outcome_integrity import usable
+    report_at=stamp(as_of if as_of is not None else datetime.now(timezone.utc))
     values=[]
     measured=0
     for row in rows:
@@ -158,6 +171,14 @@ def summarize(rows,contract):
             claimed=reading['cost_reference']
             basis=reading['source_basis']
             if not isinstance(claimed,dict) or not isinstance(basis,dict):
+                continue
+            if reading.get('horizon_days')!=20:
+                continue
+            entry_open,exit_day,exit_close=_expected_window(row['market'],stamp(row['entry_at']).isoformat())
+            if (stamp(row['entry_reference']['market_open_at'])!=entry_open
+                or reading.get('market_date')!=exit_day
+                or stamp(basis['exit_session_close_at'])!=exit_close
+                or exit_close+timedelta(minutes=15)>report_at):
                 continue
             if reading.get('measurement_policy')!=POLICY or reading.get('return_basis')!=RETURN_BASIS:
                 continue

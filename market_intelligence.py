@@ -1654,7 +1654,7 @@ def build_text_report(run: Mapping[str, Any]) -> str:
     coverage = result_learning.get('signal_coverage') or {}
     if coverage:
         lines.append(f"- Kjøpssignaler i rapporten: {coverage.get('strict_count',0)} strenge og {coverage.get('moderate_count',0)} moderate. Registrering venter sluttkontroll; utfallsmålingene bruker et begrenset utvalg.")
-    lines.append('- Signalmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK.')
+    lines.append('- Brutto signalmålinger vises i noteringsvaluta. Kostnadsreferansen i NOK er en separat modellberegning, ikke faktisk netto porteføljegevinst.')
     lines.append(f"- Ferdige 1/5/20/60 børsdager: {measured.get('1', 0)}/{measured.get('5', 0)}/{measured.get('20', 0)}/{measured.get('60', 0)}")
     lines.append(f"- Benchmark komplett: {'JA' if result_learning.get('benchmark_complete') else 'NEI'} · manglende/foreldede: {result_learning.get('missing_or_stale', 0)}")
     separated = result_learning.get("separate_results") or {}
@@ -4415,7 +4415,7 @@ def build_pdf(run: Mapping[str, Any], report_type: str | None = None, *, include
             (f"Kjøpssignaler i rapporten: {int(learning_coverage.get('strict_count') or 0)} strenge og "
              f"{int(learning_coverage.get('moderate_count') or 0)} moderate. Registrering venter sluttkontroll. "
              if learning_coverage else "Registreringsdekningen er ikke dokumentert i denne eldre rapporten. ")
-            + "Signalmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK.",
+            + "Brutto signalmålinger vises i noteringsvaluta. Kostnadsreferansen i NOK er en separat modellberegning, ikke faktisk netto porteføljegevinst.",
             styles['Small'],
         ),
         Paragraph(

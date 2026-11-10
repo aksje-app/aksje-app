@@ -158,7 +158,7 @@ def test_cost_summary_replays_inputs_and_excludes_controls_legacy_and_tampering(
     loss={**row,**measure(row,[bar(d,100.,95.) for d in days],stock,
                         now=datetime(2026,12,10,18,tzinfo=timezone.utc),cost_contract=contract())}
     malformed=deepcopy(good);malformed['horizon_measurements']['20']['cost_reference']=None
-    result=summarize([good,loss,control,old,corrupt,malformed],contract())
+    result=summarize([good,loss,control,old,corrupt,malformed],contract(),as_of=datetime(2026,12,10,18,tzinfo=timezone.utc))
     assert result['count']==2 and result['unqualified_measured']==2
     assert result['mean_model_return_after_costs_pct']==pytest.approx(-1.8932)
     assert result['actual_portfolio_result_verified'] is False
@@ -253,3 +253,38 @@ def test_optional_cost_source_failure_does_not_claim_zero_performance():
     from services.learning_cost_reference import read_contract
     def unavailable(key):raise RuntimeError('injected storage failure')
     assert read_contract(unavailable) is None
+
+
+@pytest.mark.parametrize('retag_horizon',[False,True])
+def test_one_day_block_cannot_be_qualified_as_twenty_sessions(monkeypatch,retag_horizon):
+    import services.learning_cost_reference as costs
+    from services.learning_signal_measurement import POLICY
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return datetime(2026,12,10,18,tzinfo=timezone.utc)
+    monkeypatch.setattr(costs,'datetime',Clock)
+    measured=measure_pair()
+    one=deepcopy(measured['horizon_measurements']['1'])
+    if retag_horizon:one['horizon_days']=20
+    row={'ticker':'A.OL','market':'NORGE','group':'STRICT','status':'ACTIVE',
+         'entry_at':'2026-11-10T07:00:00+00:00','measurement_policy':POLICY,
+         'signal_reference':{'reference_currency':'NOK'},**measured,
+         'horizon_measurements':{'20':one}}
+    result=costs.summarize([row],contract())
+    assert result['count']==0 and result['unqualified_measured']==1
+    assert result['mean_model_return_after_costs_pct'] is None
+
+
+def test_future_twenty_session_result_cannot_appear_in_current_report(monkeypatch):
+    import services.learning_cost_reference as costs
+    from services.learning_signal_measurement import measure,POLICY,sessions
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return datetime(2026,11,10,18,tzinfo=timezone.utc)
+    monkeypatch.setattr(costs,'datetime',Clock)
+    row={'ticker':'A.OL','market':'NORGE','group':'STRICT','status':'ACTIVE',
+         'entry_at':'2026-11-10T07:00:00+00:00','measurement_policy':POLICY,
+         'signal_reference':{'reference_currency':'NOK'}}
+    stock=[bar(d,100.,102.) for d,*_ in sessions('NORGE','2026-11-10','2026-12-10')]
+    measured=measure(row,stock,stock,now=datetime(2026,12,10,18,tzinfo=timezone.utc),cost_contract=contract())
+    assert costs.summarize([{**row,**measured}],contract())['count']==0

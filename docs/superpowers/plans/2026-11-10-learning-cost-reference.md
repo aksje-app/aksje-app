@@ -56,3 +56,5 @@ Ruling: this reference qualifies forward V2 measurements only. A retrospective s
 Ruling: optional cost-source read failure leaves model values unavailable and explicitly counted. Valid gross evidence remains available; no missing value is zero, and frozen unqualified horizons are not silently rewritten later.
 
 Task progress: pure accounting, publication, V2 integration, frozen FX behavior and read-only report regressions passed. 110 focused tests passed with isolated PostgreSQL; full local suite:2710 passed,236 skipped,4 subtests,4 previously documented baseline failures. Model references remain pretax provider reinvestment proxies, never actual portfolio profit.
+
+Final review: one important finding, a one-session block misplaced under key20 could qualify. Fixed in one pass with three RED→GREEN regressions: horizon metadata, real exchange endpoint and report as-of completion. The calendar cache is bounded to256 keys. Final focused suite113 passed with real PostgreSQL. Fullsuite2713 passed236 skipped4subtests; same4knownbaselinefailures listed in the closeoutdoc. No further code-review round is needed for this covered fix.

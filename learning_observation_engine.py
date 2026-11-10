@@ -577,11 +577,11 @@ def build_weekly_analysis(rows: Sequence[Mapping[str, Any]] | None = None, *, no
                              "legacy_updates_frozen": True,
                              "reason": "Inconsistent/quarantined outcomes excluded; legacy frozen outside active learning; negative current-method returns retained."},
             "shadow_proposals": proposals, "strategy_readiness": "NOT_VALIDATED",
-            "cost_reference_model":summarize_cost_reference(observations,_load_cost_contract()),
+            "cost_reference_model":summarize_cost_reference(observations,_load_cost_contract(),as_of=now),
             "measurement_policy": basis,
             "return_basis": "GROSS_ADJUSTED_TOTAL_RETURN_PROXY_IN_LISTING_CURRENCY" if has_current_method else "NO_QUALIFIED_CURRENT_METHOD_OBSERVATIONS",
             "net_result_verified": False,
-            "method_warning": "Brutto referanseberegning i noteringsvaluta. Ikke nettoresultat i NOK. Eldre metode blandes ikke med ny metode.",
+            "method_warning": "Bruttotall vises i noteringsvaluta; kostnadsreferansen er en separat modell i NOK. Ingen faktisk netto porteføljegevinst er dokumentert. Eldre og ny metode blandes ikke.",
             "production_parameters_changed": False,
             "closed_position_results": closed_results,
             "note": "Foreløpige trender er beskrivende. Ingen regel eller vekt endres automatisk."}
@@ -1205,7 +1205,7 @@ def render_weekly_learning_reports()->None:
     live=report_control_snapshot()
     from services.learning_cost_reference import report_text as cost_reference_text
     st.caption(cost_reference_text(live.get('cost_reference_model') or {}))
-    st.caption('Læringsmålinger er brutto referanseberegninger i noteringsvaluta, ikke netto porteføljegevinst i NOK. Gamle og nye målemetoder blandes ikke.')
+    st.caption('Brutto referansetall vises i noteringsvaluta. Kostnadsreferansen vises separat i NOK og er ikke faktisk porteføljegevinst. Gamle og nye målemetoder blandes ikke.')
     measures=live.get("measurements_1_5_20_60") or {}
     a,b,c,d=st.columns(4)
     a.metric("Resultatmotor",str(live.get("engine_status") or "UKJENT"))
