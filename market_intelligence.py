@@ -2786,6 +2786,12 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             or report_summary_notice.get("evidence_data_ready") or 0
         )
         market_quality_notice = int(channel_quality_notice.get("market_data_score") or 0)
+        search_summary_notice=run.get('evidence_search_summary') or {}
+        search_budget_notice=search_summary_notice.get('source_budget') or {}
+        if search_budget_notice:
+            found=int(search_budget_notice.get('with_results') or 0)
+            no_hits=max(0,int(search_budget_notice.get('successful') or 0)-found)
+            lines.append(f"Kildesøk: treff {found} · uten treff {no_hits} · feil {int(search_budget_notice.get('failed') or 0)} · ikke undersøkt {int(search_budget_notice.get('not_searched') or 0)}")
         report_created_local = str(
             (run.get("report_document") or {}).get("metadata", {}).get("created_at_local")
             if isinstance(run.get("report_document"), Mapping) else ""

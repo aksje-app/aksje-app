@@ -34,6 +34,7 @@ from operational_telemetry import record_source_attempt
 from newsapi_budget import (
     NewsApiDailyQuotaExceeded,
     NewsApiError,
+    NewsApiSourceError,
     NewsApiRateLimited,
     fetch_articles as fetch_newsapi_articles,
 )
@@ -473,23 +474,32 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
                 "status": ("SUCCESS_WITH_RESULTS" if api_rows else "SUCCESS_NO_RESULTS") if os.getenv("NEWSAPI_KEY", "").strip() else "NOT_CONFIGURED",
                 "results": len(api_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
             })
-    except NewsApiDailyQuotaExceeded:
+    except NewsApiDailyQuotaExceeded as exc:
         errors.append("NewsAPI: døgnbudsjettet er brukt")
         search_log.append({
             "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
             "attempted": False, "status": "DAILY_QUOTA_EXCEEDED", "results": 0,
             "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "error": "Lokalt døgnbudsjett er brukt; øvrige kilder benyttes",
+            "reason_code": getattr(exc,"reason_code","DAILY_QUOTA_EXCEEDED"),
+            "error": str(exc),
         })
     except NewsApiRateLimited as exc:
         errors.append("NewsAPI: HTTP 429 – kapasitetsgrense")
         search_log.append({
             "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
-            "attempted": True, "status": "RATE_LIMITED", "results": 0,
+            "attempted": exc.attempted, "status": "RATE_LIMITED", "results": 0,
+            "search_status": "SEARCH_FAILED" if exc.attempted else "NOT_SEARCHED_POLICY",
             "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "retry_after_seconds": exc.retry_after,
             "error": "HTTP 429 – kapasitetsgrense; øvrige kilder brukes",
         })
+    except NewsApiSourceError as exc:
+        errors.append('NewsAPI: kildefeil')
+        search_log.append({'source':'NewsAPI broad company search','source_type':'LICENSED_AGGREGATOR',
+            'attempted':exc.attempted,'status':'SOURCE_ERROR','results':0,
+            'search_status':'SEARCH_FAILED' if exc.attempted else 'NOT_SEARCHED_POLICY',
+            'provider_code':exc.provider_code,'checked_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'error':str(exc)})
     except NewsApiError:
         search_log.append({
             "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",

@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from newsapi_budget import (
     NewsApiDailyQuotaExceeded,
     NewsApiError,
+    NewsApiSourceError,
     NewsApiRateLimited,
     fetch_articles as fetch_newsapi_articles,
 )
@@ -128,11 +129,17 @@ def discover_with_newsapi(ticker: str, company: str, market: str, limit: int = 1
         base["status"] = "DISCOVERY_FOUND" if articles else "NO_DISCOVERY"
     except NewsApiDailyQuotaExceeded as exc:
         base["status"] = "DAILY_QUOTA_EXCEEDED"
+        base["reason_code"] = getattr(exc,"reason_code","DAILY_QUOTA_EXCEEDED")
         base["error"] = str(exc)
     except NewsApiRateLimited as exc:
         base["status"] = "RATE_LIMITED"
         base["retry_after_seconds"] = exc.retry_after
+        base["attempted"] = exc.attempted
+        base["search_status"] = "SEARCH_FAILED" if exc.attempted else "NOT_SEARCHED_POLICY"
         base["error"] = str(exc)
+    except NewsApiSourceError as exc:
+        base.update(status='SOURCE_ERROR',attempted=exc.attempted,provider_code=exc.provider_code,
+                    search_status='SEARCH_FAILED' if exc.attempted else 'NOT_SEARCHED_POLICY',error=str(exc))
     except NewsApiError as exc:
         base["status"] = "NEWSAPI_NOT_CONFIGURED"
         base["error"] = str(exc)
