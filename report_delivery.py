@@ -6,7 +6,7 @@ import re
 import secrets
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, parse_qs
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 PUBLIC_REPORT_DIR = PROJECT_ROOT / "static" / "reports"
@@ -62,3 +62,16 @@ def public_report_url(run: Mapping[str, Any]) -> str:
         if base:
             return f"{base}/?{urlencode({'public_report_token': token})}"
     return ""
+
+
+def pushover_pdf_url(url: str) -> str:
+    """Only our own token report pages become native-viewer PDF links."""
+    value=str(url or '')
+    parsed=urlsplit(value)
+    own={_public_origin(os.getenv(key) or '') for key in ('RENDER_EXTERNAL_URL','REPORT_PUBLIC_BASE_URL')}
+    origin=_public_origin(value)
+    if not origin or origin not in own or parsed.path not in {'','/'}:return value
+    tokens=parse_qs(parsed.query,keep_blank_values=True).get('public_report_token',[])
+    if len(tokens)!=1 or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}',tokens[0]):return value
+    if 'public_file_token' in parse_qs(parsed.query,keep_blank_values=True):return value
+    return origin+'/reports/'+tokens[0]+'.pdf'

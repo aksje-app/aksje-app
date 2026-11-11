@@ -24,7 +24,7 @@ def app_server():
          'RUNTIME_BACKGROUND_ENABLED':'false','REPORT_SCHEDULER_ENABLED':'false',
          'PAPER_TRADING_ENABLED':'false','ALLOW_LOCAL_STORAGE_FALLBACK':'true'}
     with open(runtime+'/server.log','w') as log:
-        proc=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/system_revision_ui_fixture.py',
+        proc=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/system_revision_asgi_fixture.py',
             '--server.port='+str(port),'--server.headless=true','--browser.gatherUsageStats=false'],env=env,stdout=log,stderr=log)
         base='http://127.0.0.1:'+str(port)
         try:
@@ -459,7 +459,7 @@ def test_public_pdf_download_is_a_real_file_when_static_preview_fails(app_server
         try:
             page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
             page.route('**/app/static/reports/**',lambda route:route.abort())
-            page.goto(app_server+'/?public_report_token='+token)
+            page.goto(app_server+'/?public_report_token='+token+'&report_view=page')
             page.get_by_role('heading',name='Rapport',exact=True).wait_for(timeout=30000)
             before_url=page.url
             with page.expect_download(timeout=10000) as pending:

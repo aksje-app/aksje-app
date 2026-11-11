@@ -46,7 +46,7 @@ def main() -> None:
     thread.start()
     try:
         from streamlit.web.cli import main as streamlit_main
-        sys.argv = ['streamlit','run','app.py','--server.address=0.0.0.0',f'--server.port={port}']
+        sys.argv = ['streamlit','run','web_app.py','--server.address=0.0.0.0',f'--server.port={port}']
         streamlit_main()
     finally:
         stop.set()
