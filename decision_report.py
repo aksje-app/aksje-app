@@ -170,7 +170,7 @@ def _source_names(payload: Mapping[str, Any], evidence_rows: Sequence[Mapping[st
             evidence_has_root = True
     for row in _rows(payload.get("search_log")):
         status = str(row.get("status") or "").upper()
-        if not row.get("attempted") or _safe_int(row.get("results"), 0) <= 0:
+        if not row.get("attempted") or _safe_int(row.get("retained_results", row.get("results")), 0) <= 0:
             continue
         if not status.startswith("SUCCESS"):
             continue
@@ -194,7 +194,7 @@ def _primary_source_present(payload: Mapping[str, Any], evidence_rows: Sequence[
             return True
     for row in _rows(payload.get("search_log")):
         status = str(row.get("status") or "").upper()
-        if not row.get("attempted") or _safe_int(row.get("results"), 0) <= 0 or not status.startswith("SUCCESS"):
+        if not row.get("attempted") or _safe_int(row.get("retained_results", row.get("results")), 0) <= 0 or not status.startswith("SUCCESS"):
             continue
         source_type = str(row.get("source_type") or row.get("type") or "").upper()
         role = str(row.get("source_role") or "").upper()

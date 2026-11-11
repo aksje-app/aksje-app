@@ -31,7 +31,7 @@ def _name(text):
 
 
 def _html(session,url):
-    response=session.get(url,timeout=12,stream=True)
+    response=session.get(url,timeout=12,stream=True,allow_redirects=False)
     try:
         response.raise_for_status()
         if response.status_code!=200 or response.url.rstrip('/')!=url.rstrip('/'):
@@ -134,5 +134,5 @@ def fetch_company_news(ticker,isin,mic,*,lookback_days=14,storage=None,session=N
     cutoff=now-timedelta(days=days)
     rows=[dict(row) for row in record['items'] if cutoff<=datetime.fromisoformat(row['published_at'])<=now]
     complete=min(datetime.fromisoformat(x['published_at']) for x in record['items'])<=cutoff
-    return rows,{'source_url':record['source_url'],'observed_at':record['observed_at'],'cache_status':'HIT' if cache_hit else 'MISS',
+    return rows,{'source_url':record['source_url'],'issuer_name':record['issuer_name'],'observed_at':record['observed_at'],'cache_status':'HIT' if cache_hit else 'MISS',
         'listing_rows':len(record['items']),'window_complete':complete,'content_scope':'HEADLINE_ONLY','source_id':'euronext_company_news'}

@@ -132,8 +132,9 @@ def test_read_only_probe_runs_once_and_is_required_in_production(local,monkeypat
     calls=[]
     def source(ticker,isin,mic,**kw):
         calls.append(ticker)
-        return [{'published_at':'2026-11-10T08:00:00+00:00'}],{'source_url':ISSUER,'observed_at':NOW.isoformat(),'window_complete':True,'listing_rows':50}
+        return [{'published_at':'2026-11-10T08:00:00+00:00'}],{'source_url':ISSUER,'observed_at':NOW.isoformat(),'window_complete':True,'listing_rows':50,'content_scope':'HEADLINE_ONLY'}
     monkeypatch.setattr(probe,'fetch_company_news',source)
+    monkeypatch.setenv('RENDER_GIT_COMMIT','a'*40)
     monkeypatch.setenv('APP_ENVIRONMENT','production')
     assert not probe.production_ready(storage=local)
     result=probe.run_once(storage=local,now=NOW)
@@ -187,3 +188,69 @@ def test_failed_source_probe_keeps_cron_warning_visible():
     state={'state':'RUNNING','paper_scanner':{'state':'MARKET_CLOSED'},'norway_primary_news_probe':{'status':'FAILED'}}
     assert _derive_overall_state(state)=='COMPLETED_WITH_WARNINGS'
     assert 'norway_primary_news_probe:FAILED' in state['degraded_components']
+
+
+def test_redirect_chain_is_rejected_before_another_http_send():
+    import requests
+    from requests.adapters import BaseAdapter
+    from services.norway_primary_news import _html
+    calls=[]
+    class Adapter(BaseAdapter):
+        def send(self,request,**kwargs):
+            calls.append(request.url);r=requests.Response();r.request=request;r.url=request.url
+            r._content=product().encode();r._content_consumed=True
+            if len(calls)==1:r.status_code=302;r.headers['Location']='https://live.euronext.com/other'
+            elif len(calls)==2:r.status_code=302;r.headers['Location']=PRODUCT
+            else:r.status_code=200
+            return r
+        def close(self):pass
+    s=requests.Session();s.mount('https://',Adapter())
+    try:
+        with pytest.raises(ValueError):_html(s,PRODUCT)
+        assert calls==[PRODUCT]
+    finally:s.close()
+
+
+def _primary_enriched(local,monkeypatch,tmp_path,unrelated_rss=False):
+    import news_intelligence as news
+    import services.norway_primary_news as source
+    real_fetch=source.fetch_company_news
+    monkeypatch.setattr(news,'CACHE_PATH',tmp_path/'consensus-news.json')
+    monkeypatch.setattr(source,'fetch_company_news',lambda t,i,m,**kw:real_fetch(t,i,m,storage=local,session=Session(),now=NOW,**kw))
+    monkeypatch.setattr(news,'_fetch_yfinance',lambda *a:pytest.fail('No secondary request'))
+    monkeypatch.setattr(news,'_fetch_newsapi',lambda *a:pytest.fail('No paid request'))
+    monkeypatch.setattr(news,'source_specs',lambda *a:[{'id':'e24','publisher':'E24','label':'E24 RSS'}] if unrelated_rss else [])
+    monkeypatch.setattr(news,'fetch_rss_source',lambda *a:([{'title':'Unrelated company announces an update','publisher':'E24','source_id':'e24','collector_source':'E24 RSS','published_at':NOW.isoformat(),'url':'https://e24.no/unrelated'}],{}))
+    return news.enrich_rows([{'ticker':TICKER,'isin':ISIN,'exchange_mic':MIC,'market':'Norge','longName':'Veidekke ASA'}],force_refresh=True)[0]['news_intelligence']
+
+@pytest.mark.parametrize('unrelated_rss',[False,True])
+def test_one_issuer_does_not_become_independent_corroboration(local,monkeypatch,tmp_path,unrelated_rss):
+    from decision_report import candidate_source_consensus
+    result=_primary_enriched(local,monkeypatch,tmp_path,unrelated_rss)
+    consensus=candidate_source_consensus({'raw':{'news_intelligence':result}})
+    assert consensus['independent_sources']==1 and consensus['sources']==['VEIDEKKE']
+    assert consensus['level']=='SVAK'
+
+
+def test_incomplete_acceptance_cannot_enable_production_or_crash_cron(local,monkeypatch):
+    from services import norway_primary_news_probe as probe
+    from services.norway_primary_news import SCHEMA
+    receipt={'status':'COMPLETED','collector_schema':SCHEMA,'records':[{'ticker':t,'isin':i,'mic':m,'source_verified':True} for t,i,m in probe.CASES]}
+    local.write_json(probe.KEY,receipt);monkeypatch.setenv('APP_ENVIRONMENT','production')
+    assert not probe.production_ready(storage=local)
+    monkeypatch.setattr(probe,'fetch_company_news',lambda *a,**k:(_ for _ in ()).throw(ValueError('source not available')))
+    assert probe.run_once(storage=local,now=NOW)['status']=='FAILED'
+
+
+@pytest.mark.parametrize('damage',[{'listing_rows':0,'article_count':0,'window_complete':True}, {'attempted_at':'invalid'}])
+def test_damaged_probe_receipt_is_not_accepted_and_does_not_crash(local,monkeypatch,damage):
+    from services import norway_primary_news_probe as probe
+    monkeypatch.setenv('APP_ENVIRONMENT','production');monkeypatch.setenv('RENDER_GIT_COMMIT','a'*40)
+    monkeypatch.setattr(probe,'fetch_company_news',lambda *a,**k:([{'published_at':'2026-11-10T08:00:00+00:00'}],{'source_url':ISSUER,'observed_at':NOW.isoformat(),'window_complete':True,'listing_rows':50,'content_scope':'HEADLINE_ONLY'}))
+    receipt=probe.run_once(storage=local,now=NOW)
+    assert probe.production_ready(storage=local)
+    if 'attempted_at' in damage:receipt.update(damage)
+    else:receipt['records'][0].update(damage)
+    local.write_json(probe.KEY,receipt)
+    assert not probe.production_ready(storage=local)
+    assert probe.run_once(storage=local,now=NOW)['status'] in {'COMPLETED','FAILED'}

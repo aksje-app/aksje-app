@@ -431,7 +431,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             record_source_attempt(source_id='euronext_company_news',market='Norge',publisher='Euronext issuer disclosures',url=primary_meta['source_url'],success=True,article_count=len(primary_rows),relevant_count=len(primary_rows),cache_status=primary_meta['cache_status'],parser_status='OK',volume_check=False)
             primary_sufficient=bool(primary_rows) or primary_meta['window_complete']
             search_log.append({'source':'Euronext issuer disclosures','source_type':'OFFICIAL_EXCHANGE_FEED',
-                'source_role':'PRIMARY_COMPANY','attempted':True,'status':'SUCCESS_WITH_RESULTS' if primary_rows else 'SUCCESS_NO_RESULTS',
+                'source_role':'PRIMARY_COMPANY','original_publisher':primary_meta['issuer_name'],'attempted':True,'status':'SUCCESS_WITH_RESULTS' if primary_rows else 'SUCCESS_NO_RESULTS',
                 'results':len(primary_rows),'checked_at':primary_meta['observed_at'],'url':primary_meta['source_url'],
                 'cache_status':primary_meta['cache_status'],'content_scope':primary_meta['content_scope'],
                 'listing_window_complete':primary_meta['window_complete'],'isin':isin,'exchange_mic':exchange_mic,'error':''})
@@ -593,6 +593,14 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             })
     result = score_articles(ticker, rows, lookback_days, company_name=company_name)
     unique_sources = list(dict.fromkeys(source for source in sources if source))
+    # Raw retrieval hits remain visible, but rejected articles are not
+    # supporting publishers or independent corroboration.
+    retained=list(result.get('events') or [])
+    for attempt in search_log:
+        source_id=attempt.get('source_id')
+        if attempt.get('source')=='Euronext issuer disclosures':source_id='euronext_company_news'
+        if source_id:
+            attempt['retained_results']=sum(row.get('source_id')==source_id for row in retained)
     result["source"] = ", ".join(unique_sources) if unique_sources else "unavailable"
     result["configured_market_sources"] = [str(spec.get("label") or spec.get("publisher") or "") for spec in feed_specs]
     result["source_breakdown"] = {
