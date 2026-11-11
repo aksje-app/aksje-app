@@ -38,3 +38,5 @@ Interfaces: same-origin report URL -> direct .pdf for Pushover; report_view=page
 - [ ] One exact-head CI, merge/deploy, actual production PDF/old-link/fallback checks. Record physical phone confirmation as pending rather than claiming success.
 
 Final review: one independent whole-branch review. Important notifier fingerprint drift was reproduced RED and fixed GREEN by normalizing only outgoing payload URL. The secondary download-page link finding was regraded Important because preserving that named fallback is part of the requested flow; reproduced RED and fixed GREEN with explicit page intent. Final focused61 passed;4 browser cases passed; complete local suite2787 passed,270 skipped,4 subtests passed and the same4 pre-existing failures (dependency-lock installed pins, old FakeCursor, packaged-universe authority fixture, time-dependent FX alert). No workflow checks relaxed.
+
+Final: Ruling: explicit in-app quality report cards were regraded Important to preserve their current-tab return page. Regression observed RED, fixed by marking only the two PDF card URLs report_view=page. Exact-head CI supersedes the earlier branch run.
