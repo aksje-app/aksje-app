@@ -10,6 +10,7 @@ skips.
 from __future__ import annotations
 
 from collections import Counter
+import re
 from typing import Any, Mapping, Sequence
 
 SEARCHED_RESULTS_FOUND = "SEARCHED_RESULTS_FOUND"
@@ -81,7 +82,7 @@ def infer_reason_code(
         return "RESULTS_FOUND"
     if status in _SUCCESS_NO_RESULTS:
         return "NO_RELEVANT_RESULTS"
-    if status == "RATE_LIMITED" or "429" in text or "rate" in text:
+    if status == "RATE_LIMITED" or re.search(r"\b429\b|\brate[\s_-]*limit(?:ed|ing)?\b",text):
         return "RATE_LIMITED"
     if status == "DAILY_QUOTA_EXCEEDED" or "quota exceeded" in text:
         return "DAILY_QUOTA_EXCEEDED"

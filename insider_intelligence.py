@@ -278,16 +278,19 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                         "Dette betyr ikke at den navngitte primærkilden feilet eller ble kontrollert direkte."
                     ),
                 })
-            elif discovery.get("status") == "DISCOVERY_ERROR":
+            elif discovery.get("status") in {"DISCOVERY_ERROR", "SOURCE_ERROR"}:
                 result.update({"signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
                                "reason": "Sekundær kildeoppdagelse feilet etter direkte primærkildeforsøk."})
             result.setdefault("search_log", []).append({
                 "source": discovery.get("source_label") or "NewsAPI-kildeoppdagelse",
                 "source_type": "SECONDARY_SOURCE_DISCOVERY",
-                "attempted": discovery.get("status") not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"},
+                "attempted": discovery.get("attempted", discovery.get("status") not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"}),
+                **({"search_status": discovery["search_status"]} if discovery.get("search_status") else {}),
+                "provider_code": discovery.get("provider_code", ""),
+                **({"reason_code": discovery["reason_code"]} if discovery.get("reason_code") else {}),
                 "status": {
                     "DISCOVERY_FOUND": "DISCOVERY_ONLY", "NO_DISCOVERY": "SUCCESS_NO_RESULTS",
-                    "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR",
+                    "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR", "SOURCE_ERROR": "SOURCE_ERROR",
                     "RATE_LIMITED": "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED": "DAILY_QUOTA_EXCEEDED",
                 }.get(str(discovery.get("status") or ""), "NOT_SEARCHED"),
                 "results": len(discovery.get("articles") or []),
@@ -458,10 +461,13 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
         search_log.append({
             "source": discovery.get("source_label") or "NewsAPI-kildeoppdagelse",
             "source_type": "SECONDARY_SOURCE_DISCOVERY",
-            "attempted": discovery_status not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"},
+            "attempted": discovery.get("attempted", discovery_status not in {"NEWSAPI_NOT_CONFIGURED", "DAILY_QUOTA_EXCEEDED"}),
+            **({"search_status": discovery["search_status"]} if discovery.get("search_status") else {}),
+            "provider_code": discovery.get("provider_code", ""),
+                **({"reason_code": discovery["reason_code"]} if discovery.get("reason_code") else {}),
             "status": {
                 "DISCOVERY_FOUND": "DISCOVERY_ONLY", "NO_DISCOVERY": "SUCCESS_NO_RESULTS",
-                "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR",
+                "NEWSAPI_NOT_CONFIGURED": "NOT_CONFIGURED", "DISCOVERY_ERROR": "SOURCE_ERROR", "SOURCE_ERROR": "SOURCE_ERROR",
                 "RATE_LIMITED": "RATE_LIMITED", "DAILY_QUOTA_EXCEEDED": "DAILY_QUOTA_EXCEEDED",
             }.get(discovery_status, "NOT_SEARCHED"),
             "results": len(discovery.get("articles") or []),
@@ -486,7 +492,7 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 "signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
                 "reason": "Sekundær NewsAPI-kildeoppdagelse var begrenset etter direkte primærkildeforsøk.",
             })
-        elif discovery_status == "DISCOVERY_ERROR":
+        elif discovery_status in {"DISCOVERY_ERROR", "SOURCE_ERROR"}:
             result.update({
                 "signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
                 "reason": "Sekundær kildeoppdagelse feilet etter direkte primærkildeforsøk.",
