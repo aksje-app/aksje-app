@@ -65,7 +65,7 @@ def test_direct_pdf_survives_real_web_launcher_cold_restart(tmp_path):
     from urllib.request import build_opener,ProxyHandler
     from services.storage_service import StorageService
     from datetime import datetime,timedelta,timezone
-    token='R'*43;raw=b'%PDF-1.4\ndurable PDF survives server restart\n%%EOF'
+    token='R'*43;raw=b'%PDF-1.4\n'+b'durable PDF content\n'*500+b'%%EOF'
     storage=StorageService(tmp_path/'data'/'services',database_url='',mode='local')
     storage.write_json('public_reports/'+token+'.json',{'token':token,'filename':'report.pdf',
         'expires_at':(datetime.now(timezone.utc)+timedelta(days=1)).isoformat(),'pdf_base64':base64.b64encode(raw).decode()})
@@ -89,6 +89,11 @@ def test_direct_pdf_survives_real_web_launcher_cold_restart(tmp_path):
                 assert r.headers.get_content_type()=='application/pdf'
                 assert r.headers['Content-Disposition'].startswith('inline;')
                 assert r.read()==raw and r.url.endswith('/reports/'+token+'.pdf')
+            from urllib.request import Request
+            request=Request(base+'/reports/'+token+'.pdf',headers={'Range':'bytes=0-2047','Accept-Encoding':'gzip'})
+            with opener.open(request,timeout=5) as r:
+                assert r.status==206 and r.read()==raw[:2048]
+                assert not r.headers.get('Content-Encoding')
             with opener.open(base+'/?public_report_token='+token+'&report_view=page',timeout=5) as r:
                 assert r.headers.get_content_type()=='text/html'
         finally:proc.terminate();proc.wait(timeout=10)

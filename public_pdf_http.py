@@ -4,10 +4,11 @@ from pathlib import PurePosixPath
 import re
 from urllib.parse import quote
 from starlette.requests import Request
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response,RedirectResponse
 
 TOKEN=re.compile(r'[A-Za-z0-9_-]{32,128}')
-NO_STORE={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}
+NO_STORE={'Cache-Control':'private, no-store, no-transform','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}
 
 
 def pdf_response(request):
@@ -45,6 +46,14 @@ class ReportEntryMiddleware:
     """Old Pushover report links open the PDF; explicit page links retain the UI."""
     def __init__(self,app):self.app=app
     async def __call__(self,scope,receive,send):
+        # PDF readers request byte ranges. Serve these before Streamlit's
+        # generic gzip middleware so offsets and Content-Length stay exact.
+        if scope['type']=='http' and scope['method'] in {'GET','HEAD'}:
+            match=re.fullmatch(r'/reports/([^/]+)\.pdf',scope['path'])
+            if match:
+                selected={**scope,'path_params':{'token':match.group(1)}}
+                response=await run_in_threadpool(pdf_response,Request(selected))
+                await response(scope,receive,send);return
         if scope['type']=='http' and scope['path']=='/' and scope['method'] in {'GET','HEAD'}:
             request=Request(scope)
             query=request.query_params
