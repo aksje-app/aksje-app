@@ -139,7 +139,7 @@ def discover_with_newsapi(ticker: str, company: str, market: str, limit: int = 1
         base["search_status"] = "SEARCH_FAILED" if exc.attempted else "NOT_SEARCHED_POLICY"
         base["error"] = str(exc)
     except NewsApiSourceError as exc:
-        base.update(status='SOURCE_ERROR',attempted=exc.attempted,provider_code=exc.provider_code,
+        base.update(status='SOURCE_ERROR',attempted=exc.attempted,provider_code=exc.provider_code,reason_code=getattr(exc,'reason_code','SOURCE_ERROR'),
                     search_status='SEARCH_FAILED' if exc.attempted else 'NOT_SEARCHED_POLICY',error=str(exc))
     except NewsApiError as exc:
         base["status"] = "NEWSAPI_NOT_CONFIGURED"

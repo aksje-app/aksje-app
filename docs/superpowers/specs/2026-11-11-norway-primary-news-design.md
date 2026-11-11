@@ -1,0 +1,11 @@
+# Norwegian primary company news
+
+The user chose continuing with free, fresh company disclosures before buying more NewsAPI requests. One bounded change uses Euronext's verified instrument-to-issuer mapping and existing news pipeline. Paid aggregation would add cost without proving Norwegian coverage; generic name-filter HTML was observed dropping its filter. The verified product/issuer route is selected.
+
+For Norway, require the existing row's ticker, ISIN and exchange MIC. Validate them against Euronext's own instrument metadata and canonical URL, then follow only its same-host issuer listing link. Parse dated company-bound disclosure headlines, preserve source URLs and observed/published timestamps and headline-only scope. Reject wrong identity, malformed/future dates, unexpected pages and oversized responses. Coverage is explicitly bounded to the returned listing and the requested time window; no full-text or archival completeness is invented. Existing decision gates and financial parameters remain unchanged.
+
+Use small per-instrument persistent cache records (up to 50 entries, at most256KiB) with a 1-hour TTL, rechecking the time window on cache hits. No new worker/table, scan expansion or large database document. Primary successful evidence takes precedence over the broken Yahoo company-news endpoint; existing RSS remains available. Insufficient primary coverage retains explicit fallback/failure states.
+
+Given the user's provisional free-plan information and the configured Developer label, NewsAPI Developer/free calls are blocked when APP_ENVIRONMENT is explicitly production, with a plan-specific not-searched reason. No subscription is changed or purchased. Confirmed paid configuration can be corrected later. Tests and one final independent review precede one CI run and the already-authorized merge/deploy.
+
+Production activation is gated on a one-time source-only probe in the existing cron: VEI.OL/NO0005806802/XOSL, MORLD.OL/NO0013325506/XOSL and SNTIA.OL/NO0013573014/XOSL. It writes only small source cache/acceptance records, retries failures no more than once per day, skips outside production and defers under memory pressure. Failure remains visible as a cron warning. Positive acceptance does not authorize a trade or prove all Norwegian coverage.

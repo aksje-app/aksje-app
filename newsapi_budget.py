@@ -55,6 +55,17 @@ class NewsApiSourceError(NewsApiError):
         super().__init__(message);self.attempted=attempted;self.provider_code=provider_code
 
 
+class NewsApiPlanUnavailable(NewsApiSourceError):
+    reason_code='PLAN_NOT_SUPPORTED_IN_PRODUCTION'
+    def __init__(self):
+        super().__init__('NewsAPI Developer/gratis er ikke tilgjengelig som produksjonskilde',provider_code='DEVELOPER_PLAN_NOT_PRODUCTION')
+
+
+def production_plan_allowed():
+    plan=str(os.getenv('NEWSAPI_PLAN','Developer') or 'Developer').strip().lower()
+    return not (str(os.getenv('APP_ENVIRONMENT','')).strip().lower()=='production' and plan in {'developer','free'})
+
+
 class NewsApiDailyQuotaExceeded(NewsApiError):
     status = "DAILY_QUOTA_EXCEEDED"
 
@@ -248,6 +259,7 @@ def fetch_articles(
     key = os.getenv("NEWSAPI_KEY", "").strip()
     if not key:
         raise NewsApiError("NEWSAPI_KEY er ikke konfigurert")
+    if not production_plan_allowed():raise NewsApiPlanUnavailable()
     ttl = int(cache_ttl_seconds or int(os.getenv("NEWSAPI_SHARED_CACHE_TTL_HOURS", "12") or 12) * 3600)
     request_params: dict[str, Any] = {
         "sortBy": "publishedAt",
@@ -364,6 +376,9 @@ def health_snapshot() -> dict[str, Any]:
         "last_provider_code": state.get("last_provider_code", ""),
         "configured": bool(os.getenv("NEWSAPI_KEY", "").strip()),
         "plan": str(os.getenv("NEWSAPI_PLAN", "Developer") or "Developer"),
+        "plan_label_only": True,
+        "production_plan_allowed": production_plan_allowed(),
+        "plan_restriction": "" if production_plan_allowed() else "PLAN_NOT_SUPPORTED_IN_PRODUCTION",
         "daily_budget": budget,
         "used_today": used,
         "remaining_today": max(0, budget - used),

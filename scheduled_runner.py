@@ -224,6 +224,7 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         ("quality_valuation_schedule", "state"),
         ("learning_observation_maintenance", "status"),
         ("restart_storage_encoding", "status"),
+        ("norway_primary_news_probe", "status"),
         ("report_repair", "state"),
         ("report_revalidation", "state"),
         ("storage_retention", "state"),
@@ -326,6 +327,7 @@ def _run_once_locked() -> dict[str, Any]:
         "retired_module_cleanup": {},
         "learning_observation_maintenance": {},
         "restart_storage_encoding": {},
+        "norway_primary_news_probe": {},
         "report_repair": {},
         "report_revalidation": {},
         "error": "",
@@ -820,6 +822,17 @@ def _run_once_locked() -> dict[str, Any]:
             state["superfund_approved_history"] = approved_history()
     except Exception as exc:
         state["superfund_approved_history"] = {"status":"FAILED","reason":type(exc).__name__}
+
+    # First use of this collector is checked against three known instrument
+    # identities from the existing official universe. No report/trade is run.
+    try:
+        if _optional_memory_ready('norway_primary_news_probe'):
+            from services.norway_primary_news_probe import run_once as probe_primary_news
+            state['norway_primary_news_probe']=probe_primary_news()
+        else:
+            state['norway_primary_news_probe']={'status':'DEFERRED_MEMORY','financial_state_changed':False}
+    except Exception as exc:
+        state['norway_primary_news_probe']={'status':'FAILED','error':type(exc).__name__,'financial_state_changed':False}
 
     # Build UI read models outside the web process. These verified, dated
     # projections never participate in order decisions or financial mutations.
