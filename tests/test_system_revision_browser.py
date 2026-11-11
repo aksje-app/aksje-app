@@ -435,3 +435,44 @@ def test_documented_restart_metrics_charts_and_all_downloads(app_server,width,ro
 
 # Synthetic archive fixtures stay outside the app runtime and Git.
 from test_simulation_restart import certificate,sources,dump_program,sealed
+
+
+@pytest.mark.parametrize('width',[390,1280])
+def test_public_pdf_download_is_a_real_file_when_static_preview_fails(app_server,width,tmp_path):
+    """The phone attachment path must survive a missing transient preview URL."""
+    import base64,hashlib,secrets
+    from datetime import datetime,timedelta,timezone
+    from reportlab.pdfgen import canvas
+    from services.storage_service import StorageService
+    from playwright.sync_api import sync_playwright
+    output=BytesIO();pdf=canvas.Canvas(output);pdf.drawString(60,740,'Synthetic PDF for file attachment');pdf.showPage();pdf.save()
+    expected=output.getvalue();token=secrets.token_urlsafe(32)
+    preview_path=Path(__file__).resolve().parents[1]/'static'/'reports'/('public_report_'+token+'.pdf')
+    storage=StorageService(app_server.runtime_root/'data'/'services',mode='local',database_url='')
+    assert not storage.using_postgres()
+    storage.write_json('public_reports/'+token+'.json',{
+        'token':token,'report_id':'PDF-FILE-EXPORT-TEST','filename':'rapport_for_deling.pdf',
+        'expires_at':(datetime.now(timezone.utc)+timedelta(days=1)).isoformat(),
+        'pdf_base64':base64.b64encode(expected).decode('ascii')})
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(executable_path=os.environ.get('BROWSER_EXECUTABLE') or None,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
+            page.route('**/app/static/reports/**',lambda route:route.abort())
+            page.goto(app_server+'/?public_report_token='+token)
+            page.get_by_role('heading',name='Rapport',exact=True).wait_for(timeout=30000)
+            before_url=page.url
+            with page.expect_download(timeout=10000) as pending:
+                page.get_by_role('button',name='Last ned PDF-fil',exact=True).click(timeout=3000)
+            download=pending.value
+            assert download.suggested_filename=='rapport_for_deling.pdf'
+            target=tmp_path/download.suggested_filename;download.save_as(target)
+            assert hashlib.sha256(target.read_bytes()).digest()==hashlib.sha256(expected).digest()
+            from pypdf import PdfReader
+            assert 'Synthetic PDF for file attachment' in PdfReader(target).pages[0].extract_text()
+            assert page.url==before_url
+            assert page.get_by_role('heading',name='Rapport',exact=True).is_visible()
+            assert not page.locator('[data-testid="stException"]').count()
+        finally:
+            browser.close()
+            preview_path.unlink(missing_ok=True)

@@ -309,7 +309,17 @@ def render_public_report(st) -> bool:
     _, static_url = _hydrate_static_pdf(token, report)
 
     st.markdown("### Rapport")
-    st.caption("Les rapporten i appen. Åpne/del PDF bare når du trenger systemets PDF-viser.")
+    st.caption("Les rapporten i appen, eller last ned selve PDF-filen for å sende den videre.")
+    st.download_button(
+        "Last ned PDF-fil",
+        data=bytes(report["data"]),
+        file_name=str(report.get("filename") or "rapport.pdf"),
+        mime="application/pdf",
+        key="public_report_pdf_download",
+        on_click="ignore",
+        width="stretch",
+    )
+    st.caption("På iPhone: Lagre PDF-en i Filer og velg den når du legger til et vedlegg.")
     st.html(_share_controls_html(static_url), unsafe_allow_javascript=True)
     st.markdown(
         _report_landing_actions(
