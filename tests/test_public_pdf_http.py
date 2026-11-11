@@ -136,3 +136,13 @@ def test_secondary_download_page_remains_a_page_after_pdf_default_changes():
     assert links[0]['href']==source
     query=parse_qs(urlsplit(next(a['href'] for a in links if a.get_text()=='Åpne nedlastingsside')).query)
     assert query['public_report_token']==[TOKEN] and query['report_view']==['page']
+
+
+def test_quality_report_choices_keep_their_in_app_return_page(client):
+    from quality_valuation_ui import _quality_report_choice_cards
+    from bs4 import BeautifulSoup
+    cards=_quality_report_choice_cards({'short_pdf':TOKEN,'extended_pdf':TOKEN,'diagnosis':TOKEN})
+    links=[a['href'] for a in BeautifulSoup(cards,'html.parser').find_all('a') if 'public_report_token=' in a['href']]
+    assert len(links)==2
+    for link in links:
+        assert client[0].get(link).text=='HTML reserve page'
