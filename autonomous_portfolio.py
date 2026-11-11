@@ -597,8 +597,10 @@ def ensure_portfolio_separation() -> dict[str, int]:
     the exact cost basis to the ordinary theoretical portfolio. The migration is
     idempotent and leaves an explicit audit record.
     """
-    from services.production_restart import selected
-    if selected('autonomy',require_running=False) is not None:
+    from services.production_restart import has_selection
+    # This only prohibits legacy migration; it never authorizes execution.
+    # Do not decode the selected journal again inside NOK learning completion.
+    if has_selection('autonomy'):
         return {'positions_moved':0,'cash_restored':0}
     params = load_parameters()
     primary = _read(PORTFOLIO_PATH, None)
