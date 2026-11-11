@@ -176,3 +176,44 @@ def test_provider_error_is_classified_and_charged(client):
     with pytest.raises(api.NewsApiSourceError) as exc:api.fetch_articles('A',purpose='NEWS')
     assert exc.value.attempted is True and api.health_snapshot()['used_today']==1
     assert api.health_snapshot()['last_http_status']==403
+
+
+def test_future_shared_counter_cannot_reset_today_quota(pg,client,monkeypatch):
+    from services import newsapi_coordination as coord
+    monkeypatch.setattr(coord,'get_storage_service',lambda:pg)
+    tomorrow=datetime.fromtimestamp(client[0][0]+86400,timezone.utc).date().isoformat()
+    with coord.coordinated(api.STATE_PATH,'synthetic-key') as backend:
+        backend.set_state({'utc_date':tomorrow,'requests':50})
+    with pytest.raises(api.NewsApiSourceError):api.fetch_articles('A',purpose='NEWS')
+    assert client[1]==[]
+
+
+def test_handoff_cannot_be_bypassed_by_raising_configured_budget(pg,client,monkeypatch):
+    from services import newsapi_coordination as coord
+    monkeypatch.setattr(coord,'get_storage_service',lambda:pg)
+    with pytest.raises(api.NewsApiDailyQuotaExceeded):api.fetch_articles('A',purpose='NEWS')
+    monkeypatch.setenv('NEWSAPI_DAILY_BUDGET','50')
+    with pytest.raises(api.NewsApiDailyQuotaExceeded):api.fetch_articles('B',purpose='NEWS')
+    assert client[1]==[]
+
+
+def test_coordination_busy_is_not_reported_as_provider_429(pg,client,monkeypatch):
+    from services import newsapi_coordination as coord
+    monkeypatch.setattr(coord,'get_storage_service',lambda:pg)
+    with coord.coordinated(api.STATE_PATH,'synthetic-key'):
+        with pytest.raises(api.NewsApiRateLimited) as exc:api.fetch_articles('A',purpose='NEWS')
+    assert not exc.value.attempted and '429' not in str(exc.value)
+    assert exc.value.reason_code=='SOURCE_BUSY' and client[1]==[]
+
+
+@pytest.mark.parametrize('exc,reason',[(api.NewsApiReportQuotaExceeded(),'REPORT_QUOTA_EXCEEDED'),(api.NewsApiQuotaHandoffPending(),'UNKNOWN_PRIOR_QUOTA_USAGE')])
+def test_quota_reason_reaches_report_without_false_daily_exhaustion(client,monkeypatch,tmp_path,exc,reason):
+    import news_intelligence as news
+    monkeypatch.setattr(news,'CACHE_PATH',tmp_path/'news.json');monkeypatch.setattr(news,'source_specs',lambda *a:[])
+    monkeypatch.setattr(news,'_fetch_yfinance',lambda *a:[]);monkeypatch.setattr(news,'record_source_attempt',lambda **kw:None)
+    def fail(*a,**kw):raise exc
+    monkeypatch.setattr(news,'_fetch_newsapi',fail)
+    result=news.fetch_news_intelligence('TEST',force_refresh=True)
+    row=next(x for x in result['search_log'] if x['source'].startswith('NewsAPI'))
+    assert row['reason_code']==reason and not row['attempted']
+    assert result['source_budget']['daily_quota_exceeded']==0

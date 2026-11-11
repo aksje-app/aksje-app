@@ -133,6 +133,7 @@ def discover_with_newsapi(ticker: str, company: str, market: str, limit: int = 1
         base["error"] = str(exc)
     except NewsApiRateLimited as exc:
         base["status"] = "RATE_LIMITED"
+        base["reason_code"] = exc.reason_code
         base["retry_after_seconds"] = exc.retry_after
         base["attempted"] = exc.attempted
         base["search_status"] = "SEARCH_FAILED" if exc.attempted else "NOT_SEARCHED_POLICY"

@@ -475,7 +475,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
                 "results": len(api_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
             })
     except NewsApiDailyQuotaExceeded as exc:
-        errors.append("NewsAPI: døgnbudsjettet er brukt")
+        errors.append(str(exc))
         search_log.append({
             "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
             "attempted": False, "status": "DAILY_QUOTA_EXCEEDED", "results": 0,
@@ -484,14 +484,15 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             "error": str(exc),
         })
     except NewsApiRateLimited as exc:
-        errors.append("NewsAPI: HTTP 429 – kapasitetsgrense")
+        errors.append(str(exc))
         search_log.append({
             "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
             "attempted": exc.attempted, "status": "RATE_LIMITED", "results": 0,
             "search_status": "SEARCH_FAILED" if exc.attempted else "NOT_SEARCHED_POLICY",
             "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "retry_after_seconds": exc.retry_after,
-            "error": "HTTP 429 – kapasitetsgrense; øvrige kilder brukes",
+            "reason_code": exc.reason_code,
+            "error": str(exc),
         })
     except NewsApiSourceError as exc:
         errors.append('NewsAPI: kildefeil')

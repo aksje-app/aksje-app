@@ -37,8 +37,14 @@ class NewsApiError(RuntimeError):
 class NewsApiRateLimited(NewsApiError):
     status = "RATE_LIMITED"
 
-    def __init__(self, retry_after: float = 0.0, *, attempted: bool = True):
-        super().__init__("HTTP 429 – NewsAPI-kapasitetsgrense")
+    def __init__(self, retry_after: float = 0.0, *, attempted: bool = True, reason_code: str = 'RATE_LIMITED'):
+        message='HTTP 429 – NewsAPI-kapasitetsgrense' if attempted else {
+            'SOURCE_BUSY':'NewsAPI: en annen forespørsel pågår',
+            'REQUEST_INTERVAL':'NewsAPI: avventer neste forespørselstidspunkt',
+            'PROVIDER_COOLDOWN':'NewsAPI: leverandørens ventetid er aktiv',
+        }.get(reason_code,'NewsAPI: kilde midlertidig avventet')
+        super().__init__(message)
+        self.reason_code=reason_code
         self.retry_after = max(0.0, float(retry_after or 0.0))
         self.attempted = attempted
 
@@ -65,6 +71,7 @@ class NewsApiQuotaHandoffPending(NewsApiDailyQuotaExceeded):
 
 
 class NewsApiReportQuotaExceeded(NewsApiDailyQuotaExceeded):
+    reason_code = "REPORT_QUOTA_EXCEEDED"
     status = "REPORT_QUOTA_EXCEEDED"
 
     def __init__(self, remaining: int = 0):
@@ -120,7 +127,7 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
 
 
 def configured_budget() -> int:
-    """Return the operational budget; ten Developer requests remain reserved."""
+    """Return the conservative operational cap pending verified entitlement."""
     raw = os.getenv("NEWSAPI_DAILY_BUDGET", "50")
     try:
         value = int(raw or 50)
@@ -139,7 +146,7 @@ def _coordinator(*,read_only=False):
             try:yield
             finally:_COORDINATION.backend=None
     except CoordinationBusy as exc:
-        raise NewsApiRateLimited(2,attempted=False) from exc
+        raise NewsApiRateLimited(2,attempted=False,reason_code="SOURCE_BUSY") from exc
     except CoordinationUnavailable as exc:
         raise NewsApiSourceError('Shared source coordination unavailable',attempted=_COORDINATION.transport_attempted) from exc
     finally:_COORDINATION.transport_attempted=False
@@ -153,7 +160,8 @@ def _state() -> dict[str, Any]:
         if not isinstance(old,Mapping) or type(old.get('requests')) is not int or old['requests']<0:
             raise NewsApiSourceError('Invalid source budget counter')
         try:
-            datetime.strptime(str(old.get('utc_date') or ''),'%Y-%m-%d')
+            recorded_day=datetime.strptime(str(old.get('utc_date') or ''),'%Y-%m-%d').date()
+            if recorded_day>_now().date():raise ValueError('Future source budget date')
             for field in ('retry_after_until','next_request_at'):
                 value=float(old.get(field) or 0)
                 if not math.isfinite(value) or value<0:raise ValueError('Invalid source timing')
@@ -261,7 +269,9 @@ def fetch_articles(
             return cached
         state["cache_misses"] = int(state.get("cache_misses") or 0) + 1
         remaining_wait=float(state.get("retry_after_until") or 0)-time.time()
-        if remaining_wait>0:raise NewsApiRateLimited(remaining_wait,attempted=False)
+        if remaining_wait>0:raise NewsApiRateLimited(remaining_wait,attempted=False,reason_code="PROVIDER_COOLDOWN")
+        if state.get("handoff_pending"):
+            _record(state,purpose,"QUOTA_HANDOFF_UNKNOWN");raise NewsApiQuotaHandoffPending()
         budget = configured_budget()
         used = int(state.get("requests") or 0)
         if bool(getattr(_REPORT_BUDGET, "active", False)):
@@ -271,8 +281,6 @@ def fetch_articles(
                 _record(state, purpose, "REPORT_QUOTA_EXCEEDED")
                 raise NewsApiReportQuotaExceeded(max(0, report_limit - report_used))
         if budget <= 0 or used >= budget:
-            if state.get('handoff_pending'):
-                _record(state,purpose,'QUOTA_HANDOFF_UNKNOWN');raise NewsApiQuotaHandoffPending()
             _record(state, purpose, "DAILY_QUOTA_EXCEEDED")
             raise NewsApiDailyQuotaExceeded(max(0, budget - used))
 
@@ -280,7 +288,7 @@ def fetch_articles(
 
         minimum_interval=max(0.1,min(30.0,float(os.getenv('NEWSAPI_MIN_INTERVAL_SECONDS','1.0') or 1)))
         wait=max(0.0,float(state.get('next_request_at') or 0)-time.time())
-        if wait>2:raise NewsApiRateLimited(wait,attempted=False)
+        if wait>2:raise NewsApiRateLimited(wait,attempted=False,reason_code="REQUEST_INTERVAL")
         if wait:time.sleep(wait)
         # Commit the charge before transport: a timeout/disconnect does not
         # prove the provider did not receive/count this request.

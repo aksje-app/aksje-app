@@ -6,11 +6,13 @@ Design: a credential-scoped PostgreSQL session lock coordinates small budget rec
 
 ## One deliverable: coordinated source requests and truthful diagnostics
 
-- [ ] Run existing focused baseline once.
-- [ ] Add regression tests for persisted Retry-After (seconds/date/malformed), concurrent clients, cache reuse across purposes, uncertain HTTP accounting, bootstrap, UTC rollover and malformed/failed source coordination.
-- [ ] Implement services/newsapi_coordination.py, integrate newsapi_budget.py, propagate attempted/status diagnostics through news and insider discovery. Preserve safety gates and report-level caps.
-- [ ] Test source-error classification and existing evidence/report contracts together; investigate the previously recorded source failures without pretending to fix unknown providers.
+- [x] Run existing focused baseline once.
+- [x] Add regression tests for persisted Retry-After (seconds/date/malformed), concurrent clients, cache reuse across purposes, uncertain HTTP accounting, bootstrap, UTC rollover and malformed/failed source coordination.
+- [x] Implement services/newsapi_coordination.py, integrate newsapi_budget.py, propagate attempted/status diagnostics through news and insider discovery. Preserve safety gates and report-level caps.
+- [x] Test source-error classification and existing evidence/report contracts together; investigate the previously recorded source failures without pretending to fix unknown providers.
 - [ ] One whole-branch review, one complete local suite, one exact-head CI run, merge and deploy both services. Additional CI only if a real failure requires a code change.
 - [ ] Verify real production coordination state and normal service health without forcing trades or reports. Document provider-plan freshness assessment and any quota handoff wait.
 
 Review focus: lost/uncertain reservations; simultaneous clients; cooldown at UTC rollover; cross-credential cache isolation; database outages never causing uncoordinated HTTP. Initial shared-budget bootstrap must not reset unknown provider usage.
+
+Execution record: isolated worktree reused, base 5b37448c. One whole-branch reviewer identified three important cases; all reproduced RED and fixed GREEN. Minor deferred: same-process health waits for the existing request RLock; cross-service committed-state health reads remain independent of the PG request lock. Full-suite baseline failures remain documented in shared-source-reliability-20261111.md. No financial records or paid subscription changes.
