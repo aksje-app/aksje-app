@@ -289,6 +289,7 @@ def normalize_articles(rows: Sequence[Mapping[str, Any]], lookback_days: int = D
             "relevance_basis": str(raw.get("relevance_basis") or ""),
             "matched_aliases": list(raw.get("matched_aliases") or []),
         }
+        item.update({k:raw[k] for k in ("source_id","source_document_id","source_observed_at","publication_precision","content_scope","document_url","isin","exchange_mic","primary_source_verified") if k in raw})
         previous = unique.get(key)
         if not previous or item["source_quality"] > previous["source_quality"]:
             unique[key] = item
@@ -376,7 +377,7 @@ def score_articles(
         role = str(copy.get("source_role") or "PUBLISHED_NEWS")
         copy["source_type"] = "PRIMARY_COMPANY" if role == "PRIMARY_COMPANY" or "investor" in _domain(copy.get("url") or "") else "PUBLISHED_NEWS"
         copy["verification"] = str(copy.get("verification") or "PUBLISHED_SOURCE")
-        copy["retrieved_at"] = now.isoformat(timespec="seconds")
+        copy["retrieved_at"] = copy.get("source_observed_at") or now.isoformat(timespec="seconds")
         copy["fact_id"] = "NEWS-" + hashlib.sha1(
             f"{copy.get('title','')}|{copy.get('url','')}|{copy.get('published_at','')}".encode("utf-8")
         ).hexdigest()[:12].upper()
@@ -404,9 +405,13 @@ def score_articles(
 
 def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: bool = False,
                             lookback_days: int = DEFAULT_LOOKBACK_DAYS, market: str = "",
-                            ir_feed_url: str = "", newsapi_priority: bool = False) -> dict[str, Any]:
+                            ir_feed_url: str = "", newsapi_priority: bool = False, isin: str = "", exchange_mic: str = "") -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
-    key = f"{VERSION}|{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}|priority={bool(newsapi_priority)}"
+    primary_ready=True
+    if market=='Norge' and isin and exchange_mic:
+        from services.norway_primary_news_probe import production_ready
+        primary_ready=production_ready()
+    key = f"{VERSION}|{ticker}|{company_name.strip().lower()}|{market}|{ir_feed_url}|{lookback_days}|priority={bool(newsapi_priority)}|primary-v1={isin}:{exchange_mic}:{primary_ready}"
     cached = _cache_get(key)
     if cached and not force_refresh and time.time() - _f(cached.get("cached_at")) < CACHE_TTL_SECONDS and (cached.get("result") or {}).get("search_log"):
         from evidence_contract import normalize_search_payload
@@ -415,25 +420,47 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     search_log: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
+    primary_sufficient=False
+    if market=='Norge' and isin and exchange_mic and not primary_ready:
+        search_log.append({'source':'Euronext issuer disclosures','source_type':'OFFICIAL_EXCHANGE_FEED','attempted':False,'status':'NOT_SEARCHED','reason_code':'PRIMARY_SOURCE_PROBE_PENDING','results':0,'reason':'Avventer kildeverifikasjon fra ordinær cron'})
+    if market=='Norge' and isin and exchange_mic and primary_ready:
+        try:
+            from services.norway_primary_news import fetch_company_news
+            primary_rows,primary_meta=fetch_company_news(ticker,isin,exchange_mic,lookback_days=lookback_days)
+            rows.extend(primary_rows);sources.append('Euronext issuer disclosures')
+            record_source_attempt(source_id='euronext_company_news',market='Norge',publisher='Euronext issuer disclosures',url=primary_meta['source_url'],success=True,article_count=len(primary_rows),relevant_count=len(primary_rows),cache_status=primary_meta['cache_status'],parser_status='OK',volume_check=False)
+            primary_sufficient=bool(primary_rows) or primary_meta['window_complete']
+            search_log.append({'source':'Euronext issuer disclosures','source_type':'OFFICIAL_EXCHANGE_FEED',
+                'source_role':'PRIMARY_COMPANY','original_publisher':primary_meta['issuer_name'],'attempted':True,'status':'SUCCESS_WITH_RESULTS' if primary_rows else 'SUCCESS_NO_RESULTS',
+                'results':len(primary_rows),'checked_at':primary_meta['observed_at'],'url':primary_meta['source_url'],
+                'cache_status':primary_meta['cache_status'],'content_scope':primary_meta['content_scope'],
+                'listing_window_complete':primary_meta['window_complete'],'isin':isin,'exchange_mic':exchange_mic,'error':''})
+        except Exception as exc:
+            errors.append('Euronext issuer disclosures: '+str(exc))
+            search_log.append({'source':'Euronext issuer disclosures','source_type':'OFFICIAL_EXCHANGE_FEED',
+                'attempted':True,'status':'SOURCE_ERROR','results':0,'checked_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),'error':str(exc)[:240]})
     try:
         _yf_started = time.perf_counter()
-        yf_rows = _fetch_yfinance(ticker)
-        record_source_attempt(
-            source_id="yahoo_finance", market=str(market or "Globalt"), publisher="Yahoo Finance",
-            url="https://finance.yahoo.com", success=True,
-            response_ms=(time.perf_counter() - _yf_started) * 1000.0, article_count=len(yf_rows),
-            relevant_count=sum(
-                article_company_relevance(row, ticker, company_name).get("company_relevant") is True
-                for row in yf_rows
-            ), cache_status="DIRECT", parser_status="OK", volume_check=False,
-        )
-        rows.extend(yf_rows)
-        if yf_rows: sources.append("Yahoo Finance / yfinance")
-        search_log.append({
-            "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
-            "attempted": True, "status": "SUCCESS_WITH_RESULTS" if yf_rows else "SUCCESS_NO_RESULTS",
-            "results": len(yf_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
-        })
+        yf_rows = [] if primary_sufficient else _fetch_yfinance(ticker)
+        if primary_sufficient:
+            search_log.append({"source":"yfinance company news","attempted":False,"status":"NOT_SEARCHED","reason_code":"PRIMARY_SOURCE_AVAILABLE","results":0,"reason":"Verifisert selskapskilde benyttet"})
+        else:
+            record_source_attempt(
+                source_id="yahoo_finance", market=str(market or "Globalt"), publisher="Yahoo Finance",
+                url="https://finance.yahoo.com", success=True,
+                response_ms=(time.perf_counter() - _yf_started) * 1000.0, article_count=len(yf_rows),
+                relevant_count=sum(
+                    article_company_relevance(row, ticker, company_name).get("company_relevant") is True
+                    for row in yf_rows
+                ), cache_status="DIRECT", parser_status="OK", volume_check=False,
+            )
+            rows.extend(yf_rows)
+            if yf_rows: sources.append("Yahoo Finance / yfinance")
+            search_log.append({
+                "source": "yfinance company news", "source_type": "SECONDARY_AGGREGATOR",
+                "attempted": True, "status": "SUCCESS_WITH_RESULTS" if yf_rows else "SUCCESS_NO_RESULTS",
+                "results": len(yf_rows), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": "",
+            })
     except Exception as exc:
         record_source_attempt(
             source_id="yahoo_finance", market=str(market or "Globalt"), publisher="Yahoo Finance",
@@ -450,12 +477,13 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     try:
         fallback_only = (str(os.getenv("NEWSAPI_FALLBACK_ONLY", "true")).strip().casefold() not in {"0", "false", "no"}) and not newsapi_priority
         minimum_existing = max(1, int(os.getenv("NEWSAPI_FALLBACK_MIN_EXISTING_ARTICLES", "3") or 3))
-        if fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing:
+        if primary_sufficient or (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing):
             search_log.append({
                 "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
                 "attempted": False, "status": "SKIPPED_BUDGET_POLICY", "results": 0,
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "error": f"Ikke brukt: yfinance ga minst {minimum_existing} saker; døgnbudsjett bevart",
+                "reason_code": "PRIMARY_SOURCE_AVAILABLE" if primary_sufficient else "BUDGET_POLICY",
+                "error": "Verifisert selskapskilde benyttet" if primary_sufficient else f"Ikke brukt: yfinance ga minst {minimum_existing} saker; døgnbudsjett bevart",
             })
             api_rows = []
         else:
@@ -467,7 +495,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             row.setdefault("article_type", classify_article(str(row.get("title") or ""), str(row.get("description") or row.get("summary") or "")))
         rows.extend(api_rows)
         if api_rows: sources.append("NewsAPI")
-        if not (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing):
+        if not (primary_sufficient or (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing)):
             search_log.append({
                 "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
                 "attempted": bool(os.getenv("NEWSAPI_KEY", "").strip()),
@@ -499,7 +527,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
         search_log.append({'source':'NewsAPI broad company search','source_type':'LICENSED_AGGREGATOR',
             'attempted':exc.attempted,'status':'SOURCE_ERROR','results':0,
             'search_status':'SEARCH_FAILED' if exc.attempted else 'NOT_SEARCHED_POLICY',
-            'provider_code':exc.provider_code,'checked_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'provider_code':exc.provider_code,'reason_code':getattr(exc,'reason_code','SOURCE_ERROR'),'checked_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
             'error':str(exc)})
     except NewsApiError:
         search_log.append({
@@ -565,6 +593,14 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             })
     result = score_articles(ticker, rows, lookback_days, company_name=company_name)
     unique_sources = list(dict.fromkeys(source for source in sources if source))
+    # Raw retrieval hits remain visible, but rejected articles are not
+    # supporting publishers or independent corroboration.
+    retained=list(result.get('events') or [])
+    for attempt in search_log:
+        source_id=attempt.get('source_id')
+        if attempt.get('source')=='Euronext issuer disclosures':source_id='euronext_company_news'
+        if source_id:
+            attempt['retained_results']=sum(row.get('source_id')==source_id for row in retained)
     result["source"] = ", ".join(unique_sources) if unique_sources else "unavailable"
     result["configured_market_sources"] = [str(spec.get("label") or spec.get("publisher") or "") for spec in feed_specs]
     result["source_breakdown"] = {
@@ -600,6 +636,7 @@ def enrich_rows(rows: Sequence[Mapping[str, Any]], force_refresh: bool = False, 
             market=str(row.get("market") or ""),
             ir_feed_url=str(row.get("ir_feed_url") or row.get("investor_relations_feed") or ""),
             newsapi_priority=bool(row.get("newsapi_priority") or row.get("evidence_priority")),
+            isin=str(row.get("isin") or ""),exchange_mic=str(row.get("exchange_mic") or ""),
         )
         row["news_intelligence"] = result
         row["news_score"] = result.get("score", 50.0)
