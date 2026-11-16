@@ -22,6 +22,13 @@ removes avoidable overlap without changing persistence or accounting semantics.
 This choice is the implementer's call under the user's standing instruction to
 finish fixes and deploy autonomously, rather than a new user design decision.
 
+An additional 356 MB probe showed lifetime release alone still peaked above 2 GiB.
+The final scope also streams the existing base64/zlib envelope and parses journal
+events individually with the standard JSON decoder, then streams financial
+mutation encoding into the identical envelope. Preserve JSON number/escape/key
+semantics and validate checksum/termination before returning any data. No new
+dependency or storage migration. A cancelled initial CI candidate was not merged.
+
 This does not bound the growing monolithic journal or guarantee future full reads
 fit 2 GiB. Record that limitation explicitly and retain issue 200 as open.
 Validate object lifetime at both boundaries, semantic evidence equivalence,

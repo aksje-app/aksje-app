@@ -20,7 +20,12 @@ from offline verification alone.
 ## Task
 
 - [x] Add failing weak-reference lifetime tests at preparation and quote boundaries.
-- [ ] Split context extraction from evidence fetching in production_routing.py.
-- [ ] Pass detached portfolio into autonomy_nok_companion.prepare; release selection.
-- [ ] Verify evidence equivalence, focused and full suite, archived memory probe.
+- [x] Split context extraction from evidence fetching in production_routing.py.
+- [x] Pass detached portfolio into autonomy_nok_companion.prepare; release selection.
+- [x] Verify evidence equivalence, archived object lifetime and realistic-size probe.
+- [x] Reject insufficient first candidate: 2262.6 MiB process peak at 356 MB.
+- [x] Add failing full-history allocation and large-event CPU regressions.
+- [x] Stream existing envelope reads/mutation writes without changing stored bytes.
+- [x] Independently review parser/checksum/wire semantics and remeasure: 1861.7 MiB.
+- [x] Complete final combined checks: 206 pass; full suite 2801 pass / five baseline failures.
 - [ ] Review, run release checks, merge and deploy; verify production versions.
