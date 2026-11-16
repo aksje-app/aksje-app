@@ -91,3 +91,23 @@ def test_compressed_input_is_also_decoded_in_bounded_chunks(monkeypatch):
         return original(text,*a,**kw)
     monkeypatch.setattr(codec.base64,'b64decode',bounded)
     assert codec.decode_document(record)==value
+
+
+def test_read_only_operator_accepts_encoded_restart_without_writing(monkeypatch):
+    from test_nok_operator_transport import pc
+    value={'accounts':{'autonomy':{'events':[]}},'history':'preserved'}
+    raw=codec.encode_payload(json.dumps(value));actions=[]
+    class Cursor:
+        query=''
+        def __enter__(self):return self
+        def __exit__(self,*a):pass
+        def execute(self,sql,params):
+            assert sql.startswith('SELECT');self.query=sql
+        def fetchone(self):return (len(raw),) if 'octet_length' in self.query else (raw,)
+    class Connection:
+        def cursor(self):return Cursor()
+        def rollback(self):actions.append('rollback')
+        def close(self):actions.append('close')
+    monkeypatch.setattr(pc.shared.ReadOnlyStorage,'_conn',lambda self:Connection())
+    assert pc.shared.ReadOnlyStorage().read_json('simulation_restarts/p/bundle.json')==value
+    assert actions==['rollback','close']

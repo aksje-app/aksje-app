@@ -30,12 +30,15 @@ def test_json_result_buffer_is_released_before_decode(tmp_path, monkeypatch):
 
 
 def test_locked_json_result_is_released_before_decode_but_transaction_stays_open(tmp_path, monkeypatch):
+    monkeypatch.setenv('RESTART_BUNDLE_COMPRESSION_ENABLED','1')
     raw = json.dumps({'history': ['💹', -0.0]})
     events = []
     class Cursor:
         def __enter__(self): return self
         def __exit__(self, *args): events.append('cursor_closed')
-        def execute(self, sql, params): pass
+        def execute(self, sql, params=None): pass
+        def copy_expert(self, sql, stream):
+            while stream.read(65536):pass
         def fetchone(self): return (raw,)
     class Connection:
         def cursor(self): return Cursor()
