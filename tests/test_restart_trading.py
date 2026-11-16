@@ -50,9 +50,25 @@ def candidate(at,session_date=None,price=100):
         raw={'last_price':price,'volatility_pct':20})
 
 
+def trading_week_start(after):
+    """These lifecycle scenarios need open sessions, including Thursday's buy.
+
+    A relative Monday alone selected US Thanksgiving on Nov 26, 2026 and made
+    otherwise valid accounting tests stop at the real market-closed gate.
+    """
+    from market_hours import market_status
+    first=(after+timedelta(days=(7-after.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    for _ in range(52):
+        if all(market_status(market,now=first+timedelta(days=offset))['is_open']
+               for market in ('USA','Norge','Sverige') for offset in (0,3,4)):
+            return first
+        first+=timedelta(days=7)
+    raise AssertionError('No open trading week found for lifecycle fixture')
+
+
 def at(active,days=0):
     start=datetime.fromisoformat(active[1]['start_at'])
-    return ((start+timedelta(days=(7-start.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)+timedelta(days=days)).isoformat()
+    return (trading_week_start(start)+timedelta(days=days)).isoformat()
 
 
 def test_autonomy_ordinary_decisions_pending_buy_stop_and_retries(active):
