@@ -11,6 +11,15 @@ from services.economic_opening import digest
 from services.restart_read_reuse import account_read
 
 
+def _autonomy_memory(stage):
+    """Payload-free phase markers survive an OOM without additional DB writes."""
+    import logging
+    from runtime_memory import memory_snapshot
+    snapshot=memory_snapshot()
+    logging.warning('AUTONOMY_MEMORY stage=%s rss_mb=%s cgroup_mb=%s',stage,
+                    snapshot.get('process_rss_mb'),snapshot.get('cgroup_memory_current_mb'))
+
+
 def completed(chosen,run_id,source_input):
     family=chosen['pointer']['family']
     for event in chosen['bundle']['accounts'][family]['events']:
@@ -145,23 +154,41 @@ def _collect_execution_evidence(family, rows, doc, cost_policy, *, at=None):
     return evidence, blocked, at
 
 
+def _execution_source(family, chosen):
+    """Detach evidence inputs from an already verified selection, never its journal.
+
+    This is a quote-collection input, not permission to execute. The trading
+    transaction still verifies the live account, signed grant and account_ref.
+    """
+    if chosen['pointer']['family'] != family:
+        raise ValueError('Selected restart account family mismatch')
+    p=chosen['approval'];doc=chosen['bundle']['accounts'][family]
+    if doc['status']!='ACTIVE':
+        raise ValueError('Approved account reference required')
+    latest=next((e['payload'] for e in reversed(doc.get('events') or []) if e['kind']=='STRATEGY_RUN'), {})
+    quotes={ticker:{'execution_quote':deepcopy(pos.get('execution_quote'))}
+            for ticker,pos in latest.get('state',{}).get('positions',{}).items()}
+    compact=dict(account={'positions':deepcopy(doc['account']['positions'])},
+                 events=[{'kind':'STRATEGY_RUN','payload':{'state':{'positions':quotes}}}])
+    ref=dict(period_id=p['period_id'],family=family,opening_sha256=doc['opening_sha256'],
+             approval_sha256=digest(doc['approval']),scope=doc['approval']['scope'])
+    return dict(document=compact,cost_policy=deepcopy(p['cost_policy']),account_ref=ref)
+
+
+def _context_from_source(family,run_id,rows,source,*,storage=None,at=None):
+    rows={str(r['ticker']).upper():r for r in rows}
+    evidence,blocked,at=_collect_execution_evidence(family,rows,source['document'],source['cost_policy'],at=at)
+    return dict(period_id=source['account_ref']['period_id'],run_id=run_id,at=at,evidence=evidence,
+                account_ref=source['account_ref'],storage=storage,evidence_blocks=blocked)
+
+
 def context(family,run_id,rows,*,storage=None,at=None,chosen=None):
     if chosen is None:
         chosen=control.selected(family,storage=storage)
     elif chosen['pointer']['family'] != family:
         raise ValueError('Selected restart account family mismatch')
     if chosen is None:return None
-    p=chosen['approval'];doc=chosen['bundle']['accounts'][family]
-    rows={str(r['ticker']).upper():r for r in rows}
-    evidence,blocked,at = _collect_execution_evidence(family,rows,doc,p['cost_policy'],at=at)
-    # The selected bundle has already passed integrity and signed-grant checks.
-    # Do not deserialize the entire 83 MB bundle again just to obtain this reference.
-    if doc['status']!='ACTIVE':
-        raise ValueError('Approved account reference required')
-    account_ref=dict(period_id=p['period_id'],family=family,opening_sha256=doc['opening_sha256'],
-        approval_sha256=digest(doc['approval']),scope=doc['approval']['scope'])
-    return dict(period_id=p['period_id'],run_id=run_id,at=at,evidence=evidence,
-        account_ref=account_ref,storage=storage,evidence_blocks=blocked)
+    return _context_from_source(family,run_id,rows,_execution_source(family,chosen),storage=storage,at=at)
 
 
 def paper(ticker,operation,*,signal=None,confidence=0,trade_context=None,price=None,**details):
@@ -208,13 +235,25 @@ def autonomy(candidates,run_id):
     if already:
         prepared=storage.read_json(companion.preparation_key(chosen,run_id))
     else:
-        prepared=companion.prepare(chosen,run_id,candidates,storage=storage)
+        portfolio=_account_projection('autonomy',chosen,storage=storage,verified=True)
+        evidence_source=_execution_source('autonomy',chosen)
+        chosen={'pointer':deepcopy(chosen['pointer']),'approval':deepcopy(chosen['approval'])}
+        # Keep only detached current state during optional work and network I/O.
+        # Historical journals belong only to verification/transaction phases.
+        from runtime_memory import release_process_memory
+        release_process_memory('autonomy_verified_history_released')
+        _autonomy_memory('history_released_before_preparation')
+        prepared=companion.prepare(chosen,run_id,candidates,storage=storage,portfolio=portfolio)
+        _autonomy_memory('preparation_completed_before_execution_evidence')
         candidates=prepared['candidates']
-        common=context('autonomy',run_id,candidates,storage=storage,chosen=chosen)
+        common=_context_from_source('autonomy',run_id,candidates,evidence_source,storage=storage)
+        evidence_source=None
         candidates=[row for row in candidates if str(row['ticker']).upper() in common['evidence']]
         # Release the pre-execution journal before opening the locked transaction.
         # The learning companion only needs the immutable period pointer.
         chosen={'pointer':chosen['pointer']}
+        release_process_memory('autonomy_before_locked_transaction')
+        _autonomy_memory('execution_evidence_completed_before_transaction')
         result=trading.autonomy(**common,parameters=prepared['settings'],candidates=candidates,routing_input=source_input)
     chosen=None  # release any retry snapshot before reading committed state
     chosen=control.selected('autonomy',storage=storage)

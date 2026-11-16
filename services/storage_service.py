@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from storage_architecture import get_runtime_paths
 from utils import _now_iso
-from services.restart_payload_codec import RestartPayloadError,decode_document
+from services.restart_payload_codec import RestartPayloadError,decode_document,PREFIX as RESTART_ENCODING_PREFIX
 
 try:
     import psycopg2  # type: ignore
@@ -722,11 +722,14 @@ class StorageService:
                 if row:
                     from services.restart_io_metrics import record
                     record(name, 'locked_mutation', raw=row[0])
+                was_encoded_restart=bool(_restart_bundle(name) and row and row[0].startswith(RESTART_ENCODING_PREFIX))
                 del row
                 result = transform(current)
                 with conn.cursor() as cur:
-                    payload = json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)
-                    if _restart_bundle(name) and len(payload) >= _RESTART_COPY_MIN_BYTES:
+                    from services.restart_payload_codec import enabled as restart_encoding_enabled
+                    stream_restart=_restart_bundle(name) and (restart_encoding_enabled() or was_encoded_restart)
+                    payload=result if stream_restart else json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)
+                    if stream_restart or (_restart_bundle(name) and len(payload) >= _RESTART_COPY_MIN_BYTES):
                         from services.large_json_write import write_restart_payload
                         write_restart_payload(cur, name, payload)
                     else:
