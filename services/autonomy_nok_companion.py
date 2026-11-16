@@ -13,7 +13,7 @@ def preparation_key(chosen,run_id):
     return 'autonomous_portfolio/nok_preparation/'+digest(dict(period=chosen['pointer']['period_id'],run_id=run_id))+'.json'
 
 
-def prepare(chosen,run_id,candidates,*,storage=None):
+def prepare(chosen,run_id,candidates,*,storage=None,portfolio=None):
     import autonomous_portfolio as ap
     from services.production_routing import view,strategy_settings
     storage=storage or control.get_storage_service()
@@ -24,11 +24,11 @@ def prepare(chosen,run_id,candidates,*,storage=None):
         if current:
             if current['source_sha256']!=digest(source):raise ValueError('Autonomy source job reused with different input')
             return current
-        portfolio=view('autonomy',storage=storage,chosen=chosen)
-        prepared,snapshot,parallel,technical=ap.prepare_cycle_candidates(deepcopy(candidates),portfolio,
+        before=portfolio if portfolio is not None else view('autonomy',storage=storage,chosen=chosen)
+        prepared,snapshot,parallel,technical=ap.prepare_cycle_candidates(deepcopy(candidates),before,
             ap.AutonomousParameters(**settings).normalized(),run_id,lambda *a,**kw:None)
         return dict(source_sha256=digest(source),settings=settings,candidates=prepared,market_snapshot=snapshot,
-            parallel_strategy_run=parallel,technical_contribution=technical,portfolio_before=portfolio)
+            parallel_strategy_run=parallel,technical_contribution=technical,portfolio_before=before)
     return storage.mutate_json(key,mutation)
 
 

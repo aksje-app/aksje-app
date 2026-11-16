@@ -8,7 +8,7 @@ from urllib.parse import urlsplit,urlunsplit
 import pytest
 from test_revision_trade_postgres import pg
 from test_simulation_restart import sources,certificate
-from test_restart_trading import evidence,candidate,paper_signal
+from test_restart_trading import evidence,candidate,paper_signal,trading_week_start
 from services import production_restart as control,simulation_restart as restart,simulation_archive as archive
 from services import portfolio_accounting as ledger,restart_trading as trading,production_routing as routing
 from services.economic_opening import digest
@@ -81,7 +81,7 @@ def ready(pg,sources,certificate,tmp_path,monkeypatch):
         costs={f:deepcopy(cost) for f in restart.CAPITALS}
         costs['super_portfolio']=super_portfolio_proposal(settings['super_portfolio'],source_ref='ISOLATED existing 10bps',
             fx_component={'fixed_nok':4,'source_ref':'ISOLATED documented FX charge'})
-        def isolated_prepare(chosen,run_id,candidates,*,storage=None):
+        def isolated_prepare(chosen,run_id,candidates,*,storage=None,portfolio=None):
             value=dict(candidates=deepcopy(candidates),settings=deepcopy(settings['autonomy']),market_snapshot={},parallel_strategy_run={},technical_contribution={},portfolio_before={})
             return pg.write_json_immutable(companion.preparation_key(chosen,run_id),value)
         monkeypatch.setattr(companion,'prepare',isolated_prepare)
@@ -187,7 +187,7 @@ def test_production_approved_full_trade_stop_recover_and_preserve(ready,family):
         assert doc(r,family)['account']['positions']['TEST']['quantity']==12
         direct(r,family,'final',at,[dict(ticker='TEST',operation='SELL')],evidence(at,110,11))
     else:
-        first=(start+timedelta(days=(7-start.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+        first=trading_week_start(start)
         at=first.isoformat();second=(first+timedelta(days=3)).isoformat();third=(first+timedelta(days=4)).isoformat()
         direct(r,family,'search',at,[candidate(at)])
         inputs=[candidate(second)]
@@ -330,7 +330,7 @@ def test_ordinary_retries_use_receipt_during_provider_outage(ready,monkeypatch):
 def test_superportfolio_risk_surveillance_books_only_authoritative_journal(ready,monkeypatch):
     r=ready;family='super_portfolio';activate(r,family)
     first=datetime.now(timezone.utc)
-    first=(first+timedelta(days=(7-first.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    first=trading_week_start(first)
     second=first+timedelta(days=3);third=second+timedelta(minutes=16)
     direct(r,family,'search',first.isoformat(),[candidate(first.isoformat())])
     direct(r,family,'buy',second.isoformat(),[candidate(second.isoformat())])
@@ -350,7 +350,7 @@ def test_superportfolio_risk_surveillance_books_only_authoritative_journal(ready
 def test_closed_scheduled_research_and_risk_preserve_signed_postgres_history(ready,monkeypatch):
     r=ready;family='super_portfolio';activate(r,family)
     first=datetime.now(timezone.utc)
-    first=(first+timedelta(days=(7-first.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    first=trading_week_start(first)
     second=first+timedelta(days=3);closed=second+timedelta(hours=9)
     for name,instant in [('search',first),('buy',second)]:
         when=instant.isoformat();row={**candidate(when),'ticker':'EVO.ST','market':'Sverige'}
@@ -667,7 +667,7 @@ def test_signed_variable_policy_is_bound_to_production_execution_and_refuses_tam
     r=ready;r['costs'][family]=policy(10)
     activate(r,family)
     now=datetime.now(timezone.utc)
-    first=(now+timedelta(days=(7-now.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    first=trading_week_start(now)
     second=first+timedelta(days=3)
     if family=='paper':direct(r,family,'variable-buy',first.isoformat(),[dict(ticker='TEST',operation='BUY',amount_nok=10000,confidence=90)])
     else:
@@ -693,7 +693,7 @@ def test_superportfolio_signed_variable_cost_is_exactly_once_and_unknown_fx_refu
     assert all(a['status']=='DRAFT' for a in before['accounts'].values())
     activate(r,family)
     now=datetime.now(timezone.utc)
-    first=(now+timedelta(days=(7-now.weekday())%7 or 7)).replace(hour=15,minute=0,second=0,microsecond=0)
+    first=trading_week_start(now)
     second=first+timedelta(days=3)
     direct(r,family,'search',first.isoformat(),[candidate(first.isoformat())])
     direct(r,family,'buy',second.isoformat(),[candidate(second.isoformat())])

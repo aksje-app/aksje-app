@@ -41,7 +41,9 @@ class BinaryTextRow:
 
 def write_restart_payload(cur, name, payload, *, skip_unchanged=False, immutable=False):
     from services.restart_payload_codec import PREFIX,MAX_STORED_BYTES,CHUNK_BYTES,RestartPayloadError,enabled,encode_payload
-    original_bytes=len(payload) if payload.isascii() else sum(len(payload[i:i+CHUNK_BYTES].encode('utf8')) for i in range(0,len(payload),CHUNK_BYTES))
+    original_bytes=None
+    if isinstance(payload,str):
+        original_bytes=len(payload) if payload.isascii() else sum(len(payload[i:i+CHUNK_BYTES].encode('utf8')) for i in range(0,len(payload),CHUNK_BYTES))
     # All large writers use the same lock order as mutate_json. An encoded
     # document stays encoded even if the rollout flag is later absent.
     cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',(name,))
@@ -49,8 +51,14 @@ def write_restart_payload(cur, name, payload, *, skip_unchanged=False, immutable
     previous=cur.fetchone()
     compressed=enabled() or bool(previous and previous[0].startswith(PREFIX))
     if compressed:
-        payload=encode_payload(payload)
-    elif len(payload)>MAX_STORED_BYTES:
+        if isinstance(payload,str):payload=encode_payload(payload)
+        else:
+            from services.restart_payload_codec import encode_document
+            payload,original_bytes=encode_document(payload)
+    elif not isinstance(payload,str):
+        import json
+        payload=json.dumps(payload,ensure_ascii=True,default=str);original_bytes=len(payload)
+    if not compressed and len(payload)>MAX_STORED_BYTES:
         raise RestartPayloadError('Legacy restart value exceeds 64 MiB; deploy compatible readers and enable restart compression')
     cur.execute('CREATE TEMP TABLE app_restart_payload (payload TEXT NOT NULL) ON COMMIT DROP')
     cur.copy_expert('COPY app_restart_payload (payload) FROM STDIN WITH (FORMAT binary)', BinaryTextRow(payload))
