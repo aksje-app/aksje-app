@@ -251,6 +251,7 @@ def test_nok_accounting_status_and_complete_draft_downloads(app_server,width,rou
         panel.locator('summary').click()
         panel.get_by_text('Status: Utkast – ikke aktivert',exact=True).wait_for()
         assert 'Historiske modellresultater, inkludert tap, beholdes' in panel.inner_text()
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=45000)
         with page.expect_download() as download:
             panel.get_by_role('button',name='Last ned NOK-regnskap og journal (JSON)',exact=True).click()
         data=json.loads(Path(download.value.path()).read_bytes())
@@ -325,6 +326,7 @@ def test_documented_model_dividend_and_cashflow_report(app_server,width,monkeypa
         panel=page.locator('[data-testid="stExpander"]').filter(has_text='NOK-regnskap – dokumentert periode og historikk')
         panel.locator('summary').wait_for(timeout=45000);panel.locator('summary').click()
         panel.get_by_text('Tidsvektet avkastning med dokumentert NAV ved kapitalbevegelser.',exact=True).wait_for()
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=45000)
         with page.expect_download() as download:
             panel.get_by_role('button',name='Last ned NOK-regnskap og journal (JSON)',exact=True).click()
         result=json.loads(Path(download.value.path()).read_bytes())['new_period']
