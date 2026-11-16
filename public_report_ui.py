@@ -78,6 +78,8 @@ def with_report_return(url: str, return_to: str) -> str:
         return ""
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query["return_to"] = _safe_return_nav(return_to)
+    if "public_report_token" in query:
+        query["report_view"] = "page"
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 

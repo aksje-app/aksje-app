@@ -302,7 +302,8 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
             "priority": max(-2, min(1, int(priority or 0))),
         }
         if url:
-            payload["url"] = str(url)
+            from report_delivery import pushover_pdf_url
+            payload["url"] = pushover_pdf_url(str(url))
             payload["url_title"] = str(url_title or "Åpne rapport")
         response = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
 

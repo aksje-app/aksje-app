@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from html import escape
 import hashlib
+from urllib.parse import parse_qsl,urlencode,urlsplit,urlunsplit
 from typing import Any
 
 
@@ -36,8 +37,13 @@ def render_mobile_file_delivery(
     )
     landing_url = "public_file_token=" in str(url or "") or "public_report_token=" in str(url or "")
     if landing_url:
+        parsed=urlsplit(str(url or ""))
+        query=parse_qsl(parsed.query,keep_blank_values=True)
+        if any(name=="public_report_token" for name,_ in query):
+            query=[(name,value) for name,value in query if name!="report_view"]+[("report_view","page")]
+        page_url=escape(urlunsplit(parsed._replace(query=urlencode(query))),quote=True)
         secondary_action = (
-            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" '
+            f'<a href="{page_url}" target="_blank" rel="noopener noreferrer" '
             'style="display:block;text-align:center;padding:.65rem;border:1px solid #38bdf8;border-radius:.5rem;'
             'color:inherit;text-decoration:none;font-weight:700">Åpne nedlastingsside</a>'
         )

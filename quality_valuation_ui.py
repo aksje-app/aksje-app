@@ -428,7 +428,7 @@ def _quality_report_choice_cards(delivery: Mapping[str, Any]) -> str:
         (
             "Kort rapport",
             "Rask oversikt over utvalgte aksjer, stjerner, prising og viktigste funn.",
-            f"/?public_report_token={delivery.get('short_pdf')}&return_to=quality_reports",
+            f"/?public_report_token={delivery.get('short_pdf')}&return_to=quality_reports&report_view=page",
             True,
         ),
     ]
@@ -436,7 +436,7 @@ def _quality_report_choice_cards(delivery: Mapping[str, Any]) -> str:
         choices.append((
             "Full analyse",
             "Detaljer, historikk, grafer og faglig grunnlag.",
-            f"/?public_report_token={delivery.get('extended_pdf')}&return_to=quality_reports",
+            f"/?public_report_token={delivery.get('extended_pdf')}&return_to=quality_reports&report_view=page",
             False,
         ))
     choices.append((

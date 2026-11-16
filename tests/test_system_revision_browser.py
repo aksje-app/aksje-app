@@ -24,7 +24,7 @@ def app_server():
          'RUNTIME_BACKGROUND_ENABLED':'false','REPORT_SCHEDULER_ENABLED':'false',
          'PAPER_TRADING_ENABLED':'false','ALLOW_LOCAL_STORAGE_FALLBACK':'true'}
     with open(runtime+'/server.log','w') as log:
-        proc=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/system_revision_ui_fixture.py',
+        proc=subprocess.Popen([sys.executable,'-m','streamlit','run','scripts/system_revision_asgi_fixture.py',
             '--server.port='+str(port),'--server.headless=true','--browser.gatherUsageStats=false'],env=env,stdout=log,stderr=log)
         base='http://127.0.0.1:'+str(port)
         try:
@@ -251,6 +251,7 @@ def test_nok_accounting_status_and_complete_draft_downloads(app_server,width,rou
         panel.locator('summary').click()
         panel.get_by_text('Status: Utkast – ikke aktivert',exact=True).wait_for()
         assert 'Historiske modellresultater, inkludert tap, beholdes' in panel.inner_text()
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=45000)
         with page.expect_download() as download:
             panel.get_by_role('button',name='Last ned NOK-regnskap og journal (JSON)',exact=True).click()
         data=json.loads(Path(download.value.path()).read_bytes())
@@ -325,6 +326,7 @@ def test_documented_model_dividend_and_cashflow_report(app_server,width,monkeypa
         panel=page.locator('[data-testid="stExpander"]').filter(has_text='NOK-regnskap – dokumentert periode og historikk')
         panel.locator('summary').wait_for(timeout=45000);panel.locator('summary').click()
         panel.get_by_text('Tidsvektet avkastning med dokumentert NAV ved kapitalbevegelser.',exact=True).wait_for()
+        page.wait_for_function("document.querySelector('[data-testid=stApp]')?.getAttribute('data-test-script-state') === 'notRunning'",timeout=45000)
         with page.expect_download() as download:
             panel.get_by_role('button',name='Last ned NOK-regnskap og journal (JSON)',exact=True).click()
         result=json.loads(Path(download.value.path()).read_bytes())['new_period']
@@ -459,7 +461,7 @@ def test_public_pdf_download_is_a_real_file_when_static_preview_fails(app_server
         try:
             page=browser.new_page(viewport={'width':width,'height':900},accept_downloads=True)
             page.route('**/app/static/reports/**',lambda route:route.abort())
-            page.goto(app_server+'/?public_report_token='+token)
+            page.goto(app_server+'/?public_report_token='+token+'&report_view=page')
             page.get_by_role('heading',name='Rapport',exact=True).wait_for(timeout=30000)
             before_url=page.url
             with page.expect_download(timeout=10000) as pending:
