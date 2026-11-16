@@ -41,16 +41,25 @@ class BinaryTextRow:
 
 def write_restart_payload(cur, name, payload, *, skip_unchanged=False, immutable=False):
     from services.restart_payload_codec import PREFIX,MAX_STORED_BYTES,CHUNK_BYTES,RestartPayloadError,enabled,encode_payload
+    from services.restart_payload_archive import PREFIX as ARCHIVE_PREFIX,encode_document as encode_archived,is_archived
     original_bytes=None
     if isinstance(payload,str):
         original_bytes=len(payload) if payload.isascii() else sum(len(payload[i:i+CHUNK_BYTES].encode('utf8')) for i in range(0,len(payload),CHUNK_BYTES))
     # All large writers use the same lock order as mutate_json. An encoded
     # document stays encoded even if the rollout flag is later absent.
     cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',(name,))
-    cur.execute('SELECT left(payload,%s) FROM app_kv_store WHERE name=%s FOR UPDATE',(len(PREFIX),name))
+    cur.execute('SELECT left(payload,%s) FROM app_kv_store WHERE name=%s FOR UPDATE',(max(len(PREFIX),len(ARCHIVE_PREFIX)),name))
     previous=cur.fetchone()
-    compressed=enabled() or bool(previous and previous[0].startswith(PREFIX))
-    if compressed:
+    if immutable and previous:
+        return
+    archived=bool(previous and previous[0].startswith(ARCHIVE_PREFIX)) or (not isinstance(payload,str) and is_archived(payload))
+    compressed=archived or enabled() or bool(previous and previous[0].startswith(PREFIX))
+    if archived:
+        if isinstance(payload,str):
+            import json
+            payload=json.loads(payload)
+        payload,original_bytes=encode_archived(cur,name,payload)
+    elif compressed:
         if isinstance(payload,str):payload=encode_payload(payload)
         else:
             from services.restart_payload_codec import encode_document

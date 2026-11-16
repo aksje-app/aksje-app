@@ -388,6 +388,15 @@ def _run_once_locked() -> dict[str, Any]:
         state['restart_storage_encoding']={'status':'FAILED','error':f'{type(exc).__name__}: {str(exc)[:400]}','financial_state_changed':False}
 
     try:
+        if _mem('scheduler:restart_payload_archive',stop=False).get('pressure'):
+            state['restart_payload_archive']={'status':'DEFERRED_MEMORY','financial_state_changed':False}
+        else:
+            from services.restart_payload_archive_migration import run as run_payload_archive
+            state['restart_payload_archive']=run_payload_archive()
+    except Exception as exc:
+        state['restart_payload_archive']={'status':'FAILED','error':f'{type(exc).__name__}: {str(exc)[:400]}','financial_state_changed':False}
+
+    try:
         state["runtime_dependencies"] = assert_runtime_dependencies()
     except Exception as exc:
         state["state"] = "FAILED"
@@ -462,6 +471,13 @@ def _run_once_locked() -> dict[str, Any]:
         _notify_failure_once(state, state["error"])
 
     _mem("scheduler:after_due_jobs")
+
+    try:
+        from services.restart_payload_archive import status as payload_archive_status
+        from services.report_cycle_acceptance import status as report_cycle_status
+        state['report_cycle_acceptance'] = report_cycle_status(archive_status=payload_archive_status())
+    except Exception as exc:
+        state['report_cycle_acceptance'] = {'status': 'MONITOR_UNAVAILABLE', 'error_type': type(exc).__name__, 'financial_state_changed': False}
 
     # The bounded acceptance mode runs only when no ordinary report was claimed
     # in this cron cycle. It uses the same report execution lock. Any positions

@@ -145,3 +145,20 @@ def test_existing_live_source_barrier_still_rejects_history_changes(pg, tmp_path
             archive.verify_live_sources(reviewed, databases={'original': connection})
     finally:
         connection.close()
+
+
+def test_exclusion_is_exact_for_current_period_payloads_backups_and_receipts():
+    sha='a'*64
+    def excluded(key,payload='{}',period='new'):
+        return native._exclude({'name':key,'payload':payload},'app_kv_store',period)
+    for folder in ('payloads','archive_backups'):
+        assert excluded(f'simulation_restarts/new/{folder}/{sha}.json')
+        assert not excluded(f'simulation_restarts/old/{folder}/{sha}.json')
+        assert not excluded(f'simulation_restarts/new/{folder}/unrelated.json')
+    receipt=json.dumps({'schema':1,'status':'VERIFIED','period_id':'new'})
+    assert excluded('scheduler/restart_payload_archive.json',receipt)
+    assert not excluded('scheduler/restart_payload_archive.json',receipt,'other')
+    assert not excluded('learning/restart_payload_archive.json',receipt)
+    accepted=json.dumps({'schema':1,'status':'HEAVY_REPORT_ACCEPTED','archive_period_id':'new'})
+    assert excluded('scheduler/report_cycle_acceptance.json',accepted)
+    assert not excluded('scheduler/report_cycle_acceptance.json',accepted,'other')

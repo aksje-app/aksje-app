@@ -8,6 +8,7 @@ import codecs
 from decimal import Decimal
 import hashlib
 import json
+import re
 import uuid
 
 TEXT_OID = 25
@@ -73,6 +74,22 @@ def _exclude(value, table, period):
         key = key.raw.decode('utf-8')
     if key == 'simulation_restarts/' + period + '/bundle.json':
         return True
+    prefix = 'simulation_restarts/' + period + '/'
+    if key.startswith(prefix) and re.fullmatch(r'(payloads|archive_backups)/[0-9a-f]{64}\.json', key[len(prefix):]):
+        return True
+    if key in {'scheduler/restart_payload_archive.json', 'scheduler/report_cycle_acceptance.json'}:
+        payload = value.get('payload')
+        if isinstance(payload, Utf8Text):
+            payload = payload.raw
+        if isinstance(payload, (bytes, str)):
+            if len(payload) > 8192:
+                raise ValueError('Oversized archive monitor receipt')
+            payload = json.loads(payload)
+        if not isinstance(payload, dict) or payload.get('schema') != 1:
+            return False
+        field = 'period_id' if key.endswith('restart_payload_archive.json') else 'archive_period_id'
+        state = 'VERIFIED' if field == 'period_id' else 'HEAVY_REPORT_ACCEPTED'
+        return payload.get(field) == period and payload.get('status') == state
     if key.startswith('simulation_restarts/routes/'):
         payload = value.get('payload')
         if isinstance(payload, Utf8Text):

@@ -46,17 +46,19 @@ def encode_document(document):
     return _encode_chunks(chunks())
 
 
-def _encode_chunks(chunks):
+def _encode_chunks(chunks, *, max_raw_bytes=None, max_stored_bytes=None):
+    raw_limit = MAX_RAW_BYTES if max_raw_bytes is None else min(MAX_RAW_BYTES, max_raw_bytes)
+    stored_limit = MAX_STORED_BYTES if max_stored_bytes is None else min(MAX_STORED_BYTES, max_stored_bytes)
     compressor=zlib.compressobj(6);checksum=hashlib.sha256();parts=[];size=0;compressed_size=0
     def append(piece):
         nonlocal compressed_size
         compressed_size+=len(piece)
-        if 4*((compressed_size+2)//3)+512>MAX_STORED_BYTES:
+        if 4*((compressed_size+2)//3)+512>stored_limit:
             raise RestartPayloadError('Encoded restart JSON exceeds the 64 MiB database-write limit; partition history before writing')
         parts.append(piece)
     for chunk in chunks:
         size+=len(chunk)
-        if size>MAX_RAW_BYTES:raise RestartPayloadError('Restart JSON exceeds the 512 MiB decoded-size limit')
+        if size>raw_limit:raise RestartPayloadError('Restart JSON exceeds the 512 MiB decoded-size limit')
         checksum.update(chunk);append(compressor.compress(chunk))
     append(compressor.flush())
     packed=b''.join(parts);parts.clear()
@@ -67,14 +69,18 @@ def _encode_chunks(chunks):
     # Base64 contains no JSON escapes. Join once rather than copying the large
     # data string through JSONEncoder's temporary chunk list.
     result=''.join((header[:-1],',"data":"',data,'"}'))
-    if len(result)>MAX_STORED_BYTES:
+    if len(result)>stored_limit:
         raise RestartPayloadError('Encoded restart JSON exceeds the 64 MiB database-write limit; partition history before writing')
     return result,size
 
 
-def decode_document(value):
+def decode_document(value, payload_loader=None):
     if not isinstance(value,dict) or '__restart_storage__' not in value:
         return value
+    from services.restart_payload_archive import MARKER as ARCHIVED_MARKER
+    archived = value.get('__restart_storage__') == ARCHIVED_MARKER
+    if archived:
+        value = {**value, '__restart_storage__': MARKER}
     if set(value)!={'__restart_storage__','uncompressed_bytes','sha256','data'} or value['__restart_storage__']!=MARKER:
         raise RestartPayloadError('Unsupported restart storage encoding')
     size=value['uncompressed_bytes'];checksum=value['sha256'];encoded=value['data']
@@ -105,7 +111,11 @@ def decode_document(value):
         yield utf8.decode(b'',final=True)
     try:
         from services.restart_json_stream import load
-        return load(chunks())
+        result = load(chunks())
+        if archived:
+            from services.restart_payload_archive import hydrate
+            return hydrate(result, payload_loader)
+        return result
     except RestartPayloadError:
         raise
     except (ValueError,zlib.error) as exc:
