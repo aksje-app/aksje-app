@@ -158,7 +158,7 @@ def failure_detail(row,observation,*,read_trace=None):
     if not isinstance(trace,dict) or not isinstance(trace.get('metadata'),dict) or trace.get('job_id')!=row.get('job_id') or not same_slot(row,{'job_id':trace.get('job_id'),'scheduled_for':(trace.get('metadata') or {}).get('scheduled_for')}):trace={}
     if trace.get('error'):return redact_secrets(str(trace['error']))[:450]
     if match and observation.get('state')=='ORPHANED':
-        message='Rapportprosessen er borte; rapportlåsen er frigitt uten ferdigkvittering.'
+        message='Rapportens registrerte kjørelås er ikke lenger holdt. Ingen ferdigkvittering.'
     else:message='Rapporten mangler ferdig- og leveringskvittering.'
     stage=trace.get('current_stage') or (owner.get('stage') if match else None)
     if stage:message+=' Siste fase: '+str(stage)[:80]+'.'
