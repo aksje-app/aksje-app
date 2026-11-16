@@ -7587,6 +7587,31 @@ def _slot_due(job: JobProfile, now: datetime, *, authoritative_unattended: bool 
     return bool(_due_slot_info(job, now, authoritative_unattended=authoritative_unattended).get("due"))
 
 
+def _record_scheduled_report_cycle_acceptance(run: Mapping[str, Any], started_at: str) -> None:
+    # Observational proof only: no report repair, notification, or financial
+    # mutation. Read the small delivery/archive receipts after genuine execution.
+    try:
+        from services.report_cycle_acceptance import record_completed_report
+        from services.restart_payload_archive import status as archive_status
+        from runtime_memory import memory_snapshot
+        receipts = _read(REPORT_NOTIFICATION_RECEIPTS_PATH, {})
+        delivery = receipts.get(str(run.get("run_id") or ""), {}) if isinstance(receipts, Mapping) else {}
+        observation = record_completed_report(
+            run=run, archive_status=archive_status(),
+            context={"started_at": started_at, "authoritative_unattended": True,
+                     "deployed_commit": str(os.getenv("RENDER_GIT_COMMIT") or "")},
+            completed_at=_now_iso(), memory=memory_snapshot(), delivery_receipt=delivery,
+        )
+        if observation.get('status') != 'HEAVY_REPORT_ACCEPTED':
+            mark_breadcrumb('report:cycle_acceptance:pending', component='market_intelligence',
+                            detail={'run_id': run.get('run_id'), 'blockers': observation.get('blockers', [])})
+    except Exception as exc:
+        # Monitoring failure cannot turn an already delivered report into a
+        # failed job or initiate the report failure notification path.
+        mark_breadcrumb("report:cycle_acceptance:unavailable", component="market_intelligence",
+                        detail={"run_id": run.get("run_id"), "error_type": type(exc).__name__})
+
+
 def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool = False) -> list[dict[str, Any]]:
     now = now or _now()
     results = []
@@ -7634,10 +7659,13 @@ def run_due_jobs(now: datetime | None = None, *, authoritative_unattended: bool 
                     "job_id": job.job_id, "saved_markets": list(job.markets or []),
                     "effective_markets": ["Norge"], "reversible_by_env": "PRODUCTION_NORWAY_ONLY=false",
                 })
+            acceptance_started_at = _now_iso()
             result = run_job(
                 effective_job, trigger="SCHEDULED", scheduled_for=planned_at,
                 force_refresh=force_fresh,
             )
+            if authoritative_unattended:
+                _record_scheduled_report_cycle_acceptance(result, acceptance_started_at)
             results.append(result)
             _audit("SCHEDULED_RUN_COMPLETED", {
                 "job_id": job.job_id, "job_name": job.name, "run_id": result.get("run_id"),

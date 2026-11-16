@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from storage_architecture import get_runtime_paths
 from utils import _now_iso
-from services.restart_payload_codec import RestartPayloadError,decode_document,PREFIX as RESTART_ENCODING_PREFIX
+from services.restart_payload_codec import RestartPayloadError,decode_document
 
 try:
     import psycopg2  # type: ignore
@@ -113,12 +113,17 @@ def _restart_bundle(name: str) -> bool:
     return name.startswith('simulation_restarts/') and name.endswith('/bundle.json')
 
 
-def _load_json_document(name,raw):
+def _load_json_document(name,raw, *, storage=None, connection=None):
     try:value=json.loads(raw)
     except (ValueError,UnicodeError) as exc:
         if _restart_bundle(name):raise RestartPayloadError('Invalid restart JSON document') from exc
         raise
-    return decode_document(value) if _restart_bundle(name) else value
+    if _restart_bundle(name):
+        if isinstance(value,dict) and value.get('__restart_storage__')=='ARCHIVED_EVENT_PAYLOADS_V2':
+            from services.restart_payload_archive import make_loader
+            return decode_document(value,payload_loader=make_loader(storage,connection=connection))
+        return decode_document(value)
+    return value
 
 
 def _rollback_preserving_error(conn):
@@ -208,7 +213,7 @@ class StorageService:
         a caller still validates content identity and fails on a real conflict.
         """
         name = _safe_name(name)
-        payload = json.dumps(data, ensure_ascii=_restart_bundle(name), default=str)
+        payload = data if _restart_bundle(name) and self.using_postgres() and not isinstance(data,str) else json.dumps(data, ensure_ascii=_restart_bundle(name), default=str)
         attempts = max(1, min(5, int(attempts or 1)))
         if self.using_postgres():
             last_error: Exception | None = None
@@ -217,7 +222,7 @@ class StorageService:
                     self.init_db(); conn = self._conn()
                     try:
                         cur = conn.cursor()
-                        if _restart_bundle(name) and len(payload)>=_RESTART_COPY_MIN_BYTES:
+                        if _restart_bundle(name):
                             from services.large_json_write import write_restart_payload
                             write_restart_payload(cur,name,payload,immutable=True)
                         else:
@@ -232,7 +237,7 @@ class StorageService:
                         if not row:
                             raise StorageUnavailableError(f"immutable_json({name}) mangler etter transaksjon")
                         conn.commit()
-                        return _load_json_document(name,row[0])
+                        return _load_json_document(name,row[0],storage=self)
                     except Exception:
                         _rollback_preserving_error(conn)
                         raise
@@ -251,7 +256,7 @@ class StorageService:
         path = self.base_dir / name
         with _path_lock(path):
             if path.exists():
-                return _load_json_document(name,path.read_text(encoding="utf-8"))
+                return _load_json_document(name,path.read_text(encoding="utf-8"),storage=self)
             self._atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, default=str))
             return data
 
@@ -447,7 +452,7 @@ class StorageService:
                     # before building the decoded object graph.
                 finally:
                     conn.close()
-                value = default if not row else _load_json_document(name,row[0])
+                value = default if not row else _load_json_document(name,row[0],storage=self)
                 if row:
                     from services.restart_io_metrics import record
                     record(name, 'read', payload_bytes)
@@ -471,7 +476,7 @@ class StorageService:
             return default
         try:
             raw = path.read_text(encoding="utf-8")
-            value = _load_json_document(name,raw)
+            value = _load_json_document(name,raw,storage=self)
             from services.restart_io_metrics import record
             record(name, 'read', raw=raw)
             return value
@@ -636,13 +641,13 @@ class StorageService:
 
     def write_json(self, name: str, data: Any) -> bool:
         name = _safe_name(name)
-        payload = json.dumps(data, ensure_ascii=_restart_bundle(name), default=str)
+        payload = data if _restart_bundle(name) and self.using_postgres() and not isinstance(data,str) else json.dumps(data, ensure_ascii=_restart_bundle(name), default=str)
         if self.using_postgres():
             try:
                 self.init_db(); conn = self._conn()
                 try:
                     cur = conn.cursor()
-                    if _restart_bundle(name) and len(payload) >= _RESTART_COPY_MIN_BYTES:
+                    if _restart_bundle(name):
                         from services.large_json_write import write_restart_payload
                         write_restart_payload(cur, name, payload, skip_unchanged=True)
                     else:
@@ -670,6 +675,7 @@ class StorageService:
     def ensure_restart_encoding(self,name):
         """Lossless, idempotent storage migration; no financial callback runs."""
         from services.restart_payload_codec import enabled,PREFIX,MAX_RAW_BYTES,CHUNK_BYTES
+        from services.restart_payload_archive import PREFIX as ARCHIVE_PREFIX
         import hashlib
         name=_safe_name(name)
         if not _restart_bundle(name):raise ValueError('Explicit restart bundle required')
@@ -680,11 +686,11 @@ class StorageService:
         try:
             with conn.cursor() as cur:
                 cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',(name,))
-                cur.execute('SELECT left(payload,%s),octet_length(payload) FROM app_kv_store WHERE name=%s FOR UPDATE',(len(PREFIX),name))
+                cur.execute('SELECT left(payload,%s),octet_length(payload) FROM app_kv_store WHERE name=%s FOR UPDATE',(max(len(PREFIX),len(ARCHIVE_PREFIX)),name))
                 row=cur.fetchone()
                 if not row:return {'state':'MISSING','financial_state_changed':False}
                 prefix,size=row
-                if prefix.startswith(PREFIX):return {'state':'ALREADY_ENCODED','stored_bytes':size,'financial_state_changed':False}
+                if prefix.startswith((PREFIX,ARCHIVE_PREFIX)):return {'state':'ALREADY_ENCODED','stored_bytes':size,'financial_state_changed':False}
                 if size<_RESTART_COPY_MIN_BYTES:return {'state':'SMALL_LEGACY','stored_bytes':size,'financial_state_changed':False}
                 if size>MAX_RAW_BYTES:raise RestartPayloadError('Legacy restart exceeds the decoded-size limit')
                 cur.execute('SELECT payload FROM app_kv_store WHERE name=%s',(name,));raw=cur.fetchone()[0]
@@ -718,18 +724,16 @@ class StorageService:
                     row = cur.fetchone()
                 # The transaction/advisory/row locks survive cursor closure.
                 # Free the native result before decoding, as for public reads.
-                current = _load_json_document(name,row[0]) if row else default
+                current = _load_json_document(name,row[0],storage=self,connection=conn) if row else default
                 if row:
                     from services.restart_io_metrics import record
                     record(name, 'locked_mutation', raw=row[0])
-                was_encoded_restart=bool(_restart_bundle(name) and row and row[0].startswith(RESTART_ENCODING_PREFIX))
                 del row
                 result = transform(current)
                 with conn.cursor() as cur:
-                    from services.restart_payload_codec import enabled as restart_encoding_enabled
-                    stream_restart=_restart_bundle(name) and (restart_encoding_enabled() or was_encoded_restart)
-                    payload=result if stream_restart else json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)
-                    if stream_restart or (_restart_bundle(name) and len(payload) >= _RESTART_COPY_MIN_BYTES):
+                    stream_restart=_restart_bundle(name)
+                    payload=result if stream_restart and not isinstance(result,str) else json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)
+                    if stream_restart:
                         from services.large_json_write import write_restart_payload
                         write_restart_payload(cur, name, payload)
                     else:
@@ -754,7 +758,7 @@ class StorageService:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 raw = path.read_text() if path.exists() else None
-                current = _load_json_document(name,raw) if raw is not None else default
+                current = _load_json_document(name,raw,storage=self) if raw is not None else default
                 if raw is not None:
                     from services.restart_io_metrics import record
                     record(name, 'locked_mutation', raw=raw)

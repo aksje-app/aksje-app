@@ -67,6 +67,9 @@ class ReadOnlyStorage:
                     raise ValueError('Stored document exceeds bounded read limit: '+name)
                 cursor.execute('SELECT payload FROM app_kv_store WHERE name=%s', (name,))
                 value=json.loads(cursor.fetchone()[0])
+                if restart and isinstance(value,dict) and value.get('__restart_storage__')=='ARCHIVED_EVENT_PAYLOADS_V2':
+                    from services.restart_payload_archive import make_loader
+                    return decode_document(value,payload_loader=make_loader(self))
                 return decode_document(value) if restart else value
         finally:
             conn.rollback()
