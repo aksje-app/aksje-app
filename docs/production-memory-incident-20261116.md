@@ -45,6 +45,15 @@ morning job is manually replayed, and no capital/strategy settings are changed.
 
 ## Verification
 
+- Final CI-equivalent production lifecycle command, including actual PC/mobile
+  browser exports, passed all 205 tests locally with the workflow's environment
+  and compression enabled. The earlier CI found a separate operator read adapter
+  returning the encoded envelope, plus a cursor test double lacking binary COPY.
+  The adapter now decodes reserved restart records; the mock implements the DBAPI
+  interface and explicitly tests compressed writes. Targeted reproduction: 37 pass.
+  Full suite after these corrections: 2802 pass / the same five baseline failures.
+  The opt-in real-engine 92 MiB journal test also passed (1443.3 MiB process peak;
+  preserved 4902 historical events). Physical local cgroup limit remained 16 GiB.
 - Final combined verification: 206 checks passed with compression enabled,
   including real PostgreSQL lifecycle, codec corruption/rollback and mutation
   cases. Full suite: 2801 passed, 272 skipped, four subtests passed, five failures.

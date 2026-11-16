@@ -28,4 +28,7 @@ from offline verification alone.
 - [x] Stream existing envelope reads/mutation writes without changing stored bytes.
 - [x] Independently review parser/checksum/wire semantics and remeasure: 1861.7 MiB.
 - [x] Complete final combined checks: 206 pass; full suite 2801 pass / five baseline failures.
+- [x] Fix CI-discovered read-only operator codec compatibility and cursor double.
+- [x] Execute the exact CI lifecycle command locally: 205 pass; full suite 2802
+  pass / same five failures; opt-in 92 MiB actual-engine journal test passes.
 - [ ] Review, run release checks, merge and deploy; verify production versions.

@@ -53,6 +53,9 @@ class ReadOnlyStorage:
         conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
         return conn
     def read_json(self, name, default=None):
+        from services.restart_payload_codec import decode_document,MAX_STORED_BYTES
+        restart=name.startswith('simulation_restarts/') and name.endswith('/bundle.json')
+        limit=MAX_STORED_BYTES if restart else 32*1024**2
         conn = self._conn()
         try:
             with conn.cursor() as cursor:
@@ -60,10 +63,11 @@ class ReadOnlyStorage:
                 row = cursor.fetchone()
                 if row is None:
                     return deepcopy(default)
-                if row[0] is None or row[0] > 32*1024**2:
+                if row[0] is None or row[0] > limit:
                     raise ValueError('Stored document exceeds bounded read limit: '+name)
                 cursor.execute('SELECT payload FROM app_kv_store WHERE name=%s', (name,))
-                return json.loads(cursor.fetchone()[0])
+                value=json.loads(cursor.fetchone()[0])
+                return decode_document(value) if restart else value
         finally:
             conn.rollback()
             conn.close()
