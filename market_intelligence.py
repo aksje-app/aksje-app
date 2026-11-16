@@ -1109,12 +1109,16 @@ def load_job_history(limit: int = 200) -> list[dict[str, Any]]:
     return [dict(x) for x in rows if isinstance(x, Mapping)][: max(0, int(limit))]
 
 
-def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, Any]:
+def required_report_delivery_ledger(now: datetime | None = None, *, observe_only: bool = False, connection=None) -> dict[str, Any]:
     """Daily delivery truth for morning, afternoon and evening reports."""
     now_utc = (now or _now()).astimezone(timezone.utc)
     local_now = now_utc.astimezone(ZoneInfo("Europe/Oslo"))
-    jobs = {job.job_id: job for job in load_jobs()}
-    history = load_job_history(limit=2000)
+    jobs = {} if observe_only else {job.job_id: job for job in load_jobs()}
+    if observe_only:
+        from services.required_report_watchdog import read_bounded_json
+        history = read_bounded_json('market_intelligence/job_history.json',connection=connection,limit=4194304,default=[])
+        if not isinstance(history,list):raise ValueError('Invalid required-report history')
+    else:history = load_job_history(limit=2000)
     rows: list[dict[str, Any]] = []
     for spec in REQUIRED_REPORT_SPECS:
         job = jobs.get(spec["job_id"])
@@ -1161,7 +1165,7 @@ def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, An
             "pdf_created": pdf_created, "stored": bool(stored_row.get("run_id")),
             "pushover_sent": delivered, "run_id": delivered_row.get("run_id") or "",
             "error": "" if delivered else str(latest.get("error") or latest.get("notification_detail") or "")[:500],
-            "active": bool(job and job.enabled),
+            "active": None if observe_only else bool(job and job.enabled),
             "grace_minutes": grace_minutes,
         })
     return {
@@ -1172,19 +1176,32 @@ def required_report_delivery_ledger(now: datetime | None = None) -> dict[str, An
 
 
 def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, Any]:
-    """Send one independent operations warning per missed required report."""
-    ledger = required_report_delivery_ledger(now)
-    overdue = [row for row in ledger["rows"] if row["status"] == "FORSINKET"]
+    from services.required_report_watchdog import alert_lane
     try:
-        from execution_coordination import report_execution_owner
-        owner = dict(report_execution_owner() or {})
-        if str(owner.get("state") or "").upper() not in {"", "RELEASED", "COMPLETED", "FAILED"}:
-            active_job = str(owner.get("job_id") or "")
-            overdue = [row for row in overdue if str(row.get("job_id") or "") != active_job]
-    except Exception:
-        owner = {}
+        with alert_lane() as acquired:
+            if not acquired:
+                return {"state": "DEFERRED_BUSY", "alerts_sent": []}
+            return _notify_overdue_required_reports_locked(now, connection=acquired if hasattr(acquired,"cursor") else None)
+    except Exception as exc:
+        return {"state": "UNAVAILABLE", "error_type": type(exc).__name__, "alerts_sent": []}
+
+
+def _notify_overdue_required_reports_locked(now: datetime | None = None, *, connection=None) -> dict[str, Any]:
+    """Send one independent operations warning per missed required report."""
+    from services.required_report_watchdog import observe_owner, same_slot, failure_detail
+    observation = observe_owner(connection=connection)
+    ledger = required_report_delivery_ledger(now, observe_only=True, connection=connection) if connection is not None else required_report_delivery_ledger(now)
+    overdue = [row for row in ledger["rows"] if row["status"] == "FORSINKET"]
+    if observation.get("state")=="UNKNOWN":
+        return {"state":"DEFERRED_OWNER_CHECK","overdue":len(overdue),"alerts_sent":[],"owner_observation":observation}
+    owner = observation.get('owner') or {}
+    if observation.get('state') in {'LIVE', 'UNKNOWN'}:
+        overdue = [row for row in overdue if not same_slot(row, owner)]
     receipt_key = "scheduler/required_report_missing_alerts.json"
-    receipts = read_persistent_json(receipt_key, default={})
+    if connection is not None:
+        from services.required_report_watchdog import read_alert_receipts
+        receipts = read_alert_receipts(connection)
+    else:receipts = read_persistent_json(receipt_key, default={})
     receipts = dict(receipts) if isinstance(receipts, Mapping) else {}
     sent: list[str] = []
     for row in overdue:
@@ -1200,7 +1217,7 @@ def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, An
                     f"Status: Ikke levert innen {row.get('grace_minutes', 60)} minutter",
                     f"PDF: {'opprettet' if row['pdf_created'] else 'ikke bekreftet'}",
                     f"Lagring: {'bekreftet' if row['stored'] else 'ikke bekreftet'}",
-                    f"Feil: {row['error'] or 'ingen detalj registrert'}",
+                    f"Feil: {failure_detail(row, observation)}",
                     f"Programversjon: {APP_VERSION}",
                     f"Kjøretid: {__import__('runtime_identity').runtime_label('report_scheduler')}",
                 ]),
@@ -1212,8 +1229,11 @@ def notify_overdue_required_reports(now: datetime | None = None) -> dict[str, An
         except Exception as exc:
             row["alert_error"] = str(exc)[:500]
     if sent:
-        write_persistent_json(receipt_key, receipts)
-    return {"ledger": ledger, "overdue": len(overdue), "alerts_sent": sent, "active_owner": owner}
+        if connection is not None:
+            from services.required_report_watchdog import write_operational_json
+            write_operational_json(receipt_key,receipts,connection=connection)
+        else:write_persistent_json(receipt_key, receipts)
+    return {"ledger": ledger, "overdue": len(overdue), "alerts_sent": sent, "active_owner": owner, "owner_observation": observation}
 
 
 def retry_pending_required_report_deliveries(limit: int = 3) -> dict[str, Any]:

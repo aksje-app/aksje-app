@@ -898,6 +898,9 @@ def run_once() -> dict[str, Any]:
 
 
 def main() -> int:
+    _configure_headless_logging()
+    from services.required_report_watchdog import run_startup_check
+    report_watchdog = run_startup_check()
     state = run_once()
     from runtime_memory import memory_snapshot
     from services.restart_io_metrics import snapshot as restart_io_snapshot
@@ -920,6 +923,7 @@ def main() -> int:
         "portfolio_ui_snapshots": state.get("portfolio_ui_snapshots"),
         "memory": memory_snapshot(),
         "restart_io": restart_io_snapshot(),
+        "required_report_watchdog": report_watchdog,
     }
     print(json.dumps(summary, ensure_ascii=False, default=str))
     return 0 if state.get("state") in {
