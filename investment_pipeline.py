@@ -28,7 +28,9 @@ from market_universe import (
     market_activation_level,
 )
 from storage_architecture import runtime_data_path
-from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
+from durable_runtime import (
+    read_json as durable_read_json, write_json as durable_write_json, write_json_with_references,
+)
 
 VERSION = "v18.6.93e"
 PIPELINE_DIR = runtime_data_path("investment_pipeline")
@@ -36,6 +38,9 @@ RUNS_DIR = PIPELINE_DIR / "runs"
 PROPOSALS_DIR = PIPELINE_DIR / "proposals"
 REVIEW_QUEUE_PATH = PIPELINE_DIR / "review_queue.json"
 LATEST_RUN_PATH = PIPELINE_DIR / "latest_run.json"
+_LATEST_RUN_KEY = "investment_pipeline/latest_run.json"
+_RUN_KEY_PREFIX = "investment_pipeline/runs/"
+_PROPOSALS_KEY_PREFIX = "investment_pipeline/proposals/"
 
 STATUS_RECOMMENDED = "ANBEFALT FOR VURDERING"
 STATUS_WATCH = "OBSERVASJONSLISTE"
@@ -245,6 +250,11 @@ def _read_json(path: Path, default: Any) -> Any:
 def _write_json(path: Path, payload: Any) -> None:
     key = _durable_key(path)
     if key:
+        if key.startswith(_RUN_KEY_PREFIX) and write_json_with_references(
+            key, path, payload,
+            preserve_aliases=(_LATEST_RUN_KEY, f"{_PROPOSALS_KEY_PREFIX}{path.stem}_proposals.json"),
+        ):
+            return
         durable_write_json(key, path, payload)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,11 +264,27 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _durable_key(path: Path) -> str | None:
-    if path == LATEST_RUN_PATH: return "investment_pipeline/latest_run.json"
+    if path == LATEST_RUN_PATH: return _LATEST_RUN_KEY
     if path == REVIEW_QUEUE_PATH: return "investment_pipeline/review_queue.json"
-    if path.parent == RUNS_DIR: return f"investment_pipeline/runs/{path.name}"
-    if path.parent == PROPOSALS_DIR: return f"investment_pipeline/proposals/{path.name}"
+    if path.parent == RUNS_DIR: return _RUN_KEY_PREFIX + path.name
+    if path.parent == PROPOSALS_DIR: return _PROPOSALS_KEY_PREFIX + path.name
     return None
+
+
+def _publish_run(run_id: str, payload: Mapping[str, Any]) -> None:
+    run_path = RUNS_DIR / f"{run_id}.json"
+    proposals_path = PROPOSALS_DIR / f"{run_id}_proposals.json"
+    if write_json_with_references(
+        _RUN_KEY_PREFIX + run_path.name, run_path, payload,
+        aliases={
+            _LATEST_RUN_KEY: (LATEST_RUN_PATH, None),
+            _PROPOSALS_KEY_PREFIX + proposals_path.name: (proposals_path, "proposals"),
+        },
+    ):
+        return
+    _write_json(LATEST_RUN_PATH, payload)
+    _write_json(run_path, payload)
+    _write_json(proposals_path, payload["proposals"])
 
 
 def _risk_penalty(value: Any) -> float:
@@ -1169,9 +1195,7 @@ def run_pipeline(rows: Sequence[Mapping[str, Any]], config: PipelineConfig | Non
         progress_callback({"phase": "PORTFOLIO_PROPOSAL", "completed": 1, "total": 1, "message": "Bygger teoretisk porteføljeforslag"})
     from advanced_investment_intelligence import build_portfolio_proposal
     payload["portfolio_proposal"] = build_portfolio_proposal(payload["candidates"])
-    _write_json(LATEST_RUN_PATH, payload)
-    _write_json(RUNS_DIR / f"{run_id}.json", payload)
-    _write_json(PROPOSALS_DIR / f"{run_id}_proposals.json", payload["proposals"])
+    _publish_run(run_id, payload)
     try:
         from learning_runtime import archive
         payload["experiment_archive"] = archive({"engine": "AUTONOMY_UNIVERSE", "run_id": run_id,

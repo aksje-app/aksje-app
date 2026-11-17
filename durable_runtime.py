@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from repositories.application import RepositoryRegistry
+from services.storage_references import authoritative_postgres, references_enabled
 from services.storage_service import get_storage_service
 
 
@@ -25,6 +26,16 @@ def _repositories() -> RepositoryRegistry:
 
 _LOCAL_LOCKS: dict[str, threading.RLock] = {}
 _LOCAL_LOCKS_GUARD = threading.Lock()
+_REFERENCE_KEYS = {
+    "investment_pipeline/latest_run.json",
+    "market_intelligence/latest_run.json",
+    "market_intelligence/report_archive.json",
+}
+_REFERENCE_KEY_PREFIXES = (
+    "investment_pipeline/proposals/",
+    "investment_pipeline/runs/",
+    "market_intelligence/runs/",
+)
 
 
 def _path_lock(path: Path) -> threading.RLock:
@@ -51,15 +62,21 @@ def read_json(key: str, path: Path, default: Any) -> Any:
     if stored is not None:
         # PostgreSQL is authoritative. A diagnostic mirror must never make a
         # successful database read fail or interrupt an analysis callback.
-        try:
-            _write_local(path, stored)
-        except OSError:
-            pass
+        mirror_json(path, stored)
         return stored
     try:
         local = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+    if (
+        (key in _REFERENCE_KEYS or key.startswith(_REFERENCE_KEY_PREFIXES))
+        and authoritative_postgres(repository.storage)
+    ):
+        # A concurrent publication can succeed between the miss and recovery.
+        # Recover a local value only if the database row is still absent.
+        stored = repository.storage.write_json_immutable(key, local)
+        mirror_json(path, stored)
+        return stored
     repository.write(key, local)
     return local
 
@@ -84,6 +101,38 @@ def write_json(key: str, path: Path, value: Any) -> None:
     except OSError:
         if not persisted:
             raise
+
+
+def write_json_with_references(
+    key: str,
+    path: Path,
+    value: Any,
+    *,
+    aliases: Mapping[str, tuple[Path, str | None]] | None = None,
+    preserve_aliases: tuple[str, ...] = (),
+) -> bool:
+    """Write an authoritative JSON value and keep existing local mirrors readable."""
+    storage = get_storage_service()
+    if not authoritative_postgres(storage) or (aliases and not references_enabled(storage)):
+        return False
+    alias_paths = aliases or {}
+    storage.write_json_aliases(
+        key, value,
+        aliases={name: field for name, (_, field) in alias_paths.items()},
+        preserve_aliases=preserve_aliases,
+    )
+    mirror_json(path, value)
+    for alias_path, field in alias_paths.values():
+        mirror_json(alias_path, value if field is None else value[field])
+    return True
+
+
+def mirror_json(path: Path, value: Any) -> None:
+    """Refresh a diagnostic mirror after an authoritative operation succeeds."""
+    try:
+        _write_local(path, value)
+    except OSError:
+        pass
 
 
 def write_immutable_json(key: str, path: Path, value: Any, *, attempts: int = 3) -> Any:

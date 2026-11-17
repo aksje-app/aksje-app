@@ -33,13 +33,18 @@ from market_universe import (
 )
 from storage_architecture import runtime_data_path, runtime_log_path
 from persistent_config_store import read_persistent_json, write_persistent_json
-from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
+from durable_runtime import (
+    append_event, mirror_json, read_events, read_json as durable_read_json,
+    write_json as durable_write_json, write_json_with_references,
+)
+from repositories.application import ReportRepository
+from services.storage_references import references_enabled
 from execution_control import ExecutionCancelled
 from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser_timezone,
                         install_browser_timezone_bootstrap, local_compact_stamp, local_display,
                         local_run_id, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
-from runtime_breadcrumbs import mark_breadcrumb
+from runtime_breadcrumbs import mark_breadcrumb, with_breadcrumb_history_budget
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
 from navigation_state import pin_autonomy_workspace_route_v19220_rc11
 from report_integrity import (
@@ -100,6 +105,8 @@ SUMMARIES_DIR = ROOT / "summaries"
 HISTORY_PATH = ROOT / "candidate_history.json"
 NOTIFICATIONS_PATH = ROOT / "notifications.json"
 LATEST_PATH = ROOT / "latest_run.json"
+_LATEST_RUN_KEY = "market_intelligence/latest_run.json"
+_RUN_KEY_PREFIX = "market_intelligence/runs/"
 AUDIT_PATH = ROOT / "audit.jsonl"
 REPORT_ARCHIVE_PATH = ROOT / "report_archive.json"
 REPORT_ARCHIVE_SETTINGS_PATH = ROOT / "report_archive_settings.json"
@@ -566,12 +573,35 @@ def _read(path: Path, default: Any) -> Any:
 def _write(path: Path, payload: Any) -> None:
     key = _durable_key(path)
     if key:
+        if key.startswith(_RUN_KEY_PREFIX) and write_json_with_references(
+            key, path, payload, preserve_aliases=(_LATEST_RUN_KEY,),
+        ):
+            return
         durable_write_json(key, path, payload)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     tmp.replace(path)
+
+
+def _publish_run(
+    path: Path,
+    run: Mapping[str, Any],
+    *,
+    publish_latest: bool,
+    on_run_written: Callable[[], None] | None = None,
+) -> None:
+    grouped = publish_latest and write_json_with_references(
+        _RUN_KEY_PREFIX + path.name, path, run,
+        aliases={_LATEST_RUN_KEY: (LATEST_PATH, None)},
+    )
+    if not grouped:
+        _write(path, run)
+    if on_run_written is not None:
+        on_run_written()
+    if publish_latest and not grouped:
+        _write(LATEST_PATH, run)
 
 
 def _audit(event: str, payload: Mapping[str, Any]) -> None:
@@ -584,13 +614,13 @@ def _audit(event: str, payload: Mapping[str, Any]) -> None:
 
 
 def _durable_key(path: Path) -> str | None:
-    if path == LATEST_PATH: return "market_intelligence/latest_run.json"
+    if path == LATEST_PATH: return _LATEST_RUN_KEY
     if path == HISTORY_PATH: return "market_intelligence/candidate_history.json"
-    if path == REPORT_ARCHIVE_PATH: return "market_intelligence/report_archive.json"
+    if path == REPORT_ARCHIVE_PATH: return ReportRepository.ARCHIVE_MIRROR_KEY
     if path == REPORT_NOTIFICATION_RECEIPTS_PATH: return "market_intelligence/report_notification_receipts.json"
     if path == JOB_HISTORY_PATH: return "market_intelligence/job_history.json"
     if path == SCHEDULER_HEALTH_PATH: return "market_intelligence/scheduler_health.json"
-    if path.parent == RUNS_DIR: return f"market_intelligence/runs/{path.name}"
+    if path.parent == RUNS_DIR: return _RUN_KEY_PREFIX + path.name
     if path.parent == SUMMARIES_DIR and path.suffix.lower() == ".json": return f"market_intelligence/summaries/{path.name}"
     return None
 
@@ -2259,47 +2289,73 @@ def _update_history(run: Mapping[str, Any]) -> None:
 
 
 def _load_report_archive() -> list[dict[str, Any]]:
-    # v19.2.0: PostgreSQL/repository is authoritative when configured.
+    from repositories.application import get_repository_registry
+
+    repo = None
+    repository_is_empty = False
+    use_references = False
     try:
-        from repositories.application import get_repository_registry
-        repo = get_repository_registry().reports
-        if repo.storage.using_postgres():
-            rows = repo.list()
+        candidate_repo = get_repository_registry().reports
+        if candidate_repo.storage.using_postgres():
+            use_references = references_enabled(candidate_repo.storage)
+            rows = candidate_repo.read_collection()
             if rows:
-                return [dict(x) for x in rows if isinstance(x, Mapping)]
+                return rows
+            if rows is None:
+                repo = candidate_repo
+            else:
+                repository_is_empty = True
     except Exception as exc:
         logging.warning("ReportRepository read failed; durable compatibility fallback used: %s", exc)
-    rows = _read(REPORT_ARCHIVE_PATH, [])
+
+    rows = _read(REPORT_ARCHIVE_PATH, None)
+    if repository_is_empty and rows == []:
+        # A saved empty mirror agrees with the repository when the old
+        # configuration still contains reports that have since been removed.
+        return []
+    from_configuration = False
     if not rows:
-        legacy = read_persistent_json("market_intelligence/report_archive.json", default=[])
+        legacy = read_persistent_json(ReportRepository.ARCHIVE_MIRROR_KEY, default=[])
         if isinstance(legacy, list) and legacy:
             rows = legacy
-            _write(REPORT_ARCHIVE_PATH, rows)
-            _audit("REPORT_ARCHIVE_MIGRATED_TO_DURABLE_STORAGE", {"reports": len(rows)})
-    # Promote legacy data to PostgreSQL without deleting the compatibility copy.
-    try:
-        from repositories.application import get_repository_registry
-        repo = get_repository_registry().reports
-        if repo.storage.using_postgres() and rows:
-            repo.replace_all(rows)
-    except Exception as exc:
-        logging.warning("ReportRepository promotion failed: %s", exc)
-    return [dict(x) for x in rows if isinstance(x, Mapping)]
+            from_configuration = True
+            if not use_references and repo is None and not repository_is_empty:
+                _write(REPORT_ARCHIVE_PATH, rows)
+                _audit("REPORT_ARCHIVE_MIGRATED_TO_DURABLE_STORAGE", {"reports": len(rows)})
+    payload = [dict(x) for x in rows if isinstance(x, Mapping)] if isinstance(rows, list) else []
+    if repo is not None and payload:
+        try:
+            payload = repo.recover_collection(payload)
+            if from_configuration and not use_references:
+                # A newer worker can publish the archive again during recovery.
+                # Use the existing mirror if it has appeared in the meantime.
+                repo.storage.write_json_immutable(ReportRepository.ARCHIVE_MIRROR_KEY, payload)
+            mirror_json(REPORT_ARCHIVE_PATH, payload)
+            if from_configuration:
+                _audit("REPORT_ARCHIVE_MIGRATED_TO_DURABLE_STORAGE", {"reports": len(payload)})
+        except Exception as exc:
+            logging.warning("ReportRepository promotion failed: %s", exc)
+    return payload
 
 
 def _save_report_archive(rows: Sequence[Mapping[str, Any]]) -> None:
+    from repositories.application import get_repository_registry
+
     payload = [dict(x) for x in rows]
-    repository_written = False
+    use_references = False
     try:
-        from repositories.application import get_repository_registry
         repo = get_repository_registry().reports
-        repository_written = bool(repo.replace_all(payload))
+        use_references = references_enabled(repo.storage)
+        repo.replace_all(payload)
     except Exception as exc:
+        if use_references:
+            raise
         logging.warning("ReportRepository write failed; compatibility storage used: %s", exc)
-    # Compatibility mirror remains during the v19.2 transition. It is not the
-    # production source of truth when PostgreSQL is available.
+    if use_references:
+        mirror_json(REPORT_ARCHIVE_PATH, payload)
+        return
     _write(REPORT_ARCHIVE_PATH, payload)
-    write_persistent_json("market_intelligence/report_archive.json", payload)
+    write_persistent_json(ReportRepository.ARCHIVE_MIRROR_KEY, payload)
 
 
 def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
@@ -5886,9 +5942,10 @@ def _finalize_completed_report_artifacts(
         "finalized_after_execution_receipt": True,
     }
 
-    _write(RUNS_DIR / f"{run.get('run_id')}.json", run)
-    if str(run.get("trigger") or "").upper() != "REVALIDATION":
-        _write(LATEST_PATH, run)
+    _publish_run(
+        RUNS_DIR / f"{run.get('run_id')}.json", run,
+        publish_latest=str(run.get("trigger") or "").upper() != "REVALIDATION",
+    )
     archive_report(run)
     persistence = verify_report_persistence(str(run.get("run_id") or ""))
     if not persistence.get("ok"):
@@ -6013,8 +6070,7 @@ def _persist_promoted_run(source: Mapping[str, Any], job: JobProfile, trigger: s
     run["pdf_path"] = str(pdf_path)
     publish_pdf(run, pdf_bytes)
     run["report_url"] = report_public_url(run)
-    _write(RUNS_DIR / f"{run_id}.json", run)
-    _write(LATEST_PATH, run)
+    _publish_run(RUNS_DIR / f"{run_id}.json", run, publish_latest=True)
     _write(SUMMARIES_DIR / f"{run_id}.json", {k: run.get(k) for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
     job.last_run_at, job.last_status = run["created_at"], "OK"
     if not bool(run.get("test_run")) and not str(job.job_id or "").upper().startswith("MI-AUTONOMY-REPORT-TEST"):
@@ -7017,10 +7073,12 @@ def _run_job_impl(
             }
         emit("REPORT", 1, 3, "Rapportfil er ferdig; lagrer rapport og historikk")
         mark_breadcrumb("report:persist:run_json:before", component="market_intelligence", detail={"run_id": run_id})
-        _write(RUNS_DIR / f"{run_id}.json", run)
-        mark_breadcrumb("report:persist:run_json:after", component="market_intelligence", detail={"run_id": run_id})
-        if trigger != "REVALIDATION":
-            _write(LATEST_PATH, run)
+        _publish_run(
+            RUNS_DIR / f"{run_id}.json", run, publish_latest=trigger != "REVALIDATION",
+            on_run_written=lambda: mark_breadcrumb(
+                "report:persist:run_json:after", component="market_intelligence", detail={"run_id": run_id},
+            ),
+        )
         _write(SUMMARIES_DIR / f"{run_id}.json", {k: run[k] for k in ("run_id", "created_at", "job_name", "markets", "summary", "changes", "errors")})
         archive_view = dict(canonical_run)
         archive_view.update({key: run.get(key) for key in (
@@ -7376,11 +7434,9 @@ def _run_job_impl(
     )
     from production_readiness import assess_production_readiness
     run["production_readiness"] = assess_production_readiness(run)
-    _write(RUNS_DIR / f"{run_id}.json", run)
     # A maintenance revision belongs in its immutable series and archive, but
     # must not masquerade as the latest ordinary 08/14/22 report in the UI.
-    if trigger != "REVALIDATION":
-        _write(LATEST_PATH, run)
+    _publish_run(RUNS_DIR / f"{run_id}.json", run, publish_latest=trigger != "REVALIDATION")
     if trigger != "REVALIDATION":
         job.last_run_at = run["created_at"]
         job.last_completed_at = run["created_at"]
@@ -7518,6 +7574,7 @@ def run_job(
             pass
 
 
+@with_breadcrumb_history_budget
 def _run_job_traced(
     job: JobProfile,
     trigger: str,

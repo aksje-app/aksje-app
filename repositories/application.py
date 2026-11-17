@@ -15,11 +15,38 @@ from repositories.base import (
     LegacyDocumentRepository,
     LegacyEventRepository,
 )
+from services.storage_references import authoritative_postgres, references_enabled
 from services.storage_service import StorageService, get_storage_service
 
 
 class ReportRepository(JsonRepository):
-    def __init__(self, storage=None): super().__init__("reports", storage=storage, id_field="run_id")
+    ARCHIVE_MIRROR_KEY = "market_intelligence/report_archive.json"
+
+    def __init__(self, storage=None):
+        super().__init__("reports", storage=storage, id_field="run_id")
+
+    def read_collection(self) -> list[dict[str, Any]] | None:
+        """Distinguish a missing archive from a repository saved as empty."""
+        rows = self.storage.read_json(self.key, None)
+        return [dict(row) for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else None
+
+    def recover_collection(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Promote legacy data without overwriting a concurrently saved archive."""
+        stored = self.storage.write_json_immutable(self.key, rows)
+        if not isinstance(stored, list):
+            raise ValueError("Stored report archive must be a list")
+        return [dict(row) for row in stored if isinstance(row, Mapping)]
+
+    def replace_all(self, rows: Iterable[Mapping[str, Any]]) -> bool:
+        if not authoritative_postgres(self.storage):
+            return super().replace_all(rows)
+        payload = [dict(row) for row in rows]
+        aliases = {self.ARCHIVE_MIRROR_KEY: None} if references_enabled(self.storage) else {}
+        return self.storage.write_json_aliases(
+            self.key, payload, aliases=aliases, preserve_aliases=(self.ARCHIVE_MIRROR_KEY,),
+        )
+
+
 class PortfolioRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("portfolios", storage=storage, id_field="portfolio_id")
 class TradeRepository(JsonRepository):
@@ -180,12 +207,103 @@ class _BoundedIndexedRepository(JsonRepository):
         for row in reversed([dict(v) for v in rows]): ok=self.upsert(row) and ok
         return ok
 
-class StrategyDecisionRepository(_BoundedIndexedRepository):
+class _StrategyResultRepository(_BoundedIndexedRepository):
+    """Stage strategy items and their discovery entries for one publication."""
+
+    @staticmethod
+    def _stage_version(value, immutable, *, encoded=None):
+        from services.storage_references import reference, version_key
+
+        key = version_key(value)
+        immutable[key] = value if encoded is None else encoded
+        return reference(key, value)
+
+    def _stage_items(self, rows, documents, immutable, mutations, *, shared, encode=None):
+        references = []
+        entries = {}
+        for row in rows:
+            value = dict(row)
+            record_id = str(value.get(self.id_field) or "")
+            if not record_id:
+                raise ValueError(f"Missing repository id field: {self.id_field}")
+            item_key = self._item_key(record_id)
+            if shared:
+                encoded = encode(value) if encode is not None else None
+                pointer = self._stage_version(value, immutable, encoded=encoded)
+                references.append(pointer)
+                documents[item_key] = pointer
+            else:
+                documents[item_key] = value
+            entries.pop(record_id, None)
+            entries[record_id] = {
+                self.id_field: record_id,
+                "item_key": item_key,
+                "run_id": str(value.get("run_id") or ""),
+                "at": str(value.get("evaluated_at") or value.get("completed_at") or value.get("started_at") or ""),
+            }
+
+        def merge_index(current):
+            previous = current if isinstance(current, list) else []
+            index = list(reversed(entries.values()))
+            index.extend(
+                entry for entry in previous
+                if isinstance(entry, Mapping) and str(entry.get(self.id_field) or "") not in entries
+            )
+            return index[:self.INDEX_LIMIT]
+
+        if entries:
+            mutations[self.INDEX_KEY] = merge_index
+        return references
+
+
+class StrategyDecisionRepository(_StrategyResultRepository):
     INDEX_KEY="repositories/strategy_decisions_index.json"; ITEM_PREFIX="repositories/strategy_decisions/items"; INDEX_LIMIT=5000; LEGACY_READ_LIMIT=1000
     def __init__(self, storage=None): super().__init__("strategy_decisions", storage=storage, id_field="decision_id")
-class StrategyRunRepository(_BoundedIndexedRepository):
+
+    def upsert(self, row: Mapping[str, Any]) -> bool:
+        from services.storage_references import authoritative_postgres, references_enabled
+
+        if not authoritative_postgres(self.storage):
+            return super().upsert(row)
+        documents, immutable, mutations = {}, {}, {}
+        self._stage_items([row], documents, immutable, mutations, shared=references_enabled(self.storage))
+        return self.storage.write_json_documents(documents, immutable=immutable, mutate=mutations)
+
+
+class StrategyRunRepository(_StrategyResultRepository):
     INDEX_KEY="repositories/strategy_runs_index.json"; ITEM_PREFIX="repositories/strategy_runs/items"; INDEX_LIMIT=1000; LEGACY_READ_LIMIT=100
     def __init__(self, storage=None): super().__init__("strategy_runs", storage=storage, id_field="strategy_run_id")
+
+    def upsert(self, row: Mapping[str, Any]) -> bool:
+        from services.storage_references import authoritative_postgres
+
+        if not authoritative_postgres(self.storage):
+            return super().upsert(row)
+        return self._publish(row)
+
+    def publish_evaluation(self, row: Mapping[str, Any], decisions: StrategyDecisionRepository) -> bool:
+        """Publish the completed run and its decisions with one index update."""
+        return self._publish(row, decisions)
+
+    def _publish(self, row: Mapping[str, Any], decisions: StrategyDecisionRepository | None = None) -> bool:
+        from services.storage_references import referenced_fields, references_enabled
+
+        documents, immutable, mutations = {}, {}, {}
+        shared = references_enabled(self.storage)
+        decision_rows = row.get("decisions")
+        decision_refs = None
+        if decisions is not None:
+            decision_refs = decisions._stage_items(decision_rows, documents, immutable, mutations, shared=shared)
+        elif shared and isinstance(decision_rows, list) and all(isinstance(value, Mapping) for value in decision_rows):
+            decision_refs = [self._stage_version(value, immutable) for value in decision_rows]
+
+        def encode(value):
+            return referenced_fields(value, {"decisions": decision_refs}) if decision_refs else value
+
+        self._stage_items([row], documents, immutable, mutations, shared=shared, encode=encode)
+        return self.storage.write_json_documents(documents, immutable=immutable, mutate=mutations)
+
+
 class StrategyAccountRepository(JsonRepository):
     def __init__(self, storage=None): super().__init__("strategy_accounts", storage=storage, id_field="account_id")
 class StrategyOrderRepository(_BoundedIndexedRepository):
