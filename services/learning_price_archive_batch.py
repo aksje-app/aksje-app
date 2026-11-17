@@ -126,7 +126,7 @@ def archive_batch(storage, manifest, *, max_items=128, apply=False):
                 if not cur.fetchone()[0]:
                     return {**base, 'state': 'DEFERRED_BUSY'}
                 previous = _document(cur, RECEIPT_KEY, lock='UPDATE')
-                if previous:
+                if previous is not None:
                     if previous.get('manifest_sha256') != identity or previous.get('backup_sha256') != base['backup_sha256']:
                         raise ValueError('Existing receipt belongs to another authorization')
                     cursor_value = previous.get('cursor')

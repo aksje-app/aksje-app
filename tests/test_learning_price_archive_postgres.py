@@ -226,3 +226,16 @@ def test_inconsistent_receipt_cannot_skip_unprocessed_prices(pg):
     with pytest.raises(ValueError, match='receipt'):
         archive_batch(pg, m, apply=True)
     assert raw(pg, second) == before
+
+
+def test_empty_existing_receipt_cannot_rearchive_restored_inputs(pg):
+    from services.learning_price_archive_batch import archive_batch, RECEIPT_KEY
+    from services.learning_price_archive import restore_price
+    m = seed(pg, 1); key = m['entries'][0]['key']; original = raw(pg, key)
+    archive_batch(pg, m, apply=True)
+    restore_price(pg, key, original)
+    pg.write_json(RECEIPT_KEY, {})
+    with pytest.raises(ValueError, match='receipt'):
+        archive_batch(pg, m, apply=True)
+    assert raw(pg, key) == original
+    assert pg.read_json(RECEIPT_KEY) == {}
