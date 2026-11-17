@@ -103,6 +103,16 @@ def run_once():
         state.update({"status":"COMPLETED", "total":len(symbols),"completed":len(completed), "rejected":len(rejected)})
         storage.write_json(PREFIX + "progress.json", state)
         return state
+    from services.learning_price_archive import read_price, write_price, ArchivedPriceRequired
+    try:
+        for ticker in batch:
+            read_price(storage, PREFIX+'prices/'+hashlib.sha256(ticker.encode()).hexdigest()+'.json')
+    except ArchivedPriceRequired as exc:
+        state.update(status='WAITING_ARCHIVE', archive_required=exc.detail,
+                     updated_at=datetime.now(timezone.utc).isoformat())
+        storage.write_json(PREFIX+'progress.json', state)
+        return state
+    state.pop('archive_required', None)
     started = time.monotonic()
     def on_progress(event):
         state.update({"status": "RUNNING", "batch_completed":event.get("completed"), "batch_total":event.get("total"),"updated_at":datetime.now(timezone.utc).isoformat()})
@@ -115,7 +125,7 @@ def run_once():
                 rejected.add(ticker)
                 continue
             key = hashlib.sha256(ticker.encode()).hexdigest()
-            storage.write_json(PREFIX+"prices/"+key+".json", {"ticker":ticker,"bars":bars,"source":"yfinance-auto-adjusted-daily"})
+            write_price(storage, PREFIX+"prices/"+key+".json", {"ticker":ticker,"bars":bars,"source":"yfinance-auto-adjusted-daily"})
             summary={}
             for stop in STOPS:
                 for hold in HOLDS:
@@ -126,6 +136,11 @@ def run_once():
             completed.add(ticker)
         rejected.update(set(batch)-set(series))
         state.update({"status":"RUNNING" if len(completed)+len(rejected)<len(symbols) else "COMPLETED","total":len(symbols),"completed":len(completed),"rejected":len(rejected),"completed_tickers":sorted(completed),"rejected_tickers":sorted(rejected),"elapsed_seconds":round(time.monotonic()-started,1),"updated_at":datetime.now(timezone.utc).isoformat(),"health":health,"note":"Exploratory gross returns only; no selection, fees or holdout validation"})
+    except ArchivedPriceRequired as exc:
+        state.update(status='WAITING_ARCHIVE', archive_required=exc.detail,
+                     completed_tickers=sorted(completed), rejected_tickers=sorted(rejected),
+                     completed=len(completed), rejected=len(rejected),
+                     updated_at=datetime.now(timezone.utc).isoformat())
     except Exception as exc:
         state.update({"status":"FAILED","reason":f"{type(exc).__name__}: {exc}"[:250],"updated_at":datetime.now(timezone.utc).isoformat()})
     storage.write_json(PREFIX + "progress.json", state)

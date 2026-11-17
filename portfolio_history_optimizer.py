@@ -97,9 +97,15 @@ def run_once(limit=1):
         reconciled.add(old_ticker)
     failed=set(state.get("rejected_tickers") or [])
     queue=[x for x in tickers if x not in done and x not in failed]
+    from services.learning_price_archive import read_price, ArchivedPriceRequired
+    archive_required = None
     for ticker in queue[:max(1,min(3,int(limit)))]:
         digest=sha256(ticker.encode()).hexdigest()
-        record=storage.read_json(PREFIX+"prices/"+digest+".json",{}) or {}
+        try:
+            record=read_price(storage, PREFIX+"prices/"+digest+".json")
+        except ArchivedPriceRequired as exc:
+            archive_required = exc.detail
+            break
         try:
             results={}
             for portfolio in ("AUTONOMY","SUPER_PORTFOLIO"):
@@ -126,12 +132,14 @@ def run_once(limit=1):
         elapsed=0.
     rate=len(done)/elapsed if elapsed>=1800 and len(done)>=5 else 0.
     eta_hours=round((len(tickers)-len(done)-len(failed))/rate/3600,1) if rate>0 else None
-    new={"method_version":METHOD_VERSION,"started_at":started_at,"eta_hours":eta_hours,"status":"COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING",
+    new={"method_version":METHOD_VERSION,"started_at":started_at,"eta_hours":eta_hours,"status":"WAITING_ARCHIVE" if archive_required else ("COMPLETE_RESEARCH_PASS" if len(done)+len(failed)>=len(tickers) else "RUNNING"),
          "total":len(tickers),"processed":len(done),"failed":len(failed),
          "candidate_budget_per_symbol_per_portfolio":200,
          "engine_totals":per_engine,"aggregated_tickers":sorted(reconciled),
          "completed_tickers":sorted(done),"rejected_tickers":sorted(failed),
          "updated_at":datetime.now(timezone.utc).isoformat(),
          "scope":"HISTORICAL_EXIT_RESEARCH_ONLY","production_changed":False}
+    if archive_required:
+        new['archive_required'] = archive_required
     storage.write_json(key,new)
     return {k:v for k,v in new.items() if not k.endswith("_tickers")}

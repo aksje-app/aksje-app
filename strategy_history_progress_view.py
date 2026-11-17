@@ -17,6 +17,7 @@ def snapshot(storage):
         "processed_pct": 100.0 * min(total, done + rejected) / total if total else None,
         "updated_at": record.get("updated_at"),
         "reason": str(record.get("reason") or ""),
+        "archive_required": record.get("archive_required"),
         "batch_completed": record.get("batch_completed"),
         "batch_total": record.get("batch_total"),
         "coarse_tested": max(0,int(record.get("coarse_tested") or record.get("completed") or 0)),
@@ -62,6 +63,11 @@ def render(st):
     completed=int(opt.get("processed") or 0)
     total=int(opt.get("total") or 0)
     lines(st, f"Status: {opt.get('status','IKKE_STARTET')}", f"Behandlet {completed} av {total} aksjer")
+    for source in (progress, opt):
+        request = source.get('archive_required') or {}
+        if request:
+            st.warning('Prisgrunnlaget er arkivert. Gjenopprett den opprinnelige kopien før ny beregning. '
+                       + str(request.get('backup_file') or 'Arkivreferansen må kontrolleres.'))
     if total:
         st.progress(min(1.,completed/total))
     summaries=opt.get("engine_totals") or {}
