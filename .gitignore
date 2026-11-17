@@ -79,3 +79,9 @@ local_runtime/**
 # Generated runtime backups and diagnostics
 runtime_backup_*.zip
 runtime_manifest.json
+
+# Generated distribution metadata and historical build output (root only)
+/DISTRIBUTION_MANIFEST.json
+/TEST_RECEIPT_*.txt
+/PATCH_DIFF_*.diff
+/SHA256SUMS_RC*
