@@ -781,6 +781,14 @@ def _run_once_locked() -> dict[str, Any]:
     else:
         state["storage_retention"] = {**dict(previous.get("storage_retention") or {}), "schedule_state": "NOT_DUE"}
 
+    # Exact one-time archival is separate from broad history retention.
+    try:
+        if _optional_memory_ready("learning_price_archive"):
+            from services.learning_price_archive_batch import run_scheduled_archive
+            state["learning_price_archive"] = run_scheduled_archive()
+    except Exception as exc:
+        state["learning_price_archive"] = {"state": "FAILED", "error_type": type(exc).__name__}
+
     # Bounded historical acquisition; always advisory and isolated from trades.
     try:
         if _optional_memory_ready("strategy_history"):
