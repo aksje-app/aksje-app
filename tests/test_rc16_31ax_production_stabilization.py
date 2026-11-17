@@ -99,7 +99,33 @@ def test_diagnostics_carry_database_and_required_report_evidence():
     assert "scheduler/RECENT_REQUIRED_REPORTS.json" in source
 
 
-def test_revalidation_does_not_replace_latest_ordinary_report():
-    source = open("market_intelligence.py", encoding="utf-8").read()
-    assert source.count('if trigger != "REVALIDATION":') >= 3
-    assert 'if str(run.get("trigger") or "").upper() != "REVALIDATION":' in source
+def test_revalidation_does_not_replace_latest_ordinary_report(tmp_path, monkeypatch):
+    import durable_runtime
+    import market_intelligence as mi
+    import public_report_store
+    import repositories.application as repositories
+    from services.storage_service import StorageService
+
+    storage = StorageService(base_dir=tmp_path / "storage", mode="local")
+    registry = repositories.RepositoryRegistry(storage)
+    monkeypatch.setattr(durable_runtime, "get_storage_service", lambda: storage)
+    monkeypatch.setattr(repositories, "get_repository_registry", lambda: registry)
+    monkeypatch.setattr(mi, "LATEST_PATH", tmp_path / "latest_run.json")
+    monkeypatch.setattr(mi, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(mi, "REPORT_ARCHIVE_PATH", tmp_path / "report_archive.json")
+    monkeypatch.setattr(mi, "read_persistent_json", lambda key, default: default)
+    monkeypatch.setattr(mi, "write_persistent_json", lambda key, value: True)
+    monkeypatch.setattr(mi, "build_main_pdf", lambda run: b"%PDF-main")
+    monkeypatch.setattr(mi, "build_technical_pdf", lambda run: b"%PDF-technical")
+    monkeypatch.setattr(mi, "publish_pdf", lambda run, pdf: None)
+    monkeypatch.setattr(mi, "report_public_url", lambda run: "")
+    monkeypatch.setattr(public_report_store, "publish_durable_pdf", lambda *args, **kwargs: None)
+
+    ordinary = {"run_id": "MI-ORDINARY", "trigger": "SCHEDULED"}
+    mi._write(mi.LATEST_PATH, ordinary)
+    revision = {"run_id": "MI-REVISION", "trigger": "REVALIDATION", "pdf_path": str(tmp_path / "report.pdf")}
+    mi._finalize_completed_report_artifacts(revision)
+
+    assert mi._read(mi.LATEST_PATH, {}) == ordinary
+    assert mi.load_run("MI-REVISION")["trigger"] == "REVALIDATION"
+    assert mi._load_report_archive()[0]["history_kind"] == "REVALIDATION"

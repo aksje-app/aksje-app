@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from storage_architecture import get_runtime_paths
 from utils import _now_iso
 from services.restart_payload_codec import RestartPayloadError,decode_document
+from services import storage_references
 
 try:
     import psycopg2  # type: ignore
@@ -123,6 +124,10 @@ def _load_json_document(name,raw, *, storage=None, connection=None):
             from services.restart_payload_archive import make_loader
             return decode_document(value,payload_loader=make_loader(storage,connection=connection))
         return decode_document(value)
+    if storage_references.can_contain_references(name) and storage_references.has_references(value):
+        return storage_references.resolve_references(
+            value, lambda keys: storage._load_reference_targets(keys, connection=connection)
+        )
     return value
 
 
@@ -205,6 +210,25 @@ class StorageService:
         timeout = max(2, min(30, int(os.getenv("DATABASE_CONNECT_TIMEOUT_SECONDS", "8") or 8)))
         return psycopg2.connect(self.database_url, connect_timeout=timeout)  # type: ignore[union-attr]
 
+    def _load_reference_targets(self, keys, *, connection=None):
+        if connection is not None:
+            with connection.cursor() as cur:
+                cur.execute("SELECT name,payload FROM app_kv_store WHERE name=ANY(%s)", (keys,))
+                return {key: json.loads(raw) for key, raw in cur}
+        if not self.using_postgres():
+            values = {}
+            for key in keys:
+                path = self.base_dir / key
+                if path.is_file():
+                    values[key] = json.loads(path.read_text(encoding="utf-8"))
+            return values
+        conn = self._conn()
+        try:
+            conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
+            return self._load_reference_targets(keys, connection=conn)
+        finally:
+            conn.close()
+
     def write_json_immutable(self, name: str, data: Any, *, attempts: int = 3) -> Any:
         """Atomically create one immutable document or return its stored value.
 
@@ -221,6 +245,7 @@ class StorageService:
                 try:
                     self.init_db(); conn = self._conn()
                     try:
+                        has_shared_reader = storage_references.can_contain_references(name)
                         cur = conn.cursor()
                         if _restart_bundle(name):
                             from services.large_json_write import write_restart_payload
@@ -236,8 +261,10 @@ class StorageService:
                         row = cur.fetchone()
                         if not row:
                             raise StorageUnavailableError(f"immutable_json({name}) mangler etter transaksjon")
+                        if has_shared_reader:
+                            value = _load_json_document(name, row[0], storage=self, connection=conn)
                         conn.commit()
-                        return _load_json_document(name,row[0],storage=self)
+                        return value if has_shared_reader else _load_json_document(name, row[0], storage=self)
                     except Exception:
                         _rollback_preserving_error(conn)
                         raise
@@ -245,6 +272,8 @@ class StorageService:
                         conn.close()
                 except RestartPayloadError as exc:
                     raise StorageUnavailableError(f'immutable_json({name}) invalid restart storage encoding') from exc
+                except storage_references.StorageReferenceError:
+                    raise
                 except Exception as exc:
                     last_error = exc
                     logging.warning("Postgres immutable_json forsøk %s/%s feilet for %s: %s", attempt, attempts, name, exc)
@@ -257,7 +286,10 @@ class StorageService:
         with _path_lock(path):
             if path.exists():
                 return _load_json_document(name,path.read_text(encoding="utf-8"),storage=self)
-            self._atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, default=str))
+            raw = json.dumps(data, ensure_ascii=False, indent=2, default=str)
+            self._atomic_write_text(path, raw)
+            if storage_references.can_contain_references(name) and storage_references.has_references(data):
+                return _load_json_document(name, raw, storage=self)
             return data
 
     def init_db(self) -> bool:
@@ -432,7 +464,10 @@ class StorageService:
         if self.using_postgres():
             try:
                 self.init_db(); conn = self._conn()
+                has_shared_reader = storage_references.can_contain_references(name)
                 try:
+                    if has_shared_reader:
+                        conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
                     with conn.cursor() as cur:
                         cur.execute("SELECT octet_length(payload) FROM app_kv_store WHERE name=%s", (name,))
                         size_row = cur.fetchone()
@@ -447,12 +482,15 @@ class StorageService:
                                 f"Scheduler blocked legacy monolith read: {name} ({payload_bytes / (1024.0 * 1024.0):.1f} MB). Use bounded/indexed repository access."
                             )
                         cur.execute("SELECT payload FROM app_kv_store WHERE name=%s", (name,)); row = cur.fetchone()
-                    # Closing the connection alone leaves a cursor's libpq
-                    # result alive. Release that extra complete JSON buffer
-                    # before building the decoded object graph.
+                    # Both alias and target must use the same database snapshot.
+                    if row and has_shared_reader:
+                        value = _load_json_document(name, row[0], storage=self, connection=conn)
                 finally:
                     conn.close()
-                value = default if not row else _load_json_document(name,row[0],storage=self)
+                if not row:
+                    value = default
+                elif not has_shared_reader:
+                    value = _load_json_document(name, row[0], storage=self)
                 if row:
                     from services.restart_io_metrics import record
                     record(name, 'read', payload_bytes)
@@ -462,7 +500,7 @@ class StorageService:
                         name, payload_bytes / (1024.0 * 1024.0), _rss_mb(),
                     )
                 return value
-            except OversizedJsonReadError:
+            except (OversizedJsonReadError, storage_references.StorageReferenceError):
                 raise
             except RestartPayloadError as exc:
                 raise StorageUnavailableError(f'read_json({name}) invalid restart storage encoding') from exc
@@ -480,11 +518,31 @@ class StorageService:
             from services.restart_io_metrics import record
             record(name, 'read', raw=raw)
             return value
-        except RestartPayloadError:
+        except (RestartPayloadError, storage_references.StorageReferenceError):
             raise
         except Exception as exc:
             logging.warning("Ugyldig lokal JSON %s: %s", path, exc)
             return default
+
+    def _array_query_source(self, name, connection, cursor):
+        """Keep legacy arrays server-side and resolve shared arrays in the same snapshot."""
+        if name == "market_intelligence/report_archive.json" or name.startswith("investment_pipeline/proposals/"):
+            connection.set_session(isolation_level="REPEATABLE READ", readonly=True)
+            marker = f'{{"{storage_references.REFERENCE}":'
+            cursor.execute(
+                """SELECT payload FROM app_kv_store WHERE name=%s
+                   AND CASE WHEN pg_column_size(payload)<1024 THEN left(payload,%s)=%s ELSE false END""",
+                (name, len(marker), marker),
+            )
+            row = cursor.fetchone()
+            if row:
+                value = _load_json_document(name, row[0], storage=self, connection=connection)
+                if not isinstance(value, list):
+                    raise storage_references.StorageReferenceError(f"resolved JSON array expected for {name}")
+                # Reuse PostgreSQL's comparison, null and ordering semantics
+                # for a resolved projection and for a legacy array.
+                return "(SELECT %s::jsonb AS payload) AS array_document", json.dumps(value, ensure_ascii=False)
+        return "(SELECT payload::jsonb FROM app_kv_store WHERE name=%s) AS array_document", name
 
     def read_json_array_slice(self, name: str, limit: int = 500) -> list[dict[str, Any]]:
         """Read a bounded prefix of a legacy JSON array without transferring the whole payload."""
@@ -495,9 +553,10 @@ class StorageService:
                 self.init_db(); conn = self._conn()
                 try:
                     cur = conn.cursor()
-                    cur.execute("""SELECT elem::text FROM app_kv_store,
-                                      LATERAL jsonb_array_elements(payload::jsonb) WITH ORDINALITY AS x(elem, ord)
-                                      WHERE name=%s ORDER BY ord LIMIT %s""", (name, limit))
+                    source, parameter = self._array_query_source(name, conn, cur)
+                    cur.execute(f"""SELECT elem::text FROM {source},
+                                      LATERAL jsonb_array_elements(payload) WITH ORDINALITY AS x(elem, ord)
+                                      ORDER BY ord LIMIT %s""", (parameter, limit))
                     rows = cur.fetchall()
                 finally:
                     conn.close()
@@ -506,6 +565,8 @@ class StorageService:
                     val=json.loads(row[0])
                     if isinstance(val, dict): out.append(val)
                 return out
+            except storage_references.StorageReferenceError:
+                raise
             except Exception as exc:
                 logging.warning("Postgres bounded JSON read feilet for %s: %s", name, exc)
                 if not self._local_allowed(): raise StorageUnavailableError(f"read_json_array_slice({name}) feilet") from exc
@@ -521,13 +582,16 @@ class StorageService:
                 self.init_db(); conn=self._conn()
                 try:
                     cur=conn.cursor()
-                    cur.execute("""SELECT elem::text FROM app_kv_store,
-                                      LATERAL jsonb_array_elements(payload::jsonb) AS x(elem)
-                                      WHERE name=%s AND elem ->> %s = %s LIMIT 1""", (name, str(id_field), wanted))
+                    source, parameter = self._array_query_source(name, conn, cur)
+                    cur.execute(f"""SELECT elem::text FROM {source},
+                                      LATERAL jsonb_array_elements(payload) AS x(elem)
+                                      WHERE elem ->> %s = %s LIMIT 1""", (parameter, str(id_field), wanted))
                     row=cur.fetchone()
                 finally:
                     conn.close()
                 return default if not row else json.loads(row[0])
+            except storage_references.StorageReferenceError:
+                raise
             except Exception as exc:
                 logging.warning("Postgres bounded JSON item read feilet for %s: %s", name, exc)
                 if not self._local_allowed(): raise StorageUnavailableError(f"read_json_array_item({name}) feilet") from exc
@@ -556,19 +620,22 @@ class StorageService:
                 conn = self._conn()
                 try:
                     cur = conn.cursor()
+                    source, parameter = self._array_query_source(name, conn, cur)
                     # Field names and excluded IDs are bound values, never SQL fragments.
-                    cur.execute("""SELECT elem::text FROM app_kv_store,
-                        LATERAL jsonb_array_elements(payload::jsonb)
+                    cur.execute(f"""SELECT elem::text FROM {source},
+                        LATERAL jsonb_array_elements(payload)
                         WITH ORDINALITY AS x(elem, ord)
-                        WHERE name=%s AND jsonb_typeof(elem)='object'
+                        WHERE jsonb_typeof(elem)='object'
                         AND NOT (COALESCE(elem ->> %s, '') = ANY(%s::text[]))
                         ORDER BY COALESCE(elem ->> %s, '') DESC, ord
                         LIMIT %s OFFSET %s""",
-                        (name, id_field, excluded, order_field, limit, offset))
+                        (parameter, id_field, excluded, order_field, limit, offset))
                     rows = cur.fetchall()
                 finally:
                     conn.close()
                 return [json.loads(row[0]) for row in rows]
+            except storage_references.StorageReferenceError:
+                raise
             except Exception as exc:
                 logging.warning("Postgres JSON page read feilet for %s: %s", name, exc)
                 if not self._local_allowed():
@@ -644,6 +711,9 @@ class StorageService:
         payload = data if _restart_bundle(name) and self.using_postgres() and not isinstance(data,str) else json.dumps(data, ensure_ascii=_restart_bundle(name), default=str)
         if self.using_postgres():
             try:
+                dependent_aliases = storage_references.dependent_aliases(name)
+                if dependent_aliases and storage_references.authoritative_postgres(self):
+                    return self.write_json_aliases(name, data, aliases={}, preserve_aliases=dependent_aliases)
                 self.init_db(); conn = self._conn()
                 try:
                     cur = conn.cursor()
@@ -671,6 +741,131 @@ class StorageService:
         self._require_local_allowed("write_json")
         self._atomic_write_text(self.base_dir / name, json.dumps(data, ensure_ascii=False, indent=2, default=str))
         return False
+
+    @staticmethod
+    def _write_shared_rows(cursor, documents, *, immutable=False):
+        from psycopg2.extras import execute_values
+
+        if documents:
+            on_conflict = "DO NOTHING" if immutable else (
+                "DO UPDATE SET payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at "
+                "WHERE app_kv_store.payload IS DISTINCT FROM EXCLUDED.payload"
+            )
+            rows = [(key, json.dumps(documents[key], ensure_ascii=False, default=str)) for key in sorted(documents)]
+            returning = " RETURNING name" if immutable else ""
+            inserted = execute_values(
+                cursor,
+                "INSERT INTO app_kv_store (name, payload, updated_at) VALUES %s "
+                f"ON CONFLICT (name) {on_conflict}{returning}",
+                rows,
+                template="(%s, %s, NOW()::TEXT)",
+                page_size=100,
+                fetch=immutable,
+            )
+            return {row[0] for row in inserted} if immutable else set()
+        return set()
+
+    @staticmethod
+    def _lock_shared_keys(cursor, names):
+        for key in sorted(names):
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (key,))
+
+    @staticmethod
+    def _locked_aliases(cursor, target, names):
+        if not names:
+            return
+        marker = f'{{"{storage_references.REFERENCE}":'
+        cursor.execute(
+            """SELECT name,payload FROM app_kv_store
+               WHERE name=ANY(%s) AND CASE WHEN pg_column_size(payload)<1024
+                   THEN left(payload,%s)=%s ELSE false END
+               ORDER BY name FOR UPDATE""",
+            (sorted(names), len(marker), marker),
+        )
+        for key, raw in cursor.fetchall():
+            info = storage_references.reference_info(json.loads(raw))
+            if info is not None and info[0] == target:
+                yield key, raw, info
+
+    def write_json_aliases(self, name, data, *, aliases, preserve_aliases=()):
+        """Publish a document and its projections together, preserving earlier unpaired projections."""
+        names = set(aliases).union(preserve_aliases, storage_references.dependent_aliases(name))
+        if name in names or not all(storage_references.can_contain_references(key) for key in names):
+            raise storage_references.StorageReferenceError("invalid alias document key")
+        values = {alias: storage_references.reference(name, data if field is None else data[field], field)
+                  for alias, field in aliases.items()}
+        self._require_shared_document_keys({name, *names})
+        self.init_db()
+        conn = self._conn()
+        try:
+            with conn, conn.cursor() as cursor:
+                self._lock_shared_keys(cursor, {name, *names})
+                for key, raw, (_, expected, field) in self._locked_aliases(cursor, name, names.difference(aliases)):
+                    if field is not None and (not isinstance(data, dict) or field not in data):
+                        values[key] = _load_json_document(key, raw, storage=self, connection=conn)
+                    elif storage_references.content_hash(data if field is None else data[field]) != expected:
+                        values[key] = _load_json_document(key, raw, storage=self, connection=conn)
+                self._write_shared_rows(cursor, {name: data, **values})
+            return True
+        finally:
+            conn.close()
+
+    def _require_shared_document_keys(self, keys):
+        if not storage_references.authoritative_postgres(self):
+            raise StorageUnavailableError("Shared document writes require authoritative PostgreSQL")
+        if any(key != _safe_name(key) or _restart_bundle(key) for key in keys):
+            raise storage_references.StorageReferenceError("invalid shared document key")
+
+    def write_json_documents(self, documents, *, immutable=None, mutate=None):
+        """Write full documents, immutable versions and index mutations in one transaction."""
+        immutable = immutable or {}
+        mutate = mutate or {}
+        names = documents.keys() | immutable.keys() | mutate.keys()
+        if len(names) != len(documents) + len(immutable) + len(mutate):
+            raise storage_references.StorageReferenceError("overlapping document writes")
+        self._require_shared_document_keys(names)
+        self.init_db()
+        conn = self._conn()
+        try:
+            with conn, conn.cursor() as cursor:
+                self._lock_shared_keys(cursor, mutate)
+                inserted = self._write_shared_rows(cursor, immutable, immutable=True)
+                conflicts = immutable.keys() - inserted
+                if conflicts:
+                    # Existing content-addressed rows must agree with the new bytes.
+                    cursor.execute(
+                        "SELECT name,payload FROM app_kv_store WHERE name=ANY(%s) ORDER BY name FOR SHARE",
+                        (sorted(conflicts),),
+                    )
+                    existing = cursor.fetchall()
+                    if len(existing) != len(conflicts):
+                        raise storage_references.StorageReferenceError("immutable target missing after write")
+
+                    def load_many(keys):
+                        return self._load_reference_targets(keys, connection=conn)
+
+                    for key, raw in existing:
+                        if raw == json.dumps(immutable[key], ensure_ascii=False, default=str):
+                            continue
+                        actual = storage_references.resolve_references(json.loads(raw), load_many)
+                        expected = storage_references.resolve_references(immutable[key], load_many)
+                        if storage_references.content_hash(actual) != storage_references.content_hash(expected):
+                            raise storage_references.StorageReferenceError(f"checksum differs for immutable document {key}")
+                values = dict(documents)
+                if mutate:
+                    cursor.execute(
+                        "SELECT name,payload FROM app_kv_store WHERE name=ANY(%s) ORDER BY name FOR UPDATE",
+                        (sorted(mutate),),
+                    )
+                    current = {
+                        key: _load_json_document(key, raw, storage=self, connection=conn)
+                        for key, raw in cursor.fetchall()
+                    }
+                    values.update({key: mutate[key](current.get(key)) for key in sorted(mutate)})
+                self._write_shared_rows(cursor, values)
+            return True
+        finally:
+            conn.close()
 
     def ensure_restart_encoding(self,name):
         """Lossless, idempotent storage migration; no financial callback runs."""
@@ -708,7 +903,7 @@ class StorageService:
             raise
         finally:conn.close()
 
-    def mutate_json(self, name: str, transform, default=None):
+    def mutate_json(self, name: str, transform, default=None, *, encode=None):
         """Serialize a read/modify/write; DB failures never fall back locally.
 
         The callback must be pure. Its exception aborts the transaction.
@@ -728,11 +923,16 @@ class StorageService:
                 if row:
                     from services.restart_io_metrics import record
                     record(name, 'locked_mutation', raw=row[0])
+                exists = row is not None
                 del row
                 result = transform(current)
+                if exists and encode is not None and result is current:
+                    conn.commit()
+                    return result
                 with conn.cursor() as cur:
                     stream_restart=_restart_bundle(name)
-                    payload=result if stream_restart and not isinstance(result,str) else json.dumps(result, ensure_ascii=_restart_bundle(name), default=str)
+                    stored = result if encode is None else encode(result)
+                    payload=stored if stream_restart and not isinstance(stored,str) else json.dumps(stored, ensure_ascii=stream_restart, default=str)
                     if stream_restart:
                         from services.large_json_write import write_restart_payload
                         write_restart_payload(cur, name, payload)
@@ -762,9 +962,12 @@ class StorageService:
                 if raw is not None:
                     from services.restart_io_metrics import record
                     record(name, 'locked_mutation', raw=raw)
+                exists = raw is not None
                 del raw
                 result = transform(current)
-                self._atomic_write_text(path, json.dumps(result, ensure_ascii=_restart_bundle(name), indent=2, default=str))
+                if not exists or encode is None or result is not current:
+                    stored = result if encode is None else encode(result)
+                    self._atomic_write_text(path, json.dumps(stored, ensure_ascii=_restart_bundle(name), indent=2, default=str))
                 return result
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
@@ -775,7 +978,17 @@ class StorageService:
         if self.using_postgres():
             self.init_db(); conn = self._conn()
             try:
-                cur = conn.cursor(); cur.execute("DELETE FROM app_kv_store WHERE name=%s", (name,)); conn.commit(); used_postgres = True
+                with conn, conn.cursor() as cur:
+                    names = storage_references.dependent_aliases(name)
+                    if names:
+                        self._lock_shared_keys(cur, {name, *names})
+                        materialized = {
+                            key: _load_json_document(key, raw, storage=self, connection=conn)
+                            for key, raw, _ in self._locked_aliases(cur, name, names)
+                        }
+                        self._write_shared_rows(cur, materialized)
+                    cur.execute("DELETE FROM app_kv_store WHERE name=%s", (name,))
+                used_postgres = True
             finally:
                 conn.close()
         path = self.base_dir / name

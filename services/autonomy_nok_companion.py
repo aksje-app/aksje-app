@@ -5,12 +5,38 @@ normal retries idempotent. No main-account mirror, reset or strategy change.
 Learning retains its existing canonical stores and independent notional model.
 """
 from copy import deepcopy
+from typing import Mapping
+
+from repositories.application import MarketSnapshotRepository
 from services.economic_opening import digest
 from services import production_restart as control
+from services.storage_references import reference, referenced_fields, references_enabled, version_key
 
 
 def preparation_key(chosen,run_id):
     return 'autonomous_portfolio/nok_preparation/'+digest(dict(period=chosen['pointer']['period_id'],run_id=run_id))+'.json'
+
+
+def _encode_preparation(storage, prepared):
+    if not references_enabled(storage):
+        return prepared
+
+    fields = {}
+    snapshot = prepared['market_snapshot']
+    if isinstance(snapshot, Mapping) and snapshot.get('snapshot_id'):
+        key = MarketSnapshotRepository._item_key(snapshot['snapshot_id'])
+        stored = storage.read_json(key, None)
+        if stored is not None and version_key(stored) == version_key(snapshot):
+            fields['market_snapshot'] = reference(key, snapshot)
+
+    run = prepared['parallel_strategy_run']
+    if isinstance(run, Mapping) and run.get('strategy_run_id'):
+        key = version_key(run)
+        stored = storage.read_json(key, None)
+        if stored is not None and version_key(stored) == key:
+            fields['parallel_strategy_run'] = reference(key, run)
+
+    return referenced_fields(prepared, fields) if fields else prepared
 
 
 def prepare(chosen,run_id,candidates,*,storage=None,portfolio=None):
@@ -29,7 +55,7 @@ def prepare(chosen,run_id,candidates,*,storage=None,portfolio=None):
             ap.AutonomousParameters(**settings).normalized(),run_id,lambda *a,**kw:None)
         return dict(source_sha256=digest(source),settings=settings,candidates=prepared,market_snapshot=snapshot,
             parallel_strategy_run=parallel,technical_contribution=technical,portfolio_before=before)
-    return storage.mutate_json(key,mutation)
+    return storage.mutate_json(key,mutation,encode=lambda result: _encode_preparation(storage, result))
 
 
 def complete(chosen,run_id,prepared,portfolio,trades,decisions,*,storage=None):

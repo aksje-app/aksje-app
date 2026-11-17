@@ -19,6 +19,7 @@ from domain.strategy_contract import (
     validate_strategy_decision,
 )
 from repositories.application import RepositoryRegistry, get_repository_registry
+from services.storage_references import authoritative_postgres
 from services.strategy_registry_service import StrategyRegistryService, get_strategy_registry_service
 from services.market_snapshot_service import MarketSnapshotService
 from services.technical_signal_service import TechnicalSignalService, get_technical_signal_service
@@ -135,6 +136,7 @@ class ParallelStrategyService:
         results: list[dict[str, Any]] = []
         errors = 0
         portfolio_states = dict(portfolio_states or {})
+        batch_publish = authoritative_postgres(self.runs.storage)
 
         for version in versions:
             family = str(version.get("strategy_family") or "").lower()
@@ -164,7 +166,8 @@ class ParallelStrategyService:
                     decision_row["error"] = "; ".join(check["errors"])
                     decision_row["blockers"] = list(decision_row.get("blockers") or []) + check["errors"]
                     decision_row["execution_authorized"] = False
-                self.decisions.upsert(decision_row)
+                if not batch_publish:
+                    self.decisions.upsert(decision_row)
                 results.append(decision_row)
 
         completed_at = _now()
@@ -189,7 +192,10 @@ class ParallelStrategyService:
             },
         )
         run_row = run_result.to_dict()
-        self.runs.upsert(run_row)
+        if batch_publish:
+            self.runs.publish_evaluation(run_row, self.decisions)
+        else:
+            self.runs.upsert(run_row)
         return run_row
 
     def recent_runs(self, limit: int = 20) -> list[dict[str, Any]]:

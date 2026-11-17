@@ -1,8 +1,11 @@
-# NOK operator 2026.10.28.1
+# NOK operator 2026.11.17.1
 
 Run `START-HER.ps1` by copying its complete text into Windows PowerShell. It
 installs this exact version and runs `1-KLARGJOR.cmd`'s prepare action. No ZIP
 needs to be downloaded or transferred by hand.
+
+The Render application release supplies the shared report reference reader.
+Use this installer after that release is available on Render.
 
 Preparation ends at personal B with three unsigned `NOK_PRODUCTION_GRANT_V2`
 requests, their `ACTIVATION_PREFLIGHT` receipts, actual stored settings, approved

@@ -39,6 +39,33 @@ def file_sha(path):
     return result.hexdigest()
 
 
+def _read_shared_document(cursor, name, value, stored_bytes, limit):
+    from services.storage_references import resolve_references
+
+    def load_targets(keys):
+        nonlocal stored_bytes
+        cursor.execute(
+            'SELECT COALESCE(sum(octet_length(payload)), 0), count(*) - count(payload) '
+            'FROM app_kv_store WHERE name=ANY(%s)', (keys,),
+        )
+        target_bytes, null_count = cursor.fetchone()
+        stored_bytes += target_bytes
+        if null_count or stored_bytes > limit:
+            raise ValueError('Stored shared documents exceed bounded read limit: '+name)
+        cursor.execute('SELECT name, payload FROM app_kv_store WHERE name=ANY(%s)', (keys,))
+        return {key: json.loads(payload) for key, payload in cursor.fetchall()}
+
+    def validate_size(document):
+        size = 0
+        encoder = json.JSONEncoder(ensure_ascii=False, separators=(',', ':'))
+        for chunk in encoder.iterencode(document):
+            size += len(chunk.encode('utf-8'))
+            if size > limit:
+                raise ValueError('Resolved document exceeds bounded read limit: '+name)
+
+    return resolve_references(value, load_targets, validate_value=validate_size)
+
+
 class ReadOnlyStorage:
     """Real PostgreSQL reads. No schema initialization, fallback or write API."""
     allow_local_fallback = False
@@ -54,6 +81,8 @@ class ReadOnlyStorage:
         return conn
     def read_json(self, name, default=None):
         from services.restart_payload_codec import decode_document,MAX_STORED_BYTES
+        from services.storage_references import can_contain_references, has_references
+
         restart=name.startswith('simulation_restarts/') and name.endswith('/bundle.json')
         limit=MAX_STORED_BYTES if restart else 32*1024**2
         conn = self._conn()
@@ -70,7 +99,11 @@ class ReadOnlyStorage:
                 if restart and isinstance(value,dict) and value.get('__restart_storage__')=='ARCHIVED_EVENT_PAYLOADS_V2':
                     from services.restart_payload_archive import make_loader
                     return decode_document(value,payload_loader=make_loader(self))
-                return decode_document(value) if restart else value
+                if restart:
+                    return decode_document(value)
+                if can_contain_references(name) and has_references(value):
+                    return _read_shared_document(cursor, name, value, row[0], limit)
+                return value
         finally:
             conn.rollback()
             conn.close()
