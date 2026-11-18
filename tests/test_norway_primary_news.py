@@ -151,6 +151,8 @@ def test_probe_failure_does_not_enable_primary_source_or_retry_immediately(local
     assert not probe.production_ready(storage=local)
     result=probe.run_once(storage=local,now=NOW+timedelta(minutes=15))
     assert result['status']=='FAILED' and result['retry_deferred'] is True
+    retried=probe.run_once(storage=local,now=NOW+timedelta(hours=1,minutes=1))
+    assert retried['status']=='FAILED' and retried.get('retry_deferred') is not True
 
 
 def test_cron_probe_skips_nonproduction_without_fetching_or_writing(local,monkeypatch):
