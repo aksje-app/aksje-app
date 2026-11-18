@@ -10,9 +10,9 @@ ISIN='NO0005806802';MIC='XOSL';TICKER='VEI.OL'
 PRODUCT=f'https://live.euronext.com/en/product/equities/{ISIN}-{MIC}'
 ISSUER='https://live.euronext.com/en/listview/company-press-release/41785'
 
-def product(**overrides):
+def product(*, product_url=PRODUCT, listing_issuer='41785', **overrides):
     data=dict(name='VEIDEKKE',symbol='VEI',isin=ISIN,mic=MIC,issuer_code='41785');data.update(overrides)
-    return '<link rel="canonical" href="'+PRODUCT+'"><script data-drupal-selector="drupal-settings-json" type="application/json">'+json.dumps({'custom':{'instrument':data}})+'</script><div class="regulated-news"><a href="/en/listview/company-press-release/41785">See All</a></div>'
+    return '<link rel="canonical" href="'+product_url+'"><script data-drupal-selector="drupal-settings-json" type="application/json">'+json.dumps({'custom':{'instrument':data}})+'</script><div class="regulated-news"><a href="/en/listview/company-press-release/'+listing_issuer+'">See All</a></div>'
 
 def listing(rows=None):
     rows=rows if rows is not None else [('12921630','05 Nov 2026 09:12 CET','VEIDEKKE','Quarterly operations update'),('12918298','23 Oct 2026 08:00 CEST','VEIDEKKE','Older disclosure')]
@@ -58,6 +58,40 @@ def test_missing_future_or_inconsistent_dates_fail_closed(local,date):
 
 def test_other_company_listing_never_becomes_primary_evidence(local):
     with pytest.raises(ValueError):fetch(local,Session(rows=[('1','05 Nov 2026 09:12 CET','OTHER ASA','Update')]))
+
+
+@pytest.mark.parametrize(('ticker', 'isin', 'issuer', 'instrument_name', 'listing_name'), [
+    ('SB1NO.OL', 'NO0010631567', '82729', 'SPAREBANK 1 SØR-N', 'SpareBank 1 Sør-Norge ASA'),
+    ('NONG.OL', 'NO0006000801', '167612', 'SPBK1 NORD-NORGE', 'SpareBank 1 Nord-Norge'),
+    ('OET.OL', 'MHY641771016', '238771', 'OKEANIS ECO TANKER', 'OKEANIS ECO TANKERS'),
+    ('HELG.OL', 'NO0010029804', '149976', 'SPBK1 HELGELAND', 'SPAREBANK 1 HELGELAND'),
+    ('OUTLT.OL', 'NO0013757500', '602371', 'OUTLET GROUP HOLD', 'OUTLET GROUP HOLDING ASA'),
+    ('WWI.OL', 'NO0010571698', '170747', 'WILH. WILHELMSEN A', 'Wilh. Wilhelmsen Holding ASA'),
+    ('WWIB.OL', 'NO0010576010', '170747', 'WILH. WILHELMSEN B', 'Wilh. Wilhelmsen Holding ASA'),
+])
+def test_primary_news_accepts_verified_issuer_listing_names(local, ticker, isin, issuer, instrument_name, listing_name):
+    from services.norway_primary_news import fetch_company_news
+
+    product_url = f'https://live.euronext.com/en/product/equities/{isin}-{MIC}'
+    issuer_url = f'https://live.euronext.com/en/listview/company-press-release/{issuer}'
+    instrument = product(product_url=product_url, listing_issuer=issuer, name=instrument_name,
+                         symbol=ticker[:-3], isin=isin, issuer_code=issuer)
+    session = Session()
+    pages = {
+        product_url: instrument,
+        issuer_url: listing([('1', '05 Nov 2026 09:12 CET', listing_name, 'Quarterly update')]),
+    }
+    session.get = lambda url, **kwargs: Response(pages[url], url)
+
+    rows, _ = fetch_company_news(ticker, isin, MIC, storage=local, session=session, now=NOW)
+
+    assert len(rows) == 1 and rows[0]['primary_source_verified'] is True
+    assert rows[0]['isin'] == isin and rows[0]['url'] == issuer_url
+
+
+def test_listing_name_alias_cannot_validate_a_different_issuer(local):
+    with pytest.raises(ValueError, match='different issuer'):
+        fetch(local, Session(rows=[('1', '05 Nov 2026 09:12 CET', 'SpareBank 1 Sør-Norge ASA', 'Update')]))
 
 
 def test_cache_reuses_original_observation_and_rechecks_window(local):

@@ -15,6 +15,18 @@ CACHE_SECONDS=3600
 SCHEMA='EURONEXT_ISSUER_HEADLINES_V1'
 MONTHS={name:i for i,name in enumerate('Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(),1)}
 
+# Euronext's instrument display name can differ from its press-release listing name.
+# Each observed listing name is scoped to the instrument and its verified issuer code.
+ISSUER_LISTING_NAMES = {
+    ('NO0010631567', 'XOSL', '82729'): 'SpareBank 1 Sør-Norge ASA',
+    ('NO0006000801', 'XOSL', '167612'): 'SpareBank 1 Nord-Norge',
+    ('MHY641771016', 'XOSL', '238771'): 'OKEANIS ECO TANKERS',
+    ('NO0010029804', 'XOSL', '149976'): 'SPAREBANK 1 HELGELAND',
+    ('NO0013757500', 'XOSL', '602371'): 'OUTLET GROUP HOLDING ASA',
+    ('NO0010571698', 'XOSL', '170747'): 'Wilh. Wilhelmsen Holding ASA',
+    ('NO0010576010', 'XOSL', '170747'): 'Wilh. Wilhelmsen Holding ASA',
+}
+
 
 def _publication(text):
     m=re.fullmatch(r'(\d{1,2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}) (CET|CEST)',' '.join(text.split()))
@@ -66,10 +78,16 @@ def _listing(doc,ticker,isin,mic,name,source_url,now):
     links=doc.select('a.standardRightCompanyPressRelease[data-node-nid]')
     if not links:raise ValueError('Missing issuer listing structure; absence is not verified')
     if len(links)>MAX_ITEMS:raise ValueError('Issuer listing exceeds bounded row limit')
+    instrument_name = _name(name)
+    issuer_code = source_url.rsplit('/', 1)[-1]
+    listing_name = ISSUER_LISTING_NAMES.get((isin, mic, issuer_code), '').casefold()
     items=[];seen=set();previous=None
     for a in links:
         tr=a.find_parent('tr');cells=tr.find_all('td') if tr else []
-        if len(cells)<3 or _name(cells[1].get_text(' ',strip=True))!=_name(name):
+        if len(cells) < 3:
+            raise ValueError('Missing disclosure listing row cells')
+        row_name = ' '.join(cells[1].get_text(' ', strip=True).split())
+        if not row_name or (_name(row_name) != instrument_name and row_name.casefold() != listing_name):
             raise ValueError('Listing row belongs to a different issuer')
         at=_publication(cells[0].get_text(' ',strip=True));node=str(a.get('data-node-nid') or '')
         title=a.get_text(' ',strip=True)

@@ -68,6 +68,31 @@ def test_fallback_exposes_real_fetch_error(monkeypatch):
     assert 'HTTP 403' in out['error']
 
 
+def test_report_candidates_receive_issuer_identity_before_evidence_search(monkeypatch):
+    from investment_pipeline import PipelineConfig, _load_candidate_rows_from_app
+    from services import universe_service
+    import stocks
+
+    service = Mock()
+    service.run_smart_universe.return_value = {'rows': [
+        {'ticker': 'VEI.OL', 'source': 'Smart Universe'},
+        {'ticker': 'OTHER.OL', 'source': 'Smart Universe'},
+    ]}
+    monkeypatch.setattr(universe_service, 'get_universe_service', lambda: service)
+    monkeypatch.setattr(stocks, 'get_norwegian_instruments', lambda **kwargs: [
+        neu._instrument_row('Veidekke', 'NO0005806802', 'VEI', 'Oslo Børs'),
+        {'ticker': 'OTHER.OL', 'isin': 'NO0010029804', 'exchange_mic': 'XOSL',
+         'universe_source': 'PACKAGED_FALLBACK'},
+    ])
+
+    rows, _ = _load_candidate_rows_from_app(PipelineConfig(market_scope='Norge', full_universe_scan=True))
+
+    assert [row['ticker'] for row in rows] == ['VEI.OL', 'OTHER.OL']
+    assert rows[0]['source'] == 'Smart Universe'
+    assert (rows[0]['isin'], rows[0]['exchange_mic']) == ('NO0005806802', 'XOSL')
+    assert not rows[1].get('isin') and not rows[1].get('exchange_mic')
+
+
 def test_version_is_bt():
     from release_contract_checks import assert_current_release
     assert_current_release()

@@ -1379,6 +1379,18 @@ def _load_candidate_rows_from_app(config: PipelineConfig, *, return_discovery: b
             primary, fallback_rows, market=cfg.market_scope, limit=cfg.scan_limit,
             mission_id=cfg.mission_id, configuration_version=cfg.configuration_version,
         )
+    if cfg.market_scope == "Norge":
+        # Smart Universe can supply the selected row without its exchange identity.
+        # Use the exchange master before enrichment starts to enable issuer news.
+        exchange_identities: dict[str, set[tuple[str, str]]] = {}
+        for instrument in fallback_rows:
+            isin, mic = instrument.get("isin"), instrument.get("exchange_mic")
+            if instrument.get("universe_source") == "EURONEXT_OFFICIAL" and isin and mic:
+                exchange_identities.setdefault(instrument["ticker"], set()).add((isin, mic))
+        for row in rows:
+            identities = exchange_identities.get(row["ticker"], ())
+            if len(identities) == 1:
+                row["isin"], row["exchange_mic"] = next(iter(identities))
     discovery = dict(discovery or {})
     discovery["symbol_filter"] = {
         "accepted_primary": len(primary),
