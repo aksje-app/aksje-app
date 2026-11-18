@@ -49,7 +49,7 @@ def run_once(*,storage=None,now=None):
     if isinstance(previous,dict) and previous.get('attempted_at'):
         try:
             attempted=datetime.fromisoformat(previous['attempted_at'])
-            if attempted.tzinfo is not None and now<attempted+timedelta(days=1):return {**previous,'status':'FAILED','retry_deferred':True}
+            if attempted.tzinfo is not None and now<attempted+timedelta(hours=1):return {**previous,'status':'FAILED','retry_deferred':True}
         except (TypeError,ValueError):pass
     receipt={'status':'COMPLETED','collector_schema':SCHEMA,'attempted_at':now.isoformat(timespec='seconds'),
              'records':[],'financial_state_changed':False,'runtime':current_runtime_identity('report_scheduler')}
