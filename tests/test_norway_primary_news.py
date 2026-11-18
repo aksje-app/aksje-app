@@ -121,7 +121,7 @@ def test_enrichment_forwards_verified_identity_and_retains_primary_news(local,mo
         return real_fetch(ticker,isin,mic,storage=local,session=Session(),now=NOW,**kw)
     monkeypatch.setattr(source,'fetch_company_news',primary)
     monkeypatch.setattr(news,'_fetch_yfinance',lambda *a:pytest.fail('Verified primary coverage should avoid broken secondary request'))
-    monkeypatch.setattr(news,'_fetch_newsapi',lambda *a:pytest.fail('Verified primary coverage should avoid spending API quota'))
+    monkeypatch.setattr(news,'_fetch_newsapi',lambda *a:[])
     result=news.enrich_rows([{'ticker':TICKER,'isin':ISIN,'exchange_mic':MIC,'market':'Norge','longName':'Veidekke ASA'}],force_refresh=True)[0]['news_intelligence']
     assert result['events'][0]['isin']==ISIN and result['events'][0]['content_scope']=='HEADLINE_ONLY'
     assert result['canonical_evidence_status']=='VERIFIED_FACTS_FOUND'
@@ -220,7 +220,7 @@ def _primary_enriched(local,monkeypatch,tmp_path,unrelated_rss=False):
     monkeypatch.setattr(news,'CACHE_PATH',tmp_path/'consensus-news.json')
     monkeypatch.setattr(source,'fetch_company_news',lambda t,i,m,**kw:real_fetch(t,i,m,storage=local,session=Session(),now=NOW,**kw))
     monkeypatch.setattr(news,'_fetch_yfinance',lambda *a:pytest.fail('No secondary request'))
-    monkeypatch.setattr(news,'_fetch_newsapi',lambda *a:pytest.fail('No paid request'))
+    monkeypatch.setattr(news,'_fetch_newsapi',lambda *a:[])
     monkeypatch.setattr(news,'source_specs',lambda *a:[{'id':'e24','publisher':'E24','label':'E24 RSS'}] if unrelated_rss else [])
     monkeypatch.setattr(news,'fetch_rss_source',lambda *a:([{'title':'Unrelated company announces an update','publisher':'E24','source_id':'e24','collector_source':'E24 RSS','published_at':NOW.isoformat(),'url':'https://e24.no/unrelated'}],{}))
     return news.enrich_rows([{'ticker':TICKER,'isin':ISIN,'exchange_mic':MIC,'market':'Norge','longName':'Veidekke ASA'}],force_refresh=True)[0]['news_intelligence']
@@ -268,4 +268,16 @@ def test_explicit_newsapi_priority_not_suppressed_by_verified_primary(local,monk
     calls=[]
     monkeypatch.setattr(news,'_fetch_newsapi',lambda *a,**kw:(calls.append(a),[])[1])
     news.fetch_news_intelligence(TICKER,'Veidekke ASA',force_refresh=True,market='Norge',isin=ISIN,exchange_mic=MIC,newsapi_priority=True)
+    assert len(calls)==1
+
+
+def test_primary_issuer_news_does_not_suppress_licensed_independent_search(local,monkeypatch,tmp_path):
+    import news_intelligence as news
+    import services.norway_primary_news as source
+    monkeypatch.setattr(news,'CACHE_PATH',tmp_path/'nonpriority-news.json')
+    monkeypatch.setattr(source,'fetch_company_news',lambda t,i,m,**kw:([{'title':'Issuer update','published_at':NOW.isoformat(),'source_role':'PRIMARY_COMPANY','publisher':'VEIDEKKE','url':ISSUER,'isin':ISIN,'exchange_mic':MIC,'ticker':TICKER,'primary_source_verified':True}],{'source_url':ISSUER,'issuer_name':'VEIDEKKE','observed_at':NOW.isoformat(),'cache_status':'MISS','content_scope':'HEADLINE_ONLY','window_complete':True}))
+    monkeypatch.setattr(news,'_fetch_yfinance',lambda *a:pytest.fail('Yahoo should be skipped when primary source verified'))
+    calls=[]
+    monkeypatch.setattr(news,'_fetch_newsapi',lambda *a,**kw:(calls.append(a),[])[1])
+    news.fetch_news_intelligence(TICKER,'Veidekke ASA',force_refresh=True,market='Norge',isin=ISIN,exchange_mic=MIC,newsapi_priority=False)
     assert len(calls)==1
