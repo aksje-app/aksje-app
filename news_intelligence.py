@@ -477,13 +477,13 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
     try:
         fallback_only = (str(os.getenv("NEWSAPI_FALLBACK_ONLY", "true")).strip().casefold() not in {"0", "false", "no"}) and not newsapi_priority
         minimum_existing = max(1, int(os.getenv("NEWSAPI_FALLBACK_MIN_EXISTING_ARTICLES", "3") or 3))
-        if primary_sufficient or (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing):
+        if (primary_sufficient and not newsapi_priority) or (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing):
             search_log.append({
                 "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
                 "attempted": False, "status": "SKIPPED_BUDGET_POLICY", "results": 0,
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "reason_code": "PRIMARY_SOURCE_AVAILABLE" if primary_sufficient else "BUDGET_POLICY",
-                "error": "Verifisert selskapskilde benyttet" if primary_sufficient else f"Ikke brukt: yfinance ga minst {minimum_existing} saker; døgnbudsjett bevart",
+                "reason_code": "PRIMARY_SOURCE_AVAILABLE" if primary_sufficient and not newsapi_priority else "BUDGET_POLICY",
+                "error": "Verifisert selskapskilde benyttet" if primary_sufficient and not newsapi_priority else f"Ikke brukt: yfinance ga minst {minimum_existing} saker; døgnbudsjett bevart",
             })
             api_rows = []
         else:
@@ -495,7 +495,7 @@ def fetch_news_intelligence(ticker: str, company_name: str = "", force_refresh: 
             row.setdefault("article_type", classify_article(str(row.get("title") or ""), str(row.get("description") or row.get("summary") or "")))
         rows.extend(api_rows)
         if api_rows: sources.append("NewsAPI")
-        if not (primary_sufficient or (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing)):
+        if not ((primary_sufficient and not newsapi_priority) or (fallback_only and len(yf_rows if "yf_rows" in locals() else []) >= minimum_existing)):
             search_log.append({
                 "source": "NewsAPI broad company search", "source_type": "LICENSED_AGGREGATOR",
                 "attempted": bool(os.getenv("NEWSAPI_KEY", "").strip()),
