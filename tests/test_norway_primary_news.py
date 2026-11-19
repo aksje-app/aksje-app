@@ -69,23 +69,31 @@ def test_other_company_listing_never_becomes_primary_evidence(local):
     with pytest.raises(ValueError):fetch(local,Session(rows=[('1','05 Nov 2026 09:12 CET','OTHER ASA','Update')]))
 
 
-@pytest.mark.parametrize(('ticker', 'isin', 'issuer', 'instrument_name', 'listing_name'), [
-    ('SB1NO.OL', 'NO0010631567', '82729', 'SPAREBANK 1 SØR-N', 'SpareBank 1 Sør-Norge ASA'),
-    ('NONG.OL', 'NO0006000801', '167612', 'SPBK1 NORD-NORGE', 'SpareBank 1 Nord-Norge'),
-    ('OET.OL', 'MHY641771016', '238771', 'OKEANIS ECO TANKER', 'OKEANIS ECO TANKERS'),
-    ('HELG.OL', 'NO0010029804', '149976', 'SPBK1 HELGELAND', 'SPAREBANK 1 HELGELAND'),
-    ('OUTLT.OL', 'NO0013757500', '602371', 'OUTLET GROUP HOLD', 'OUTLET GROUP HOLDING ASA'),
-    ('WWI.OL', 'NO0010571698', '170747', 'WILH. WILHELMSEN A', 'Wilh. Wilhelmsen Holding ASA'),
-    ('WWIB.OL', 'NO0010576010', '170747', 'WILH. WILHELMSEN B', 'Wilh. Wilhelmsen Holding ASA'),
-    ('KCC.OL', 'NO0010833262', '197464', 'KLAVENESS COMBINAT', 'Klaveness Combination Carriers'),
+def test_dotted_legal_term_inside_name_does_not_validate_different_issuer(local):
+    session = Session(product(name='ALPHA SERVICES'),
+                      rows=[('1', '05 Nov 2026 09:12 CET', 'ALPHA LTD. SERVICES', 'Update')])
+    with pytest.raises(ValueError, match='different issuer'):
+        fetch(local, session)
+
+
+@pytest.mark.parametrize(('ticker', 'isin', 'mic', 'issuer', 'instrument_name', 'listing_name'), [
+    ('SB1NO.OL', 'NO0010631567', 'XOSL', '82729', 'SPAREBANK 1 SØR-N', 'SpareBank 1 Sør-Norge ASA'),
+    ('NONG.OL', 'NO0006000801', 'XOSL', '167612', 'SPBK1 NORD-NORGE', 'SpareBank 1 Nord-Norge'),
+    ('OET.OL', 'MHY641771016', 'XOSL', '238771', 'OKEANIS ECO TANKER', 'OKEANIS ECO TANKERS'),
+    ('HELG.OL', 'NO0010029804', 'XOSL', '149976', 'SPBK1 HELGELAND', 'SPAREBANK 1 HELGELAND'),
+    ('OUTLT.OL', 'NO0013757500', 'XOSL', '602371', 'OUTLET GROUP HOLD', 'OUTLET GROUP HOLDING ASA'),
+    ('WWI.OL', 'NO0010571698', 'XOSL', '170747', 'WILH. WILHELMSEN A', 'Wilh. Wilhelmsen Holding ASA'),
+    ('WWIB.OL', 'NO0010576010', 'XOSL', '170747', 'WILH. WILHELMSEN B', 'Wilh. Wilhelmsen Holding ASA'),
+    ('KCC.OL', 'NO0010833262', 'XOSL', '197464', 'KLAVENESS COMBINAT', 'Klaveness Combination Carriers'),
+    ('SNM.OL', 'BMG8080M1001', 'MERK', '602283', 'SHAMARAN PETROLEUM', 'SHAMARAN PETROLEUM LTD.'),
 ])
-def test_primary_news_accepts_verified_issuer_listing_names(local, ticker, isin, issuer, instrument_name, listing_name):
+def test_primary_news_accepts_verified_issuer_listing_names(local, ticker, isin, mic, issuer, instrument_name, listing_name):
     from services.norway_primary_news import fetch_company_news
 
-    product_url = f'https://live.euronext.com/en/product/equities/{isin}-{MIC}'
+    product_url = f'https://live.euronext.com/en/product/equities/{isin}-{mic}'
     issuer_url = f'https://live.euronext.com/en/listview/company-press-release/{issuer}'
     instrument = product(product_url=product_url, listing_issuer=issuer, name=instrument_name,
-                         symbol=ticker[:-3], isin=isin, issuer_code=issuer)
+                         symbol=ticker[:-3], isin=isin, mic=mic, issuer_code=issuer)
     session = Session()
     pages = {
         product_url: instrument,
@@ -93,7 +101,7 @@ def test_primary_news_accepts_verified_issuer_listing_names(local, ticker, isin,
     }
     session.get = lambda url, **kwargs: Response(pages[url], url)
 
-    rows, _ = fetch_company_news(ticker, isin, MIC, storage=local, session=session, now=NOW)
+    rows, _ = fetch_company_news(ticker, isin, mic, storage=local, session=session, now=NOW)
 
     assert len(rows) == 1 and rows[0]['primary_source_verified'] is True
     assert rows[0]['isin'] == isin and rows[0]['url'] == issuer_url

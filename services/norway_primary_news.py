@@ -40,7 +40,11 @@ def _publication(text):
 
 
 def _name(text):
-    return re.sub(r'[^A-Z0-9]','',' '.join(x for x in str(text).upper().split() if x not in {'ASA','AS','PLC','LTD'}))
+    legal_suffixes = {'ASA', 'AS', 'PLC', 'LTD'}
+    words = str(text).upper().split()
+    if words:
+        words[-1] = words[-1].rstrip('.')
+    return re.sub(r'[^A-Z0-9]', '', ''.join(word for word in words if word not in legal_suffixes))
 
 
 def _html(session,url):
@@ -80,6 +84,8 @@ def _listing(doc,ticker,isin,mic,name,source_url,now):
     if not links:raise ValueError('Missing issuer listing structure; absence is not verified')
     if len(links)>MAX_ITEMS:raise ValueError('Issuer listing exceeds bounded row limit')
     instrument_name = _name(name)
+    if not instrument_name:
+        raise ValueError('Missing issuer name for disclosure verification')
     issuer_code = source_url.rsplit('/', 1)[-1]
     listing_name = ISSUER_LISTING_NAMES.get((isin, mic, issuer_code), '').casefold()
     items=[];seen=set();previous=None
