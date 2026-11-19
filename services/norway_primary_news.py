@@ -25,6 +25,7 @@ ISSUER_LISTING_NAMES = {
     ('NO0013757500', 'XOSL', '602371'): 'OUTLET GROUP HOLDING ASA',
     ('NO0010571698', 'XOSL', '170747'): 'Wilh. Wilhelmsen Holding ASA',
     ('NO0010576010', 'XOSL', '170747'): 'Wilh. Wilhelmsen Holding ASA',
+    ('NO0010833262', 'XOSL', '197464'): 'Klaveness Combination Carriers',
 }
 
 
