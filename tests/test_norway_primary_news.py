@@ -1,6 +1,7 @@
 """Bounded verified primary disclosures; all fixtures are synthetic."""
 import json
 from datetime import datetime,timedelta,timezone
+from unittest.mock import Mock
 import pytest
 from services.storage_service import StorageService
 from test_revision_trade_postgres import pg
@@ -32,6 +33,14 @@ class Session:
 
 @pytest.fixture
 def local(tmp_path):return StorageService(tmp_path,mode='local',database_url='',allow_local_fallback=False)
+
+@pytest.fixture
+def news_clock(monkeypatch):
+    import news_intelligence
+
+    clock = Mock(wraps=datetime)
+    clock.now.return_value = NOW
+    monkeypatch.setattr(news_intelligence, 'datetime', clock)
 
 def fetch(storage,session,**kwargs):
     from services.norway_primary_news import fetch_company_news
@@ -68,6 +77,7 @@ def test_other_company_listing_never_becomes_primary_evidence(local):
     ('OUTLT.OL', 'NO0013757500', '602371', 'OUTLET GROUP HOLD', 'OUTLET GROUP HOLDING ASA'),
     ('WWI.OL', 'NO0010571698', '170747', 'WILH. WILHELMSEN A', 'Wilh. Wilhelmsen Holding ASA'),
     ('WWIB.OL', 'NO0010576010', '170747', 'WILH. WILHELMSEN B', 'Wilh. Wilhelmsen Holding ASA'),
+    ('KCC.OL', 'NO0010833262', '197464', 'KLAVENESS COMBINAT', 'Klaveness Combination Carriers'),
 ])
 def test_primary_news_accepts_verified_issuer_listing_names(local, ticker, isin, issuer, instrument_name, listing_name):
     from services.norway_primary_news import fetch_company_news
@@ -116,7 +126,7 @@ def test_oversized_response_is_rejected_before_parsing(local):
     with pytest.raises(ValueError):fetch(local,s)
 
 
-def test_primary_rows_remain_company_relevant_without_name_in_headline(local):
+def test_primary_rows_remain_company_relevant_without_name_in_headline(local, news_clock):
     from news_intelligence import score_articles
     rows,_=fetch(local,Session());result=score_articles(TICKER,rows,company_name='Veidekke ASA')
     assert result['events'] and result['events'][0]['content_scope']=='HEADLINE_ONLY'
@@ -145,7 +155,7 @@ def test_cache_cannot_claim_publication_after_its_observation(local):
     assert len(s.calls)==2 and rows[0]['published_at']=='2026-11-05T08:12:00+00:00'
 
 
-def test_enrichment_forwards_verified_identity_and_retains_primary_news(local,monkeypatch,tmp_path):
+def test_enrichment_forwards_verified_identity_and_retains_primary_news(local,monkeypatch,tmp_path,news_clock):
     import news_intelligence as news
     import services.norway_primary_news as source
     monkeypatch.setattr(news,'CACHE_PATH',tmp_path/'news.json');monkeypatch.setattr(news,'source_specs',lambda *a:[])
@@ -260,7 +270,7 @@ def _primary_enriched(local,monkeypatch,tmp_path,unrelated_rss=False):
     return news.enrich_rows([{'ticker':TICKER,'isin':ISIN,'exchange_mic':MIC,'market':'Norge','longName':'Veidekke ASA'}],force_refresh=True)[0]['news_intelligence']
 
 @pytest.mark.parametrize('unrelated_rss',[False,True])
-def test_one_issuer_does_not_become_independent_corroboration(local,monkeypatch,tmp_path,unrelated_rss):
+def test_one_issuer_does_not_become_independent_corroboration(local,monkeypatch,tmp_path,unrelated_rss,news_clock):
     from decision_report import candidate_source_consensus
     result=_primary_enriched(local,monkeypatch,tmp_path,unrelated_rss)
     consensus=candidate_source_consensus({'raw':{'news_intelligence':result}})
