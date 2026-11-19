@@ -140,7 +140,11 @@ jobs:
             tests/test_superfund_navigation_info.py \
             tests/test_work_progress_diagnostics.py \
             tests/test_rc16_31aa_snapshot_repository_memory.py \
+            tests/test_rc16_31bh_oom_root_cause_closure.py \
+            tests/test_rc16_31g_universe_coverage.py \
             tests/test_rc16_31o_exit_policy.py \
+            tests/test_v18713_fx_runtime_paper_alerts.py \
+            tests/test_v1908_auditable_evidence.py \
             tests/test_market_policy_and_target_consistency.py \
             tests/test_full_market_quality_prescreen.py \
             tests/test_quality_valuation.py \
