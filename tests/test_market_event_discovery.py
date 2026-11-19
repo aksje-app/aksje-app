@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 import pytest
 import market_event_discovery as ev
 
@@ -48,6 +49,119 @@ def test_future_and_superseded_notifications_excluded():
     message = borr()
     assert not ev.insider_events([{**message, 'publishedTime': '2026-10-09T10:00:00Z'}], {}, NOW)
     assert not ev.insider_events([{**message, 'correctedByMessageId': 123}], {}, NOW)
+
+
+@pytest.mark.parametrize('scenario,expected', [
+    ('found', 'DISCOVERY_ONLY'), ('empty', 'SUCCESS_NO_RESULTS'),
+    ('overflow', 'SOURCE_ERROR'), ('wrong_issuer', 'SOURCE_ERROR'),
+])
+def test_oslo_insider_check_uses_filtered_newsweb_metadata(monkeypatch, scenario, expected):
+    import official_insider_sources as source
+
+    now = datetime.now(timezone.utc)
+    notification = {
+        'id': 685825, 'issuerId': 2208, 'issuerSign': 'BONHR',
+        'publishedTime': (now - timedelta(days=4)).isoformat(),
+        'category': [{'id': 1102}], 'test': False, 'correctedByMessageId': 0,
+    }
+    if scenario == 'wrong_issuer':
+        notification['issuerSign'] = 'OTHER'
+
+    def api(url, session):
+        if url == ev.NEWS_API + 'issuers':
+            return {'issuers': [{'issuerId': 2208, 'issuerSign': 'BONHR', 'isActive': 1}]}
+        query = parse_qs(urlsplit(url).query)
+        assert query == {'issuer': ['2208'], 'category': ['1102'],
+                         'fromDate': [(now.date() - timedelta(days=180)).isoformat()],
+                         'toDate': [now.date().isoformat()]}
+        return {'messages': [] if scenario == 'empty' else [notification], 'overflow': scenario == 'overflow'}
+
+    monkeypatch.setattr(source, '_newsweb_request', api, raising=False)
+    result = source.fetch_euronext_oslo('BONHR.OL', 'Bonheur', lookback_days=180, session=object())
+
+    assert result['status'] == expected
+    assert not result['transactions']
+    if scenario == 'found':
+        assert result['announcements_found'] == 1
+        assert result['url'] == 'https://newsweb.oslobors.no/message/685825'
+    if scenario == 'empty':
+        assert result['window_complete'] is True
+
+
+@pytest.mark.parametrize('cached_failure', [False, True])
+def test_verified_newsweb_empty_window_does_not_call_yahoo(monkeypatch, cached_failure):
+    import sys
+    import insider_intelligence as intelligence
+    import official_insider_sources as source
+
+    monkeypatch.setattr(source, '_newsweb_request', lambda url, session: (
+        {'issuers': [{'issuerId': 1972, 'issuerSign': 'NONG', 'isActive': 1}]}
+        if url.endswith('/issuers') else {'messages': [], 'overflow': False}), raising=False)
+    monkeypatch.setattr(intelligence, 'fetch_official_insider_sources', lambda *a, **kw:
+                        source.fetch_official_insider_sources(*a, **kw, session=object()))
+    cache = {}
+    if cached_failure:
+        cache['NONG.OL|NEWSWEB|180'] = {
+            'schema_version': intelligence.INSIDER_CACHE_SCHEMA_VERSION,
+            'cached_at': intelligence.time.time() - 61,
+            'result': {'coverage': 'PARTIAL_SOURCE_FAILURE', 'search_log': [{
+                'source': source.NEWSWEB_INSIDER_SOURCE, 'attempted': True, 'direct_primary_source_checked': True,
+                'window_complete': False, 'status': 'SOURCE_ERROR', 'reason_code': 'SOURCE_ERROR',
+            }]},
+        }
+    monkeypatch.setattr(intelligence, '_load_cache', lambda: cache)
+    monkeypatch.setattr(intelligence, '_store_cached_result', lambda *args: None)
+    monkeypatch.setitem(sys.modules, 'yfinance', SimpleNamespace(
+        Ticker=lambda ticker: pytest.fail('Verified NewsWeb coverage makes this fallback unnecessary')))
+
+    result = intelligence.fetch_insider_intelligence('NONG.OL', market='Norge')
+
+    assert result['canonical_evidence_status'] == 'CHECKED_NO_EVENTS'
+    assert result['search_log'][-1]['reason_code'] == 'PRIMARY_SOURCE_AVAILABLE'
+    assert result['search_log'][-1]['attempted'] is False
+
+
+@pytest.mark.parametrize('secondary_status', ['SUCCESS_NO_RESULTS', 'SOURCE_ERROR', 'RATE_LIMITED'])
+def test_secondary_lookup_does_not_erase_official_insider_discovery(secondary_status):
+    from evidence_contract import canonical_status
+
+    payload = {'search_log': [
+        {'source': 'Euronext Oslo NewsWeb – innsidemeldinger', 'direct_primary_source_checked': True, 'window_complete': True,
+         'status': 'DISCOVERY_ONLY'},
+        {'source': 'yfinance / public filings', 'status': secondary_status},
+    ]}
+    assert canonical_status(payload, []) == 'DISCOVERY_ONLY'
+
+
+def test_newsweb_registry_failure_does_not_repeat_for_each_issuer(monkeypatch):
+    import official_insider_sources as source
+
+    attempts = []
+
+    def unavailable(url, session):
+        attempts.append(url)
+        raise TimeoutError('NewsWeb registry unavailable')
+
+    monkeypatch.setattr(source, '_NEWSWEB_ISSUER_CACHE', (0, [], ''), raising=False)
+    monkeypatch.setattr(source, '_newsweb_request', unavailable)
+    for ticker in ('BONHR.OL', 'NONG.OL'):
+        assert source.fetch_euronext_oslo(ticker, '')['status'] == 'SOURCE_ERROR'
+    assert attempts == [ev.NEWS_API + 'issuers']
+
+
+def test_newsweb_wilhelmsen_b_uses_verified_shared_issuer(monkeypatch):
+    import official_insider_sources as source
+
+    def api(url, session):
+        if url.endswith('/issuers'):
+            return {'issuers': [{'issuerId': 2405, 'issuerSign': 'WWI', 'isActive': 1}]}
+        assert parse_qs(urlsplit(url).query)['issuer'] == ['2405']
+        return {'messages': [], 'overflow': False}
+
+    monkeypatch.setattr(source, '_newsweb_request', api)
+    result = source.fetch_euronext_oslo('WWIB.OL', '', lookback_days=180, session=object())
+    assert result['status'] == 'SUCCESS_NO_RESULTS'
+    assert result['window_complete'] is True
 
 
 def short_history():
