@@ -32,6 +32,8 @@ SWEDEN_FI_EXPORT = "https://marknadssok.fi.se/Publiceringsklient/sv-SE/Search/Se
 EURONEXT_OSLO_NEWS = "https://live.euronext.com/en/markets/oslo/equities/company-news"
 NEWSWEB_INSIDER_SOURCE = "Euronext Oslo NewsWeb – innsidemeldinger"
 NEWSWEB_INSIDER_CATEGORY = 1102
+# Euronext links the WWI and WWIB instruments to the same issuer listing (170747).
+NEWSWEB_SHARE_CLASSES = {"WWIB": ("WWI", 2405)}
 _NEWSWEB_ISSUER_LOCK = Lock()
 _NEWSWEB_ISSUER_CACHE: tuple[float, list, str] = (0, [], "")
 VEIDEKKE_DISCLOSURES = "https://www.veidekke.com/investor-relations/company-disclosures/"
@@ -442,8 +444,12 @@ def fetch_euronext_oslo(ticker: str, company: str, *, lookback_days: int = 90,
     }
     try:
         issuers = _newsweb_issuers(NEWS_API + "issuers", session)
-        ids = {row.get("issuerId") for row in issuers if isinstance(row, Mapping)
-               and row.get("issuerSign") == symbol and row.get("isActive") == 1}
+        active_issuers = [row for row in issuers if isinstance(row, Mapping) and row.get("isActive") == 1]
+        ids = {row.get("issuerId") for row in active_issuers if row.get("issuerSign") == symbol}
+        if not ids and symbol in NEWSWEB_SHARE_CLASSES:
+            symbol, known_issuer_id = NEWSWEB_SHARE_CLASSES[symbol]
+            ids = {row.get("issuerId") for row in active_issuers
+                   if row.get("issuerSign") == symbol and row.get("issuerId") == known_issuer_id}
         if len(ids) != 1:
             raise ValueError("NewsWeb issuer identity is missing or ambiguous")
         issuer_id = next(iter(ids))

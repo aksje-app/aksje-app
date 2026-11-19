@@ -149,6 +149,21 @@ def test_newsweb_registry_failure_does_not_repeat_for_each_issuer(monkeypatch):
     assert attempts == [ev.NEWS_API + 'issuers']
 
 
+def test_newsweb_wilhelmsen_b_uses_verified_shared_issuer(monkeypatch):
+    import official_insider_sources as source
+
+    def api(url, session):
+        if url.endswith('/issuers'):
+            return {'issuers': [{'issuerId': 2405, 'issuerSign': 'WWI', 'isActive': 1}]}
+        assert parse_qs(urlsplit(url).query)['issuer'] == ['2405']
+        return {'messages': [], 'overflow': False}
+
+    monkeypatch.setattr(source, '_newsweb_request', api)
+    result = source.fetch_euronext_oslo('WWIB.OL', '', lookback_days=180, session=object())
+    assert result['status'] == 'SUCCESS_NO_RESULTS'
+    assert result['window_complete'] is True
+
+
 def short_history():
     def position(actor, pct): return {'positionHolder': actor, 'shortPercent': pct}
     return [{'isin': 'TESTISIN', 'issuerName': 'Example', 'events': [
