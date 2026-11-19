@@ -10,11 +10,14 @@ from __future__ import annotations
 import csv
 import html
 import io
+import json
 import re
+from threading import Lock
+from time import monotonic
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import Any, Mapping
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from xml.etree import ElementTree
 
 import requests
@@ -27,6 +30,10 @@ NASDAQ_MAIN_RSS = "https://api.news.eu.nasdaq.com/news/rss/mainMarketNotices"
 NASDAQ_FIRST_NORTH_RSS = "https://api.news.eu.nasdaq.com/news/rss/firstNorthNotices"
 SWEDEN_FI_EXPORT = "https://marknadssok.fi.se/Publiceringsklient/sv-SE/Search/Search"
 EURONEXT_OSLO_NEWS = "https://live.euronext.com/en/markets/oslo/equities/company-news"
+NEWSWEB_INSIDER_SOURCE = "Euronext Oslo NewsWeb – innsidemeldinger"
+NEWSWEB_INSIDER_CATEGORY = 1102
+_NEWSWEB_ISSUER_LOCK = Lock()
+_NEWSWEB_ISSUER_CACHE: tuple[float, list, str] = (0, [], "")
 VEIDEKKE_DISCLOSURES = "https://www.veidekke.com/investor-relations/company-disclosures/"
 
 
@@ -382,25 +389,92 @@ def fetch_nasdaq_nordic(ticker: str, company: str, market: str, *, lookback_days
     }
 
 
+def _newsweb_request(url, session):
+    from market_event_discovery import _request_json
+
+    if session is None:
+        return _request_json(url, post=True)
+    with session.post(url, data=b"", timeout=DEFAULT_TIMEOUT_SECONDS, stream=True) as response:
+        response.raise_for_status()
+        raw = response.raw.read(2_000_001, decode_content=True)
+    if len(raw) > 2_000_000:
+        raise ValueError("NewsWeb response exceeds bounded size")
+    payload = json.loads(raw)
+    if payload.get("header", {}).get("result.val") != 0:
+        raise ValueError("NewsWeb rejected request")
+    return payload["data"]
+
+
+def _newsweb_issuers(url, session):
+    def fetch():
+        issuers = _newsweb_request(url, session)["issuers"]
+        if not isinstance(issuers, list):
+            raise ValueError("Invalid NewsWeb issuer registry")
+        return issuers
+
+    if session is not None:
+        return fetch()
+
+    global _NEWSWEB_ISSUER_CACHE
+    with _NEWSWEB_ISSUER_LOCK:
+        expires_at, issuers, error = _NEWSWEB_ISSUER_CACHE
+        if monotonic() >= expires_at:
+            try:
+                issuers, error, ttl = fetch(), "", 3600
+            except Exception as exc:
+                issuers, error, ttl = [], f"{type(exc).__name__}: {exc}", 60
+            _NEWSWEB_ISSUER_CACHE = (monotonic() + ttl, issuers, error)
+        if error:
+            raise RuntimeError(error)
+        return issuers
+
+
 def fetch_euronext_oslo(ticker: str, company: str, *, lookback_days: int = 90,
                          session: requests.Session | None = None) -> dict[str, Any]:
-    client = session or requests.Session(); terms = [term.lower() for term in _terms(ticker, company)]
+    from market_event_discovery import NEWS_API, timestamp
+
+    symbol = str(ticker or "").upper().strip().removesuffix(".OL")
+    now = datetime.now(timezone.utc)
     base = {
-        "source": "Euronext Oslo Børs – selskapsmeldinger", "source_type": "OFFICIAL_PRIMARY",
-        "attempted": True, "checked_at": _now(), "url": EURONEXT_OSLO_NEWS,
-        "direct_primary_source_checked": True, "transactions": [],
+        "source": NEWSWEB_INSIDER_SOURCE, "source_type": "OFFICIAL_PRIMARY",
+        "attempted": True, "checked_at": now.isoformat(timespec="seconds"), "url": EURONEXT_OSLO_NEWS,
+        "direct_primary_source_checked": True, "transactions": [], "window_complete": False,
     }
     try:
-        response = client.get(EURONEXT_OSLO_NEWS, params={"combine": str(company or _ticker_root(ticker))},
-                              timeout=DEFAULT_TIMEOUT_SECONDS, headers={"User-Agent": "AI-Aksje-Analyzer-Pro/19.14.1"})
-        response.raise_for_status(); text = _normalise_text(response.text).lower()
-        matched = bool(any(term in text for term in terms) and any(token in text for token in (
-            "mandatory notification of trade", "primary insider", "meldepliktig handel", "pdmr",
-        )))
+        issuers = _newsweb_issuers(NEWS_API + "issuers", session)
+        ids = {row.get("issuerId") for row in issuers if isinstance(row, Mapping)
+               and row.get("issuerSign") == symbol and row.get("isActive") == 1}
+        if len(ids) != 1:
+            raise ValueError("NewsWeb issuer identity is missing or ambiguous")
+        issuer_id = next(iter(ids))
+        if type(issuer_id) is not int or issuer_id <= 0:
+            raise ValueError("Invalid NewsWeb issuer ID")
+
+        start = now.date() - timedelta(days=max(1, int(lookback_days)))
+        query = urlencode({"issuer": issuer_id, "category": NEWSWEB_INSIDER_CATEGORY,
+                           "fromDate": start.isoformat(), "toDate": now.date().isoformat()})
+        url = NEWS_API + "list?" + query
+        base["url"] = url
+        data = _newsweb_request(url, session)
+        messages = data.get("messages")
+        if data.get("overflow") is not False or not isinstance(messages, list):
+            raise ValueError("NewsWeb result window is incomplete or invalid")
+        notices = set()
+        for row in messages:
+            published = timestamp(row.get("publishedTime"))
+            message_id = str(row.get("id") or "")
+            if (row.get("issuerId") != issuer_id or row.get("issuerSign") != symbol
+                    or not message_id.isdecimal() or published is None or not start <= published.date() <= now.date()
+                    or published > now or not any(c.get("id") == NEWSWEB_INSIDER_CATEGORY for c in row.get("category", []))):
+                raise ValueError("NewsWeb notification does not match the issuer, category or requested dates")
+            if not row.get("test") and not row.get("correctedByMessageId"):
+                notices.add(message_id)
         base.update({
-            "status": "DISCOVERY_ONLY" if matched else "SUCCESS_NO_RESULTS",
-            "results": 0, "announcements_found": int(matched), "url": response.url, "error": "",
+            "status": "DISCOVERY_ONLY" if notices else "SUCCESS_NO_RESULTS",
+            "results": 0, "announcements_found": len(notices), "window_complete": True, "error": "",
         })
+        if notices:
+            base["url"] = "https://newsweb.oslobors.no/message/" + max(notices, key=int)
     except Exception as exc:
         base.update({"status": "SOURCE_ERROR", "results": 0, "error": f"{type(exc).__name__}: {str(exc)[:400]}"})
     return base

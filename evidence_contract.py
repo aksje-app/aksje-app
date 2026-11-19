@@ -42,6 +42,9 @@ def canonical_status(payload: Mapping[str, Any], facts: Sequence[Mapping[str, An
         if source_markers & secondary_markers or verification_markers & secondary_markers:
             return SECONDARY_FACTS_FOUND
         return VERIFIED_FACTS_FOUND
+    if any(row.get("direct_primary_source_checked") is True and row.get("window_complete") is True
+           and str(row.get("status") or "").upper() == "DISCOVERY_ONLY" for row in logs):
+        return "DISCOVERY_ONLY"
     if "RATE_LIMITED" in statuses:
         return RATE_LIMITED
     if "DAILY_QUOTA_EXCEEDED" in statuses:

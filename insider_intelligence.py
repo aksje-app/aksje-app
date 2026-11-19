@@ -14,12 +14,13 @@ import hashlib, json, math, time, threading
 from storage_architecture import runtime_data_path
 from durable_runtime import read_json as durable_read_json, write_json as durable_write_json
 from international_insider_sources import discover_with_newsapi, source_for_market
-from official_insider_sources import fetch_official_insider_sources
+from official_insider_sources import NEWSWEB_INSIDER_SOURCE, fetch_official_insider_sources
 from app_version import APP_VERSION
 
 VERSION = APP_VERSION
 CACHE_PATH = runtime_data_path("insider_intelligence") / "cache.json"
 CACHE_TTL_SECONDS = 24 * 3600
+INCOMPLETE_NEWSWEB_CACHE_TTL_SECONDS = 60
 INSIDER_CACHE_SCHEMA_VERSION = 3
 MAX_WORKERS = 4
 _CACHE_LOCK = threading.RLock()
@@ -247,14 +248,22 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                                primary_only: bool = False) -> dict[str, Any]:
     ticker = str(ticker or "").upper().strip()
     cache_key = f"{ticker}|PRIMARY" if primary_only else ticker
+    if market == "Norge":
+        cache_key = f"{cache_key}|NEWSWEB|{lookback_days}"
     cache = _load_cache(); cached = cache.get(cache_key)
     cached_logs = (cached.get("result") or {}).get("search_log") if cached else []
     brazil_primary_cached = any("CVM" in str(row.get("source") or "") for row in cached_logs or [])
     direct_primary_cached = any(bool(row.get("direct_primary_source_checked")) for row in cached_logs or [])
     requires_direct_primary = str(market or "") in {"Norge", "Sverige", "Finland", "Danmark", "USA"}
     cache_has_required_primary = (market != "Brasil" or brazil_primary_cached) and (not requires_direct_primary or direct_primary_cached)
+    cache_ttl = CACHE_TTL_SECONDS
+    if market == "Norge":
+        cached_newsweb = next((row for row in cached_logs or [] if row.get("source") == NEWSWEB_INSIDER_SOURCE), {})
+        cache_has_required_primary = cache_has_required_primary and bool(cached_newsweb)
+        if cached_newsweb.get("window_complete") is not True:
+            cache_ttl = INCOMPLETE_NEWSWEB_CACHE_TTL_SECONDS
     cache_schema_current = bool(cached and int(_f(cached.get("schema_version"), 0)) == INSIDER_CACHE_SCHEMA_VERSION)
-    if cached and cache_schema_current and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < CACHE_TTL_SECONDS and cached_logs and cache_has_required_primary:
+    if cached and cache_schema_current and not force_refresh and time.time() - _f(cached.get("cached_at"), 0) < cache_ttl and cached_logs and cache_has_required_primary:
         result = dict(cached.get("result") or {})
         source = source_for_market(market)
         result.setdefault("currency", source.get("currency", ""))
@@ -329,20 +338,21 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             continue
         search_log.append({key: attempt.get(key) for key in (
             "source", "source_type", "attempted", "status", "results", "announcements_found",
-            "checked_at", "url", "direct_primary_source_checked", "error"
+            "checked_at", "url", "direct_primary_source_checked", "window_complete", "error"
         )})
     verified_rows.extend(
         dict(row) for row in (official_result.get("transactions") or []) if isinstance(row, Mapping)
     )
 
-    # Secondary structured provider. The lightweight all-candidate pass skips
-    # this provider; the expensive evidence shortlist retains the full search.
-    # Errors are recorded, not raised, so direct
-    # official results remain authoritative and usable.
+    # Discovery-only and incomplete evidence still require the structured fallback.
+    newsweb_status = next((row["status"] for row in search_log if row.get("source") == NEWSWEB_INSIDER_SOURCE
+                           and row.get("window_complete") is True), None)
+    verified_newsweb_empty = official_result.get("status") == newsweb_status == "SUCCESS_NO_RESULTS"
+    use_structured_fallback = not primary_only and not verified_newsweb_empty
     provider_rows: list[dict[str, Any]] = []
     provider_error = ""
     value: Any = None
-    if not primary_only:
+    if use_structured_fallback:
         try:
             import yfinance as yf
             obj = yf.Ticker(ticker)
@@ -361,7 +371,6 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 provider_row.setdefault("verification", "STRUCTURED_PROVIDER")
         except Exception as exc:
             provider_error = str(exc)
-    if not primary_only:
         search_log.append({
             "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
             "attempted": True,
@@ -369,6 +378,13 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
             "results": len(provider_rows),
             "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "error": provider_error[:500],
+        })
+    elif not primary_only:
+        search_log.append({
+            "source": "yfinance / public filings", "source_type": "SECONDARY_STRUCTURED",
+            "attempted": False, "status": "NOT_SEARCHED", "reason_code": "PRIMARY_SOURCE_AVAILABLE",
+            "reason": "NewsWeb kontrollerte hele perioden for riktig utsteder uten innsidemeldinger.",
+            "results": 0,
         })
     verified_rows.extend(provider_rows)
 
@@ -482,17 +498,17 @@ def fetch_insider_intelligence(ticker: str, force_refresh: bool = False, lookbac
                 "score": 50.0, "signal": "KILDER FUNNET", "coverage": "DISCOVERY_ONLY",
                 "reason": f"{len(discovery['articles'])} mulig(e) kildemelding(er) funnet; transaksjonen må struktureres og verifiseres før scoring.",
             })
-        elif discovery_status == "NEWSAPI_NOT_CONFIGURED":
+        elif discovery_status == "NEWSAPI_NOT_CONFIGURED" and newsweb_status != "DISCOVERY_ONLY":
             result.update({
                 "signal": "KILDE IKKE KONFIGURERT", "coverage": "NOT_CONFIGURED",
                 "reason": "NEWSAPI_KEY mangler; sekundær kildeoppdagelse ble ikke utført etter primærkildeforsøket.",
             })
-        elif discovery_status in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED"}:
+        elif discovery_status in {"RATE_LIMITED", "DAILY_QUOTA_EXCEEDED"} and newsweb_status != "DISCOVERY_ONLY":
             result.update({
                 "signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
                 "reason": "Sekundær NewsAPI-kildeoppdagelse var begrenset etter direkte primærkildeforsøk.",
             })
-        elif discovery_status in {"DISCOVERY_ERROR", "SOURCE_ERROR"}:
+        elif discovery_status in {"DISCOVERY_ERROR", "SOURCE_ERROR"} and newsweb_status != "DISCOVERY_ONLY":
             result.update({
                 "signal": "KILDEKONTROLL DELVIS", "coverage": "PARTIAL_SOURCE_FAILURE",
                 "reason": "Sekundær kildeoppdagelse feilet etter direkte primærkildeforsøk.",
