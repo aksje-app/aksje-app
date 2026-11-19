@@ -78,6 +78,12 @@ class FakeCursor:
         self.payload_bytes = payload_bytes
         self.query = ""
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
     def execute(self, query, params):
         self.query = str(query)
 

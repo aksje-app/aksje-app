@@ -1,14 +1,20 @@
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-import sys
 import types
 
-sys.modules.setdefault("requests", types.SimpleNamespace(post=lambda *args, **kwargs: None))
+import pytest
+
 import currency_alert_service as fx
+import fx_rolling_percent
 
 
-def test_changed_threshold_is_evaluated_immediately_and_resets_stale_breach(monkeypatch):
+@pytest.fixture
+def no_rolling_history(monkeypatch):
+    monkeypatch.setattr(fx_rolling_percent, "historical_changes", lambda symbol, rate, *, now: [])
+
+
+def test_changed_threshold_is_evaluated_immediately_and_resets_stale_breach(monkeypatch, no_rolling_history):
     key = "BRL/NOK:BRLNOK=X"
     settings = {
         "currency_alerts_v1863af": [{
@@ -31,7 +37,7 @@ def test_changed_threshold_is_evaluated_immediately_and_resets_stale_breach(monk
     assert saved[fx.STATE_KEY][key].get("last_sent_at") is None
 
 
-def test_new_breach_sends_pushover_after_configuration_change(monkeypatch):
+def test_new_breach_sends_pushover_after_configuration_change(monkeypatch, no_rolling_history):
     settings = {
         "currency_alerts_v1863af": [{
             "pair": "BRL/NOK", "symbol": "BRLNOK=X", "lower": 1.88, "upper": 1.89,
@@ -71,7 +77,7 @@ def test_global_lock_skips_when_another_worker_holds_database_lock(monkeypatch):
     assert fx.run_currency_alert_checks() == []
 
 
-def test_intraday_threshold_crossing_sends_even_if_saved_status_is_stale(monkeypatch):
+def test_intraday_threshold_crossing_sends_even_if_saved_status_is_stale(monkeypatch, no_rolling_history):
     key = "BRL/NOK:BRLNOK=X"
     settings = {
         "currency_alerts_v1863af": [{

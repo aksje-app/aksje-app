@@ -1,3 +1,8 @@
+from unittest.mock import Mock
+
+import pytest
+
+import norway_exchange_universe as norway_universe
 from app_version import APP_VERSION
 from investment_pipeline import PipelineConfig
 from universe_coverage import (
@@ -12,7 +17,17 @@ from universe_coverage import (
 # Historisk kontrakt arkivert i tests/HISTORICAL_TEST_MANIFEST.json
 
 
-def test_packaged_universe_is_nonempty_but_not_claimed_as_exchange_master():
+@pytest.fixture
+def no_official_norway_master(monkeypatch):
+    monkeypatch.setattr(norway_universe, "read_json", lambda key, path, default: default)
+    monkeypatch.setattr(
+        norway_universe,
+        "fetch_official_norway_master",
+        Mock(side_effect=norway_universe.NorwayUniverseFetchError("Euronext unavailable")),
+    )
+
+
+def test_packaged_universe_is_nonempty_but_not_claimed_as_exchange_master(no_official_norway_master):
     for market in ("Norge", "Sverige", "USA"):
         tickers = configured_universe_tickers(market)
         assert tickers
@@ -22,9 +37,12 @@ def test_packaged_universe_is_nonempty_but_not_claimed_as_exchange_master():
         assert contract["coverage_pct"] == 100.0
         assert contract["source_authoritative_exchange_master"] is False
         assert "offisiell" in contract["source_disclaimer"]
+        if market == "Norge":
+            assert contract["master_status"] == "FALLBACK_UNVERIFIED"
+            assert contract["coverage_failure"] is True
 
 
-def test_contract_reports_missing_symbol_and_metadata_without_hiding_it():
+def test_contract_reports_missing_symbol_and_metadata_without_hiding_it(no_official_norway_master):
     tickers = configured_universe_tickers("Norge")
     rows = [{"ticker": ticker, "sector": "Technology", "data_fetch_status": "OK"} for ticker in tickers[:-1]]
     contract = build_universe_contract("Norge", rows)

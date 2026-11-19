@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -41,11 +42,12 @@ class _Session:
 
 class AuditableEvidenceTests(unittest.TestCase):
     def test_sec_form4_returns_primary_fact_provenance(self):
-        # The registry cache is process-global in production. This fixture must
-        # not inherit a registry populated by an unrelated test.
-        sec_form4_source._TICKER_CACHE = {}
-        sec_form4_source._TICKER_CACHE_FETCHED_AT = 0.0
-        with patch.dict(os.environ, {"SEC_USER_AGENT": "Example AS contact@example.no"}):
+        with (
+            patch.dict(os.environ, {"SEC_USER_AGENT": "Example AS contact@example.no"}),
+            patch.multiple(sec_form4_source, _TICKER_CACHE={}, _TICKER_CACHE_FETCHED_AT=0.0),
+            patch.object(sec_form4_source, "datetime", wraps=datetime) as clock,
+        ):
+            clock.now.return_value = datetime(2026, 8, 16, 12, tzinfo=timezone.utc)
             result = sec_form4_source.fetch_sec_form4("AIZ", session=_Session())
         self.assertEqual(result["status"], "SUCCESS_WITH_RESULTS")
         fact = result["transactions"][0]
