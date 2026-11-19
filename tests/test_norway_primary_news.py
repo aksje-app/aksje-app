@@ -69,6 +69,13 @@ def test_other_company_listing_never_becomes_primary_evidence(local):
     with pytest.raises(ValueError):fetch(local,Session(rows=[('1','05 Nov 2026 09:12 CET','OTHER ASA','Update')]))
 
 
+def test_dotted_legal_term_inside_name_does_not_validate_different_issuer(local):
+    session = Session(product(name='ALPHA SERVICES'),
+                      rows=[('1', '05 Nov 2026 09:12 CET', 'ALPHA LTD. SERVICES', 'Update')])
+    with pytest.raises(ValueError, match='different issuer'):
+        fetch(local, session)
+
+
 @pytest.mark.parametrize(('ticker', 'isin', 'mic', 'issuer', 'instrument_name', 'listing_name'), [
     ('SB1NO.OL', 'NO0010631567', 'XOSL', '82729', 'SPAREBANK 1 SØR-N', 'SpareBank 1 Sør-Norge ASA'),
     ('NONG.OL', 'NO0006000801', 'XOSL', '167612', 'SPBK1 NORD-NORGE', 'SpareBank 1 Nord-Norge'),

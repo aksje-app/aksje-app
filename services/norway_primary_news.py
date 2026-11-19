@@ -41,8 +41,10 @@ def _publication(text):
 
 def _name(text):
     legal_suffixes = {'ASA', 'AS', 'PLC', 'LTD'}
-    words = [word for word in str(text).upper().split() if word.rstrip('.') not in legal_suffixes]
-    return re.sub(r'[^A-Z0-9]', '', ''.join(words))
+    words = str(text).upper().split()
+    if words:
+        words[-1] = words[-1].rstrip('.')
+    return re.sub(r'[^A-Z0-9]', '', ''.join(word for word in words if word not in legal_suffixes))
 
 
 def _html(session,url):
