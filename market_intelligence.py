@@ -42,7 +42,7 @@ from services.storage_references import references_enabled
 from execution_control import ExecutionCancelled
 from local_time import (DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, as_local, browser_timezone,
                         install_browser_timezone_bootstrap, local_compact_stamp, local_display,
-                        local_run_id, valid_timezone)
+                        local_run_id, pushover_time, valid_timezone)
 from report_delivery import PUBLIC_REPORT_DIR, publish_pdf, public_report_url
 from runtime_breadcrumbs import mark_breadcrumb, with_breadcrumb_history_budget
 from app_version import APP_VERSION, REPORT_SCHEMA_VERSION
@@ -246,9 +246,8 @@ def notify_report_failure(
             from notifier import send_pushover_alert
             from runtime_identity import runtime_label
 
-            timezone_name = str(run.get("timezone_name") or getattr(job, "timezone_name", DEFAULT_TIMEZONE))
             planned = str(run.get("scheduled_for") or "")
-            planned_text = local_display(planned, timezone_name) if planned else "Ikke planlagt"
+            planned_text = pushover_time(planned, missing="Ikke planlagt")
             error_type = str(context.get("error_type") or "Ukjent feil")
             error_text = str(context.get("error") or "Ukjent rapportfeil")
             diagnostic = Path(str(context.get("diagnostic_path") or "")).name or "ikke lagret"
@@ -1243,7 +1242,7 @@ def _notify_overdue_required_reports_locked(now: datetime | None = None, *, conn
             ok, detail = normalize_notification_result(send_pushover_alert(
                 "\n".join([
                     f"Obligatorisk rapport: {row['name']}",
-                    f"Planlagt: {row['schedule']} (Europe/Oslo)",
+                    f"Planlagt: {pushover_time(row.get('planned_at'))}",
                     f"Status: Ikke levert innen {row.get('grace_minutes', 60)} minutter",
                     f"PDF: {'opprettet' if row['pdf_created'] else 'ikke bekreftet'}",
                     f"Lagring: {'bekreftet' if row['stored'] else 'ikke bekreftet'}",
@@ -2837,7 +2836,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
         if run.get("scheduled_for"):
             lines.append(
                 "Planlagt tidspunkt: "
-                + local_display(run.get("scheduled_for"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
+                + pushover_time(run.get("scheduled_for"))
             )
         report_summary_notice = run.get("report_summary") if isinstance(run.get("report_summary"), Mapping) else {}
         # One denominator for JSON, PDF, UI and Pushover.  Do not fall back to
@@ -2868,10 +2867,7 @@ def _notification(job: JobProfile, run: Mapping[str, Any]) -> tuple[bool, str]:
             found=int(search_budget_notice.get('with_results') or 0)
             no_hits=max(0,int(search_budget_notice.get('successful') or 0)-found)
             lines.append(f"Kildesøk: treff {found} · uten treff {no_hits} · feil {int(search_budget_notice.get('failed') or 0)} · ikke undersøkt {int(search_budget_notice.get('not_searched') or 0)}")
-        report_created_local = str(
-            (run.get("report_document") or {}).get("metadata", {}).get("created_at_local")
-            if isinstance(run.get("report_document"), Mapping) else ""
-        ) or local_display(run.get("created_at"), str(run.get("timezone_name") or DEFAULT_TIMEZONE))
+        report_created_local = pushover_time(run.get("created_at"))
         lines.extend([
             f"Rapport: {identity.get('label') or 'Rapport'} · {origin}",
             f"Rapport-ID: {channel_projection.get('report_id') or run_id}",

@@ -14,7 +14,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from storage_architecture import runtime_data_path
 from durable_runtime import append_event, read_events, read_json as durable_read_json, write_json as durable_write_json
-from local_time import as_local, local_display
+from local_time import as_local, local_display, pushover_time
 
 from app_version import APP_VERSION
 
@@ -275,14 +275,16 @@ def operational_health_snapshot(*, now: datetime | None = None, notify: bool = F
         "warning": "Ingen full autonomisyklus på over 24 børsdagstimer." if stale else "",
     }
     slot_info = snapshot["last_scheduled_slot"]
-    slot_line = (f"\nSiste planlagte: {slot_info['at']} · {slot_info['status']} ({slot_info['reason']})"
+    slot_line = (f"\nSiste planlagte: {pushover_time(slot_info['at'])} · {slot_info['status']} ({slot_info['reason']})"
                  if slot_info.get("at") else "")
     fingerprint = f"{snapshot['status']}|{current.date().isoformat()}"
     if notify and stale and fingerprint != str(previous.get("notification_fingerprint") or ""):
         try:
             from notifier import send_pushover_alert
             ok, detail = send_pushover_alert(
-                f"Siste fullførte syklus: {created_at or 'aldri'}{slot_line}\nNeste planlagte: {next_run or 'ukjent'}\nKontroller obligatoriske 08/14/22-rapporter.",
+                f"Siste fullførte syklus: {pushover_time(created_at, missing='ukjent' if created_at else 'aldri')}"
+                f"{slot_line}\nNeste planlagte: {pushover_time(next_run, missing='ukjent')}\n"
+                "Kontroller de obligatoriske rapportene.",
                 title="Autonomi har ikke kjørt på over 24 børsdagstimer",
             )
             snapshot["notification"] = {"attempted": True, "sent": bool(ok), "detail": str(detail or "")[:500]}

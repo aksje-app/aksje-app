@@ -113,6 +113,11 @@ def test_line_safe_compaction_keeps_one_footer_and_no_partial_data_line():
 
 def test_generic_pushover_compaction_is_line_safe(monkeypatch):
     captured = {}
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 23, 2, 15, tzinfo=timezone.utc).astimezone(tz)
+    monkeypatch.setattr(notifier, "datetime", FixedClock)
     monkeypatch.setattr(notifier, "notifications_allowed", lambda: (True, "OK"))
     monkeypatch.setattr(notifier, "pushover_enabled", lambda: True)
     monkeypatch.setattr(notifier, "load_settings", lambda: {"pushover_enabled": True})
@@ -128,6 +133,7 @@ def test_generic_pushover_compaction_is_line_safe(monkeypatch):
     monkeypatch.setattr(notifier.requests, "post", post)
     assert notifier.send_pushover_alert("\n".join(f"HEL LINJE {i} " + "x" * 80 for i in range(50)))[0]
     assert len(captured["message"]) <= 1024
+    assert captured["message"].splitlines()[0] == "Sendt: 22.11.2026 23:15:00 (Fortaleza)"
     assert captured["message"].splitlines()[-1] == "… flere detaljer i rapportlenken"
     assert not captured["message"].endswith("x…")
 

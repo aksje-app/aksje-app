@@ -76,6 +76,19 @@ def local_display(value: datetime | str | None, timezone_name: str = DEFAULT_TIM
     return f"{local:%d.%m.%Y %H:%M:%S} ({valid_timezone(timezone_name)})"
 
 
+def pushover_time(value: datetime | str | None, *, missing: str = "-", date_only: bool = False) -> str:
+    """Display a timestamp from an app notification in Fortaleza time."""
+    if not isinstance(value, (datetime, str)) or (isinstance(value, str) and not value.strip()):
+        return missing
+    try:
+        local = as_local(value, "America/Fortaleza")
+    except (TypeError, ValueError, OverflowError):
+        return missing
+    if date_only:
+        return f"{local:%d.%m.%Y}"
+    return f"{local:%d.%m.%Y %H:%M:%S} (Fortaleza)"
+
+
 def local_compact_stamp(value: datetime | str | None = None, timezone_name: str = DEFAULT_TIMEZONE) -> str:
     return as_local(value, timezone_name).strftime("%Y%m%dT%H%M%S")
 

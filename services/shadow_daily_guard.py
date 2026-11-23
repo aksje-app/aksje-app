@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date, timezone, timedelta, time
 from zoneinfo import ZoneInfo
 from durable_runtime import read_events, read_json, write_json
+from local_time import pushover_time
 from storage_architecture import runtime_data_path
 
 START = date(2026, 10, 17)
@@ -162,7 +163,7 @@ def send_daily_if_due(*, now=None, repair_id=None):
                        f"modne strategiposisjoner: {progress.get('current_mature_positions','ukjent')}; "
                        f"benchmark-klare: {progress.get('benchmark_measured_positions','ukjent')}")
     labels = {'AUTONOMY':'Autonomi', 'SUPER_PORTFOLIO':'Superporteføljen', 'AUTONOMY_UNIVERSE':'Aksjeunivers'}
-    streams = '\n'.join(f"{labels[name]}: {row.get('frames', 0)} rammer; sist {str(row.get('last_at') or 'ukjent')[:10]}; "
+    streams = '\n'.join(f"{labels[name]}: {row.get('frames', 0)} rammer; sist {pushover_time(row.get('last_at'), missing='ukjent', date_only=True)}; "
                         + (f"skygge {row.get('forward_trading_dates', 'ukjent')} datoer" if row.get('independent_strategy_test') else 'kun arkiv')
                         for name, row in progress.get('replay_streams', {}).items() if name in labels)
     failures = report['failures']

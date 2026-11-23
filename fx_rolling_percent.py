@@ -4,6 +4,7 @@ An hourly history fetch supports every lookback from 1 hour to 30 days.
 No alerts are generated when a historical comparison is unavailable.
 """
 from datetime import datetime, timedelta, timezone
+from local_time import pushover_time
 
 WINDOWS = (
     ("1t", 1, .5), ("6t", 6, .8), ("12t", 12, 1.0),
@@ -113,8 +114,8 @@ def evaluate(settings, *, symbol, pair, rate, sender, now=None, changes=None):
             f"{pair} – prosentvis valutabevegelse",
             f"1 BRL = {rate:.4f} NOK",
             f"BRL har {direction_label} seg {abs(strongest['change_pct']):.2f} % over {strongest['window']}.",
-            f"Referanse: {strongest['reference_rate']:.4f} NOK ({strongest['reference_at']})",
-            f"Registrert: {now.isoformat()}",
+            f"Referanse: {strongest['reference_rate']:.4f} NOK · {pushover_time(strongest['reference_at'])}",
+            f"Registrert: {pushover_time(now)}",
             "Varslet er et markedssignal, ikke en automatisk handelsordre.",
         ]
         try:

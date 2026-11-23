@@ -6,6 +6,7 @@ import requests
 import hashlib
 import threading
 from datetime import datetime, timezone
+from local_time import pushover_time
 from storage_architecture import runtime_data_path, runtime_log_path
 from durable_runtime import append_event, read_events, read_json, write_json
 from runtime_safety import notifications_allowed
@@ -23,6 +24,7 @@ PUSHOVER_AUDIT_PATH = runtime_log_path("pushover_audit.jsonl")
 PUSHOVER_DEDUPE_KEY = "notifications/pushover_dedupe.json"
 PUSHOVER_DEDUPE_PATH = runtime_data_path("notifications", "pushover_dedupe.json")
 PUSHOVER_MESSAGE_LIMIT = 1024
+PUSHOVER_CONTENT_LIMIT = PUSHOVER_MESSAGE_LIMIT - len("Sendt: 00.00.0000 00:00:00 (Fortaleza)\n")
 PUSHOVER_TITLE_LIMIT = 250
 TRADE_NOTIFICATION_KEY = "notifications/paper_trade_receipts.json"
 TRADE_NOTIFICATION_PATH = runtime_data_path("notifications", "paper_trade_receipts.json")
@@ -254,7 +256,8 @@ def normalize_notification_result(response):
 
 def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=None, *, priority=0, relevance_event=None):
     title = _trim_text(title, PUSHOVER_TITLE_LIMIT)
-    message = fit_pushover_message(message)
+    # Keep the time of delivery out of the durable deduplication key.
+    identity_message = fit_pushover_message(message)
     if relevance_event is not None:
         from notification_relevance_policy import classify
         decision = classify(relevance_event)
@@ -287,16 +290,18 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
         _log_delivery(title, False, "missing env", has_url=bool(url))
         return False, "missing env"
 
-    if _recent_duplicate(title, message, url):
+    if _recent_duplicate(title, identity_message, url):
         detail = "duplicate suppressed by durable fingerprint"
         print("Pushover duplikat undertrykt")
         _log_delivery(title, True, detail, has_url=bool(url))
         return True, detail
 
     try:
+        sent_at = datetime.now(timezone.utc)
+        body = fit_pushover_message(message, limit=PUSHOVER_CONTENT_LIMIT)
         payload = {
             "token": PUSHOVER_APP_TOKEN, "user": PUSHOVER_USER_KEY,
-            "title": title, "message": message,
+            "title": title, "message": f"Sendt: {pushover_time(sent_at)}\n{body}",
             # Pushover priority 1 is visible as high priority without the
             # acknowledgement/retry semantics of emergency priority 2.
             "priority": max(-2, min(1, int(priority or 0))),
@@ -308,7 +313,7 @@ def send_pushover_alert(message, title="AI Aksje Analyzer", url=None, url_title=
         response = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
 
         if response.status_code == 200:
-            _record_notification_fingerprint(title, message, url)
+            _record_notification_fingerprint(title, identity_message, url)
             print("Pushover sendt")
             _log_delivery(title, True, "HTTP 200", has_url=bool(url))
             return True, None
@@ -396,7 +401,7 @@ def notify_trade(trade_type, ticker, price, amount=None, shares=None, confidence
     if details.get("stop_trigger_price") is not None:
         lines.append(f"Utløsningsgrense: {details['stop_trigger_price']:.2f} · kursavvik {details.get('execution_gap_pct', 0):+.2f}%")
     if details.get("market_data_at"):
-        lines.append(f"Kurstidspunkt: {details['market_data_at']}")
+        lines.append(f"Kurstidspunkt: {pushover_time(details['market_data_at'])}")
     score_path = [float(value) for value in (details.get("score_path") or []) if value is not None]
     if score_path:
         lines.append("Scorebane: " + " → ".join(f"{value:.0f}" for value in score_path[-8:]))
