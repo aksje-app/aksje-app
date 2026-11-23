@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from typing import Any, Mapping, Sequence
 
 from durable_runtime import read_json, write_json
+from local_time import pushover_time
 from storage_architecture import runtime_data_path
 from app_version import APP_VERSION
 
@@ -522,11 +523,7 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
             + (f"Kurs {price:.2f}" if price is not None else "Kurs -"))
     body += f" · {since_label} {_fmt_signed(changes.get('scan_price_amount'),2,' kr')}/{_fmt_signed(changes.get('scan_price_pct'),2,'%')}\n"
     body += f"\nRullerende kursutvikling frem til siste kurs: {horizon('1')} · {horizon('3')} · {horizon('5')}\n"
-    start_at = str(row.get('first_seen_at') or '').strip()
-    try:
-        start_label = datetime.fromisoformat(start_at.replace('Z', '+00:00')).strftime('%d.%m.%Y kl. %H:%M %z') if start_at else 'tidspunkt ukjent'
-    except ValueError:
-        start_label = start_at or 'tidspunkt ukjent'
+    start_label = pushover_time(row.get('first_seen_at'), missing='tidspunkt ukjent')
     body += (f"Fra oppfølging startet {start_label}: "
              f"startkurs {f'{initial_price:.2f} kr' if initial_price is not None else '-'} · "
              f"endring {_fmt_signed(signal_amount,2,' kr')}/{_fmt_signed(signal_pct,2,'%')}\n")
@@ -537,11 +534,16 @@ def _message(row: Mapping[str, Any]) -> tuple[str, str]:
     volume_basis = str(row.get("volume_comparison_basis") or "dagsvolum mot ferdige 20d-dager; ikke tidsjustert")
     body += f"Volum {volume_text} · basis {volume_basis}\nRS 5d {rs_text}\n{level_text} · {retest.get('label')}\n"
     body += f"Hovedstatus: {row.get('status_reason') or '-'}\nBakgrunnssignal: {'; '.join(signals[:2]) or fs.get('label') or '-'}\n"
-    observed = freshness.get('observed_timestamp') or '-'
+    observed = pushover_time(freshness.get('observed_timestamp'))
+    fetched = pushover_time(freshness.get('fetched_at') or freshness.get('timestamp'))
     release_label = _release_label()
-    body += f"+ {drivers}\n− {brakes}\nData: {freshness.get('status','UKJENT')} · hentet {freshness.get('fetched_at') or freshness.get('timestamp') or '-'} · bar {observed} · {age_text}\n{release_label}"
-    from notifier import fit_pushover_message
-    body = fit_pushover_message(body, required_tail=f"Data: {freshness.get('status','UKJENT')} · {age_text}\n{release_label}")
+    body += f"+ {drivers}\n− {brakes}"
+    data_line = f"Data: {freshness.get('status','UKJENT')} · hentet {fetched} · bar {observed} · {age_text}"
+    from notifier import PUSHOVER_CONTENT_LIMIT, fit_pushover_message
+    body = fit_pushover_message(
+        body, required_tail=f"{data_line}\n{release_label}",
+        limit=PUSHOVER_CONTENT_LIMIT,
+    )
     return title, body
 
 

@@ -124,6 +124,11 @@ def test_diagnostic_prefers_persisted_scanner_runtime_over_web_fallback(monkeypa
 
 def test_pushover_uses_same_quality_projection_as_pdf_and_json(monkeypatch):
     captured = {}
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 23, 2, 35, tzinfo=timezone.utc).astimezone(tz)
+    monkeypatch.setattr(market_reports, "datetime", FixedClock)
     monkeypatch.setattr(market_reports, "_read", lambda *args, **kwargs: {})
     monkeypatch.setattr(market_reports, "_write", lambda *args, **kwargs: None)
     monkeypatch.setattr(market_reports, "_audit", lambda *args, **kwargs: None)
@@ -134,9 +139,9 @@ def test_pushover_uses_same_quality_projection_as_pdf_and_json(monkeypatch):
     ))
     run = {
         "run_id": "MI-AT-CHANNEL", "report_id": "MI-AT-CHANNEL",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": "2026-11-23T02:32:00+00:00",
         "timezone_name": "Europe/Oslo", "trigger": "SCHEDULED",
-        "scheduled_for": datetime.now(timezone.utc).isoformat(),
+        "scheduled_for": "2026-11-23T03:30:00+01:00",
         "markets": ["Norge", "Sverige", "USA"], "changes": {},
         "report_status": {"label": "ENDELIG"},
         "report_revision": {"revision_label": "R1"},
@@ -146,7 +151,8 @@ def test_pushover_uses_same_quality_projection_as_pdf_and_json(monkeypatch):
             "buy_candidates": 0, "moderate_buy_recommendations": 13,
         },
         "report_document": {
-            "metadata": {"report_id": "MI-AT-CHANNEL", "run_id": "MI-AT-CHANNEL", "report_label": "Ettermiddagsrapport"},
+            "metadata": {"report_id": "MI-AT-CHANNEL", "run_id": "MI-AT-CHANNEL", "report_label": "Ettermiddagsrapport",
+                         "created_at_local": "23.11.2026 03:32:00 (Europe/Oslo)"},
             "sections": [
                 {"key": "decision_overview", "payload": {"candidate_count": 63}},
                 {"key": "quality_dimensions", "payload": {
@@ -164,6 +170,8 @@ def test_pushover_uses_same_quality_projection_as_pdf_and_json(monkeypatch):
     )
     ok, _detail = market_reports._notification(job, run)
     assert ok is True
+    assert "Planlagt tidspunkt: 22.11.2026 23:30:00 (Fortaleza)" in captured["message"]
+    assert "Rapporttid: 22.11.2026 23:32:00 (Fortaleza)" in captured["message"]
     assert "Analysert: 63" in captured["message"]
     assert "markedsdata (beslutningsjustert) 90/100" in captured["message"]
     assert "evidens 40/63" in captured["message"]

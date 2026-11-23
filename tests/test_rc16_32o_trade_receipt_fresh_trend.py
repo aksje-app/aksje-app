@@ -154,7 +154,7 @@ def test_batch_alerts_separate_events_and_conclusion():
 
 def test_signal_followup_displays_readable_start_time():
     title, body = fresh._message({'ticker': 'EXAMPLE.OL', 'first_seen_at': '2026-10-15T10:30:00+00:00', 'last_price': 101.0, 'initial_price': 100.0, 'components': {}, 'changes': {}, 'direction': {}})
-    assert '15.10.2026 kl. 10:30 +0000' in body
+    assert '15.10.2026 07:30:00 (Fortaleza)' in body
     assert 'startkurs 100.00 kr' in body
 
 
