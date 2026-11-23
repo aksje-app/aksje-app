@@ -17,7 +17,7 @@ def test_stop_alert_displays_model_fill_separately():
         'entry_price':153.60,'stop_price':151.91}])
     assert 'Siste kurs 152.96' in text
     assert 'Simulert salgskurs 152.96' in text
-    assert '2026-10-14T17:50:16+00:00' in text
+    assert 'Registrert salg: 14.10.2026 14:50:16 (Fortaleza)' in text
     assert 'ingen faktisk børsutførelse' in text
 
 def test_verified_company_description_preferred_to_generic_sector():

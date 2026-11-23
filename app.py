@@ -46,7 +46,7 @@ except ModuleNotFoundError:
 from settings_store import load_settings, save_settings, reset_settings
 from local_time import (
     AUTO_TIMEZONE, DEFAULT_TIMEZONE, SUPPORTED_TIMEZONES, TIMEZONE_LABELS,
-    display_time, display_timezone_name, install_browser_timezone_bootstrap,
+    display_time, display_timezone_name, install_browser_timezone_bootstrap, pushover_time,
 )
 from ui_clock import render_sidebar_clock_v19220_rc163
 from ui_layout_contracts import (
@@ -11620,7 +11620,7 @@ def render_currency_alerts_control_center_v1863af():
                     f"Kurs: {rate:.4f}\n"
                     f"Status: {_status_label(selected.get('status'))}\n"
                     f"Grenser: {lower_v:.4f} - {upper_v:.4f}\n"
-                    f"Kurssitat: {_fx_local_time(selected.get('quote_time'))}"
+                    f"Kurssitat: {pushover_time(selected.get('quote_time'))}"
                 )
                 ok, send_err = _send_pushover_safe_v1863af(message, "Pushover-test Valutavarsler")
                 if ok:

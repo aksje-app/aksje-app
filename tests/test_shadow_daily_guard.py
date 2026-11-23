@@ -22,12 +22,16 @@ def test_daily_monitoring_continues_after_original_seven_day_window():
             "registrations": 1, "evaluations": 1, "active": 91,
             "matured": 0, "strategy_readiness": "NOT_VALIDATED",
             "production_changed": False,
+            "learning_progress": {
+                "replay_streams": {"AUTONOMY": {"frames": 12, "last_at": "2026-10-24T02:30:00Z"}}
+            },
         }
-    ), patch("notifier.send_pushover_alert", return_value=(True, "OK")), patch(
+    ), patch("notifier.send_pushover_alert", return_value=(True, "OK")) as sender, patch(
         "notifier.normalize_notification_result", return_value=(True, "OK")
     ), patch("services.shadow_daily_guard.write_json") as writer:
         result = send_daily_if_due(now=now)
     assert result["delivery_status"] == "SENT"
+    assert "Autonomi: 12 rammer; sist 23.10.2026" in sender.call_args.args[0]
     assert writer.call_args.args[2]["2026-10-24"]["sent"] is True
 
 

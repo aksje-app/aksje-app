@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Any, Mapping
 from datetime import date, datetime, timezone
+from local_time import pushover_time
 
 # Business exposure differs from a provider's broad sector. Source checked
 # 2026-10-10: https://hafnia.com/about-hafnia/ (OSE HAFNI / NYSE HAFN).
@@ -118,7 +119,7 @@ def stop_alert_text(alerts) -> str:
         if action == "SHADOW SELL UTFØRT":
             fill = row.get("shadow_exit_price")
             fill_info.append(f"Simulert salgskurs {float(fill):.2f}" if fill is not None else "Simulert salgskurs: ikke dokumentert")
-            fill_info.append(f"Registrert salg: {row.get('shadow_exit_at') or 'tidspunkt mangler'}")
+            fill_info.append(f"Registrert salg: {pushover_time(row.get('shadow_exit_at'), missing='tidspunkt mangler')}")
             fill_info.append("Skyggeordre – ingen faktisk børsutførelse")
         blocks.append("\n".join([
             f"{row.get('ticker') or '-'}: {headline}",
