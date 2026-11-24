@@ -79,10 +79,13 @@ def _render_nav_chart(st, history):
 
     points = pd.DataFrame(history)[['at', 'nav_nok']]
     points['at'] = pd.to_datetime(points['at'], format='mixed', utc=True)
-    points = points.dropna(subset=['at', 'nav_nok']).sort_values('at', kind='stable')
-    if points.empty:
+    points = points.dropna(subset=['at']).sort_values('at', kind='stable')
+    valid_count = int(points['nav_nok'].count())
+    if not valid_count:
         return
-    chart = alt.Chart(points).mark_line(point=len(points) == 1, tooltip=False).encode(
+    chart = alt.Chart(points).mark_line(
+        invalid='break-paths-filter-domains', point=valid_count <= 2, tooltip=False,
+    ).encode(
         x=alt.X('at:T', title=None, scale=alt.Scale(type='utc'),
                 axis=alt.Axis(format='%d.%m', tickCount=4, labelAngle=0)),
         y=alt.Y('nav_nok:Q', title='Porteføljeverdi (NOK)', scale=alt.Scale(zero=False),

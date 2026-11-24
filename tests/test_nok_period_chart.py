@@ -35,6 +35,7 @@ def test_nok_chart_has_a_temporal_axis_and_no_touch_zoom_or_tooltip():
             },
             "nav_history": [
                 {"at": "2026-10-25T01:51:18+00:00", "nav_nok": 1_000_000},
+                {"at": "2026-11-01T01:51:18Z", "nav_nok": None},
                 {"at": "2026-11-20T08:19:41.443947Z", "nav_nok": 982_110.55},
             ],
         },
@@ -48,4 +49,5 @@ def test_nok_chart_has_a_temporal_axis_and_no_touch_zoom_or_tooltip():
     assert spec["mark"]["tooltip"] is False
     assert "params" not in spec
     rows = next(iter(spec["datasets"].values()))
-    assert [row["nav_nok"] for row in rows] == [1_000_000, 982_110.55]
+    assert [row["nav_nok"] for row in rows] == [1_000_000, None, 982_110.55]
+    assert spec["mark"]["invalid"] == "break-paths-filter-domains"
