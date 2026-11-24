@@ -9,7 +9,11 @@ def render(st,family,*,expanded=False,chosen=None,ui_model=None):
     with st.expander(title, expanded=expanded):
         if ui_model is None:
             st.write(f"Planlagt ny simuleringskapital: NOK {CAPITALS[family]:,.0f}")
-            st.info('Klargjøring krever kryptert arkiv og verifisert tilbakelesing. Ingen nullstilling eller aktivering utføres her.')
+            st.caption('Ny simuleringskapital. Ingen meglersaldo og ingen overføring av gamle posisjoner.')
+            st.write('Tidligere strategilæring: beholdes med modeller, parametere og observasjoner.')
+            st.write('Tidligere økonomiske modellresultater: beholdes som historikk og kan være uverifiserte.')
+            st.write('Nytt nettoresultat: egen dokumentert NOK-periode med null aksjer ved oppstart.')
+            st.info('Før klargjøring kreves komplett, kryptert arkiv og kontrollert tilbake­lesing. Ingen nullstilling eller aktivering utføres her.')
         from services.production_restart import selected
         if chosen is None and ui_model is None:
             chosen=selected(family,require_running=False)
