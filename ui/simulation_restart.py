@@ -1,16 +1,19 @@
 """Read-only restart plan; never archives, resets, activates or changes learning."""
 import json
+from local_time import display_time
 from services.simulation_restart import CAPITALS,CAPITAL_EVIDENCE
 
 
 def render(st,family,*,expanded=False,chosen=None,ui_model=None):
-    with st.expander('Kontrollert ny start – separat simuleringsperiode',expanded=expanded):
-        st.write(f"Planlagt ny simuleringskapital: NOK {CAPITALS[family]:,.0f}")
-        st.caption('Ny simuleringskapital. Ingen meglersaldo og ingen overføring av gamle posisjoner.')
-        st.write('Tidligere strategilæring: beholdes med modeller, parametere og observasjoner.')
-        st.write('Tidligere økonomiske modellresultater: beholdes som historikk og kan være uverifiserte.')
-        st.write('Nytt nettoresultat: egen dokumentert NOK-periode med null aksjer ved oppstart.')
-        st.info('Før klargjøring kreves komplett, kryptert arkiv og kontrollert tilbake­lesing. Ingen nullstilling eller aktivering utføres her.')
+    title = 'Valgt NOK-periode' if ui_model else 'Kontrollert ny start – separat simuleringsperiode'
+    with st.expander(title, expanded=expanded):
+        if ui_model is None:
+            st.write(f"Planlagt ny simuleringskapital: NOK {CAPITALS[family]:,.0f}")
+            st.caption('Ny simuleringskapital. Ingen meglersaldo og ingen overføring av gamle posisjoner.')
+            st.write('Tidligere strategilæring: beholdes med modeller, parametere og observasjoner.')
+            st.write('Tidligere økonomiske modellresultater: beholdes som historikk og kan være uverifiserte.')
+            st.write('Nytt nettoresultat: egen dokumentert NOK-periode med null aksjer ved oppstart.')
+            st.info('Før klargjøring kreves komplett, kryptert arkiv og kontrollert tilbake­lesing. Ingen nullstilling eller aktivering utføres her.')
         from services.production_restart import selected
         if chosen is None and ui_model is None:
             chosen=selected(family,require_running=False)
@@ -34,10 +37,12 @@ def render(st,family,*,expanded=False,chosen=None,ui_model=None):
                     from services.storage_service import get_storage_service
                     bundle=get_storage_service().read_json(_key(period_id))
                     data=snapshot(period_id,family,verified_bundle=bundle)
-                st.write('Klargjort periode: '+data['start_at'])
-                st.write('Kontostatus: '+data['account']['status'])
                 period=data['account']['new_period'];verified=period['verification']
-                st.write('Startkapital NOK: '+f"{period['opening_nav_nok']:,.2f}")
+                st.markdown(
+                    f"**Start:** {display_time(data['start_at'], 'UTC', include_seconds=False)}\n\n"
+                    f"**Startkapital:** {period['opening_nav_nok']:,.2f} NOK\n\n"
+                    f"**Kontostatus for vist periode:** {data['account']['status']}"
+                )
                 metrics=[('Disponibel kontantbeholdning NOK',period['cash_nok']),
                     ('Markedsverdi aksjer NOK',verified['verified_nav']-period['cash_nok'] if verified['verified_nav'] is not None else None),
                     ('NAV i valgt NOK-periode',verified['verified_nav']),
@@ -50,8 +55,7 @@ def render(st,family,*,expanded=False,chosen=None,ui_model=None):
                     st.metric('Nettoavkastning etter kostnader %',f"{verified['verified_net_return_pct']:.4f}")
                 st.dataframe(tables(data)['Beholdning'],hide_index=True,width='stretch')
                 if data['nav_history']:
-                    import pandas as pd
-                    st.line_chart(pd.DataFrame(data['nav_history']).set_index('at')[['nav_nok']],width='stretch')
+                    _render_nav_chart(st, data['nav_history'])
                 for fmt,mime in [('csv','text/csv'),('xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
                                  ('pdf','application/pdf'),('zip','application/zip')]:
                     st.download_button('Last ned valgt NOK-periode ('+fmt.upper()+')',_full_export(period_id,family,fmt),
@@ -73,26 +77,71 @@ def _full_export(period_id,family,fmt):
     return generate
 
 
+def _render_nav_chart(st, history):
+    import altair as alt
+    import pandas as pd
+
+    points = pd.DataFrame(history)[['at', 'nav_nok']]
+    points['at'] = pd.to_datetime(points['at'], format='mixed', utc=True)
+    points = points.dropna(subset=['at']).sort_values('at', kind='stable')
+    valid_count = int(points['nav_nok'].count())
+    if not valid_count:
+        return
+    chart = alt.Chart(points).mark_line(
+        invalid='break-paths-filter-domains',
+        point=valid_count == 1 or valid_count < len(points),
+        tooltip=False,
+    ).encode(
+        x=alt.X('at:T', title=None, scale=alt.Scale(type='utc'),
+                axis=alt.Axis(format='%d.%m', tickCount=4, labelAngle=0)),
+        y=alt.Y('nav_nok:Q', title='Porteføljeverdi (NOK)', scale=alt.Scale(zero=False),
+                axis=alt.Axis(tickCount=4, format=',.0f')),
+    ).properties(height=210)
+    st.altair_chart(chart, width='stretch')
+
+
 def render_active(st,family):
     """Navigation reads a small dated projection, never the full source journal."""
     from services.restart_ui_snapshot import read
     model=read(family)
     if model is None:return False
+    with st.container(key='nok_period_'+family):
+        _render_active_content(st, family, model)
+    return True
+
+
+def _render_active_content(st, family, model):
+    st.html("""<style>
+    @media (max-width: 760px) {
+      html body .stApp [class*="st-key-nok_period_"] [data-testid="stVerticalBlock"] {
+        gap: .75rem !important;
+      }
+      html body .stApp [class*="st-key-nok_period_"] [data-testid="stCaptionContainer"],
+      html body .stApp [class*="st-key-nok_period_"] [data-testid="stMarkdownContainer"] p {
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        line-height: 1.45 !important;
+        overflow-wrap: anywhere !important;
+      }
+    }
+    </style>""")
     st.subheader({'paper':'Paper Trading','autonomy':'Autonomi','super_portfolio':'Superporteføljen'}[family]+' – dokumentert NOK-periode')
-    st.caption('Simulerte handler. Tidligere resultater og strategilæring beholdes separat. Stopp/oppstart styres gjennom godkjent operatørprosedyre.')
+    st.caption('Simulerte handler i valgt NOK-periode.')
     if model['loading']:
         st.info('Venter på verifisert porteføljeoversikt fra bakgrunnskjøringen. Beholdninger og saldo vises når kontrollen er fullført.')
         if st.button('Oppdater oversikt',key=family+'_snapshot_refresh'):st.rerun()
-        return True
-    st.caption('Sist verifisert: '+model['verified_at']+(' · Oppdatering bestilt hos bakgrunnskjøringen' if model['refreshing'] else ''))
-    st.caption(f"Viser inntil 100 siste handler og 1000 NAV-punkter. Full historikk ({model['total_trades']} handler) følger eksportene.")
+        return
+    st.caption('Sist verifisert: '+display_time(model['verified_at'], 'UTC', include_seconds=False)+
+               (' · Oppdatering venter' if model['refreshing'] else ''))
+    st.caption(f"Full historikk med {model['total_trades']} handler følger eksportene. Grafen viser inntil 1 000 NAV-punkter.")
     render(st,family,expanded=True,ui_model=model)
     run=model['latest_run']
     if run:
-        st.write('Siste handelsvurdering: '+str(run.get('at','')))
+        st.markdown('**Siste handelsvurdering:** '+display_time(run.get('at'), 'UTC', include_seconds=False))
         st.dataframe(run.get('decisions',[]),hide_index=True,width='stretch')
         if model['ranking']:
-            st.write('Siste ordinære kandidatrangering')
+            st.markdown('**Siste ordinære kandidatrangering**')
             st.dataframe(model['ranking'],hide_index=True,width='stretch')
     with st.expander('Bevarte strategiparametere og kostnadsforutsetninger'):
         from services.production_routing import strategy_settings
@@ -108,4 +157,3 @@ def render_active(st,family):
         if st.checkbox('Vis tidligere modellhistorikk',key=family+'_show_legacy_history'):
             from services.production_routing import legacy_history
             st.json(legacy_history(family))
-    return True
