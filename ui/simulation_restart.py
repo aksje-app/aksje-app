@@ -84,7 +84,9 @@ def _render_nav_chart(st, history):
     if not valid_count:
         return
     chart = alt.Chart(points).mark_line(
-        invalid='break-paths-filter-domains', point=valid_count <= 2, tooltip=False,
+        invalid='break-paths-filter-domains',
+        point=valid_count == 1 or valid_count < len(points),
+        tooltip=False,
     ).encode(
         x=alt.X('at:T', title=None, scale=alt.Scale(type='utc'),
                 axis=alt.Axis(format='%d.%m', tickCount=4, labelAngle=0)),
