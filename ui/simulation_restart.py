@@ -36,7 +36,8 @@ def render(st,family,*,expanded=False,chosen=None,ui_model=None):
                 period=data['account']['new_period'];verified=period['verification']
                 st.markdown(
                     f"**Start:** {display_time(data['start_at'], 'UTC', include_seconds=False)}\n\n"
-                    f"**Startkapital:** {period['opening_nav_nok']:,.2f} NOK"
+                    f"**Startkapital:** {period['opening_nav_nok']:,.2f} NOK\n\n"
+                    f"**Kontostatus for vist periode:** {data['account']['status']}"
                 )
                 metrics=[('Disponibel kontantbeholdning NOK',period['cash_nok']),
                     ('Markedsverdi aksjer NOK',verified['verified_nav']-period['cash_nok'] if verified['verified_nav'] is not None else None),
@@ -124,7 +125,7 @@ def _render_active_content(st, family, model):
         return
     st.caption('Sist verifisert: '+display_time(model['verified_at'], 'UTC', include_seconds=False)+
                (' · Oppdatering venter' if model['refreshing'] else ''))
-    st.caption(f"Full historikk med {model['total_trades']} handler følger eksportene.")
+    st.caption(f"Full historikk med {model['total_trades']} handler følger eksportene. Grafen viser inntil 1 000 NAV-punkter.")
     render(st,family,expanded=True,ui_model=model)
     run=model['latest_run']
     if run:
