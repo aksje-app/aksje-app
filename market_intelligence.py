@@ -2525,10 +2525,20 @@ def _valid_pdf_bytes(value: bytes | bytearray | None) -> bool:
 def load_archived_run(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Recover the canonical run from durable storage or the archived JSON path."""
     archived = dict(entry or {})
+    if archived.get("run_details_retired"):
+        return {}
     run_id = str(archived.get("run_id") or "")
     run = load_run(run_id) if run_id else {}
     if run:
         return dict(run)
+    if run_id:
+        from services.report_run_retention import enabled as run_retention_enabled
+        from services.storage_service import get_storage_service
+
+        if run_retention_enabled() and get_storage_service().retired_report_run_keys(
+            [f"{_RUN_KEY_PREFIX}{run_id}.json"]
+        ):
+            return {}
     json_path = Path(str(archived.get("json_path") or ""))
     if json_path.is_file():
         try:
@@ -9257,7 +9267,7 @@ def render_market_intelligence() -> None:
     with tab_reports:
         st.markdown("### 📚 Rapportarkiv")
         st.caption("Rapportene lagres i programmet og kan åpnes eller lastes ned fra PC og mobil. Favoritter beskyttes mot opprydding.")
-        archive = _load_report_archive()
+        archive = [entry for entry in _load_report_archive() if not entry.get("run_details_retired")]
         st.markdown("#### Komplett rapport-, replay- og læringsarkiv")
         st.caption("Skrivebeskyttet offline-eksport med rapporter, replaydata, Autonomi-/læringsdata, manifest, avvik og SHA-256.")
         try:

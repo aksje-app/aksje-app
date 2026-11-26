@@ -28,7 +28,16 @@ class ReportRepository(JsonRepository):
     def read_collection(self) -> list[dict[str, Any]] | None:
         """Distinguish a missing archive from a repository saved as empty."""
         rows = self.storage.read_json(self.key, None)
-        return [dict(row) for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else None
+        if not isinstance(rows, list):
+            return None
+        rows = [dict(row) for row in rows if isinstance(row, Mapping)]
+        from services.report_run_retention import enabled
+
+        if enabled() and authoritative_postgres(self.storage):
+            by_key = {f"market_intelligence/runs/{row['run_id']}.json": row for row in rows if row.get("run_id")}
+            for key in self.storage.retired_report_run_keys(by_key):
+                by_key[key]["run_details_retired"] = True
+        return rows
 
     def recover_collection(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Promote legacy data without overwriting a concurrently saved archive."""

@@ -227,6 +227,7 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         ("norway_primary_news_probe", "status"),
         ("report_repair", "state"),
         ("report_revalidation", "state"),
+        ("report_run_retention", "state"),
         ("storage_retention", "state"),
         ("report_delivery_retry", "state"),
         ("required_reports", "state"),

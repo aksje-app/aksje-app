@@ -33,11 +33,13 @@ def test_retention_preserves_latest_three_and_independent_projections(pg, monkey
             f"{family}/runs/{prefix}-{number}.json" for number in range(3, 6)
         ]
         assert pg.read_json(f"{family}/latest_run.json")["run_id"] == f"{prefix}-5"
-    assert pg.read_json("market_intelligence/report_archive.json") == archive[:3]
-    assert pg.read_json("repositories/reports.json") == archive[:3]
+    for archive_key in ("market_intelligence/report_archive.json", "repositories/reports.json"):
+        assert [entry["run_id"] for entry in pg.read_json(archive_key) if not entry.get("run_details_retired")] == reports[:2:-1]
     assert pg.read_json("investment_pipeline/proposals/IP-0_proposals.json") == [0]
     assert pg.read_json("controlled_learning/history/test.json") == {"keep": True}
     assert durable_runtime.read_json("market_intelligence/runs/MI-0.json", mirror, None) is None
+    assert pg.read_json("market_intelligence/runs/MI-0.json") is None
+    pg.write_json("market_intelligence/runs/MI-0.json", {"run_id": "MI-0", "republished": True})
     assert pg.read_json("market_intelligence/runs/MI-0.json") is None
     assert prune(storage=pg)["removed"] == {}
 
@@ -55,3 +57,19 @@ def test_retention_keeps_favorites_and_reports_waiting_for_revalidation(pg, monk
     assert pg.read_json("market_intelligence/runs/MI-0.json")
     assert pg.read_json("market_intelligence/runs/MI-1.json")
     assert pg.read_json("market_intelligence/runs/MI-2.json") is None
+
+
+def test_complete_slots_are_not_taken_by_unfinished_or_rewritten_reports(pg, monkeypatch):
+    monkeypatch.setenv("REPORT_RUN_RETENTION_ENABLED", "true")
+    archive = []
+    for number in range(5):
+        run = f"MI-{number}"
+        pg.write_json(f"market_intelligence/runs/{run}.json", {"run_id": run})
+        archive.insert(0, {"run_id": run, "created_at": f"2026-11-2{number}T13:00:00Z", "report_state": "FINAL"})
+    pg.write_json("repositories/reports.json", archive)
+    pg.write_json("market_intelligence/runs/MI-0.json", {"run_id": "MI-0", "updated": True})
+    pg.write_json("market_intelligence/runs/MI-6.json", {"run_id": "MI-6"})
+
+    assert prune(storage=pg)["removed"] == {"market_intelligence": 2}
+    assert pg.read_json("market_intelligence/runs/MI-0.json") is None
+    assert all(pg.read_json(f"market_intelligence/runs/MI-{i}.json") for i in (2, 3, 4, 6))
