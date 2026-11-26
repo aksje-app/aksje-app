@@ -73,6 +73,18 @@ def prune(*, storage=None):
             if all(len(group) <= KEEP for group in groups):
                 return {"state": "COMPLETED", "keep_per_group": KEEP, "removed": removed}
 
+            cur.execute(
+                """SELECT name, jsonb_build_object(
+                       'created_at', d->'created_at', 'report_state', d#>'{report_status,state}',
+                       'gate', d#>'{final_release_gate,ok}', 'published', d#>'{persistence,ok}',
+                       'requires_gate', d ? 'report_document',
+                       'analysis_aborted', d->'analysis_aborted', 'test_run', d->'test_run',
+                       'trigger', d->'trigger', 'supersedes_run_id', d#>'{report_revision,supersedes_run_id}')
+                   FROM app_kv_store CROSS JOIN LATERAL (SELECT payload::jsonb d) source
+                   WHERE name=ANY(%s)""",
+                ([key for key, _ in groups[0]],),
+            )
+            status = dict(cur.fetchall())
             lock_keys = set(ARCHIVE_KEYS + LATEST_KEYS)
             for key, _ in rows:
                 lock_keys.add(key)
@@ -99,33 +111,32 @@ def prune(*, storage=None):
             }
             known, _ = _protected(archives, set())
             complete = []
+            detached = []
             for key, at in groups[0]:
                 run_id = PurePosixPath(key).stem
-                entry = known.get(run_id)
-                if entry is None:
-                    # Some complete canonical runs have aged out of the compact archive.
-                    cur.execute("SELECT payload FROM app_kv_store WHERE name=%s", (key,))
-                    row = cur.fetchone()
-                    run = _load_json_document(key, row[0], storage=storage, connection=conn) if row else {}
-                    if not (run.get("persistence") or {}).get("ok"):
+                canonical = status.get(key, {})
+                if canonical.get("requires_gate") and canonical.get("gate") is None:
+                    continue
+                indexed = known.get(run_id)
+                entry = {**(indexed or {}), **{k: v for k, v in canonical.items() if v is not None}}
+                if canonical.get("gate") is False:
+                    entry["report_state"] = "FAILED_VALIDATION"
+                if indexed is None:
+                    if canonical.get("published") is not True or entry.get("report_state") == "PROVISIONAL":
                         continue
-                    entry = {"created_at": run.get("created_at"), "report_state": (run.get("report_status") or {}).get("state"),
-                             "revalidation_required": (run.get("report_status") or {}).get("revalidation_required"),
-                             "analysis_aborted": run.get("analysis_aborted"), "test_run": run.get("test_run")}
-                    if entry["revalidation_required"] or entry["report_state"] == "PROVISIONAL":
-                        continue
+                    detached.append({**entry, "run_id": run_id})
                 complete.append((key, at, entry))
             complete.sort(key=lambda row: (row[2].get("created_at") or "", row[0]), reverse=True)
             complete_ids = [
                 key for key, _, entry in complete
                 if not (entry.get("analysis_aborted") or entry.get("test_run") or "TEST" in (entry.get("trigger") or "").upper()
-                        or entry.get("report_state") in {"PROVISIONAL", "FAILED", "ABORTED", "IN_PROGRESS"}
+                        or entry.get("report_state") in {"PROVISIONAL", "FAILED", "FAILED_VALIDATION", "ABORTED", "IN_PROGRESS"}
                         or entry.get("revalidation_required"))
             ]
             retained = set(complete_ids[:KEEP])
             retained_ids = {PurePosixPath(key).stem for key in retained}
             retained_ids.update(PurePosixPath(key).stem for key in active if key.startswith(RUN_PREFIXES[0]))
-            _, protected = _protected(archives, retained_ids)
+            _, protected = _protected({**archives, "detached": detached}, retained_ids)
             candidates = [(key, at) for key, at, _ in complete if key not in retained] + groups[1][KEEP:]
             deleted_reports = set()
             for key, at in candidates:
@@ -135,9 +146,8 @@ def prune(*, storage=None):
                 run_id = PurePosixPath(key).stem
                 if key in active or (report and run_id in protected):
                     continue
-                cur.execute("SELECT payload FROM app_kv_store WHERE name=%s AND updated_at=%s FOR UPDATE", (key, at))
-                current = cur.fetchone()
-                if current is None:
+                cur.execute("SELECT 1 FROM app_kv_store WHERE name=%s AND updated_at=%s FOR UPDATE", (key, at))
+                if cur.fetchone() is None:
                     continue
                 aliases = storage_references.dependent_aliases(key)
                 materialized = {
@@ -148,7 +158,8 @@ def prune(*, storage=None):
                 if report and run_id in known:
                     from learning_observation_engine import _compact_run_for_baseline
 
-                    run = _load_json_document(key, current[0], storage=storage, connection=conn)
+                    cur.execute("SELECT payload FROM app_kv_store WHERE name=%s", (key,))
+                    run = _load_json_document(key, cur.fetchone()[0], storage=storage, connection=conn)
                     marker["learning_baseline"] = _compact_run_for_baseline(run, remaining_signals=1500)
                 materialized[storage_references.retired_report_run_key(key)] = marker
                 storage._write_shared_rows(cur, materialized)

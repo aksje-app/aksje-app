@@ -2445,7 +2445,7 @@ def archive_report(run: Mapping[str, Any]) -> None:
         rows.insert(0, entry)
         # Compact searchable history. Canonical runs and protected decision /
         # portfolio ledgers remain in their dedicated stores.
-        _save_report_archive(rows[:180])
+        _save_report_archive(rows[:180] + [row for row in rows[180:] if row.get("favorite")])
 
 
 def verify_report_persistence(run_id: str) -> dict[str, Any]:
@@ -2462,6 +2462,15 @@ def verify_report_persistence(run_id: str) -> dict[str, Any]:
 
 
 def set_report_favorite(run_id: str, favorite: bool) -> None:
+    from services.report_run_retention import enabled
+    if enabled():
+        from repositories.application import get_repository_registry
+        from services.storage_references import authoritative_postgres
+
+        repository = get_repository_registry().reports
+        if authoritative_postgres(repository.storage):
+            repository.set_live_favorite(run_id, favorite)
+            return
     rows = _load_report_archive()
     for row in rows:
         if row.get("run_id") == run_id:

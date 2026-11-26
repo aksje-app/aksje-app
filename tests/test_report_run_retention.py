@@ -66,10 +66,17 @@ def test_complete_slots_are_not_taken_by_unfinished_or_rewritten_reports(pg, mon
         run = f"MI-{number}"
         pg.write_json(f"market_intelligence/runs/{run}.json", {"run_id": run})
         archive.insert(0, {"run_id": run, "created_at": f"2026-11-2{number}T13:00:00Z", "report_state": "FINAL"})
-    pg.write_json("repositories/reports.json", archive)
     pg.write_json("market_intelligence/runs/MI-0.json", {"run_id": "MI-0", "updated": True})
-    pg.write_json("market_intelligence/runs/MI-6.json", {"run_id": "MI-6"})
+    pg.write_json("market_intelligence/runs/MI-5.json", {
+        "run_id": "MI-5", "report_document": {}, "final_release_gate": {"ok": False},
+    })
+    pg.write_json("market_intelligence/runs/MI-6.json", {"run_id": "MI-6", "report_document": {}})
+    pg.write_json("repositories/reports.json", [
+        {"run_id": "MI-6", "created_at": "2026-11-26T13:00:00Z", "report_state": "FINAL"},
+        {"run_id": "MI-5", "created_at": "2026-11-25T13:00:00Z", "report_state": "FINAL"},
+        *archive,
+    ])
 
-    assert prune(storage=pg)["removed"] == {"market_intelligence": 2}
+    assert prune(storage=pg)["removed"] == {"market_intelligence": 3}
     assert pg.read_json("market_intelligence/runs/MI-0.json") is None
     assert all(pg.read_json(f"market_intelligence/runs/MI-{i}.json") for i in (2, 3, 4, 6))

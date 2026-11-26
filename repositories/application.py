@@ -46,6 +46,31 @@ class ReportRepository(JsonRepository):
             raise ValueError("Stored report archive must be a list")
         return [dict(row) for row in stored if isinstance(row, Mapping)]
 
+    def set_live_favorite(self, run_id: str, favorite: bool) -> None:
+        from services.storage_references import retired_report_run_key
+        from services.storage_service import _load_json_document
+
+        run_key = f"market_intelligence/runs/{run_id}.json"
+        conn = self.storage._conn()
+        try:
+            with conn, conn.cursor() as cur:
+                self.storage._lock_shared_keys(cur, {run_key, self.key, self.ARCHIVE_MIRROR_KEY})
+                cur.execute("SELECT 1 FROM app_kv_store WHERE name=%s", (retired_report_run_key(run_key),))
+                if cur.fetchone():
+                    return
+                cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR UPDATE", (self.key,))
+                row = cur.fetchone()
+                if row is None:
+                    return
+                archive = _load_json_document(self.key, row[0], storage=self.storage, connection=conn)
+                for entry in archive:
+                    if entry.get("run_id") == run_id:
+                        entry["favorite"] = favorite
+                        self.storage._write_shared_rows(cur, {self.key: archive, self.ARCHIVE_MIRROR_KEY: archive})
+                        return
+        finally:
+            conn.close()
+
     def replace_all(self, rows: Iterable[Mapping[str, Any]]) -> bool:
         if not authoritative_postgres(self.storage):
             return super().replace_all(rows)
