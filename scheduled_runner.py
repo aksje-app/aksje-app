@@ -755,6 +755,12 @@ def _run_once_locked() -> dict[str, Any]:
     else:
         state["report_revalidation"] = {**dict(previous.get("report_revalidation") or {}), "state": "NOT_DUE"}
 
+    try:
+        from services.report_run_retention import prune as prune_report_runs
+        state["report_run_retention"] = prune_report_runs()
+    except Exception as exc:
+        state["report_run_retention"] = {"state": "FAILED", "error_type": type(exc).__name__}
+
     _mem("scheduler:before_retention")
 
     retention_previous = dict(previous.get("storage_retention") or {})
