@@ -71,12 +71,16 @@ def test_complete_slots_are_not_taken_by_unfinished_or_rewritten_reports(pg, mon
         "run_id": "MI-5", "report_document": {}, "final_release_gate": {"ok": False},
     })
     pg.write_json("market_intelligence/runs/MI-6.json", {"run_id": "MI-6", "report_document": {}})
+    pg.write_json("market_intelligence/runs/MI-LEGACY.json", {
+        "run_id": "MI-LEGACY", "report_document": {}, "created_at": "2026-08-01T10:00:00Z",
+    })
     pg.write_json("repositories/reports.json", [
         {"run_id": "MI-6", "created_at": "2026-11-26T13:00:00Z", "report_state": "FINAL"},
         {"run_id": "MI-5", "created_at": "2026-11-25T13:00:00Z", "report_state": "FINAL"},
         *archive,
+        {"run_id": "MI-LEGACY", "created_at": "2026-08-01T10:00:00Z", "report_state": "FINAL"},
     ])
 
-    assert prune(storage=pg)["removed"] == {"market_intelligence": 3}
+    assert prune(storage=pg)["removed"] == {"market_intelligence": 4}
     assert pg.read_json("market_intelligence/runs/MI-0.json") is None
     assert all(pg.read_json(f"market_intelligence/runs/MI-{i}.json") for i in (2, 3, 4, 6))

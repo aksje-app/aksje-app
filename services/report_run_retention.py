@@ -12,6 +12,8 @@ ARCHIVE_KEYS = ("market_intelligence/report_archive.json", "repositories/reports
 KEEP = 3
 BATCH_LIMIT = 20
 LOCK_ID = 19343503
+# Canonical generations before this date could complete without a final gate.
+FINAL_GATE_DATE = "2026-08-30"
 
 
 def enabled():
@@ -74,14 +76,16 @@ def prune(*, storage=None):
                 return {"state": "COMPLETED", "keep_per_group": KEEP, "removed": removed}
 
             cur.execute(
-                """SELECT name, jsonb_build_object(
+                """WITH documents AS MATERIALIZED (
+                       SELECT name, payload::jsonb d FROM app_kv_store WHERE name=ANY(%s)
+                   )
+                   SELECT name, jsonb_build_object(
                        'created_at', d->'created_at', 'report_state', d#>'{report_status,state}',
                        'gate', d#>'{final_release_gate,ok}', 'published', d#>'{persistence,ok}',
                        'requires_gate', d ? 'report_document',
                        'analysis_aborted', d->'analysis_aborted', 'test_run', d->'test_run',
                        'trigger', d->'trigger', 'supersedes_run_id', d#>'{report_revision,supersedes_run_id}')
-                   FROM app_kv_store CROSS JOIN LATERAL (SELECT payload::jsonb d) source
-                   WHERE name=ANY(%s)""",
+                   FROM documents""",
                 ([key for key, _ in groups[0]],),
             )
             status = dict(cur.fetchall())
@@ -115,10 +119,12 @@ def prune(*, storage=None):
             for key, at in groups[0]:
                 run_id = PurePosixPath(key).stem
                 canonical = status.get(key, {})
-                if canonical.get("requires_gate") and canonical.get("gate") is None:
-                    continue
                 indexed = known.get(run_id)
                 entry = {**(indexed or {}), **{k: v for k, v in canonical.items() if v is not None}}
+                created_date = str(entry.get("created_at") or at)[:10]
+                if (created_date >= FINAL_GATE_DATE and canonical.get("requires_gate")
+                        and canonical.get("gate") is None):
+                    continue
                 if canonical.get("gate") is False:
                     entry["report_state"] = "FAILED_VALIDATION"
                 if indexed is None:
