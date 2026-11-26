@@ -2441,11 +2441,16 @@ def _archive_entry(run: Mapping[str, Any]) -> dict[str, Any]:
 def archive_report(run: Mapping[str, Any]) -> None:
     with _ARCHIVE_LOCK:
         entry = _archive_entry(run)
-        rows = [x for x in _load_report_archive() if x.get("run_id") != entry.get("run_id")]
-        rows.insert(0, entry)
-        # Compact searchable history. Canonical runs and protected decision /
-        # portfolio ledgers remain in their dedicated stores.
-        _save_report_archive(rows[:180] + [row for row in rows[180:] if row.get("favorite")])
+        run_id = str(entry.get("run_id") or "")
+
+        def insert(rows):
+            prior = next((row for row in rows if row.get("run_id") == run_id), {})
+            rows = [{**entry, "favorite": bool(prior.get("favorite"))}] + [
+                row for row in rows if row.get("run_id") != run_id
+            ]
+            return rows[:180] + [row for row in rows[180:] if row.get("favorite")]
+
+        _change_report_archive(run_id, insert)
 
 
 def verify_report_persistence(run_id: str) -> dict[str, Any]:
@@ -2461,21 +2466,36 @@ def verify_report_persistence(run_id: str) -> dict[str, Any]:
     }
 
 
-def set_report_favorite(run_id: str, favorite: bool) -> None:
+def _change_report_archive(run_id, transform) -> bool:
     from services.report_run_retention import enabled
+
     if enabled():
         from repositories.application import get_repository_registry
         from services.storage_references import authoritative_postgres
 
         repository = get_repository_registry().reports
         if authoritative_postgres(repository.storage):
-            repository.set_live_favorite(run_id, favorite)
-            return
-    rows = _load_report_archive()
-    for row in rows:
-        if row.get("run_id") == run_id:
-            row["favorite"] = bool(favorite)
-    _save_report_archive(rows)
+            return repository.mutate_live_archive(run_id, transform)
+    updated = transform(_load_report_archive())
+    if updated is None:
+        return False
+    _save_report_archive(updated)
+    return True
+
+
+def _update_report_archive_entry(run_id, fields) -> bool:
+    def update(rows):
+        for row in rows:
+            if row.get("run_id") == run_id:
+                row.update(fields)
+                return rows
+        return None
+
+    return _change_report_archive(run_id, update)
+
+
+def set_report_favorite(run_id: str, favorite: bool) -> bool:
+    return _update_report_archive_entry(run_id, {"favorite": bool(favorite)})
 
 
 def delete_archived_report(run_id: str) -> bool:
@@ -2492,7 +2512,8 @@ def delete_archived_report(run_id: str) -> bool:
                     path.unlink()
             except Exception:
                 pass
-    _save_report_archive([x for x in rows if x.get("run_id") != run_id])
+    if not _change_report_archive(run_id, lambda current: [x for x in current if x.get("run_id") != run_id]):
+        return False
     _audit("REPORT_DELETED", {"run_id": run_id})
     return True
 
@@ -2604,21 +2625,13 @@ def resolve_report_delivery(run: Mapping[str, Any], entry: Mapping[str, Any] | N
             _write(RUNS_DIR / f"{run_id}.json", clean)
         url = report_public_url(clean)
         if run_id and needs_publish:
-            archive_rows = _load_report_archive()
-            changed = False
-            for row in archive_rows:
-                if str(row.get("run_id") or "") == run_id:
-                    row.update({
-                        "pdf_path": clean.get("pdf_path"),
-                        "public_pdf_name": clean.get("public_pdf_name"),
-                        "report_url": url,
-                        "pdf_validated": True,
-                        "pdf_regenerated": regenerated,
-                    })
-                    changed = True
-                    break
-            if changed:
-                _save_report_archive(archive_rows)
+            _update_report_archive_entry(run_id, {
+                "pdf_path": clean.get("pdf_path"),
+                "public_pdf_name": clean.get("public_pdf_name"),
+                "report_url": url,
+                "pdf_validated": True,
+                "pdf_regenerated": regenerated,
+            })
     except Exception as exc:
         url = ""
         _audit("PUBLIC_REPORT_PUBLISH_FAILED", {"run_id": clean.get("run_id"), "error": str(exc)})
@@ -2680,15 +2693,10 @@ def resolve_technical_report_delivery(
         }
         if run_id and needs_publish:
             _write(RUNS_DIR / f"{run_id}.json", clean)
-            rows = _load_report_archive()
-            for row in rows:
-                if str(row.get("run_id") or "") == run_id:
-                    row.update({key: clean.get(key) for key in (
-                        "technical_pdf_path", "technical_pdf_name",
-                        "technical_report_token", "technical_pdf_delivery",
-                    )})
-                    _save_report_archive(rows)
-                    break
+            _update_report_archive_entry(run_id, {key: clean.get(key) for key in (
+                "technical_pdf_path", "technical_pdf_name",
+                "technical_report_token", "technical_pdf_delivery",
+            )})
     except Exception as exc:
         _audit("TECHNICAL_REPORT_PUBLISH_FAILED", {"run_id": run_id, "error": str(exc)})
     return {
