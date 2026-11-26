@@ -27,6 +27,8 @@ services:
         value: "60"
       - key: STORAGE_SAFE_MAINTENANCE_APPLY
         value: "true"
+      - key: REPORT_RUN_RETENTION_ENABLED
+        value: "true"
       - key: STORAGE_MODE
         value: "auto"
       - key: ALLOW_LOCAL_STORAGE_FALLBACK
@@ -101,6 +103,8 @@ services:
       - key: AUTH_SESSION_RECHECK_SECONDS
         value: "60"
       - key: STORAGE_SAFE_MAINTENANCE_APPLY
+        value: "true"
+      - key: REPORT_RUN_RETENTION_ENABLED
         value: "true"
       - key: STORAGE_MODE
         value: "auto"

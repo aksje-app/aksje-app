@@ -728,6 +728,8 @@ def _load_compact_baseline_runs(*, max_reports: int = 100, max_signals: int = 15
     immediately projects it to the tiny learning contract, then releases it.
     """
     from market_intelligence import _load_report_archive, load_archived_run
+    from services.storage_references import retired_report_run_key
+    from services.storage_service import get_storage_service
 
     _breadcrumb("learning:baseline:archive_index:before")
     entries = [dict(entry) for entry in _load_report_archive()[:max(1, int(max_reports))] if isinstance(entry, Mapping)]
@@ -741,6 +743,14 @@ def _load_compact_baseline_runs(*, max_reports: int = 100, max_signals: int = 15
             break
         run_id = str(entry.get("run_id") or "")
         _breadcrumb("learning:baseline:archive_run:before", {"index": index, "run_id": run_id, "signals": signal_count})
+        if entry.get("run_details_retired"):
+            key = retired_report_run_key(f"market_intelligence/runs/{run_id}.json")
+            saved = (get_storage_service().read_json(key, {}) or {}).get("learning_baseline") or {}
+            candidates = (saved.get("candidates") or [])[:max_signals - signal_count]
+            if candidates:
+                compact_runs.append({**saved, "candidates": candidates})
+                signal_count += len(candidates)
+            continue
         run = load_archived_run(entry)
         try:
             if isinstance(run, Mapping) and run:

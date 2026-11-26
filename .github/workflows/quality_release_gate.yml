@@ -182,7 +182,8 @@ jobs:
         run: |
           pytest -q tests/test_storage_references.py tests/test_analysis_storage_references.py \
             tests/test_strategy_shared_references.py tests/test_oom_breadcrumb_history_budget.py \
-            tests/test_nok_operator_storage_references.py tests/test_storage_reference_array_readers.py
+            tests/test_nok_operator_storage_references.py tests/test_storage_reference_array_readers.py \
+            tests/test_report_run_retention.py
       - name: Production-mode NOK lifecycle and PC/mobile exports on isolated PostgreSQL
         env:
           PYTHONPATH: .

@@ -227,6 +227,7 @@ def _derive_overall_state(state: dict[str, Any]) -> str:
         ("norway_primary_news_probe", "status"),
         ("report_repair", "state"),
         ("report_revalidation", "state"),
+        ("report_run_retention", "state"),
         ("storage_retention", "state"),
         ("report_delivery_retry", "state"),
         ("required_reports", "state"),
@@ -754,6 +755,12 @@ def _run_once_locked() -> dict[str, Any]:
             state["report_revalidation"] = {"state": "FAILED", "completed_at": _now(), "error": str(exc)[:500]}
     else:
         state["report_revalidation"] = {**dict(previous.get("report_revalidation") or {}), "state": "NOT_DUE"}
+
+    try:
+        from services.report_run_retention import prune as prune_report_runs
+        state["report_run_retention"] = prune_report_runs()
+    except Exception as exc:
+        state["report_run_retention"] = {"state": "FAILED", "error_type": type(exc).__name__}
 
     _mem("scheduler:before_retention")
 

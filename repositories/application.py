@@ -28,7 +28,16 @@ class ReportRepository(JsonRepository):
     def read_collection(self) -> list[dict[str, Any]] | None:
         """Distinguish a missing archive from a repository saved as empty."""
         rows = self.storage.read_json(self.key, None)
-        return [dict(row) for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else None
+        if not isinstance(rows, list):
+            return None
+        rows = [dict(row) for row in rows if isinstance(row, Mapping)]
+        from services.report_run_retention import enabled
+
+        if enabled() and authoritative_postgres(self.storage):
+            by_key = {f"market_intelligence/runs/{row['run_id']}.json": row for row in rows if row.get("run_id")}
+            for key in self.storage.retired_report_run_keys(by_key):
+                by_key[key]["run_details_retired"] = True
+        return rows
 
     def recover_collection(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Promote legacy data without overwriting a concurrently saved archive."""
@@ -36,6 +45,34 @@ class ReportRepository(JsonRepository):
         if not isinstance(stored, list):
             raise ValueError("Stored report archive must be a list")
         return [dict(row) for row in stored if isinstance(row, Mapping)]
+
+    def mutate_live_archive(self, run_id: str, transform) -> bool:
+        from services.storage_references import retired_report_run_key
+        from services.storage_service import _load_json_document
+
+        run_key = f"market_intelligence/runs/{run_id}.json"
+        conn = self.storage._conn()
+        try:
+            with conn, conn.cursor() as cur:
+                self.storage._lock_shared_keys(cur, {run_key, self.key, self.ARCHIVE_MIRROR_KEY})
+                cur.execute("SELECT 1 FROM app_kv_store WHERE name=%s", (retired_report_run_key(run_key),))
+                if cur.fetchone():
+                    return False
+                cur.execute("SELECT payload FROM app_kv_store WHERE name=%s FOR UPDATE", (self.key,))
+                row = cur.fetchone()
+                archive = _load_json_document(self.key, row[0], storage=self.storage, connection=conn) if row else []
+                updated = transform(archive)
+                if updated is None:
+                    return False
+                mirror = updated
+                if references_enabled(self.storage):
+                    from services.storage_references import reference
+
+                    mirror = reference(self.key, updated)
+                self.storage._write_shared_rows(cur, {self.key: updated, self.ARCHIVE_MIRROR_KEY: mirror})
+                return True
+        finally:
+            conn.close()
 
     def replace_all(self, rows: Iterable[Mapping[str, Any]]) -> bool:
         if not authoritative_postgres(self.storage):

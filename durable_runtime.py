@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from repositories.application import RepositoryRegistry
-from services.storage_references import authoritative_postgres, references_enabled
+from services.storage_references import REPORT_RUN_PREFIXES, authoritative_postgres, references_enabled
 from services.storage_service import get_storage_service
 
 
@@ -75,6 +75,8 @@ def read_json(key: str, path: Path, default: Any) -> Any:
         # A concurrent publication can succeed between the miss and recovery.
         # Recover a local value only if the database row is still absent.
         stored = repository.storage.write_json_immutable(key, local)
+        if stored is None and key.startswith(REPORT_RUN_PREFIXES):
+            return default
         mirror_json(path, stored)
         return stored
     repository.write(key, local)

@@ -9,6 +9,7 @@ import re
 
 REFERENCE = "__storage_reference_v1__"
 FIELDS = "__storage_fields_v1__"
+REPORT_RUN_PREFIXES = ("market_intelligence/runs/", "investment_pipeline/runs/")
 _VERSION_PREFIX = "storage_shared/v1/"
 _TARGET = re.compile(
     r"(?:storage_shared/v1/[0-9a-f]{64}|repositories/market_snapshots/items/[A-Za-z0-9_.-]{1,120}"
@@ -18,6 +19,10 @@ _TARGET = re.compile(
 _CHECKSUM = re.compile(r"[0-9a-f]{64}")
 _FIELD = re.compile(r"[A-Za-z0-9_-]{1,80}")
 _MAX_DEPTH = 8
+
+
+def retired_report_run_key(name: str) -> str:
+    return "maintenance/retired_run/" + name
 
 
 class StorageReferenceError(RuntimeError):

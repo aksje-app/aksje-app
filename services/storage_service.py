@@ -229,6 +229,18 @@ class StorageService:
         finally:
             conn.close()
 
+    def retired_report_run_keys(self, keys):
+        if not keys or not storage_references.authoritative_postgres(self):
+            return set()
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                markers = {storage_references.retired_report_run_key(key): key for key in keys}
+                cur.execute("SELECT name FROM app_kv_store WHERE name=ANY(%s)", (list(markers),))
+                return {markers[row[0]] for row in cur.fetchall()}
+        finally:
+            conn.close()
+
     def write_json_immutable(self, name: str, data: Any, *, attempts: int = 3) -> Any:
         """Atomically create one immutable document or return its stored value.
 
@@ -247,6 +259,12 @@ class StorageService:
                     try:
                         has_shared_reader = storage_references.can_contain_references(name)
                         cur = conn.cursor()
+                        if name.startswith(storage_references.REPORT_RUN_PREFIXES):
+                            self._lock_shared_keys(cur, {name})
+                            cur.execute("SELECT 1 FROM app_kv_store WHERE name=%s",
+                                        (storage_references.retired_report_run_key(name),))
+                            if cur.fetchone():
+                                return None
                         if _restart_bundle(name):
                             from services.large_json_write import write_restart_payload
                             write_restart_payload(cur,name,payload,immutable=True)
@@ -800,6 +818,11 @@ class StorageService:
         try:
             with conn, conn.cursor() as cursor:
                 self._lock_shared_keys(cursor, {name, *names})
+                if name.startswith(storage_references.REPORT_RUN_PREFIXES):
+                    cursor.execute("SELECT 1 FROM app_kv_store WHERE name=%s",
+                                   (storage_references.retired_report_run_key(name),))
+                    if cursor.fetchone():
+                        return True
                 for key, raw, (_, expected, field) in self._locked_aliases(cursor, name, names.difference(aliases)):
                     if field is not None and (not isinstance(data, dict) or field not in data):
                         values[key] = _load_json_document(key, raw, storage=self, connection=conn)
